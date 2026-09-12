@@ -1,0 +1,31 @@
+# Scenario 2: CoreC-B (relay node)
+# Subscribes edgeA/#, alerts on temperature > 30, forwards to cloud/...
+global:
+  log-level: info
+  api:
+    listen: 0.0.0.0:9091
+    secret: "demo-token"
+
+drivers: []
+
+transports:
+  - name: mqtt-chain
+    type: mqtt
+    settings:
+      broker: tcp://broker:1883
+      topic-template: "cloud/{{.Driver}}/{{.Tag}}"
+      data-topic: "edgeA/#"
+      parser:
+        type: default
+
+rules:
+  - name: alert-high-temp
+    match: "tag == 'temperature' && value > 30"
+    action: alert
+    target: mqtt-chain
+    priority: 1
+  - name: forward-all
+    match: "ALL"
+    action: forward
+    target: mqtt-chain
+    priority: 999

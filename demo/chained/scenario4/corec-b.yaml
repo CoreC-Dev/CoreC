@@ -1,0 +1,25 @@
+# Scenario 4: CoreC-B (protocol bridge — MQTT in, HTTP out)
+global:
+  log-level: info
+  api:
+    listen: 0.0.0.0:9091
+    secret: "demo-token"
+
+drivers: []
+
+transports:
+  - name: mqtt-in
+    type: mqtt
+    settings:
+      broker: tcp://broker:1883
+      topic-template: "unused"
+      data-topic: "factory/#"
+      parser: { type: default }
+
+  - name: http-out
+    type: http
+    settings:
+      url: "http://http-sink:8080/telemetry"
+
+rules:
+  - { name: forward-all, match: "ALL", action: forward, target: http-out }

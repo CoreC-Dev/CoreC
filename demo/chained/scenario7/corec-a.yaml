@@ -1,0 +1,25 @@
+# Scenario 7: CoreC-A (edge — data uplink + command downlink)
+# Polls PLC, publishes data to edgeA/..., listens for commands on edgeA/commands/#
+global:
+  log-level: info
+  api:
+    listen: 0.0.0.0:9090
+    secret: "demo-token"
+
+drivers:
+  - name: plc
+    type: modbus-tcp
+    settings: { host: mock-plc, port: 502, slave-id: 1, timeout: 3s }
+    tags:
+      - { name: temperature, address: "40001", type: float32, group: sensors, interval: 1s }
+
+transports:
+  - name: mqtt
+    type: mqtt
+    settings:
+      broker: tcp://broker:1883
+      topic-template: "edgeA/{{.Driver}}/{{.Tag}}"
+      command-topic: "edgeA/commands/#"
+
+rules:
+  - { name: forward-all, match: "ALL", action: forward, target: mqtt }

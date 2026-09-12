@@ -1,0 +1,24 @@
+# Scenario 7: CoreC-B (relay — data uplink, command downlink from cloud)
+# Subscribes edgeA/# for data uplink, forwards to cloud/...
+# Listens on cloud/commands/# for commands (but cannot republish to edgeA/commands/# —
+# this is a known limitation, see docs/guide/chained-core.md scenario 7 warning).
+global:
+  log-level: info
+  api:
+    listen: 0.0.0.0:9091
+    secret: "demo-token"
+
+drivers: []
+
+transports:
+  - name: mqtt-chain
+    type: mqtt
+    settings:
+      broker: tcp://broker:1883
+      topic-template: "cloud/{{.Driver}}/{{.Tag}}"
+      data-topic: "edgeA/#"
+      command-topic: "cloud/commands/#"
+      parser: { type: default }
+
+rules:
+  - { name: forward-all, match: "ALL", action: forward, target: mqtt-chain }

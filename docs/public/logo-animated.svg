@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="hexGrad" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0" stop-color="#54b89c"/>
+      <stop offset="1" stop-color="#2d6b5a"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="5" markerHeight="5" orient="auto">
+      <path d="M 0,1 L 9,5 L 0,9 z" fill="#ffffff" fill-opacity="0.85"/>
+    </marker>
+    <style>
+      .flow {
+        stroke-dasharray: 5 7;
+        animation: dash 1.5s linear infinite;
+      }
+      @keyframes dash {
+        to { stroke-dashoffset: -12; }
+      }
+      .node {
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: pulse 1.5s ease-in-out infinite;
+      }
+      .node-2 { animation-delay: 0.5s; }
+      .node-3 { animation-delay: 1s; }
+      @keyframes pulse {
+        0%, 100% { transform: scale(1);    opacity: 1; }
+        50%      { transform: scale(1.1375); opacity: 0.85; }
+      }
+      .ripple {
+        fill: none;
+        stroke: #ffffff;
+        stroke-width: 1.5;
+        vector-effect: non-scaling-stroke;
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: ripple 3s ease-out infinite;
+        opacity: 0;
+      }
+      .ripple-2 { animation-delay: 0.3s; }
+      @keyframes ripple {
+        0%   { transform: scale(1);    opacity: 0.55; }
+        30%  { transform: scale(4.29); opacity: 0; }
+        100% { transform: scale(4.29); opacity: 0; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .flow, .node, .ripple { animation: none; }
+      }
+    </style>
+  </defs>
+
+  <!-- Hexagon -->
+  <polygon points="64,10 111,37 111,91 64,118 17,91 17,37"
+           fill="url(#hexGrad)"/>
+
+  <!-- Inner hexagon ring -->
+  <polygon points="64,24 99,44 99,84 64,104 29,84 29,44"
+           fill="none" stroke="#ffffff" stroke-width="2" stroke-opacity="0.22"/>
+
+  <!-- Core ripple waves -->
+  <circle class="ripple ripple-1" cx="64" cy="64" r="7"/>
+  <circle class="ripple ripple-2" cx="64" cy="64" r="7"/>
+
+  <!-- Data flow lines with arrows: top→BR→BL→top -->
+  <line class="flow" x1="68.4" y1="46.9" x2="80.6" y2="69.1"
+        stroke="#ffffff" stroke-width="2.5" stroke-opacity="0.6"
+        marker-end="url(#arrow)"/>
+  <line class="flow" x1="76" y1="77" x2="52" y2="77"
+        stroke="#ffffff" stroke-width="2.5" stroke-opacity="0.6"
+        marker-end="url(#arrow)"/>
+  <line class="flow" x1="47.4" y1="69.1" x2="59.6" y2="46.9"
+        stroke="#ffffff" stroke-width="2.5" stroke-opacity="0.6"
+        marker-end="url(#arrow)"/>
+
+  <!-- Three nodes -->
+  <circle class="node node-1" cx="64" cy="39" r="8" fill="#ffffff"/>
+  <circle class="node node-2" cx="85" cy="77" r="8" fill="#ffffff"/>
+  <circle class="node node-3" cx="43" cy="77" r="8" fill="#ffffff"/>
+
+  <!-- Center core -->
+  <circle cx="64" cy="64" r="5.5" fill="#ffffff" fill-opacity="0.92"/>
+  <circle cx="64" cy="64" r="2.5" fill="#2d6b5a"/>
+</svg>

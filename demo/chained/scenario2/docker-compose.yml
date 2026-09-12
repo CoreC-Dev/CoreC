@@ -1,0 +1,36 @@
+# Scenario 2: Two CoreC Cascade (Edge → Cloud)
+#
+#   PLC ──modbus──▶ CoreC-A ──MQTT(edgeA/...)──▶ CoreC-B ──MQTT(cloud/...)──▶ subscriber
+#   (mock-plc)      (edge)                        (relay: alert+forward)        (observe)
+#
+# CoreC-B alerts when temperature > 30°C and forwards all data to cloud/ topic.
+services:
+  broker:
+    image: eclipse-mosquitto:2
+    ports: ["1883:1883"]
+
+  mock-plc:
+    build: { context: ../mock-plc }
+
+  corec-a:
+    build:
+      context: ../../..
+      dockerfile: demo/chained/corec.Dockerfile
+    volumes: ["./corec-a.yaml:/config.yaml:ro"]
+    command: ["-config", "/config.yaml"]
+    ports: ["9090:9090"]
+    depends_on: [broker, mock-plc]
+
+  corec-b:
+    build:
+      context: ../../..
+      dockerfile: demo/chained/corec.Dockerfile
+    volumes: ["./corec-b.yaml:/config.yaml:ro"]
+    command: ["-config", "/config.yaml"]
+    ports: ["9091:9091"]
+    depends_on: [broker]
+
+  subscriber:
+    image: eclipse-mosquitto:2
+    command: ["sh", "-c", "sleep 3 && mosquitto_sub -h broker -t 'cloud/#' -v"]
+    depends_on: [broker]

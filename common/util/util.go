@@ -1,0 +1,246 @@
+// Package util provides shared helper functions used across drivers,
+// transports, and the rule engine.
+package util
+
+import (
+	"context"
+	"log/slog"
+	"strings"
+	"time"
+)
+
+// GetIntSetting extracts an int from a settings map, falling back to
+// defaultVal if the key is missing or the value is not an int/float64.
+// YAML unmarshalling produces float64 for unquoted numbers, so both
+// int and float64 are accepted.
+func GetIntSetting(settings map[string]any, key string, defaultVal int) int {
+	if v, ok := settings[key].(int); ok {
+		return v
+	}
+	if v, ok := settings[key].(float64); ok {
+		return int(v)
+	}
+	return defaultVal
+}
+
+// GetDurationSetting extracts a duration string (e.g. "5s") from a
+// settings map, falling back to defaultVal if missing or unparseable.
+func GetDurationSetting(settings map[string]any, key string, defaultVal time.Duration) time.Duration {
+	if v, ok := settings[key].(string); ok {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+	}
+	return defaultVal
+}
+
+// GetBoolSetting extracts a bool from a settings map, falling back to
+// defaultVal if the key is missing or the value is not a bool.
+func GetBoolSetting(settings map[string]any, key string, defaultVal bool) bool {
+	if v, ok := settings[key].(bool); ok {
+		return v
+	}
+	return defaultVal
+}
+
+// connectionErrorKeywords are substrings that indicate a lost connection.
+var connectionErrorKeywords = []string{
+	"connection", "broken pipe", "EOF", "reset", "refused", "timeout", "closed", "aborted",
+}
+
+// IsConnectionError reports whether err looks like a connection-lost
+// error by checking for common keywords in its message.
+func IsConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	for _, kw := range connectionErrorKeywords {
+		if strings.Contains(errStr, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// ToFloat64 converts any numeric value (including bool) to float64.
+// Non-numeric values return 0. bool is treated as 1 (true) / 0 (false).
+func ToFloat64(v any) float64 {
+	switch val := v.(type) {
+	case float64:
+		return val
+	case float32:
+		return float64(val)
+	case int:
+		return float64(val)
+	case int8:
+		return float64(val)
+	case int16:
+		return float64(val)
+	case int32:
+		return float64(val)
+	case int64:
+		return float64(val)
+	case uint:
+		return float64(val)
+	case uint8:
+		return float64(val)
+	case uint16:
+		return float64(val)
+	case uint32:
+		return float64(val)
+	case uint64:
+		return float64(val)
+	case bool:
+		if val {
+			return 1
+		}
+		return 0
+	default:
+		return 0
+	}
+}
+
+// ToFloat32 converts any numeric value to float32. Non-numeric returns 0.
+func ToFloat32(v any) float32 {
+	switch val := v.(type) {
+	case float64:
+		return float32(val)
+	case float32:
+		return val
+	case int:
+		return float32(val)
+	case int32:
+		return float32(val)
+	case uint32:
+		return float32(val)
+	default:
+		return 0
+	}
+}
+
+// ToUint32 converts any numeric value to uint32. Non-numeric returns 0.
+func ToUint32(v any) uint32 {
+	switch val := v.(type) {
+	case float64:
+		return uint32(val)
+	case int:
+		return uint32(val)
+	case int32:
+		return uint32(val)
+	case uint32:
+		return val
+	case int64:
+		return uint32(val)
+	case uint64:
+		return uint32(val)
+	default:
+		return 0
+	}
+}
+
+// ToUint64 converts any numeric value to uint64. Non-numeric returns 0.
+func ToUint64(v any) uint64 {
+	switch val := v.(type) {
+	case float64:
+		return uint64(val)
+	case float32:
+		return uint64(val)
+	case int:
+		return uint64(val)
+	case int64:
+		return uint64(val)
+	case uint64:
+		return val
+	case int32:
+		return uint64(val)
+	case uint32:
+		return uint64(val)
+	case int16:
+		return uint64(val)
+	case uint16:
+		return uint64(val)
+	default:
+		return 0
+	}
+}
+
+// ToUint16 converts a numeric any value to uint16.
+func ToUint16(v any) uint16 {
+	switch val := v.(type) {
+	case float64:
+		return uint16(val)
+	case float32:
+		return uint16(val)
+	case int:
+		return uint16(val)
+	case int16:
+		return uint16(val)
+	case uint16:
+		return val
+	case int32:
+		return uint16(val)
+	case uint32:
+		return uint16(val)
+	default:
+		return 0
+	}
+}
+
+// ApplyTransform applies scale and offset to a numeric value.
+// If scale and offset are both 0, the value is returned unchanged.
+func ApplyTransform(value any, scale, offset float64) any {
+	if scale == 0 && offset == 0 {
+		return value
+	}
+	if scale == 0 {
+		scale = 1
+	}
+
+	switch v := value.(type) {
+	case float32:
+		return float32(float64(v)*scale + offset)
+	case float64:
+		return v*scale + offset
+	case int16:
+		return float64(v)*scale + offset
+	case uint16:
+		return float64(v)*scale + offset
+	case int32:
+		return float64(v)*scale + offset
+	case uint32:
+		return float64(v)*scale + offset
+	default:
+		return value
+	}
+}
+
+// ReconnectLoop repeatedly calls connect with exponential backoff until
+// it succeeds or ctx is cancelled. The backoff starts at initialBackoff
+// and doubles on each failure, capped at maxBackoff.
+// <=0 values fall back to 2s initial and 30s max.
+func ReconnectLoop(ctx context.Context, name string, connect func() error, initialBackoff, maxBackoff time.Duration) {
+	backoff := initialBackoff
+	if backoff <= 0 {
+		backoff = 2 * time.Second
+	}
+	if maxBackoff <= 0 {
+		maxBackoff = 30 * time.Second
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+
+		if err := connect(); err != nil {
+			slog.Warn("reconnect failed", "name", name, "error", err, "retry_in", backoff*2)
+			backoff = min(backoff*2, maxBackoff)
+			continue
+		}
+
+		slog.Info("reconnected", "name", name)
+		return
+	}
+}

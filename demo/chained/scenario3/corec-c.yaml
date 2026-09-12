@@ -1,0 +1,26 @@
+# Scenario 3: CoreC-C (region center — HTTP webhook in, MQTT out)
+global:
+  log-level: info
+  api:
+    listen: 0.0.0.0:9092
+    secret: "demo-token"
+
+drivers: []
+
+transports:
+  - name: from-gateway
+    type: http
+    settings:
+      url: "http://localhost:9999/unused"
+      webhook-addr: "0.0.0.0:9091"
+      webhook-path: "/ingest"
+      parser: { type: default }
+
+  - name: to-cloud
+    type: mqtt
+    settings:
+      broker: tcp://broker:1883
+      topic-template: "cloud/{{.Driver}}/{{.Tag}}"
+
+rules:
+  - { name: forward-all, match: "ALL", action: forward, target: to-cloud }

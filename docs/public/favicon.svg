@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="hexGrad" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0" stop-color="#54b89c"/>
+      <stop offset="1" stop-color="#2d6b5a"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Hexagon -->
+  <polygon points="64,10 111,37 111,91 64,118 17,91 17,37"
+           fill="url(#hexGrad)"/>
+
+  <!-- Data flow cycle -->
+  <path d="M 64,39 L 85,77 L 43,77 Z"
+        fill="none" stroke="#ffffff" stroke-width="3" stroke-opacity="0.55"
+        stroke-linejoin="round"/>
+
+  <!-- Three nodes -->
+  <circle cx="64" cy="39" r="10" fill="#ffffff"/>
+  <circle cx="85" cy="77" r="10" fill="#ffffff"/>
+  <circle cx="43" cy="77" r="10" fill="#ffffff"/>
+
+  <!-- Center core -->
+  <circle cx="64" cy="64" r="6" fill="#ffffff" opacity="0.9"/>
+  <circle cx="64" cy="64" r="3" fill="#2d6b5a"/>
+</svg>

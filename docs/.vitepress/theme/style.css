@@ -1,0 +1,20 @@
+/* 首页 hero 副标题：保留文本中的换行符，使“工业物联网”与“数据采集核心”分行显示 */
+.VPHero .text {
+  white-space: pre-line;
+}
+
+/* 主题品牌色：与 logo SVG 的绿色保持一致
+   SVG 主色 #3c8772 / 深绿 #2d6b5a / 亮绿 #54b89c */
+:root {
+  --vp-c-brand-1: #3c8772;
+  --vp-c-brand-2: #356b5e;
+  --vp-c-brand-3: #2d6b5a;
+  --vp-c-brand-soft: rgba(60, 135, 114, 0.12);
+}
+
+.dark {
+  --vp-c-brand-1: #54b89c;
+  --vp-c-brand-2: #6cc4aa;
+  --vp-c-brand-3: #7fd0b8;
+  --vp-c-brand-soft: rgba(84, 184, 156, 0.16);
+}

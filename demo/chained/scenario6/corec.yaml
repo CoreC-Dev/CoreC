@@ -1,0 +1,33 @@
+# Scenario 6: One-to-many fanout
+# CoreC polls PLC, mirrors data to both MQTT cloud and HTTP MES simultaneously.
+global:
+  log-level: info
+  api:
+    listen: 0.0.0.0:9090
+    secret: "demo-token"
+
+drivers:
+  - name: plc
+    type: modbus-tcp
+    settings: { host: mock-plc, port: 502, slave-id: 1, timeout: 3s }
+    tags:
+      - { name: temperature, address: "40001", type: float32, group: sensors, interval: 1s }
+      - { name: counter, address: "40003", type: uint16, group: sensors, interval: 2s }
+
+transports:
+  - name: cloud-mqtt
+    type: mqtt
+    settings:
+      broker: tcp://broker:1883
+      topic-template: "cloud/{{.Driver}}/{{.Tag}}"
+
+  - name: mes-http
+    type: http
+    settings:
+      url: "http://http-sink:8080/telemetry"
+
+rules:
+  - name: fanout-all
+    match: "ALL"
+    action: mirror
+    targets: [cloud-mqtt, mes-http]

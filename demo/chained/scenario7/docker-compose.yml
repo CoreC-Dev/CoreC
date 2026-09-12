@@ -1,0 +1,42 @@
+# Scenario 7: Bidirectional Cascade (Data Uplink + Command Downlink)
+#
+#   PLC ◀──modbus──▶ CoreC-A ◀──MQTT──▶ CoreC-B ◀──MQTT──▶ subscriber
+#   (mock)    write     (edge)    data↑   (relay)   data↑    (observe)
+#             downlink           cmd↓              cmd↓
+#
+# Data uplink (A→B→cloud) works fully.
+# Command downlink through relay (cloud→B→A) is NOT supported — B has no local
+# driver to write and cannot republish commands. See docs warning.
+# To test command downlink, publish directly to A's command topic:
+#   docker exec scenario7-broker-1 mosquitto_pub -h broker -t edgeA/commands/plc/temperature \
+#     -m '{"tag":"temperature","address":"40001","type":"float32","value":42.0}'
+services:
+  broker:
+    image: eclipse-mosquitto:2
+    ports: ["1883:1883"]
+
+  mock-plc:
+    build: { context: ../mock-plc }
+
+  corec-a:
+    build:
+      context: ../../..
+      dockerfile: demo/chained/corec.Dockerfile
+    volumes: ["./corec-a.yaml:/config.yaml:ro"]
+    command: ["-config", "/config.yaml"]
+    ports: ["9090:9090"]
+    depends_on: [broker, mock-plc]
+
+  corec-b:
+    build:
+      context: ../../..
+      dockerfile: demo/chained/corec.Dockerfile
+    volumes: ["./corec-b.yaml:/config.yaml:ro"]
+    command: ["-config", "/config.yaml"]
+    ports: ["9091:9091"]
+    depends_on: [broker]
+
+  subscriber:
+    image: eclipse-mosquitto:2
+    command: ["sh", "-c", "sleep 3 && mosquitto_sub -h broker -t 'cloud/#' -v"]
+    depends_on: [broker]

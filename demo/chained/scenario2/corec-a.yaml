@@ -1,0 +1,41 @@
+# Scenario 2: Two CoreC cascade (edge → cloud)
+# CoreC-A: edge node polling PLC, publishing to edgeA/...
+# CoreC-B: relay subscribing edgeA/#, alerting on high temp, forwarding to cloud/...
+global:
+  log-level: info
+  api:
+    listen: 0.0.0.0:9090
+    secret: "demo-token"
+
+drivers:
+  - name: plc
+    type: modbus-tcp
+    settings:
+      host: mock-plc
+      port: 502
+      slave-id: 1
+      timeout: 3s
+    tags:
+      - name: temperature
+        address: "40001"
+        type: float32
+        group: sensors
+        interval: 1s
+      - name: counter
+        address: "40003"
+        type: uint16
+        group: sensors
+        interval: 2s
+
+transports:
+  - name: mqtt-out
+    type: mqtt
+    settings:
+      broker: tcp://broker:1883
+      topic-template: "edgeA/{{.Driver}}/{{.Tag}}"
+
+rules:
+  - name: forward-all
+    match: "ALL"
+    action: forward
+    target: mqtt-out

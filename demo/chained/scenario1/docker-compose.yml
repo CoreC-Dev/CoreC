@@ -1,0 +1,31 @@
+# Scenario 1: Pure Subscribe Forward (Protocol Gateway)
+#
+#   lora-sim ──MQTT(lora/+/up)──▶ CoreC ──MQTT(cloud/...)──▶ subscriber
+#   (3rd-party JSON)               (jsonpath parser)           (observe)
+#
+# CoreC acts as a protocol adapter: no drivers, data comes from data-topic.
+services:
+  broker:
+    image: eclipse-mosquitto:2
+    ports: ["1883:1883"]
+
+  lora-sim:
+    build: { context: ../lora-sim }
+    environment:
+      MQTT_BROKER: "tcp://broker:1883"
+      DEV_ID: "sensor-01"
+    depends_on: [broker]
+
+  corec:
+    build:
+      context: ../../..
+      dockerfile: demo/chained/corec.Dockerfile
+    volumes: ["./corec.yaml:/config.yaml:ro"]
+    command: ["-config", "/config.yaml"]
+    ports: ["9090:9090"]
+    depends_on: [broker]
+
+  subscriber:
+    image: eclipse-mosquitto:2
+    command: ["sh", "-c", "sleep 3 && mosquitto_sub -h broker -t 'cloud/#' -v"]
+    depends_on: [broker]

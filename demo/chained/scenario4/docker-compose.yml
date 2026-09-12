@@ -1,0 +1,35 @@
+# Scenario 4: Protocol Conversion (MQTT → HTTP)
+#
+#   PLC ──▶ CoreC-A ──MQTT(factory/...)──▶ CoreC-B ──HTTP──▶ http-sink
+#   (mock)   (source)                       (MQTT→HTTP桥)      (MES/ERP模拟)
+#
+# CoreC-B receives MQTT and pushes to HTTP, bridging protocols.
+services:
+  broker:
+    image: eclipse-mosquitto:2
+    ports: ["1883:1883"]
+
+  mock-plc:
+    build: { context: ../mock-plc }
+
+  http-sink:
+    build: { context: ../http-sink }
+    ports: ["8080:8080"]
+
+  corec-a:
+    build:
+      context: ../../..
+      dockerfile: demo/chained/corec.Dockerfile
+    volumes: ["./corec-a.yaml:/config.yaml:ro"]
+    command: ["-config", "/config.yaml"]
+    ports: ["9090:9090"]
+    depends_on: [broker, mock-plc]
+
+  corec-b:
+    build:
+      context: ../../..
+      dockerfile: demo/chained/corec.Dockerfile
+    volumes: ["./corec-b.yaml:/config.yaml:ro"]
+    command: ["-config", "/config.yaml"]
+    ports: ["9091:9091"]
+    depends_on: [broker, http-sink]

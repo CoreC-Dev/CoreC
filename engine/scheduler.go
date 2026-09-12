@@ -1,0 +1,325 @@
+package engine
+
+import (
+	"context"
+	"log/slog"
+	"math"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/CoreC-Dev/CoreC/common/util"
+	"github.com/CoreC-Dev/CoreC/core"
+	"github.com/CoreC-Dev/CoreC/engine/statistic"
+)
+
+var _ core.Scheduler = (*scheduler)(nil)
+
+// scheduler implements core.Scheduler.
+// It manages periodic data collection tasks using goroutines and tickers.
+type scheduler struct {
+	mu           sync.RWMutex
+	tasks        map[string]*taskRunner
+	paused       map[string]bool
+	globalPaused atomic.Bool
+	readFunc     func(ctx context.Context, driver string, tags []string) ([]core.TagValue, error)
+	onData       func(driver string, values []core.TagValue)
+
+	// errorThrottleWindow is the time window for suppressing repeated
+	// error/overrun log messages. Defaults to core.DefaultErrorThrottleWindow.
+	errorThrottleWindow time.Duration
+
+	overruns     atomic.Uint64
+	totalLatency atomic.Int64
+	totalTicks   atomic.Int64
+
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	// wg tracks all runTask goroutines so Stop() can wait for
+	// them to fully exit before returning.  Without this, a
+	// runTask goroutine may still call onData (→ DataBus.Push)
+	// after the engine has called DataBus.Close(), causing a
+	// send-on-closed-channel panic / data race.
+	wg sync.WaitGroup
+}
+
+type taskRunner struct {
+	task   core.ScheduleTask
+	cancel context.CancelFunc
+
+	// Deadband: last reported numeric value per tag
+	lastValues map[string]float64
+
+	// Error throttling state
+	lastErrLog time.Time
+	lastErrMsg string
+	errCount   uint64
+
+	// Overrun throttling state
+	lastOverrunLog time.Time
+	overrunCount   uint64
+
+	inError bool
+}
+
+// NewScheduler creates a new scheduler.
+// readFunc is called to read tags from a driver.
+// onData is called when data is received.
+// errorThrottleWindow is the time window for suppressing repeated error
+// logs; <=0 falls back to core.DefaultErrorThrottleWindow.
+func NewScheduler(
+	readFunc func(ctx context.Context, driver string, tags []string) ([]core.TagValue, error),
+	onData func(driver string, values []core.TagValue),
+	errorThrottleWindow time.Duration,
+) *scheduler {
+	if errorThrottleWindow <= 0 {
+		errorThrottleWindow = core.DefaultErrorThrottleWindow
+	}
+	return &scheduler{
+		tasks:               make(map[string]*taskRunner),
+		paused:              make(map[string]bool),
+		readFunc:            readFunc,
+		onData:              onData,
+		errorThrottleWindow: errorThrottleWindow,
+	}
+}
+
+func (s *scheduler) Start(ctx context.Context) error {
+	s.ctx, s.cancel = context.WithCancel(ctx)
+	slog.Info("scheduler started")
+	return nil
+}
+
+func (s *scheduler) Stop() error {
+	if s.cancel != nil {
+		s.cancel()
+	}
+	s.mu.Lock()
+	for _, t := range s.tasks {
+		t.cancel()
+	}
+	s.tasks = make(map[string]*taskRunner)
+	s.mu.Unlock()
+
+	// Wait for all runTask goroutines to exit so that no goroutine
+	// is still calling onData (→ DataBus.Push) when the caller
+	// subsequently closes the DataBus.
+	s.wg.Wait()
+
+	slog.Info("scheduler stopped")
+	return nil
+}
+
+func (s *scheduler) AddTask(task core.ScheduleTask) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// If task already exists, remove it first
+	if existing, ok := s.tasks[task.ID]; ok {
+		existing.cancel()
+	}
+
+	ctx := s.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	taskCtx, taskCancel := context.WithCancel(ctx)
+	runner := &taskRunner{
+		task:       task,
+		cancel:     taskCancel,
+		lastValues: make(map[string]float64),
+	}
+	s.tasks[task.ID] = runner
+
+	s.wg.Add(1)
+	go s.runTask(taskCtx, runner)
+
+	slog.Info("task added", "id", task.ID, "driver", task.Driver, "interval", task.Interval, "tags", len(task.Tags))
+	return nil
+}
+
+func (s *scheduler) RemoveTask(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if t, ok := s.tasks[id]; ok {
+		t.cancel()
+		delete(s.tasks, id)
+	}
+	return nil
+}
+
+func (s *scheduler) Pause() error {
+	s.globalPaused.Store(true)
+	slog.Info("scheduler paused globally")
+	return nil
+}
+
+func (s *scheduler) Resume() error {
+	s.globalPaused.Store(false)
+	slog.Info("scheduler resumed globally")
+	return nil
+}
+
+func (s *scheduler) PauseDriver(name string) error {
+	s.mu.Lock()
+	s.paused[name] = true
+	s.mu.Unlock()
+	slog.Info("driver paused", "driver", name)
+	return nil
+}
+
+func (s *scheduler) ResumeDriver(name string) error {
+	s.mu.Lock()
+	delete(s.paused, name)
+	s.mu.Unlock()
+	slog.Info("driver resumed", "driver", name)
+	return nil
+}
+
+func (s *scheduler) Stats() core.SchedulerStats {
+	s.mu.RLock()
+	active := 0
+	paused := 0
+	for _, t := range s.tasks {
+		if s.paused[t.task.Driver] {
+			paused++
+		} else {
+			active++
+		}
+	}
+	s.mu.RUnlock()
+
+	totalTicks := s.totalTicks.Load()
+	avgLatency := float64(0)
+	if totalTicks > 0 {
+		avgLatency = float64(s.totalLatency.Load()) / float64(totalTicks) / float64(time.Millisecond)
+	}
+
+	return core.SchedulerStats{
+		ActiveTasks:  active,
+		PausedTasks:  paused,
+		Overruns:     s.overruns.Load(),
+		AvgLatencyMs: avgLatency,
+	}
+}
+
+func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) {
+	defer s.wg.Done()
+
+	task := runner.task
+	interval := task.Interval
+	if interval <= 0 {
+		interval = core.DefaultTagInterval
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// Check if scheduler is globally paused (e.g. during config reload)
+			if s.globalPaused.Load() {
+				continue
+			}
+
+			// Check if paused
+			s.mu.RLock()
+			paused := s.paused[task.Driver]
+			s.mu.RUnlock()
+			if paused {
+				continue
+			}
+
+			start := time.Now()
+
+			// Execute read with timeout
+			readCtx, readCancel := context.WithTimeout(ctx, interval)
+			values, err := s.readFunc(readCtx, task.Driver, task.Tags)
+			readCancel()
+
+			latency := time.Since(start)
+			s.totalLatency.Add(int64(latency))
+			s.totalTicks.Add(1)
+
+			if latency > interval {
+				s.overruns.Add(1)
+				runner.overrunCount++
+				if time.Since(runner.lastOverrunLog) >= s.errorThrottleWindow {
+					slog.Warn("scheduler overrun",
+						"task", task.ID,
+						"latency", latency,
+						"interval", interval,
+						"occurrences", runner.overrunCount,
+					)
+					runner.lastOverrunLog = time.Now()
+					runner.overrunCount = 0
+				}
+			}
+
+			if err != nil {
+				statistic.DefaultManager.PushError()
+				errMsg := err.Error()
+				runner.errCount++
+				now := time.Now()
+
+				// Log immediately on first failure or when error message changes,
+				// otherwise throttle to once per errorThrottleWindow.
+				if !runner.inError || errMsg != runner.lastErrMsg || now.Sub(runner.lastErrLog) >= s.errorThrottleWindow {
+					slog.Error("read failed",
+						"task", task.ID,
+						"driver", task.Driver,
+						"error", err,
+						"repeated_count", runner.errCount,
+					)
+					runner.lastErrLog = now
+					runner.lastErrMsg = errMsg
+					runner.errCount = 0
+				}
+				runner.inError = true
+				continue
+			}
+
+			// If recovered from error
+			if runner.inError {
+				slog.Info("read recovered",
+					"task", task.ID,
+					"driver", task.Driver,
+				)
+				runner.inError = false
+				runner.lastErrMsg = ""
+				runner.errCount = 0
+			}
+
+			if len(values) > 0 {
+				statistic.DefaultManager.PushRead(int64(len(values)))
+
+				// Apply deadband filtering: skip values that haven't changed
+				// beyond the configured threshold since last report.
+				if len(runner.task.DeadBands) > 0 {
+					filtered := values[:0]
+					for _, v := range values {
+						threshold, ok := runner.task.DeadBands[v.Tag]
+						if !ok || threshold <= 0 {
+							filtered = append(filtered, v)
+							continue
+						}
+						numVal := util.ToFloat64(v.Value)
+						lastVal, hasLast := runner.lastValues[v.Tag]
+						if !hasLast || math.Abs(numVal-lastVal) >= threshold {
+							filtered = append(filtered, v)
+							runner.lastValues[v.Tag] = numVal
+						}
+					}
+					values = filtered
+				}
+
+				if len(values) > 0 {
+					s.onData(task.Driver, values)
+				}
+			}
+		}
+	}
+}

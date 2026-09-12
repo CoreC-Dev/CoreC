@@ -1,0 +1,45 @@
+# Scenario 5: Many-to-One Aggregation
+#
+#   CoreC-A ──MQTT(edge/A/...)──▶
+#   CoreC-B ──MQTT(edge/B/...)──▶ CoreC-G ──MQTT(cloud/...)──▶ subscriber
+#   CoreC-C ──MQTT(edge/C/...)──▶
+#
+# Three edge nodes publish to edge/{A,B,C}/...; G subscribes edge/# and aggregates.
+services:
+  broker:
+    image: eclipse-mosquitto:2
+    ports: ["1883:1883"]
+
+  mock-plc-a: { build: { context: ../mock-plc } }
+  mock-plc-b: { build: { context: ../mock-plc } }
+  mock-plc-c: { build: { context: ../mock-plc } }
+
+  corec-a:
+    build: { context: ../../.., dockerfile: demo/chained/corec.Dockerfile }
+    volumes: ["./corec-a.yaml:/config.yaml:ro"]
+    command: ["-config", "/config.yaml"]
+    depends_on: [broker, mock-plc-a]
+
+  corec-b:
+    build: { context: ../../.., dockerfile: demo/chained/corec.Dockerfile }
+    volumes: ["./corec-b.yaml:/config.yaml:ro"]
+    command: ["-config", "/config.yaml"]
+    depends_on: [broker, mock-plc-b]
+
+  corec-c:
+    build: { context: ../../.., dockerfile: demo/chained/corec.Dockerfile }
+    volumes: ["./corec-c.yaml:/config.yaml:ro"]
+    command: ["-config", "/config.yaml"]
+    depends_on: [broker, mock-plc-c]
+
+  corec-g:
+    build: { context: ../../.., dockerfile: demo/chained/corec.Dockerfile }
+    volumes: ["./corec-g.yaml:/config.yaml:ro"]
+    command: ["-config", "/config.yaml"]
+    ports: ["9090:9090"]
+    depends_on: [broker]
+
+  subscriber:
+    image: eclipse-mosquitto:2
+    command: ["sh", "-c", "sleep 4 && mosquitto_sub -h broker -t 'cloud/#' -v"]
+    depends_on: [broker]

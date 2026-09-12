@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "CoreC — 工业数据采集核心",
+    "quality_profile": "showcase",
+    "views": [
+      { "id": "uplink", "label": "上行采集", "focus": ["plc", "s7", "opcua", "scheduler", "databus", "engine", "rule", "mqtt", "http"], "note": "定时轮询设备数据，经核心管道发布至云端传输。" },
+      { "id": "downlink", "label": "下行控制", "focus": ["mqtt", "cmdloop", "plc", "s7", "opcua"], "note": "云端通过 MQTT 指令主题下发反向控制命令至设备。" },
+      { "id": "api", "label": "控制面 API", "focus": ["api", "cache", "engine", "ws"], "note": "RESTful API 与 WebSocket 实时流，用于运行时控制与监控。" }
+    ]
+  },
+  "components": [
+    { "id": "s7", "type": "external", "label": "西门子 S7", "sublabel": "S7-300/1200 :102", "pos": [40, 100], "size": [130, 56] },
+    { "id": "plc", "type": "external", "label": "PLC / Modbus", "sublabel": "Modbus TCP :502", "pos": [40, 240], "size": [130, 56] },
+    { "id": "opcua", "type": "external", "label": "OPC UA 服务器", "sublabel": "opc.tcp :4840", "pos": [40, 380], "size": [130, 56] },
+
+    { "id": "api", "type": "security", "label": "RESTful API", "sublabel": "chi :9090", "pos": [280, 100], "size": [130, 56], "tag": "Bearer 鉴权" },
+    { "id": "scheduler", "type": "backend", "label": "调度器", "sublabel": "goroutine/任务", "pos": [280, 240], "size": [130, 56], "tag": "Ticker 驱动" },
+    { "id": "cmdloop", "type": "backend", "label": "指令循环", "sublabel": "反向通道", "pos": [280, 380], "size": [130, 56] },
+
+    { "id": "cache", "type": "database", "label": "最新值缓存", "sublabel": "64 分片 RWMutex", "pos": [520, 100], "size": [130, 56], "tag": "驱动→标签→数据点" },
+    { "id": "databus", "type": "messagebus", "label": "数据总线", "sublabel": "chan cap=8192", "pos": [520, 240], "size": [130, 56], "tag": "丢最旧策略" },
+    { "id": "ws", "type": "frontend", "label": "WebSocket", "sublabel": "/tags/stream 等 4 路", "pos": [520, 380], "size": [130, 56] },
+
+    { "id": "engine", "type": "backend", "label": "处理循环", "sublabel": "多 worker 并行", "pos": [760, 240], "size": [130, 56] },
+    { "id": "rule", "type": "backend", "label": "规则引擎", "sublabel": "优先级排序", "pos": [760, 380], "size": [130, 56], "tag": "转发/丢弃/告警/转换/镜像" },
+
+    { "id": "mqtt", "type": "cloud", "label": "MQTT 传输", "sublabel": "同步发布", "pos": [1000, 240], "size": [130, 56], "tag": "指令主题" },
+    { "id": "http", "type": "cloud", "label": "HTTP 推送", "sublabel": "连接池", "pos": [1000, 380], "size": [130, 56] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "南向层 — 驱动", "wraps": ["plc", "s7", "opcua"] },
+    { "kind": "security-group", "label": "CoreC 核心", "wraps": ["scheduler", "databus", "engine", "cache", "rule", "api", "ws", "cmdloop"] },
+    { "kind": "region", "label": "北向层 — 传输", "wraps": ["mqtt", "http"] }
+  ],
+  "connections": [
+    { "id": "s7-read", "from": "s7", "to": "scheduler", "label": "读取", "labelSegment": 0 },
+    { "id": "plc-read", "from": "plc", "to": "scheduler", "label": "轮询", "labelDx": -25 },
+    { "id": "opcua-read", "from": "opcua", "to": "scheduler", "label": "订阅", "labelSegment": 0 },
+
+    { "id": "sched-to-bus", "from": "scheduler", "to": "databus", "label": "推入" },
+    { "id": "bus-to-engine", "from": "databus", "to": "engine", "label": "channel" },
+
+    { "id": "engine-to-cache", "from": "engine", "to": "cache", "label": "更新", "fromSide": "top", "toSide": "bottom", "labelDy": -30 },
+    { "id": "engine-to-rule", "from": "engine", "to": "rule", "label": "匹配", "fromSide": "bottom", "toSide": "top", "labelDy": 30 },
+
+    { "id": "rule-to-mqtt", "from": "rule", "to": "mqtt", "label": "转发", "variant": "emphasis", "fromSide": "right", "toSide": "bottom", "labelDx": 20 },
+    { "id": "rule-to-http", "from": "rule", "to": "http", "label": "镜像" },
+
+    { "id": "api-to-cache", "from": "api", "to": "cache", "label": "RLock" },
+    { "id": "bus-to-ws", "from": "databus", "to": "ws", "label": "广播", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelDy": 30 },
+
+    { "id": "mqtt-cmd", "from": "mqtt", "to": "cmdloop", "label": "收指令", "variant": "dashed", "fromSide": "right", "toSide": "bottom", "via": [[1180, 268], [1180, 500], [345, 500]] },
+    { "id": "cmd-to-plc", "from": "cmdloop", "to": "plc", "label": "写入", "variant": "dashed", "fromSide": "bottom", "toSide": "left", "via": [[345, 480], [15, 480], [15, 268]] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "南向层", "items": ["Modbus（TCP/RTU/TLS 等）、西门子 S7、OPC UA 三大协议族", "每任务独立 goroutine，Ticker 定时调度", "按采集周期分组标签，最小化 I/O 次数"] },
+    { "dot": "emerald", "title": "核心层", "items": ["DataBus channel（cap=8192）丢最旧背压策略", "多 worker 并行：缓存→广播→规则→发布", "64 分片 RWMutex 读写锁，atomic 原子计数器"] },
+    { "dot": "violet", "title": "北向层", "items": ["MQTT 同步发布 + 指令主题反向控制", "HTTP 推送 + 连接池复用", "规则动作：转发、丢弃、告警、转换、镜像"] }
+  ]
+}

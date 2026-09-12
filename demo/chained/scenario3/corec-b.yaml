@@ -1,0 +1,25 @@
+# Scenario 3: CoreC-B (factory gateway — MQTT in, HTTP out)
+global:
+  log-level: info
+  api:
+    listen: 0.0.0.0:9091
+    secret: "demo-token"
+
+drivers: []
+
+transports:
+  - name: from-edge
+    type: mqtt
+    settings:
+      broker: tcp://broker:1883
+      topic-template: "unused"
+      data-topic: "edgeA/#"
+      parser: { type: default }
+
+  - name: to-region
+    type: http
+    settings:
+      url: "http://corec-c:9091/ingest"
+
+rules:
+  - { name: forward-all, match: "ALL", action: forward, target: to-region }

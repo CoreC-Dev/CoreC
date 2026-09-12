@@ -1,0 +1,385 @@
+# ============================================================
+# CoreC Configuration Example
+# IIoT Data Collection and Distribution Core
+# ============================================================
+
+global:
+  log-level: info
+  api:
+    listen: 0.0.0.0:9090
+    secret: "corec-secret-token"
+    ## TLS (optional): uncomment to enable HTTPS
+    # tls-cert: /path/to/cert.pem
+    # tls-key: /path/to/key.pem
+    ## CORS: empty = permissive default (Access-Control-Allow-Origin: *).
+    ## List specific origins to restrict cross-origin access.
+    # allowed-origins:
+    #   - http://localhost:3000
+    ## Rate limit (optional): max requests per second per IP
+    # rate-limit-per-sec: 100
+    ## HTTP server timeouts (optional, defaults shown)
+    # read-header-timeout: 10s
+    # read-timeout: 30s
+    # write-timeout: 30s
+    # idle-timeout: 120s
+
+  ## Engine tuning (optional, defaults shown)
+  engine:
+    data-bus-size: 8192          # internal data bus channel capacity
+    workers: 4                   # worker goroutines for processing
+    shutdown-timeout: 30s        # graceful shutdown deadline
+    error-throttle-window: 10s   # suppress repeated error logs within this window
+    default-tag-interval: 1s     # fallback interval for tags without explicit interval
+
+# ============================================================
+# Southbound Drivers
+# Supports: modbus-tcp, modbus-rtu, modbus-rtuovertcp, modbus-udp, modbus-rtuoverudp, modbus-tls, s7, opcua
+# ============================================================
+drivers:
+  ## 1. Modbus TCP Driver (PLC / Sensor Gateway)
+  # - name: plc-modbus
+    # type: modbus-tcp
+    # settings:
+      # host: 192.168.1.100
+      # port: 502
+      # slave-id: 1
+      # timeout: 3s
+      # retry: 3
+      ## Reconnect backoff (optional, defaults shown)
+      # reconnect-interval: 2s
+      # reconnect-max-interval: 30s
+    # tags:
+      # - name: temperature
+        # address: "40001"      # Holding register 0
+        # type: float32
+        # group: sensors
+        # interval: 1s
+        # deadband: 0.2
+      # - name: pressure
+        # address: "40003"      # Holding register 2
+        # type: float32
+        # group: sensors
+        # interval: 1s
+      # - name: pump_status
+        # address: "00001"      # Coil 0
+        # type: bool
+        # group: actuators
+        # interval: 2s
+
+  ## 1b. Modbus RTU Driver (Serial line, e.g. RS-485 sensor)
+  # - name: sensor-rtu
+    # type: modbus-rtu
+    # settings:
+      # serial-device: /dev/ttyUSB0   # Linux serial port (use COM3 on Windows)
+      # baud-rate: 9600               # default 9600
+      # data-bits: 8                  # default 8
+      # parity: none                  # none | even | odd (default none)
+      # stop-bits: 1                  # 1 | 2, 0 = auto (default 0)
+      # slave-id: 1
+      # timeout: 3s
+      # retry: 3
+    # tags:
+      # - name: humidity
+        # address: "40001"      # Holding register 0
+        # type: float32
+        # group: sensors
+        # interval: 2s
+      # - name: valve
+        # address: "00001"      # Coil 0
+        # type: bool
+        # group: actuators
+        # interval: 2s
+
+  ## 1c. Modbus RTU over TCP (serial-to-Ethernet gateway, RTU framing in TCP)
+  # - name: rtu-gateway
+    # type: modbus-rtuovertcp
+    # settings:
+      # host: 192.168.1.80
+      # port: 502
+      # slave-id: 1
+      # timeout: 3s
+    # tags:
+      # - name: flow_rate
+        # address: "40001"
+        # type: float32
+        # group: sensors
+        # interval: 1s
+
+  ## 1d. Modbus UDP (Modbus TCP over UDP)
+  # - name: modbus-udp
+    # type: modbus-udp
+    # settings:
+      # host: 192.168.1.90
+      # port: 502
+      # slave-id: 1
+      # timeout: 3s
+    # tags:
+      # - name: status
+        # address: "40001"
+        # type: uint16
+        # group: sensors
+        # interval: 1s
+
+  ## 1e. Modbus RTU over UDP
+  # - name: rtu-udp
+    # type: modbus-rtuoverudp
+    # settings:
+      # host: 192.168.1.91
+      # port: 502
+      # slave-id: 1
+      # timeout: 3s
+    # tags:
+      # - name: level
+        # address: "40001"
+        # type: float32
+        # group: sensors
+        # interval: 1s
+
+  ## 1f. Modbus TCP over TLS (encrypted, requires mutual-TLS certificates)
+  # - name: modbus-tls
+    # type: modbus-tls
+    # settings:
+      # host: 192.168.1.100
+      # port: 802                    # often 802 for Modbus TLS
+      # cert-file: /etc/corec/certs/client.crt   # client certificate PEM
+      # key-file: /etc/corec/certs/client.key    # client private key PEM
+      # ca-file: /etc/corec/certs/ca.crt         # CA / server certificate PEM
+      # slave-id: 1
+      # timeout: 3s
+    # tags:
+      # - name: secure_temp
+        # address: "40001"
+        # type: float32
+        # group: sensors
+        # interval: 1s
+
+  ## 2. Siemens S7 Driver (S7-300 / S7-1200 / S7-1500)
+  # - name: siemens-s7-300
+    # type: s7
+    # settings:
+      # host: 192.168.1.200
+      # port: 102
+      # rack: 0
+      # slot: 2                 # Rack 0 Slot 2 for S7-300, Slot 1 for S7-1200/1500
+      # timeout: 3s
+      # idle-timeout: 60s     # connection idle timeout (default 60s)
+      # reconnect-interval: 2s
+      # reconnect-max-interval: 30s
+    # tags:
+      # - name: reactor_temp
+        # address: "DB1.DBD0"   # DB 1 Double Word 0 (Float32)
+        # type: float32
+        # group: reactor
+        # interval: 500ms
+      # - name: motor_speed
+        # address: "DB1.DBW4"   # DB 1 Word 4 (Uint16)
+        # type: uint16
+        # group: motors
+        # interval: 1s
+      # - name: emergency_stop
+        # address: "I0.0"       # Input Bit 0.0
+        # type: bool
+        # group: safety
+        # interval: 200ms
+
+  ## 3. OPC UA Client Driver (SCADA / MES / OPC Servers)
+  # - name: opc-server
+    # type: opcua
+    # settings:
+      # endpoint: "opc.tcp://192.168.1.50:4840"
+      # mode: polling           # polling or subscription
+      # security-policy: None    # None | Basic256Sha256 | ... (可选)
+      # security-mode: None      # None | Sign | SignAndEncrypt (可选)
+      # username: "opc-user"     # 用户名认证（可选，未设置时匿名连接）
+      # password: "opc-pass"     # 密码认证（可选）
+      # timeout: 5s
+      # subscription-buffer: 1024  # subscriber channel buffer (default 1024)
+      # max-batch-size: 1000       # max nodes per read request (default 1000)
+      # reconnect-interval: 2s
+      # reconnect-max-interval: 30s
+    # tags:
+      # - name: conveyor_speed
+        # address: "ns=2;s=Conveyor.Speed"
+        # type: float64
+        # group: conveyor
+        # interval: 1s
+      # - name: batch_count
+        # address: "ns=1;i=1001"
+        # type: uint32
+        # group: production
+        # interval: 2s
+
+# ============================================================
+# Northbound Transports
+# Supports: mqtt, http
+#
+# Chained Core: transports can also act as data *consumers* (inbound).
+# Set "data-topic" (MQTT) or "webhook-addr" (HTTP) to receive data from
+# upstream CoreC instances or third-party sources.  Incoming data is
+# parsed and fed back into the engine's DataBus, flowing through rules
+# and being re-published to downstream transports — enabling multi-hop
+# relay topologies (edge → gateway → cloud).
+# ============================================================
+transports:
+  ## 1. MQTT Cloud Transport (Publish + Command Writeback + Chained Inbound)
+  # - name: cloud-mqtt
+    # type: mqtt
+    # settings:
+      # broker: tcp://broker.emqx.io:1883
+      # client-id: factory-edge-01
+      # username: "your-username"     # broker 认证用户名（可选，公共 broker 不需要）
+      # password: "your-password"     # broker 认证密码（可选）
+      # qos: 1
+      # topic-template: "factory/{{.Driver}}/{{.Group}}/{{.Tag}}"
+      # command-topic: "factory/commands/#"
+      ## --- Chained Core Inbound ---
+      ## Subscribe to data from upstream CoreC instances or third-party MQTT publishers.
+      ## The parser converts each message body into a DataPoint.
+      # data-topic: "upstream/factory/#"
+      # parser:
+        # type: default          # "default" = json.Unmarshal(DataPoint), for CoreC→CoreC
+        # type: jsonpath       # for third-party JSON with different field names
+        # driver: "lora-gateway"
+        # tag: "{{ .payload.dev_id }}"
+        # value: "{{ .payload.temp }}"
+        # data-type: "float32"
+        # group: "sensors"
+        # timestamp: "{{ .payload.ts }}"
+        # timestamp-format: "unix"
+        # type: raw            # payload is the scalar value, tag from topic
+        # driver: "factory"
+        # tag-from-topic: 2    # use 2nd segment of MQTT topic as tag
+        # data-type: "float32"
+      ## MQTT operation timeouts (optional, defaults shown)
+      # keep-alive: 60s
+      # connect-timeout: 10s
+      # publish-timeout: 5s
+      # subscribe-timeout: 5s
+      # disconnect-quiesce: 1s
+      # connect-retry-interval: 5s
+    # buffer-size: 100           # command/data channel capacity (default 100)
+    # batch-size: 50
+    # flush-interval: 1s
+
+  ## 2. HTTP Webhook / REST Push (MES / Data Lake API + Chained Inbound)
+  # - name: mes-http-push
+    # type: http
+    # settings:
+      # url: "http://localhost:8080/api/v1/telemetry"
+      # method: POST
+      # headers:
+        # Authorization: "Bearer mes-secret-key"
+      # timeout: 3s
+      ## --- Chained Core Inbound ---
+      ## Start a webhook server to receive data from upstream CoreC instances
+      ## or third-party HTTP POST sources.  Each POST body is parsed into
+      ## DataPoint(s) and fed into the engine's DataBus.
+      # webhook-addr: "0.0.0.0:9091"
+      # webhook-path: "/ingest"
+      # parser:
+        # type: default          # json.Unmarshal(DataPoint), for CoreC→CoreC
+      ## HTTP connection pool (optional, defaults shown)
+      # max-idle-conns: 100
+      # max-idle-conns-per-host: 20
+      # idle-conn-timeout: 90s
+    # buffer-size: 100           # command/data channel capacity (default 100)
+    # batch-size: 100
+    # flush-interval: 5s
+
+# ============================================================
+# Rules
+# Evaluated in priority order (lowest number = highest priority)
+# Actions: forward, drop, alert, transform, mirror
+#
+# Match expression syntax:
+#   field == 'value'        string equality
+#   field != 'value'        string inequality
+#   field =~ 'regex'        regex match (RE2)
+#   field !~ 'regex'        regex non-match
+#   field contains 'substr' substring containment
+#   field suffix 'suffix'   suffix match
+#   field prefix 'prefix'   prefix match
+#   value > 90              numeric comparison (>, <, >=, <=)
+#   value == true           boolean equality
+#   value in 50..100        numeric range check (inclusive)
+#   expr && expr            logical AND
+#   expr || expr            logical OR
+#   !expr                   logical NOT
+#   (expr)                  grouping
+#   ALL                     match all
+#   RULE-SET:name           delegate to external rule provider
+#   SUB-RULE:name           delegate to named sub-rule group
+#
+# Fields: driver, device, group, tag, quality, type, value
+# ============================================================
+
+# ── External Rule Providers (hot-reloadable) ──────────────────────
+# rule-providers:
+  # - name: safety-rules
+    # type: file
+    # path: ./rules/safety.yaml
+    # interval: 30s          # auto-reload every 30s
+
+# ── Sub-Rule Groups (named, reusable) ─────────────────────────────
+# rule-groups:
+  # high-priority-alert:
+    # - name: bad-quality
+      # match: "quality != 'good'"
+      # action: alert
+      # target: cloud-mqtt
+    # - name: emergency-tag
+      # match: "tag suffix 'emergency'"
+      # action: alert
+      # target: cloud-mqtt
+
+rules:
+  ## High Temperature Alert -> Forward immediately to Cloud MQTT
+  - name: high-temp-alert
+    match: "tag == 'temperature' && value > 95"
+    action: alert
+    target: cloud-mqtt
+    priority: 1
+
+  ## Emergency Stop -> High-priority Alert
+  # - name: emergency-stop-alert
+    # match: "tag == 'emergency_stop' && value == true"
+    # action: alert
+    # target: cloud-mqtt
+    # priority: 2
+
+  ## Reactor data with regex matching -> Mirror to both
+  # - name: reactor-mirror
+    # match: "tag =~ '^reactor_.*' && value in 50..200"
+    # action: mirror
+    # targets:
+      # - cloud-mqtt
+      # - mes-http-push
+    # priority: 10
+
+  ## Safety data via external rule provider
+  # - name: use-safety-rules
+    # match: "RULE-SET:safety-rules"
+    # action: alert
+    # target: cloud-mqtt
+    # priority: 15
+
+  ## Sub-rule group for high-priority alerts
+  # - name: use-alert-group
+    # match: "SUB-RULE:high-priority-alert"
+    # action: alert
+    # target: cloud-mqtt
+    # priority: 20
+
+  ## Motor data with suffix/contains matching
+  # - name: motor-data
+    # match: "tag contains 'motor' && driver prefix 'siemens'"
+    # action: forward
+    # target: mes-http-push
+    # priority: 50
+
+  ## Default rule: Forward all remaining points to MES HTTP Push
+  - name: default-catch-all
+    match: "ALL"
+    action: forward
+    target: mes-http-push
+    priority: 999

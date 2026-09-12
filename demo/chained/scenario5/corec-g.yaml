@@ -1,0 +1,19 @@
+# Scenario 5: CoreC-G (aggregation gateway)
+# Subscribes edge/# to collect from all edge nodes, forwards to cloud/...
+global:
+  log-level: info
+  api: { listen: "0.0.0.0:9090", secret: "demo-token" }
+
+drivers: []
+
+transports:
+  - name: aggregator
+    type: mqtt
+    settings:
+      broker: tcp://broker:1883
+      topic-template: "cloud/{{.Driver}}/{{.Tag}}"
+      data-topic: "edge/#"
+      parser: { type: default }
+
+rules:
+  - { name: forward-all, match: "ALL", action: forward, target: aggregator }

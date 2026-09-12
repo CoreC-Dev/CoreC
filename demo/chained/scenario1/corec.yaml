@@ -1,0 +1,32 @@
+# Scenario 1: Pure subscribe forward (protocol gateway)
+# CoreC subscribes to third-party LoRa MQTT, parses non-standard JSON, forwards to cloud topic.
+global:
+  log-level: info
+  api:
+    listen: 0.0.0.0:9090
+    secret: "demo-token"
+
+drivers: []
+
+transports:
+  - name: bridge
+    type: mqtt
+    settings:
+      broker: tcp://broker:1883
+      topic-template: "cloud/{{.Driver}}/{{.Tag}}"
+      data-topic: "lora/+/up"
+      parser:
+        type: jsonpath
+        driver: "lora"
+        tag: "{{ .payload.dev_id }}"
+        value: "{{ .payload.temp }}"
+        data-type: "float32"
+        group: "sensors"
+        timestamp: "{{ .payload.ts }}"
+        timestamp-format: "unix"
+
+rules:
+  - name: forward-all
+    match: "ALL"
+    action: forward
+    target: bridge

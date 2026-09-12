@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "CoreC 上行数据流",
+    "viewBox": [1080, 720],
+    "quality_profile": "showcase",
+    "views": [
+      { "id": "full-pipeline", "label": "完整管道", "focus": ["plc", "s7", "opcua", "scheduler", "databus", "engine", "cache", "rule", "mqtt", "http", "ws"], "note": "工业数据从设备读取，经核心管道发布至云端的完整流转。" },
+      { "id": "core-only", "label": "核心处理", "focus": ["databus", "engine", "cache", "rule"], "note": "多 worker 并行：缓存更新→广播→规则匹配→发布。" },
+      { "id": "streaming", "label": "实时流", "focus": ["databus", "ws", "cache"], "note": "WebSocket 扇出与缓存读取，用于实时数据推送。" }
+    ]
+  },
+  "stages": [
+    { "label": "设备层" },
+    { "label": "采集层" },
+    { "label": "核心层" },
+    { "label": "路由层" },
+    { "label": "云端层" }
+  ],
+  "nodes": [
+    { "id": "s7", "type": "external", "label": "西门子 S7", "sublabel": "S7 :102", "stage": 0, "row": 0, "tag": "PLC" },
+    { "id": "plc", "type": "external", "label": "PLC / Modbus", "sublabel": "Modbus :502", "stage": 0, "row": 3, "tag": "PLC" },
+    { "id": "opcua", "type": "external", "label": "OPC UA", "sublabel": "opc.tcp :4840", "stage": 0, "row": 4, "tag": "SCADA" },
+
+    { "id": "scheduler", "type": "backend", "label": "调度器", "sublabel": "goroutine/任务", "stage": 1, "row": 1, "tag": "Ticker" },
+
+    { "id": "engine", "type": "backend", "label": "处理循环", "sublabel": "多 worker 并行", "stage": 2, "row": 0, "tag": "富化" },
+    { "id": "databus", "type": "messagebus", "label": "数据总线", "sublabel": "chan cap=8192", "stage": 2, "row": 3, "tag": "丢最旧" },
+
+    { "id": "cache", "type": "database", "label": "最新值缓存", "sublabel": "64 分片 RWMutex", "stage": 3, "row": 0, "tag": "最新值" },
+    { "id": "rule", "type": "backend", "label": "规则引擎", "sublabel": "优先级匹配", "stage": 3, "row": 2, "tag": "转发/丢弃/告警/转换/镜像" },
+    { "id": "ws", "type": "frontend", "label": "WebSocket", "sublabel": "/tags/stream", "stage": 3, "row": 4, "tag": "实时" },
+
+    { "id": "mqtt", "type": "cloud", "label": "MQTT", "sublabel": "同步发布", "stage": 4, "row": 1, "tag": "QoS 1" },
+    { "id": "http", "type": "cloud", "label": "HTTP 推送", "sublabel": "连接池", "stage": 4, "row": 3, "tag": "批量 POST" }
+  ],
+  "flows": [
+    { "id": "s7-read", "from": "s7", "to": "scheduler", "label": "读取", "variant": "default" },
+    { "id": "plc-read", "from": "plc", "to": "scheduler", "label": "轮询", "variant": "emphasis", "labelAt": [235, 470] },
+    { "id": "opcua-sub", "from": "opcua", "to": "scheduler", "label": "订阅", "variant": "default", "labelAt": [195, 590] },
+
+    { "id": "push-bus", "from": "scheduler", "to": "databus", "label": "推入", "variant": "emphasis" },
+    { "id": "bus-engine", "from": "databus", "to": "engine", "label": "channel", "variant": "default" },
+
+    { "id": "engine-cache", "from": "engine", "to": "cache", "label": "更新", "variant": "default", "route": "straight" },
+    { "id": "engine-rule", "from": "engine", "to": "rule", "label": "匹配", "variant": "default" },
+    { "id": "bus-ws", "from": "databus", "to": "ws", "label": "广播", "variant": "dashed" },
+
+    { "id": "rule-mqtt", "from": "rule", "to": "mqtt", "label": "转发", "variant": "emphasis" },
+    { "id": "rule-http", "from": "rule", "to": "http", "label": "镜像", "variant": "default" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "上行管道", "items": ["驱动按采集周期分组读取标签", "TagValue 富化为 DataPoint，携带路由元数据", "规则引擎按优先级路由：转发、丢弃、告警、转换、镜像"] },
+    { "dot": "emerald", "title": "核心处理", "items": ["DataBus channel（cap=8192）丢最旧背压策略", "多 worker 并行：缓存→广播→规则→发布", "非阻塞扇出至 WebSocket 订阅者"] },
+    { "dot": "violet", "title": "云端输出", "items": ["MQTT 同步发布 + 主题模板渲染", "HTTP 推送 + 连接池 + 批量支持", "下行控制经 MQTT 指令主题（见架构图）"] }
+  ]
+}

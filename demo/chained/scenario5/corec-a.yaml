@@ -1,0 +1,19 @@
+# Scenario 5: CoreC-A (edge node A)
+global:
+  log-level: info
+  api: { listen: "0.0.0.0:9091", secret: "demo-token" }
+
+drivers:
+  - name: plc
+    type: modbus-tcp
+    settings: { host: mock-plc-a, port: 502, slave-id: 1, timeout: 3s }
+    tags:
+      - { name: temperature, address: "40001", type: float32, group: sensors, interval: 1s }
+
+transports:
+  - name: mqtt-out
+    type: mqtt
+    settings: { broker: tcp://broker:1883, topic-template: "edge/A/{{.Driver}}/{{.Tag}}" }
+
+rules:
+  - { name: forward-all, match: "ALL", action: forward, target: mqtt-out }

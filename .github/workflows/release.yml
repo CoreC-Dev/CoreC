@@ -1,0 +1,185 @@
+name: Release Multi-Arch
+
+# 触发条件：推送 v* 格式的 tag 时自动构建并发布 Release
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.1'
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test -race -short -timeout 120s ./...
+
+      - name: Vet
+        run: go vet ./...
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # 多架构/多平台组合（工业场景优先 Linux ARM）
+        include:
+          # Linux — 服务器 & 工控机
+          - goos: linux
+            goarch: amd64
+          # Linux ARM64 — 树莓派4/5、ARM 工控机、边缘网关
+          - goos: linux
+            goarch: arm64
+          # Linux ARMv7 — 树莓派3、老旧工业 ARM 设备
+          - goos: linux
+            goarch: arm
+            goarm: "7"
+          # macOS
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          # Windows
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.1'
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          CGO_ENABLED: 0
+        run: |
+          # 从 tag 名提取版本号（v1.0.0 -> 1.0.0）
+          VERSION=${GITHUB_REF_NAME#v}
+          
+          # 构建产物名
+          if [ -n "${{ matrix.goarm }}" ]; then
+            ARM_SUFFIX="-arm${{ matrix.goarm }}"
+          else
+            ARM_SUFFIX=""
+          fi
+          
+          BINARY_NAME="corec-v${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}${ARM_SUFFIX}"
+          
+          # Windows 用 .exe 后缀
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            EXT=".exe"
+          else
+            EXT=""
+          fi
+          
+          echo "Building $BINARY_NAME"
+          
+          # 编译，通过 ldflags 注入版本号到 main 和 route 两个包
+          go build \
+            -ldflags="-s -w \
+              -X main.version=${VERSION} \
+              -X github.com/CoreC-Dev/CoreC/hub/route.Version=${VERSION}" \
+            -o "dist/${BINARY_NAME}${EXT}" \
+            ./cmd/corec
+          
+          # 打包：二进制 + 配置示例 + README
+          cd dist
+          cp ../config.example.yaml .
+          cp ../README.md .
+          
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip "${BINARY_NAME}.zip" "${BINARY_NAME}${EXT}" config.example.yaml README.md
+            rm -f "${BINARY_NAME}${EXT}"
+          else
+            tar -czf "${BINARY_NAME}.tar.gz" "${BINARY_NAME}${EXT}" config.example.yaml README.md
+            rm -f "${BINARY_NAME}${EXT}"
+          fi
+          
+          # 输出产物名供后续步骤使用
+          echo "ASSET_NAME=${BINARY_NAME}" >> $GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ASSET_NAME }}
+          path: dist/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release
+          # 将所有打包文件汇总到 release 目录
+          find artifacts -name "*.tar.gz" -exec cp {} release/ \;
+          find artifacts -name "*.zip" -exec cp {} release/ \;
+          
+          # 生成校验和
+          cd release
+          sha256sum *.tar.gz *.zip > checksums.txt
+          echo "Release files:"
+          ls -lh
+
+      - name: Generate release body
+        run: |
+          mkdir -p release
+          
+          # ============================================================
+          # 从 Conventional Commits 自动生成 Release Body：
+          #   1. 分类 Changelog（feat/fix/perf/...）
+          #   2. 📦 Downloads 下载表（shields.io 徽章）
+          #   3. GitHub 自动追加 What's Changed + New Contributors（generate_release_notes）
+          # ============================================================
+          
+          bash .github/scripts/changelog.sh "${GITHUB_REF_NAME}" 2>/dev/null > release/BODY.md
+          
+          echo "========== Final Release Body =========="
+          cat release/BODY.md
+          echo "========================================"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: release/BODY.md
+          generate_release_notes: true
+          files: |
+            release/*.tar.gz
+            release/*.zip
+            release/checksums.txt
