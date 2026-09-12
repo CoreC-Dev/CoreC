@@ -11,14 +11,14 @@ hero:
     width: 320
   actions:
     - theme: brand
-      text: 快速开始
-      link: /guide/quickstart
-    - theme: alt
-      text: 架构设计
-      link: /architecture/overview
+      text: 简介
+      link: /guide/introduction
     - theme: alt
       text: 配置参考
       link: /config/global
+    - theme: alt
+      text: API
+      link: /api/overview
 
 features:
   - icon: ⚡
