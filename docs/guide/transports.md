@@ -94,6 +94,7 @@ transports:
     flush-interval: 1s        # 刷新间隔（可选）
     retry-count: 3            # 重试次数（可选）
     buffer-size: 1000         # 内部缓冲（可选）
+    fallback: backup-http     # 备用传输（可选）
 ```
 
 | 字段 | 必填 | 说明 |
@@ -105,6 +106,7 @@ transports:
 | `flush-interval` | ❌ | 批量刷新周期，到时无论是否凑满都发送 |
 | `retry-count` | ❌ | 发布失败重试次数 |
 | `buffer-size` | ❌ | 内部发送缓冲容量 |
+| `fallback` | ❌ | 备用传输名，本传输发布失败时自动切换 |
 
 ## 内置传输详解
 
@@ -257,7 +259,7 @@ HTTP 传输的 `PublishBatch` 将多个 `DataPoint` 序列化为 JSON 数组，�
 | 两者取早 | 任意条件先满足 | 推荐，兼顾吞吐与延迟 |
 
 ::: info 批量聚合实现
-引擎在 `publishToTargets` 中通过 `transportBatcher` 包装层实现批量聚合：数据点先进入内存缓冲，当缓冲达到 `batch-size` 或 `flush-interval` 定时器触发时，一次性调用 `PublishBatch` 发送。发送失败时按 `retry-count` 进行指数退避重试。未配置 `batch-size`/`flush-interval`/`retry-count` 的传输仍逐点调用 `Publish`。MQTT 传输逐条发布符合 MQTT 单消息模型。
+引擎在 `publishToTargets` 中通过 `transportBatcher` 包装层实现批量聚合：数据点先进入内存缓冲，当缓冲达到 `batch-size` 或 `flush-interval` 定时器触发时，一次性调用 `PublishBatch` 发送。发送失败时按 `retry-count` 进行指数退避重试。重试耗尽后，若启用了全局 `buffer`，数据批次写入本地磁盘缓冲待后续回放；否则数据丢弃。未配置 `batch-size`/`flush-interval`/`retry-count` 的传输仍逐点调用 `Publish`。MQTT 传输逐条发布符合 MQTT 单消息模型。
 :::
 
 ## 传输状态查询

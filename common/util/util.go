@@ -219,7 +219,18 @@ func ApplyTransform(value any, scale, offset float64) any {
 // it succeeds or ctx is cancelled. The backoff starts at initialBackoff
 // and doubles on each failure, capped at maxBackoff.
 // <=0 values fall back to 2s initial and 30s max.
+// This is the backward-compatible variant without a circuit breaker.
 func ReconnectLoop(ctx context.Context, name string, connect func() error, initialBackoff, maxBackoff time.Duration) {
+	ReconnectLoopWithBreaker(ctx, name, connect, initialBackoff, maxBackoff, 0)
+}
+
+// ReconnectLoopWithBreaker is like ReconnectLoop but adds a circuit
+// breaker: after maxFailures consecutive failures (maxFailures > 0),
+// the backoff is increased to circuitBreakerBackoff (5 minutes) to
+// avoid hammering a permanently offline device. The breaker resets
+// on the next successful connection. maxFailures <= 0 disables the
+// breaker (pure exponential backoff, backward-compatible behaviour).
+func ReconnectLoopWithBreaker(ctx context.Context, name string, connect func() error, initialBackoff, maxBackoff time.Duration, maxFailures int) {
 	backoff := initialBackoff
 	if backoff <= 0 {
 		backoff = 2 * time.Second
@@ -227,6 +238,12 @@ func ReconnectLoop(ctx context.Context, name string, connect func() error, initi
 	if maxBackoff <= 0 {
 		maxBackoff = 30 * time.Second
 	}
+
+	// Circuit breaker state.
+	const circuitBreakerBackoff = 5 * time.Minute
+	failures := 0
+	breakerTripped := false
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -235,12 +252,28 @@ func ReconnectLoop(ctx context.Context, name string, connect func() error, initi
 		}
 
 		if err := connect(); err != nil {
-			slog.Warn("reconnect failed", "name", name, "error", err, "retry_in", backoff*2)
-			backoff = min(backoff*2, maxBackoff)
+			failures++
+			slog.Warn("reconnect failed", "name", name, "error", err, "retry_in", backoff*2, "failures", failures)
+
+			// Circuit breaker: after maxFailures consecutive failures,
+			// switch to a long fixed interval to stop hammering the
+			// device and reduce resource consumption.
+			if maxFailures > 0 && failures >= maxFailures && !breakerTripped {
+				breakerTripped = true
+				backoff = circuitBreakerBackoff
+				slog.Warn("reconnect circuit breaker tripped, reducing frequency",
+					"name", name, "failures", failures, "retry_interval", backoff)
+			} else if !breakerTripped {
+				backoff = min(backoff*2, maxBackoff)
+			}
 			continue
 		}
 
-		slog.Info("reconnected", "name", name)
+		if breakerTripped {
+			slog.Info("reconnected after circuit breaker reset", "name", name, "failures", failures)
+		} else {
+			slog.Info("reconnected", "name", name)
+		}
 		return
 	}
 }

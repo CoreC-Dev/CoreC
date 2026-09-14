@@ -57,6 +57,14 @@ func (m *mockEngineForHub) LatestValues(driver string) map[string]core.DataPoint
 	return map[string]core.DataPoint{}
 }
 
+func (m *mockEngineForHub) StaleThreshold() time.Duration {
+	return 0
+}
+
+func (m *mockEngineForHub) DeadLetterEntries() []core.DeadLetterEntry {
+	return nil
+}
+
 func (m *mockEngineForHub) Stats() core.EngineStats {
 	return core.EngineStats{Status: core.EngineStatusRunning}
 }

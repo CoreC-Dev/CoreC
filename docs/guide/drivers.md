@@ -42,7 +42,7 @@ type Driver interface {
 | `Restart` | 配置热更新时 | 等价于 `Stop → Init → Start` |
 
 ::: tip 连接失败的容错策略
-`Start` 阶段如果设备不可达，CoreC **不会**返回错误导致启动失败，而是将状态置为 `connecting` 并启动后台 `reconnectLoop` 按指数退避重试（上限 30s）。这使得 CoreC 可以在设备离线时先启动，设备恢复后自动接入。
+`Start` 阶段如果设备不可达，CoreC **不会**返回错误导致启动失败，而是将状态置为 `connecting` 并启动后台 `reconnectLoop` 按指数退避重试（上限 30s）。这使得 CoreC 可以在设备离线时先启动，设备恢复后自动接入。连续重连失败达到 `max-reconnect-failures`（默认 20）次后触发**断路器**，停止重连进入 5 分钟冷却期，避免设备长期不可达时无效重连消耗资源。
 :::
 
 ### 数据操作方法
@@ -122,6 +122,7 @@ tags:
     scale: 1.0               # 缩放系数（可选，value * scale + offset）
     offset: 0.0              # 偏移量（可选）
     deadband: 0.2            # 死区（可选，变化小于此值时不更新）
+    read-timeout: 500ms      # 读取超时（可选，默认同 interval）
 ```
 
 | 字段 | 必填 | 说明 |
@@ -129,11 +130,12 @@ tags:
 | `name` | ✅ | 测点名，驱动内唯一 |
 | `address` | ✅ | 协议地址，格式见各驱动说明 |
 | `type` | ✅ | 数据类型，见下表 |
-| `group` | ❌ | 分组名，用于规则匹配与主题模板（可选） |
+| `group` | ❌ | 分组名，用于规则匹配与传输主题模板（可选） |
 | `interval` | ✅ | 采集周期，Go duration 格式（`1s`、`500ms`、`200ms`） |
 | `scale` | ❌ | 缩放系数，读取后执行 `value * scale + offset`（可选） |
 | `offset` | ❌ | 偏移量（可选） |
 | `deadband` | ❌ | 死区，抑制无意义的小幅波动上报（可选） |
+| `read-timeout` | ❌ | 单次读取超时，独立于 `interval`（可选，默认同 `interval`） |
 
 ### 支持的数据类型
 
@@ -214,7 +216,7 @@ tags:
 | `modbus-rtuoverudp` | RTU 帧封装在 UDP | `host` + `port`（默认 502），同 `modbus-tcp` |
 | `modbus-tls` | Modbus TCP over TLS（mTLS） | `host` + `port`（默认 502），并要求 `cert-file`、`key-file`、`ca-file`（均为必填的 PEM 路径） |
 
-所有变体共享 `modbusBase` 实现，通用设置包括 `slave-id`（默认 1）、`timeout`（默认 3s）、`retry`（默认 3）、`reconnect-interval`（默认 2s）、`reconnect-max-interval`（默认 30s）。
+所有变体共享 `modbusBase` 实现，通用设置包括 `slave-id`（默认 1）、`timeout`（默认 3s）、`retry`（默认 3）、`reconnect-interval`（默认 2s）、`reconnect-max-interval`（默认 30s）、`max-reconnect-failures`（默认 20，断路器阈值）。
 
 `modbus-rtu` 示例：
 

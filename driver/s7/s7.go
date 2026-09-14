@@ -59,6 +59,7 @@ type S7Driver struct {
 	idleTimeout        time.Duration
 	reconnectBackoff   time.Duration
 	maxReconnectBackoff time.Duration
+	maxReconnectFailures int // circuit breaker threshold; 0 = disabled
 
 	// Connection instances
 	handler *gos7.TCPClientHandler
@@ -122,6 +123,7 @@ func (d *S7Driver) Init(ctx context.Context, config core.DriverConfig) error {
 	d.idleTimeout = util.GetDurationSetting(settings, "idle-timeout", 60*time.Second)
 	d.reconnectBackoff = util.GetDurationSetting(settings, "reconnect-interval", core.DefaultReconnectBackoff)
 	d.maxReconnectBackoff = util.GetDurationSetting(settings, "reconnect-max-interval", core.DefaultMaxReconnectBackoff)
+	d.maxReconnectFailures = util.GetIntSetting(settings, "max-reconnect-failures", 20)
 
 	// Parse tags and addresses
 	for _, tag := range config.Tags {
@@ -188,7 +190,7 @@ func (d *S7Driver) connect() error {
 }
 
 func (d *S7Driver) reconnectLoop() {
-	util.ReconnectLoop(d.ctx, d.name, d.connect, d.reconnectBackoff, d.maxReconnectBackoff)
+	util.ReconnectLoopWithBreaker(d.ctx, d.name, d.connect, d.reconnectBackoff, d.maxReconnectBackoff, d.maxReconnectFailures)
 }
 
 // startReconnectLoop launches the reconnect goroutine tracked by the WaitGroup

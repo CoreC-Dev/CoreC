@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/CoreC-Dev/CoreC/core"
 )
@@ -46,6 +47,9 @@ func (m *mockEngineV2) LatestValues(driver string) map[string]core.DataPoint {
 	}
 	return m.tagsByDriver[driver]
 }
+
+func (m *mockEngineV2) StaleThreshold() time.Duration { return 0 }
+func (m *mockEngineV2) DeadLetterEntries() []core.DeadLetterEntry { return nil }
 
 func (m *mockEngineV2) WriteTag(ctx context.Context, cmd core.WriteCommand) (*core.WriteResult, error) {
 	return &m.writeResult, m.writeErr

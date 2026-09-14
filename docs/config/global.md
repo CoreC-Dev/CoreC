@@ -26,7 +26,7 @@ global:
 | `log-level` | string | 否 | `info` | 日志输出级别 |
 | `api` | object | 否 | — | 管理 API（RESTful + WebSocket）服务配置 |
 | `engine` | object | 否 | — | 引擎运行参数（数据总线、worker、超时等） |
-| `buffer` | object | 否 | — | ⚠️ 已废弃，解析不报错但不生效，详见下文 |
+| `buffer` | object | 否 | — | 离线持久化缓冲配置，传输失败时将数据落盘以防丢失，详见下文 |
 
 ---
 
@@ -179,6 +179,9 @@ wscat -c "ws://localhost:9090/api/v1/ws?token=corec-secret-token"
 | `engine.shutdown-timeout` | duration | 否 | `30s` | 优雅关停时等待驱动/传输停止的最大时长 |
 | `engine.error-throttle-window` | duration | 否 | `10s` | 调度器重复错误/超限日志的抑制时间窗 |
 | `engine.default-tag-interval` | duration | 否 | `1s` | 未显式设置 `interval` 的标签的回退采集周期 |
+| `engine.on-bad-quality` | string | 否 | `publish` | 坏质量数据处理策略，取值见下文 |
+| `engine.stale-threshold` | duration | 否 | `0`（禁用） | 数据陈旧判定阈值，超过此时长未更新的缓存值标记为 `is_stale` |
+| `engine.write-retry-count` | int | 否 | `3` | 写入指令失败重试次数，重试耗尽后进入死信队列 |
 
 ```yaml
 global:
@@ -188,6 +191,9 @@ global:
     shutdown-timeout: 30s
     error-throttle-window: 10s
     default-tag-interval: 1s
+    on-bad-quality: mark-and-publish
+    stale-threshold: 30s
+    write-retry-count: 3
 ```
 
 ### data-bus-size
@@ -210,22 +216,71 @@ global:
 
 标签未显式设置 `interval` 时的回退采集周期。采用 Go duration 字符串。
 
+### on-bad-quality
+
+控制处理管线对 `QualityBad` 数据点的处理策略。驱动层在读取失败时标记 `QualityBad`（如 Modbus 异常响应、通信超时），此配置决定这些坏值如何流转：
+
+| 取值 | 行为 | 适用场景 |
+| --- | --- | --- |
+| `publish` | 正常发布（默认，向后兼容） | 下游系统自行处理坏值 |
+| `drop` | 丢弃，不进入规则匹配和发布 | 避免坏值污染下游数据 |
+| `mark-and-publish` | 发布但清空 `value`（置 nil），保留 `quality=bad` | 让下游知晓点位状态但不受错误值影响 |
+| `alert` | 正常发布并触发告警回调 | 需要对坏值即时告警的场景 |
+
+```yaml
+global:
+  engine:
+    on-bad-quality: mark-and-publish
+```
+
+### stale-threshold
+
+数据陈旧判定阈值。当缓存中某个数据点的 `Timestamp` 距当前时间超过此阈值时，API 响应中该数据点的 `is_stale` 字段标记为 `true`，帮助消费者区分实时数据与因驱动断连而停滞的旧值。设为 `0` 或不设置则禁用陈旧检测。
+
+```yaml
+global:
+  engine:
+    stale-threshold: 30s   # 超过 30s 未更新的数据点标记为 stale
+```
+
+### write-retry-count
+
+写入指令（`POST /write`）失败后的重试次数。采用指数退避（100ms × 2^n，上限 2s）。重试全部耗尽后，失败的指令进入死信队列，可通过 `GET /write/failed` 查询。未设置或设为 `0` 时使用默认值 3。总尝试次数为 `write-retry-count + 1`。
+
+```yaml
+global:
+  engine:
+    write-retry-count: 5
+```
+
 ---
 
 ## buffer
 
-> ⚠️ **`global.buffer` 已废弃（deprecated）。**
-> 离线缓冲/断网续传功能不再支持。该段仍可被解析（向后兼容），但**不会产生任何效果**，配置非空时核心会输出一条 `warn` 日志提示移除该段。
-> 如需批量缓冲和重试，请使用 transport 级别的 `batch-size`、`flush-interval`、`retry-count` 配置。
+离线持久化缓冲配置。当北向传输（MQTT Broker / HTTP Endpoint）不可达时，批量器重试耗尽后会将失败批次写入本地磁盘，待传输恢复后自动回放（drain），防止数据丢失。
 
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
-| `buffer.enabled` | bool | 否 | `false` | （已废弃，不生效） |
-| `buffer.max-size` | int | 否 | `0` | （已废弃，不生效） |
-| `buffer.path` | string | 否 | — | （已废弃，不生效） |
+| `buffer.enabled` | bool | 否 | `false` | 是否启用离线缓冲 |
+| `buffer.max-size` | int | 否 | `10000` | 缓冲文件最大数量，超出时驱逐最旧文件 |
+| `buffer.path` | string | **是**† | — | 缓冲文件存储目录路径 |
 
-::: warning
-建议从配置中**移除整个 `buffer` 段**以消除启动告警。该段仅保留用于向后兼容解析。
+> † `buffer.enabled` 为 `true` 时 `buffer.path` 必填，且 `max-size` 若设置需 ≥ 10，否则配置加载时返回错误。
+
+```yaml
+global:
+  buffer:
+    enabled: true
+    path: /var/lib/corec/buffer
+    max-size: 10000
+```
+
+::: tip 工作机制
+启用后，每个配置了 `batch-size` 或 `flush-interval` 的传输会启动独立的 drain 协程，每 30s 尝试回放缓冲文件中的数据。回放按时间顺序逐文件进行，首个文件发送失败则停止回放等待下一轮。传输恢复后缓冲数据自动清空。
+:::
+
+::: warning 与重试的关系
+离线缓冲是重试耗尽后的兜底机制。传输失败时先按 `retry-count` 进行内存重试，重试全部失败后才写入磁盘缓冲。配置 `buffer.enabled: true` 但未配置传输的 `batch-size`/`flush-interval` 时，传输仍会启用默认 5s 定时刷新以支持缓冲回放。
 :::
 
 ---

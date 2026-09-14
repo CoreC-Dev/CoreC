@@ -189,6 +189,7 @@ func router(secret string, allowedOrigins []string, rateLimitPerSec int) *chi.Mu
 
 		r.Get("/tags", getAllTags)
 		r.Post("/write", writeTag)
+		r.Get("/write/failed", getFailedWrites)
 
 		r.Get("/rules", getRules)
 		r.Patch("/rules/disable", disableRule)

@@ -66,6 +66,7 @@ type modbusBase struct {
 	maxRetry            int
 	retryBackoff        time.Duration
 	maxReconnectBackoff time.Duration
+	maxReconnectFailures int // circuit breaker threshold; 0 = disabled
 
 	// Tag mapping: name → TagConfig
 	tags map[string]core.TagConfig
@@ -108,6 +109,7 @@ func (b *modbusBase) initCommon(settings map[string]any, config core.DriverConfi
 	}
 	b.retryBackoff = util.GetDurationSetting(settings, "reconnect-interval", core.DefaultReconnectBackoff)
 	b.maxReconnectBackoff = util.GetDurationSetting(settings, "reconnect-max-interval", core.DefaultMaxReconnectBackoff)
+	b.maxReconnectFailures = util.GetIntSetting(settings, "max-reconnect-failures", 20)
 
 	// Register tags and parse addresses
 	for _, tag := range config.Tags {
@@ -171,7 +173,7 @@ func (b *modbusBase) Start(ctx context.Context) error {
 }
 
 func (b *modbusBase) reconnectLoop() {
-	util.ReconnectLoop(b.ctx, b.name, b.connectFunc, b.retryBackoff, b.maxReconnectBackoff)
+	util.ReconnectLoopWithBreaker(b.ctx, b.name, b.connectFunc, b.retryBackoff, b.maxReconnectBackoff, b.maxReconnectFailures)
 }
 
 // startReconnectLoop launches the reconnect goroutine tracked by the

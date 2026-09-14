@@ -36,7 +36,14 @@
   - **下行控制**: 北向传输（如 MQTT Command Topic）接收控制指令，反向调度驱动写入 PLC 寄存器/线圈。
 - **生产级容错与调度**:
   - **断线重连与指数退避**: 设备离线自动后台重连，重连成功后自动恢复正常采集。
+  - **断路器保护**: 驱动连续重连失败达到阈值后触发断路器，停止重连进入冷却期，避免无效重连消耗资源。
   - **高频错误抑制**: 针对 200ms 等高频采集任务在断网时的刷屏问题，提供 10s 窗口限频与发生计数聚合。
+  - **调度器自动降级**: 采集任务连续失败时自动放慢采集频率（10 倍间隔），恢复后自动还原。
+  - **离线持久化缓冲**: 传输不可达时数据落盘缓存，传输恢复后自动回放，防止数据丢失。
+  - **坏质量数据策略**: 可配置 `QualityBad` 数据的处理方式（发布/丢弃/标记/告警）。
+  - **数据陈旧检测**: 缓存值超过阈值未更新时 API 响应标记 `is_stale`，帮助消费者识别断连停滞。
+  - **写入重试与死信队列**: 控制指令下发失败自动重试，耗尽后进入死信队列供查询和手动重试。
+  - **传输故障降级**: 配置 `fallback` 备用传输，主传输失败时自动切换。
   - **毫秒级优雅退出**: 信号中断即时捕获，倒序清理协程与网络连接，零资源泄露。
 - **External Controller RESTful API**: 提供完整的控制面 API，支持配置热重载、规则命中统计与运行时禁用、实时日志/数据/流量 WebSocket 流。
 
@@ -188,6 +195,7 @@ curl -H "Authorization: Bearer your-secret-token" http://localhost:9090/drivers
 | GET | `/transports/{name}` | 查看单个传输 |
 | GET | `/tags` | 所有测点最新缓存值 |
 | POST | `/write` | 下发控制指令 `{"driver":"plc1","tag":"temp","value":50}` |
+| GET | `/write/failed` | 查询死信队列中重试耗尽的失败写入指令 |
 | GET | `/rules` | 列出规则 + **命中/未命中统计** |
 | PATCH | `/rules/disable` | 运行时启用/禁用规则 `{"index":0,"disabled":true}` |
 | GET | `/stats` | 引擎运行统计 |
@@ -230,6 +238,8 @@ Copyright (c) 2026 CoreC Contributors
 
 | 依赖 | 版本 | 许可证 |
 |:---|:---|:---|
+| [expr-lang/expr](https://github.com/expr-lang/expr) | v1.17.8 | MIT |
+| [tidwall/gjson](https://github.com/tidwall/gjson) | v1.19.0 | MIT |
 | [coder/websocket](https://github.com/coder/websocket) | v1.8.15 | ISC |
 | [eclipse/paho.mqtt.golang](https://github.com/eclipse/paho.mqtt.golang) | v1.5.1 | EPL-2.0 / EDL-1.0 |
 | [go-chi/chi/v5](https://github.com/go-chi/chi) | v5.3.2 | MIT |
@@ -238,6 +248,8 @@ Copyright (c) 2026 CoreC Contributors
 | [robinson/gos7](https://github.com/robinson/gos7) | v0.0.0-20260622162611-2d6806f80c8b | MIT |
 | [simonvetter/modbus](https://github.com/simonvetter/modbus) | v1.6.4 | MIT |
 | [goburrow/serial](https://github.com/goburrow/serial) *(间接)* | v0.1.0 | MIT |
+| [tidwall/match](https://github.com/tidwall/match) *(间接)* | v1.1.1 | MIT |
+| [tidwall/pretty](https://github.com/tidwall/pretty) *(间接)* | v1.2.0 | MIT |
 | [gorilla/websocket](https://github.com/gorilla/websocket) *(间接)* | v1.5.3 | BSD-3-Clause |
 | [golang.org/x/net](https://golang.org/x/net) *(间接)* | v0.59.0 | BSD-3-Clause |
 | [golang.org/x/sync](https://golang.org/x/sync) *(间接)* | v0.23.0 | BSD-3-Clause |

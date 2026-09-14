@@ -74,6 +74,7 @@ GET /tags
 | `type` | int | 数据类型枚举（`DataType` 为 `int`，无自定义 `MarshalJSON`，按整数序列化）：`0=bool, 1=int8, 2=int16, 3=int32, 4=int64, 5=uint8, 6=uint16, 7=uint32, 8=uint64, 9=float32, 10=float64, 11=string, 12=bytes` |
 | `quality` | int | 数据质量枚举（`Quality` 为 `int`，按整数序列化）：`0=good, 1=bad, 2=uncertain` |
 | `timestamp` | string (RFC 3339) | 采集时间戳 |
+| `is_stale` | bool | 数据是否陈旧（超过引擎 `stale-threshold` 未更新），仅在启用陈旧检测时出现 |
 | `metadata` | object | 附加元数据（可选） |
 
 ### 示例
@@ -207,3 +208,56 @@ API POST /write  →  Engine.WriteTag(cmd)  →  Driver.Write([]cmd)  →  设�
 ```
 
 写入操作通过引擎转发至对应驱动的 `Write` 方法，在独立 goroutine 中执行，不影响采集 goroutine 的上行数据流。
+
+写入失败时会按 `engine.write-retry-count` 进行指数退避重试，全部失败后进入死信队列。可通过 `GET /write/failed` 查询死信队列中的失败指令。
+
+---
+
+## 查询失败写入指令
+
+查询死信队列中所有重试耗尽后仍失败的写入指令。死信队列在内存中维护，上限 1000 条，超出时驱逐最旧条目。
+
+### 请求
+
+```http
+GET /write/failed
+```
+
+### 响应
+
+`200 OK`
+
+```json
+{
+  "entries": [
+    {
+      "command": {
+        "driver": "plc1",
+        "device": "192.168.1.10",
+        "tag": "setpoint",
+        "value": 50.0,
+        "type": 10
+      },
+      "error": "modbus: connection refused",
+      "failed_at": "2024-09-08T10:30:05.123456789Z",
+      "attempts": 4
+    }
+  ]
+}
+```
+
+### DeadLetterEntry 字段说明
+
+| 字段 | 类型 | 说明 |
+|:---|:---|:---|
+| `command` | object | 原始 `WriteCommand`（driver, device, tag, value, type） |
+| `error` | string | 最后一次失败的错误信息 |
+| `failed_at` | string (RFC 3339) | 进入死信队列的时间 |
+| `attempts` | int | 总尝试次数（含首次 + 重试） |
+
+### 示例
+
+```bash
+curl http://localhost:9090/write/failed \
+  -H "Authorization: Bearer corec-secret-token"
+```

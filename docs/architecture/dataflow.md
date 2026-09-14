@@ -27,6 +27,7 @@
 │ Error     error  │                   │ Type      DataType   │
 └──────────────────┘                   │ Quality   Quality   │
                                        │ Timestamp time      │
+                                       │ IsStale   bool      │
                                        │ Metadata  map       │
                                        └──────────────────────┘
 ```

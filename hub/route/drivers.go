@@ -26,5 +26,6 @@ func getDriver(w http.ResponseWriter, r *http.Request) {
 func getDriverTags(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	tags := getEngine().LatestValues(name)
+	tags = annotateStaleness(tags, getEngine().StaleThreshold())
 	render(w, r, http.StatusOK, map[string]any{"tags": tags})
 }

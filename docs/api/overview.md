@@ -119,6 +119,7 @@ API 内置 CORS 中间件，用于支持浏览器端仪表盘跨域访问。行�
 | `GET` | `/transports/{name}` | 是 | 获取指定传输状态 |
 | `GET` | `/tags` | 是 | 获取所有驱动最新标签值 |
 | `POST` | `/write` | 是 | 向设备写入标签值 |
+| `GET` | `/write/failed` | 是 | 查询死信队列中失败的写入指令 |
 | `GET` | `/rules` | 是 | 列出所有规则统计 |
 | `PATCH` | `/rules/disable` | 是 | 启用/禁用指定规则 |
 | `GET` | `/stats` | 是 | 获取引擎运行统计 |

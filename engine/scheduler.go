@@ -60,7 +60,9 @@ type taskRunner struct {
 	lastOverrunLog time.Time
 	overrunCount   uint64
 
-	inError bool
+	inError           bool
+	consecutiveErrors int  // consecutive error ticks for auto-degrade
+	degraded          bool // currently running at degraded interval
 }
 
 // NewScheduler creates a new scheduler.
@@ -233,6 +235,15 @@ func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
+	// Auto-degrade: after this many consecutive error ticks, stretch the
+	// interval to reduce load on a failing driver. When the driver
+	// recovers, the ticker is reset to the original interval.
+	const degradeAfterErrors = 5
+	degradedInterval := interval * 10
+	if degradedInterval < 10*time.Second {
+		degradedInterval = 10 * time.Second
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -253,8 +264,14 @@ func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) {
 
 			start := time.Now()
 
-			// Execute read with timeout
-			readCtx, readCancel := context.WithTimeout(ctx, interval)
+			// Execute read with timeout. Use the task's ReadTimeout if
+			// configured (>0), otherwise fall back to the interval. This
+			// decouples the read deadline from the collection cadence.
+			readTimeout := task.ReadTimeout
+			if readTimeout <= 0 {
+				readTimeout = interval
+			}
+			readCtx, readCancel := context.WithTimeout(ctx, readTimeout)
 			values, err := s.readFunc(readCtx, task.Driver, task.Tags)
 			readCancel()
 
@@ -297,6 +314,21 @@ func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) {
 					runner.errCount = 0
 				}
 				runner.inError = true
+				runner.consecutiveErrors++
+
+				// Auto-degrade: if we've had enough consecutive errors and
+				// haven't already degraded, stretch the tick interval.
+				if runner.consecutiveErrors >= degradeAfterErrors && !runner.degraded {
+					runner.degraded = true
+					ticker.Reset(degradedInterval)
+					slog.Warn("scheduler auto-degrade: stretching interval due to sustained errors",
+						"task", task.ID,
+						"driver", task.Driver,
+						"original_interval", interval,
+						"degraded_interval", degradedInterval,
+						"consecutive_errors", runner.consecutiveErrors,
+					)
+				}
 				continue
 			}
 
@@ -309,6 +341,18 @@ func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) {
 				runner.inError = false
 				runner.lastErrMsg = ""
 				runner.errCount = 0
+				runner.consecutiveErrors = 0
+
+				// Restore original interval if we were degraded.
+				if runner.degraded {
+					runner.degraded = false
+					ticker.Reset(interval)
+					slog.Info("scheduler auto-degrade: restoring original interval",
+						"task", task.ID,
+						"driver", task.Driver,
+						"interval", interval,
+					)
+				}
 			}
 
 			if len(values) > 0 {

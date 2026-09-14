@@ -11,6 +11,7 @@ import (
 
 	"github.com/gopcua/opcua"
 	"github.com/gopcua/opcua/ua"
+	"github.com/CoreC-Dev/CoreC/engine/statistic"
 	"github.com/CoreC-Dev/CoreC/common/util"
 	"github.com/CoreC-Dev/CoreC/core"
 )
@@ -33,6 +34,7 @@ type OPCUADriver struct {
 	timeout             time.Duration
 	reconnectBackoff    time.Duration
 	maxReconnectBackoff time.Duration
+	maxReconnectFailures int // circuit breaker threshold; 0 = disabled
 	subBufferSize       int
 	maxBatchSize        int
 
@@ -133,6 +135,7 @@ func (d *OPCUADriver) Init(ctx context.Context, config core.DriverConfig) error 
 	// Reconnect and batch settings
 	d.reconnectBackoff = util.GetDurationSetting(settings, "reconnect-interval", core.DefaultReconnectBackoff)
 	d.maxReconnectBackoff = util.GetDurationSetting(settings, "reconnect-max-interval", core.DefaultMaxReconnectBackoff)
+	d.maxReconnectFailures = util.GetIntSetting(settings, "max-reconnect-failures", 20)
 	d.maxBatchSize = util.GetIntSetting(settings, "max-batch-size", 1000)
 
 	// Parse tags and node IDs
@@ -344,6 +347,12 @@ func (d *OPCUADriver) subscriptionLoop(ctx context.Context,
 				default:
 					// subChannel full; drop to avoid blocking the notification loop.
 					d.errorCount.Add(1)
+					statistic.DefaultManager.PushError()
+					slog.Warn("opcua subscription channel full, dropping data point",
+						"name", d.name,
+						"tag", dp.Tag,
+						"driver", dp.Driver,
+					)
 				}
 			}
 		}
@@ -371,7 +380,7 @@ func (d *OPCUADriver) stopSubscription() {
 }
 
 func (d *OPCUADriver) reconnectLoop() {
-	util.ReconnectLoop(d.ctx, d.name, func() error { return d.connect(d.ctx) }, d.reconnectBackoff, d.maxReconnectBackoff)
+	util.ReconnectLoopWithBreaker(d.ctx, d.name, func() error { return d.connect(d.ctx) }, d.reconnectBackoff, d.maxReconnectBackoff, d.maxReconnectFailures)
 }
 
 // startReconnectLoop launches the reconnect goroutine tracked by the WaitGroup

@@ -165,11 +165,12 @@ ERROR failed to load config path=config.yaml error="failed to read config file c
 /opt/corec/
 ├── corec              # 二进制
 ├── config.yaml        # 配置文件
+├── buffer/            # 离线缓冲目录（启用 global.buffer 时使用）
 └── logs/              # 日志（若外部采集）
 ```
 
-::: warning 离线缓冲已废弃
-早期版本的 `data/buffer/` 离线缓冲目录与 `global.buffer` 配置段已**废弃且被忽略**——离线缓冲不再支持。配置中残留 `buffer` 段会触发一条弃用警告，删除该段即可消除。无需再创建 `data/buffer/` 目录。
+::: tip 离线缓冲
+启用 `global.buffer` 后，传输失败时数据会写入 `buffer.path` 指定目录，待传输恢复后自动回放。生产环境建议将缓冲目录放在独立磁盘分区以避免空间不足。
 :::
 
 对应的 systemd 服务单元示例：

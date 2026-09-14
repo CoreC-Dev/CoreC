@@ -45,13 +45,14 @@ type Driver interface {
 
 核心是整个系统的核心，包含以下组件：
 
-- **Scheduler** — 为每个「驱动 + 采集周期」组合启动独立 goroutine，用 `time.Ticker` 驱动定时读取
+- **Scheduler** — 为每个「驱动 + 采集周期」组合启动独立 goroutine，用 `time.Ticker` 驱动定时读取；连续失败时自动降级（放慢采集频率），恢复后自动还原
 - **DataBus** — 带缓冲的 Go channel（cap=8192），采用 drop-oldest 背压策略
-- **Processing Loop** — 多 worker goroutine（默认 `runtime.NumCPU()` 个）并发消费 DataBus channel，依次执行：缓存更新 → 广播 → 规则匹配 → 发布
+- **Processing Loop** — 多 worker goroutine（默认 `runtime.NumCPU()` 个）并发消费 DataBus channel，依次执行：坏质量策略 → 缓存更新 → 广播 → 规则匹配 → 发布
 - **LatestCache** — 64 分片（shard）设计，按 driver 名做 FNV 哈希分片，每片独立 `sync.RWMutex`，降低多 worker 并发更新时的锁竞争；供 API 读取最新值
-- **Batcher** — 每个传输可选的批量缓冲器，按 batch-size 或 flush-interval 触发刷新，带指数退避重试
+- **Batcher** — 每个传输可选的批量缓冲器，按 batch-size 或 flush-interval 触发刷新，带指数退避重试；启用全局 buffer 时，重试耗尽后数据落盘缓存，传输恢复后自动回放
 - **Parser** — 传输入站数据解析器，支持 `default`/`jsonpath`/`raw` 三种模式，将 MQTT/HTTP 载荷解析为 `DataPoint`
 - **Rule Engine** — 优先级排序的规则链（用 `sort.Slice`，**非稳定排序**），`RWMutex` 保护，first-match-wins，支持 5 种动作：forward / drop / alert / transform / mirror
+- **Dead Letter Queue** — 写入指令重试耗尽后进入内存死信队列（上限 1000 条），供 `GET /write/failed` 查询
 
 ### 北向层 — Transports
 
@@ -88,6 +89,9 @@ type Driver interface {
 | **零开销统计** | 所有计数器用 `sync/atomic`，无锁无分配 |
 | **非阻塞 fan-out** | WebSocket 订阅用 `select + default`，慢订阅者不影响管道 |
 | **错误抑制** | 调度器 10s 窗口限频错误日志，防止日志风暴 |
+| **断路器保护** | 驱动连续重连失败达阈值后停止重连进入冷却期，避免资源浪费 |
+| **离线缓冲兜底** | 传输失败时数据落盘，传输恢复后自动回放，保证数据完整性 |
+| **写入可靠投递** | 控制指令失败自动重试，耗尽后进入死信队列供查询和手动重试 |
 
 ## 相关页面
 

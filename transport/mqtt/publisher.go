@@ -410,7 +410,7 @@ func (t *MQTTTransport) PublishBatch(ctx context.Context, points []core.DataPoin
 	for i := range points {
 		if err := t.Publish(ctx, points[i]); err != nil {
 			if firstErr == nil {
-				firstErr = err
+				firstErr = fmt.Errorf("publishBatch: point %d/%d: %w", i+1, len(points), err)
 			}
 			// Continue publishing remaining points
 		}

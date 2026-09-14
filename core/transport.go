@@ -44,6 +44,10 @@ type TransportConfig struct {
 	// BufferSize is the capacity of the internal command channel.
 	// <=0 falls back to core.DefaultCommandBufferSize (100).
 	BufferSize int `yaml:"buffer-size,omitempty"`
+	// Fallback names a secondary transport to use when this transport
+	// fails to publish. The engine routes the data point to the
+	// fallback transport on publish failure. Empty = no fallback.
+	Fallback string `yaml:"fallback,omitempty"`
 }
 
 // TransportStatus reports the current status of a transport.

@@ -49,6 +49,9 @@ func (m *mockEngine) LatestValues(driver string) map[string]core.DataPoint {
 	}
 }
 
+func (m *mockEngine) StaleThreshold() time.Duration { return 0 }
+func (m *mockEngine) DeadLetterEntries() []core.DeadLetterEntry { return nil }
+
 func (m *mockEngine) WriteTag(ctx context.Context, cmd core.WriteCommand) (*core.WriteResult, error) {
 	return &core.WriteResult{
 		Success: true,

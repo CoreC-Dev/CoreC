@@ -82,6 +82,7 @@ Modbus TCP 是工业现场最常见的以太网协议，CoreC 通过 TCP 502 端
 | `retry` | int | 否 | `3` | 通信失败后的重试次数 |
 | `reconnect-interval` | duration | 否 | `2s` | 重连初始退避间隔 |
 | `reconnect-max-interval` | duration | 否 | `30s` | 重连退避上限 |
+| `max-reconnect-failures` | int | 否 | `20` | 断路器阈值，连续失败达到此值后停止重连并进入冷却期 |
 
 ### 地址格式
 
@@ -132,6 +133,7 @@ Modbus RTU 通过串口（如 RS-485）与从站通信，适用于串口传感�
 | `retry` | int | 否 | `3` | 通信失败后的重试次数 |
 | `reconnect-interval` | duration | 否 | `2s` | 重连初始退避间隔 |
 | `reconnect-max-interval` | duration | 否 | `30s` | 重连退避上限 |
+| `max-reconnect-failures` | int | 否 | `20` | 断路器阈值，连续失败达到此值后停止重连并进入冷却期 |
 
 地址格式与 [Modbus TCP](#地址格式) 相同。
 
@@ -162,6 +164,7 @@ Modbus RTU 通过串口（如 RS-485）与从站通信，适用于串口传感�
 | `retry` | int | 否 | `3` | 通信失败后的重试次数 |
 | `reconnect-interval` | duration | 否 | `2s` | 重连初始退避间隔 |
 | `reconnect-max-interval` | duration | 否 | `30s` | 重连退避上限 |
+| `max-reconnect-failures` | int | 否 | `20` | 断路器阈值，连续失败达到此值后停止重连并进入冷却期 |
 
 ---
 
@@ -190,6 +193,7 @@ Modbus RTU 通过串口（如 RS-485）与从站通信，适用于串口传感�
 | `retry` | int | 否 | `3` | 通信失败后的重试次数 |
 | `reconnect-interval` | duration | 否 | `2s` | 重连初始退避间隔 |
 | `reconnect-max-interval` | duration | 否 | `30s` | 重连退避上限 |
+| `max-reconnect-failures` | int | 否 | `20` | 断路器阈值，连续失败达到此值后停止重连并进入冷却期 |
 
 ---
 
@@ -218,6 +222,7 @@ Modbus RTU 通过串口（如 RS-485）与从站通信，适用于串口传感�
 | `retry` | int | 否 | `3` | 通信失败后的重试次数 |
 | `reconnect-interval` | duration | 否 | `2s` | 重连初始退避间隔 |
 | `reconnect-max-interval` | duration | 否 | `30s` | 重连退避上限 |
+| `max-reconnect-failures` | int | 否 | `20` | 断路器阈值，连续失败达到此值后停止重连并进入冷却期 |
 
 ---
 
@@ -252,6 +257,7 @@ Modbus TCP over TLS，需要双向 TLS（mTLS）证书。
 | `retry` | int | 否 | `3` | 通信失败后的重试次数 |
 | `reconnect-interval` | duration | 否 | `2s` | 重连初始退避间隔 |
 | `reconnect-max-interval` | duration | 否 | `30s` | 重连退避上限 |
+| `max-reconnect-failures` | int | 否 | `20` | 断路器阈值，连续失败达到此值后停止重连并进入冷却期 |
 
 ---
 
@@ -282,6 +288,7 @@ Modbus TCP over TLS，需要双向 TLS（mTLS）证书。
 | `idle-timeout` | duration | 否 | `60s` | 连接空闲超时时间 |
 | `reconnect-interval` | duration | 否 | `2s` | 重连初始退避间隔 |
 | `reconnect-max-interval` | duration | 否 | `30s` | 重连退避上限 |
+| `max-reconnect-failures` | int | 否 | `20` | 断路器阈值，连续失败达到此值后停止重连并进入冷却期 |
 
 ### slot 取值
 
@@ -349,6 +356,7 @@ tags:
 | `max-batch-size` | int | 否 | `1000` | 单次读请求的最大节点数 |
 | `reconnect-interval` | duration | 否 | `2s` | 重连初始退避间隔 |
 | `reconnect-max-interval` | duration | 否 | `30s` | 重连退避上限 |
+| `max-reconnect-failures` | int | 否 | `20` | 断路器阈值，连续失败达到此值后停止重连并进入冷却期 |
 
 ### mode 取值
 
@@ -401,6 +409,7 @@ tags:
 | `scale` | float | 否 | `1.0` | 线性缩放系数，`输出 = value * scale + offset` |
 | `offset` | float | 否 | `0.0` | 线性偏移量 |
 | `deadband` | float | 否 | `0` | 死区过滤阈值，变化量小于该值时不输出 |
+| `read-timeout` | duration | 否 | 同 `interval` | 单次读取超时时间，独立于采集周期 |
 
 ### 支持的数据类型
 
@@ -468,3 +477,15 @@ tags:
 ::: info
 `deadband` 仅对数值类型（int*/uint*/float*）生效，`bool`、`string`、`bytes` 类型忽略该设置。设为 `0` 表示禁用死区，每次采集都输出。
 :::
+
+### read-timeout
+
+为标签单独设置读取超时时间，独立于采集周期 `interval`。默认不设置时读取超时等于 `interval`。在高频采集场景（如 `interval: 200ms`）下，网络抖动可能导致读取耗时接近 `interval` 而频繁超时；通过设置较大的 `read-timeout`（如 `500ms`）可以容忍更多抖动。反之，低频场景下可以设置较小的 `read-timeout` 避免一个卡住的连接阻塞调度过久。
+
+```yaml
+- name: temperature
+  address: "40001"
+  type: float32
+  interval: 200ms
+  read-timeout: 500ms   # 允许单次读取最多 500ms，而非默认的 200ms
+```

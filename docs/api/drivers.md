@@ -200,6 +200,7 @@ GET /drivers/{name}/tags
 | `type` | int | 数据类型枚举（`DataType` 为 `int`，按整数序列化），见下表 |
 | `quality` | int | 数据质量枚举（`Quality` 为 `int`，按整数序列化），见下表 |
 | `timestamp` | string (RFC 3339) | 采集时间戳 |
+| `is_stale` | bool | 数据是否陈旧（超过引擎 `stale-threshold` 未更新），仅在启用陈旧检测时出现 |
 | `metadata` | object | 附加元数据键值对（可选，存在时才出现） |
 
 ### 数据类型（type）

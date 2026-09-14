@@ -129,6 +129,12 @@ type DataPoint struct {
 	Quality   Quality           `json:"quality"`
 	Timestamp time.Time         `json:"timestamp"`
 	Metadata  map[string]string `json:"metadata,omitempty"`
+
+	// IsStale is set by the API layer when serving cached values that
+	// haven't been updated within the configured stale-threshold. It is
+	// not set during normal pipeline processing, so it does not appear
+	// in published payloads (omitempty).
+	IsStale bool `json:"is_stale,omitempty"`
 }
 
 // WriteCommand represents a command to write a value to a device.
@@ -146,6 +152,15 @@ type WriteResult struct {
 	Error   string `json:"error,omitempty"`
 }
 
+// DeadLetterEntry represents a failed write command stored in the dead
+// letter queue for later inspection or manual retry.
+type DeadLetterEntry struct {
+	Command  WriteCommand `json:"command"`
+	Error    string       `json:"error"`
+	FailedAt time.Time    `json:"failed_at"`
+	Attempts int          `json:"attempts"`
+}
+
 // TagConfig defines the configuration for a single tag/data point.
 type TagConfig struct {
 	Name     string  `yaml:"name"`
@@ -156,6 +171,14 @@ type TagConfig struct {
 	Scale    float64 `yaml:"scale,omitempty"`
 	Offset   float64 `yaml:"offset,omitempty"`
 	DeadBand float64 `yaml:"deadband,omitempty"`
+
+	// ReadTimeout is an optional per-tag read timeout, independent of the
+	// collection interval. When unset (empty), the scheduler falls back to
+	// the collection interval. This decouples "how often to poll" from
+	// "how long to wait for a response", which matters for high-frequency
+	// 采集 (e.g. interval=200ms but read-timeout=1s) and low-frequency
+	// 采集 (e.g. interval=10s but read-timeout=3s).
+	ReadTimeout string `yaml:"read-timeout,omitempty"`
 }
 
 // ─── Shared default constants ───────────────────────────────────────
