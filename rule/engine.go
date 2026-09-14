@@ -44,6 +44,34 @@ func (e *Engine) AddProvider(p core.RuleProvider) {
 	e.mu.Unlock()
 }
 
+// closer is an optional interface that rule providers may implement to
+// stop background goroutines (e.g. FileProvider's reloadLoop).
+type closer interface {
+	Close()
+}
+
+// CloseProviders closes and removes all registered rule providers,
+// stopping any background goroutines they started (e.g. reload loops).
+// This should be called during engine Stop/Reload to prevent goroutine
+// leaks (problem 4).
+func (e *Engine) CloseProviders() {
+	e.mu.Lock()
+	for name, p := range e.providers {
+		if c, ok := p.(closer); ok {
+			c.Close()
+		}
+		delete(e.providers, name)
+	}
+	e.mu.Unlock()
+}
+
+// ProviderCount returns the number of registered rule providers.
+func (e *Engine) ProviderCount() int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return len(e.providers)
+}
+
 // SetSubRules parses named sub-rule groups for SUB-RULE references.
 func (e *Engine) SetSubRules(groups map[string][]core.RuleConfig) error {
 	subEngines := make(map[string]*Engine, len(groups))

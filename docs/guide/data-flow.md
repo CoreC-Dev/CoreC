@@ -266,15 +266,34 @@ func (b *DataBus) Broadcast(point core.DataPoint) {
 
 ```go
 func (e *CoreCEngine) publishToTargets(point core.DataPoint, targets []string) {
+    // ① 锁内快照：查找 transport 和 batcher，避免锁外访问 map
+    e.mu.RLock()
+    snapshot := make([]publishTargetEntry, 0, len(targets))
     for _, targetName := range targets {
         transport, ok := e.transports[targetName]
-        if !ok {
-            continue  // 目标传输不存在，告警并跳过
+        if !ok { continue }       // 目标传输不存在，告警并跳过
+        entry := publishTargetEntry{name: targetName, transport: transport}
+        if batcher, ok := e.batchers[targetName]; ok {
+            entry.batcher = batcher  // 有批量配置则走 batcher
         }
-        transport.Publish(e.ctx, point)
+        snapshot = append(snapshot, entry)
+    }
+    e.mu.RUnlock()
+
+    // ② 锁外发布：避免慢网络 I/O 阻塞管理操作（AddDriver/RemoveDriver 等）
+    for _, entry := range snapshot {
+        if entry.batcher != nil {
+            entry.batcher.publish(e.ctx, point)  // 进入批量缓冲
+            continue
+        }
+        entry.transport.Publish(e.ctx, point)     // 直接发布
     }
 }
 ```
+
+::: info 锁分离设计
+`publishToTargets` 采用**锁内快照 + 锁外 I/O** 模式：在 `e.mu.RLock()` 下仅做 map 查找并快照到切片，释放读锁后再调用 `Publish`/`batcher.publish`。这避免了慢速网络发布阻塞 `AddDriver`/`RemoveDriver`/`AddTransport`/`RemoveTransport` 等需要写锁的管理操作。
+:::
 
 ### 阶段 9：北向发布（Transport.Publish）
 

@@ -161,6 +161,24 @@ func (s *scheduler) Resume() error {
 	return nil
 }
 
+// RemoveDriverTasks cancels and removes all scheduler tasks belonging to
+// the named driver. Unlike PauseDriver, which only sets a flag and leaves
+// the task goroutines running, this actually cancels their contexts and
+// removes them from the tasks map so the goroutines exit. This should be
+// called by RemoveDriver to prevent goroutine leaks when a driver is
+// permanently removed (problem 3).
+func (s *scheduler) RemoveDriverTasks(driverName string) {
+	s.mu.Lock()
+	for id, t := range s.tasks {
+		if t.task.Driver == driverName {
+			t.cancel()
+			delete(s.tasks, id)
+		}
+	}
+	delete(s.paused, driverName)
+	s.mu.Unlock()
+}
+
 func (s *scheduler) PauseDriver(name string) error {
 	s.mu.Lock()
 	s.paused[name] = true

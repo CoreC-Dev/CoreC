@@ -200,6 +200,20 @@ func ApplyConfig(cfg *core.Config, force bool) error {
 		if cfg.Global.API.TLSCert != oldCfg.Global.API.TLSCert || cfg.Global.API.TLSKey != oldCfg.Global.API.TLSKey {
 			slog.Warn("api TLS config changed but requires restart to take effect")
 		}
+
+		// Step 1c: Warn about config sections that ApplyConfig does not
+		// hot-apply. Rule providers, rule groups, and engine tuning
+		// parameters are silently ignored — warn so operators know a
+		// restart is needed (problem 5).
+		if !reflect.DeepEqual(oldCfg.RuleProviders, cfg.RuleProviders) {
+			slog.Warn("rule-providers changed but requires restart to take effect")
+		}
+		if !reflect.DeepEqual(oldCfg.RuleGroups, cfg.RuleGroups) {
+			slog.Warn("rule-groups changed but requires restart to take effect")
+		}
+		if !reflect.DeepEqual(oldCfg.Global.Engine, cfg.Global.Engine) {
+			slog.Warn("engine tuning parameters changed but require restart to take effect")
+		}
 	}
 
 	// Step 2: Suspend engine to pause task ticks
@@ -220,11 +234,17 @@ func ApplyConfig(cfg *core.Config, force bool) error {
 
 	// Step 3: Diff and update drivers
 	if err := diffDrivers(oldCfg.Drivers, cfg.Drivers, force); err != nil {
+		slog.Warn("config reload partially applied: driver diff failed; "+
+			"engine state may be inconsistent with currentCfg until next successful reload",
+			"error", err)
 		return fmt.Errorf("error updating drivers: %w", err)
 	}
 
 	// Step 4: Diff and update transports
 	if err := diffTransports(oldCfg.Transports, cfg.Transports, force); err != nil {
+		slog.Warn("config reload partially applied: transport diff failed; "+
+			"engine state may be inconsistent with currentCfg until next successful reload",
+			"error", err)
 		return fmt.Errorf("error updating transports: %w", err)
 	}
 
