@@ -170,7 +170,7 @@ func TestAutoFillNodeConfig(t *testing.T) {
 			Node: core.NodeConfig{ID: "edge-A", Role: "collector"},
 			Transports: []core.TransportConfig{
 				{Name: "mqtt", Type: "mqtt", Settings: map[string]any{
-					"broker":        "tcp://x:1883",
+					"broker":         "tcp://x:1883",
 					"topic-template": custom,
 				}},
 			},
@@ -189,7 +189,7 @@ func TestAutoFillNodeConfig(t *testing.T) {
 			Node: core.NodeConfig{ID: "edge-A", Role: "collector"},
 			Transports: []core.TransportConfig{
 				{Name: "mqtt", Type: "mqtt", Settings: map[string]any{
-					"broker":       "tcp://x:1883",
+					"broker":        "tcp://x:1883",
 					"command-topic": custom,
 				}},
 			},
@@ -207,7 +207,7 @@ func TestAutoFillNodeConfig(t *testing.T) {
 			Node: core.NodeConfig{ID: "relay-B", Role: "relay"},
 			Transports: []core.TransportConfig{
 				{Name: "mqtt", Type: "mqtt", Settings: map[string]any{
-					"broker":    "tcp://x:1883",
+					"broker":     "tcp://x:1883",
 					"data-topic": "upstream/#",
 				}},
 			},
@@ -233,9 +233,9 @@ func TestAutoFillNodeConfig(t *testing.T) {
 			Node: core.NodeConfig{ID: "gateway", Role: "relay"},
 			Transports: []core.TransportConfig{
 				{Name: "mqtt", Type: "mqtt", Settings: map[string]any{
-					"broker":    "tcp://x:1883",
+					"broker":     "tcp://x:1883",
 					"data-topic": "lora/+/up",
-					"parser":    customParser,
+					"parser":     customParser,
 				}},
 			},
 		}

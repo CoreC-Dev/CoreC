@@ -17,15 +17,15 @@ import (
 
 type mockEngineV2 struct {
 	core.Engine
-	stats       core.EngineStats
-	drivers     []core.DriverStatus
-	transports  []core.TransportStatus
+	stats        core.EngineStats
+	drivers      []core.DriverStatus
+	transports   []core.TransportStatus
 	tagsByDriver map[string]map[string]core.DataPoint
-	writeErr    error
-	writeResult core.WriteResult
-	ruleStats   []core.RuleStat
-	disabledIdx int
-	disabledVal bool
+	writeErr     error
+	writeResult  core.WriteResult
+	ruleStats    []core.RuleStat
+	disabledIdx  int
+	disabledVal  bool
 }
 
 func (m *mockEngineV2) Stats() core.EngineStats { return m.stats }
@@ -48,7 +48,7 @@ func (m *mockEngineV2) LatestValues(driver string) map[string]core.DataPoint {
 	return m.tagsByDriver[driver]
 }
 
-func (m *mockEngineV2) StaleThreshold() time.Duration { return 0 }
+func (m *mockEngineV2) StaleThreshold() time.Duration             { return 0 }
 func (m *mockEngineV2) DeadLetterEntries() []core.DeadLetterEntry { return nil }
 
 func (m *mockEngineV2) WriteTag(ctx context.Context, cmd core.WriteCommand) (*core.WriteResult, error) {
@@ -143,7 +143,7 @@ func TestGetDriverTags(t *testing.T) {
 	eng := &mockEngineV2{
 		tagsByDriver: map[string]map[string]core.DataPoint{
 			"plc1": {
-				"temp": {Driver: "plc1", Tag: "temp", Value: 42.5},
+				"temp":  {Driver: "plc1", Tag: "temp", Value: 42.5},
 				"press": {Driver: "plc1", Tag: "press", Value: 101.3},
 			},
 		},

@@ -1,6 +1,7 @@
 package s7
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/CoreC-Dev/CoreC/core"
@@ -150,5 +151,56 @@ func TestS7EncodeDecode(t *testing.T) {
 	}
 	if valUint.(uint16) != uint16(12345) {
 		t.Errorf("expected 12345, got %v", valUint)
+	}
+}
+
+// TestS7DecodeBufferTooSmall verifies that decodeS7Buffer returns a graceful
+// error instead of panicking when the buffer is too small for the configured
+// data type (H14). This happens when an address kind and data type disagree,
+// e.g. DB1.DBB0 (1-byte buffer) configured with type uint16.
+func TestS7DecodeBufferTooSmall(t *testing.T) {
+	h := &gos7.Helper{}
+
+	tests := []struct {
+		name string
+		buf  []byte
+		dt   core.DataType
+		addr s7Address
+	}{
+		{"uint16 on 1-byte buffer", []byte{0x01}, core.TypeUint16, s7Address{start: 0, size: 1}},
+		{"int16 on 1-byte buffer", []byte{0x01}, core.TypeInt16, s7Address{start: 0, size: 1}},
+		{"uint32 on 2-byte buffer", []byte{0x01, 0x02}, core.TypeUint32, s7Address{start: 0, size: 2}},
+		{"int32 on 2-byte buffer", []byte{0x01, 0x02}, core.TypeInt32, s7Address{start: 0, size: 2}},
+		{"float32 on 1-byte buffer", []byte{0x01}, core.TypeFloat32, s7Address{start: 0, size: 1}},
+		{"float64 on 4-byte buffer", []byte{0x01, 0x02, 0x03, 0x04}, core.TypeFloat64, s7Address{start: 0, size: 4}},
+		{"uint8 on 0-byte buffer", []byte{}, core.TypeUint8, s7Address{start: 0, size: 0}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// This must return an error, not panic.
+			val, err := decodeS7Buffer(tt.buf, tt.addr, tt.dt, h)
+			if err == nil {
+				t.Fatalf("expected error, got value %v", val)
+			}
+			if !strings.Contains(err.Error(), "buffer too small") {
+				t.Errorf("expected 'buffer too small' error, got: %v", err)
+			}
+		})
+	}
+}
+
+// TestS7DecodeBufferSizedOK verifies that correctly-sized buffers still decode
+// successfully after the bounds-check change (a regression guard for H14).
+func TestS7DecodeBufferSizedOK(t *testing.T) {
+	h := &gos7.Helper{}
+
+	// uint16 on a 2-byte buffer should still work.
+	addr := s7Address{start: 0, size: 2}
+	val, err := decodeS7Buffer([]byte{0x30, 0x39}, addr, core.TypeUint16, h)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if val.(uint16) != 12345 {
+		t.Errorf("expected 12345, got %v", val)
 	}
 }

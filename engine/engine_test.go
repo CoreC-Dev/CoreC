@@ -24,7 +24,10 @@ func TestDataBus(t *testing.T) {
 	bus := NewDataBus(10)
 	defer bus.Close()
 
-	subCh, unsub := bus.Subscribe("test")
+	// Subscribe with a filter matching the DataPoint's Driver field.
+	// (Broadcast only delivers to subscribers whose filter is "" or equals
+	// the point's Driver.)
+	subCh, unsub := bus.Subscribe("test-driver")
 	defer unsub()
 
 	dp := core.DataPoint{

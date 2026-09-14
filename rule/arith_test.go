@@ -20,8 +20,8 @@ func TestEvalArith(t *testing.T) {
 		{"value * 2", 3.5, 7},
 		{"value / 2", 7, 3.5},
 		{"-value", 5, -5},
-		{"value + 1 * 2", 10, 12},     // precedence: 10 + (1*2)
-		{"(value + 1) * 2", 10, 22},   // grouping
+		{"value + 1 * 2", 10, 12},   // precedence: 10 + (1*2)
+		{"(value + 1) * 2", 10, 22}, // grouping
 		{"3.14", 0, 3.14},
 		{"value * value", 4, 16},
 	}
@@ -39,13 +39,13 @@ func TestEvalArith(t *testing.T) {
 
 func TestEvalArithErrors(t *testing.T) {
 	errorCases := []string{
-		"",                 // empty
-		"value +",          // incomplete
-		"value / 0",        // division by zero
-		"foo",              // unknown variable
-		"value +",          // trailing operator
-		"(value + 1",       // unclosed paren
-		"value @ 2",        // invalid char
+		"",           // empty
+		"value +",    // incomplete
+		"value / 0",  // division by zero
+		"foo",        // unknown variable
+		"value +",    // trailing operator
+		"(value + 1", // unclosed paren
+		"value @ 2",  // invalid char
 	}
 	for _, expr := range errorCases {
 		_, err := EvalArith(expr, 1)

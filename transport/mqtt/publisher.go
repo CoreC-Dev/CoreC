@@ -4,6 +4,9 @@ package mqtt
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -43,6 +46,7 @@ type MQTTTransport struct {
 	retained      bool
 	topicTemplate *template.Template
 	commandTopic  string
+	commandSecret string // HMAC-SHA256 secret for authenticating command messages; empty = no auth
 	dataTopic     string // topic to subscribe for incoming data (chained-core inbound)
 	dataParser    parser.Parser
 
@@ -160,6 +164,14 @@ func (t *MQTTTransport) Init(ctx context.Context, config core.TransportConfig) e
 		t.commandTopic = cmdTopic
 	}
 
+	// Parse command secret (HMAC-SHA256 shared secret for authenticating
+	// command messages). When set, every command message must carry a
+	// valid signature; when empty, commands are accepted unauthenticated
+	// (backward-compatible, but a warning is logged at Start() time).
+	if cmdSecret, ok := settings["command-secret"].(string); ok {
+		t.commandSecret = cmdSecret
+	}
+
 	// Parse data topic (for receiving data points — chained core inbound)
 	if dataTopic, ok := settings["data-topic"].(string); ok && dataTopic != "" {
 		t.dataTopic = dataTopic
@@ -181,6 +193,16 @@ func (t *MQTTTransport) Init(ctx context.Context, config core.TransportConfig) e
 
 func (t *MQTTTransport) Start(ctx context.Context) error {
 	t.ctx, t.cancel = context.WithCancel(ctx)
+
+	// Warn if a command topic is configured without a command secret: in
+	// that mode command messages are accepted unauthenticated, which is
+	// insecure in any deployment where untrusted clients can publish to
+	// the command topic. This preserves backward compatibility while
+	// making the risk visible at startup.
+	if t.commandTopic != "" && t.commandSecret == "" {
+		slog.Warn("mqtt command topic has no command-secret; accepting unauthenticated command messages",
+			"name", t.name, "topic", t.commandTopic)
+	}
 
 	// Build MQTT client options
 	opts := pahomqtt.NewClientOptions()
@@ -238,6 +260,20 @@ func (t *MQTTTransport) Start(ctx context.Context) error {
 
 	token := t.client.Connect()
 	if ok := token.WaitTimeout(t.connectTimeout); !ok {
+		// If neither auto-reconnect nor connect-retry is enabled, there is
+		// no background mechanism that will ever establish the connection,
+		// so reporting success would leave the engine believing the
+		// transport is healthy while it is permanently stuck. Surface the
+		// failure instead. When a retry mechanism is enabled, keep the
+		// historical behaviour and let the background retry recover.
+		if !t.autoReconnect && !t.connectRetry {
+			t.mu.Lock()
+			t.state = core.StateError
+			t.mu.Unlock()
+			slog.Error("mqtt connect timed out and auto-reconnect is disabled",
+				"name", t.name, "broker", t.broker)
+			return fmt.Errorf("mqtt: connect to %s timed out after %s", t.broker, t.connectTimeout)
+		}
 		slog.Warn("mqtt connect timed out, will retry in background",
 			"name", t.name, "broker", t.broker)
 		// Don't fail — ConnectRetry will handle it
@@ -245,6 +281,14 @@ func (t *MQTTTransport) Start(ctx context.Context) error {
 	}
 
 	if err := token.Error(); err != nil {
+		if !t.autoReconnect && !t.connectRetry {
+			t.mu.Lock()
+			t.state = core.StateError
+			t.mu.Unlock()
+			slog.Error("mqtt connect failed and auto-reconnect is disabled",
+				"name", t.name, "error", err)
+			return fmt.Errorf("mqtt: connect to %s failed: %w", t.broker, err)
+		}
 		slog.Warn("mqtt connect failed, will retry in background",
 			"name", t.name, "error", err)
 		// Don't fail — ConnectRetry will handle it
@@ -257,26 +301,7 @@ func (t *MQTTTransport) Start(ctx context.Context) error {
 
 func (t *MQTTTransport) subscribeCommands(c pahomqtt.Client) {
 	token := c.Subscribe(t.commandTopic, t.qos, func(client pahomqtt.Client, msg pahomqtt.Message) {
-		slog.Debug("mqtt command received",
-			"topic", msg.Topic(),
-			"payload_size", len(msg.Payload()),
-		)
-
-		var cmd core.WriteCommand
-		if err := json.Unmarshal(msg.Payload(), &cmd); err != nil {
-			slog.Error("mqtt: failed to parse command",
-				"topic", msg.Topic(),
-				"error", err,
-			)
-			return
-		}
-
-		select {
-		case t.commandCh <- cmd:
-		default:
-			slog.Warn("mqtt command channel full, dropping command",
-				"driver", cmd.Driver, "tag", cmd.Tag)
-		}
+		t.handleCommandMessage(msg.Topic(), msg.Payload())
 	})
 
 	if !token.WaitTimeout(t.subscribeTimeout) {
@@ -289,6 +314,86 @@ func (t *MQTTTransport) subscribeCommands(c pahomqtt.Client) {
 		slog.Info("mqtt subscribed to command topic",
 			"name", t.name, "topic", t.commandTopic)
 	}
+}
+
+// handleCommandMessage processes a single command-topic message: it
+// verifies the HMAC-SHA256 signature (when a command-secret is
+// configured), unmarshals the payload into a WriteCommand, and forwards
+// it to the command channel.  Messages that fail authentication or
+// parsing are logged and dropped.
+func (t *MQTTTransport) handleCommandMessage(topic string, payload []byte) {
+	slog.Debug("mqtt command received",
+		"topic", topic,
+		"payload_size", len(payload),
+	)
+
+	// Message-level authentication: when a command-secret is configured,
+	// every command message must carry a valid HMAC-SHA256 signature over
+	// the raw payload bytes.  The signature is carried in either an
+	// "X-Signature" or "signature" JSON field.  This prevents any client
+	// that can merely publish to the command topic from injecting
+	// arbitrary control commands.
+	if t.commandSecret != "" {
+		provided := extractCommandSignature(payload)
+		if !verifyHMACSignature(t.commandSecret, payload, provided) {
+			slog.Error("mqtt: command signature verification failed, dropping command",
+				"topic", topic, "name", t.name)
+			return
+		}
+	}
+
+	var cmd core.WriteCommand
+	if err := json.Unmarshal(payload, &cmd); err != nil {
+		slog.Error("mqtt: failed to parse command",
+			"topic", topic,
+			"error", err,
+		)
+		return
+	}
+
+	select {
+	case t.commandCh <- cmd:
+	default:
+		slog.Warn("mqtt command channel full, dropping command",
+			"driver", cmd.Driver, "tag", cmd.Tag)
+	}
+}
+
+// extractCommandSignature pulls the signature from a command JSON
+// payload.  It accepts either an "X-Signature" field or a "signature"
+// field (X-Signature takes precedence).  Returns an empty string when
+// the payload is not valid JSON or neither field is present.
+func extractCommandSignature(payload []byte) string {
+	var sig struct {
+		XSignature string `json:"X-Signature"`
+		Signature  string `json:"signature"`
+	}
+	if err := json.Unmarshal(payload, &sig); err != nil {
+		return ""
+	}
+	if sig.XSignature != "" {
+		return sig.XSignature
+	}
+	return sig.Signature
+}
+
+// computeHMACSignature returns hex(HMAC-SHA256(secret, payload)).
+func computeHMACSignature(secret string, payload []byte) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(payload)
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// verifyHMACSignature reports whether provided matches the expected
+// HMAC-SHA256 signature of payload under secret, using a constant-time
+// comparison.  An empty secret disables verification (always true) for
+// backward compatibility.
+func verifyHMACSignature(secret string, payload []byte, provided string) bool {
+	if secret == "" {
+		return true
+	}
+	expected := computeHMACSignature(secret, payload)
+	return hmac.Equal([]byte(provided), []byte(expected))
 }
 
 // subscribeData subscribes to the data topic and feeds parsed DataPoints

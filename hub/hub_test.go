@@ -163,12 +163,12 @@ func TestStartWithAPITimeouts(t *testing.T) {
 		Global: core.GlobalConfig{
 			LogLevel: "info",
 			API: core.APIConfig{
-				Listen:             "127.0.0.1:0",
-				Secret:             "test-secret",
-				ReadHeaderTimeout:  "5s",
-				ReadTimeout:        "10s",
-				WriteTimeout:       "10s",
-				IdleTimeout:        "30s",
+				Listen:            "127.0.0.1:0",
+				Secret:            "test-secret",
+				ReadHeaderTimeout: "5s",
+				ReadTimeout:       "10s",
+				WriteTimeout:      "10s",
+				IdleTimeout:       "30s",
 			},
 		},
 	}
@@ -183,12 +183,12 @@ func TestStartWithInvalidTimeouts(t *testing.T) {
 		Global: core.GlobalConfig{
 			LogLevel: "info",
 			API: core.APIConfig{
-				Listen:             "127.0.0.1:0",
-				Secret:             "test-secret",
-				ReadHeaderTimeout:  "invalid",
-				ReadTimeout:        "also-invalid",
-				WriteTimeout:       "",
-				IdleTimeout:        "",
+				Listen:            "127.0.0.1:0",
+				Secret:            "test-secret",
+				ReadHeaderTimeout: "invalid",
+				ReadTimeout:       "also-invalid",
+				WriteTimeout:      "",
+				IdleTimeout:       "",
 			},
 		},
 	}

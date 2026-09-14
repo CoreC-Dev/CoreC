@@ -17,13 +17,13 @@ import (
 // common case; ALL and complex-expression rules fall back to
 // a linear scan.
 type Engine struct {
-	mu        sync.RWMutex
-	rules     []core.Rule
-	byTag     map[string][]core.Rule // tag == 'xxx' → rules
-	byDriver  map[string][]core.Rule // driver == 'xxx' → rules
-	allRules  []core.Rule            // match: ALL
-	other     []core.Rule            // complex expressions (linear scan)
-	providers map[string]core.RuleProvider
+	mu         sync.RWMutex
+	rules      []core.Rule
+	byTag      map[string][]core.Rule // tag == 'xxx' → rules
+	byDriver   map[string][]core.Rule // driver == 'xxx' → rules
+	allRules   []core.Rule            // match: ALL
+	other      []core.Rule            // complex expressions (linear scan)
+	providers  map[string]core.RuleProvider
 	subEngines map[string]*Engine // sub-rule groups
 }
 
@@ -163,7 +163,12 @@ func (e *Engine) SetRules(configs []core.RuleConfig) error {
 		wrapped[i] = newRuleWrapper(r)
 	}
 
-	// Build indexes for O(1) lookup
+	// Build indexes for O(1) lookup.
+	//
+	// NOTE (M38): these indexes are currently built but not consumed by Match,
+	// which keeps a linear scan to preserve priority ordering and per-rule
+	// hit/miss statistics. They are retained for a future statistics-relaxed
+	// fast path. See the Match doc comment for the full rationale.
 	byTag := make(map[string][]core.Rule)
 	byDriver := make(map[string][]core.Rule)
 	var allRules, other []core.Rule
@@ -300,17 +305,34 @@ func actionToString(a core.Action) string {
 
 // MatchResult contains the matched rule and resolved targets.
 type MatchResult struct {
-	Rule     core.Rule
-	Targets  []string
+	Rule      core.Rule
+	Targets   []string
 	Transform *core.TransformConfig
 }
 
 // Match finds the first matching rule for a DataPoint.
 // Rules are evaluated in priority order (lower priority = higher precedence).
-// A linear scan is used so that every evaluated rule updates its hit/miss
-// statistics — tag/driver indexed lookup would skip non-matching rules,
-// leaving their miss count at 0.
 // Returns nil if no rule matches.
+//
+// M38: SetRules builds byTag/byDriver/allRules/other indexes for O(1) lookup,
+// but Match intentionally keeps a linear scan over e.rules. Using the indexes
+// directly would break two invariants that existing tests rely on:
+//
+//  1. Priority order — candidates gathered from separate index buckets
+//     (allRules, byDriver, byTag, other) are each sorted by priority but are
+//     NOT globally sorted across buckets, so the first bucket hit could be a
+//     lower-priority rule than one in another bucket (see TestEngineMatch).
+//  2. Statistics — ruleWrapper.Match updates hit/miss counters on every
+//     evaluation. Indexed lookup skips rules whose indexed tag/driver differs
+//     from the point, so those rules would never record their misses even
+//     though they sit before the first match in priority order (see
+//     TestRuleStats / TestWrapperStats). Because matchInRules returns on the
+//     first match, only rules up to and including that match are evaluated —
+//     exactly the set the linear scan covers.
+//
+// The indexes are retained for a future fast path that can relax the
+// statistics requirement (e.g. a "match-only" code path that does not need
+// per-rule hit/miss counters). Correctness is preserved over performance.
 func (e *Engine) Match(point core.DataPoint) *MatchResult {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -327,8 +349,8 @@ func (e *Engine) matchInRules(point core.DataPoint, rules []core.Rule) *MatchRes
 				targets = []string{r.Target()}
 			}
 			return &MatchResult{
-				Rule:     r,
-				Targets:  targets,
+				Rule:      r,
+				Targets:   targets,
 				Transform: r.Transform(),
 			}
 		}
@@ -426,13 +448,13 @@ func (r *simpleRule) Match(point core.DataPoint) bool {
 	return false
 }
 
-func (r *simpleRule) Action() core.Action { return r.action }
-func (r *simpleRule) Target() string      { return r.target }
-func (r *simpleRule) Targets() []string   { return r.targets }
-func (r *simpleRule) Priority() int       { return r.priority }
-func (r *simpleRule) Name() string        { return r.name }
-func (r *simpleRule) Payload() string     { return r.matchExpr }
-func (r *simpleRule) RuleType() string    { return "simple" }
+func (r *simpleRule) Action() core.Action              { return r.action }
+func (r *simpleRule) Target() string                   { return r.target }
+func (r *simpleRule) Targets() []string                { return r.targets }
+func (r *simpleRule) Priority() int                    { return r.priority }
+func (r *simpleRule) Name() string                     { return r.name }
+func (r *simpleRule) Payload() string                  { return r.matchExpr }
+func (r *simpleRule) RuleType() string                 { return "simple" }
 func (r *simpleRule) Transform() *core.TransformConfig { return r.transform }
 func (r *simpleRule) String() string {
 	return fmt.Sprintf("Rule{name=%s, match=%s, action=%d, target=%s, priority=%d}",
@@ -471,13 +493,13 @@ func newRuleSetRule(cfg core.RuleConfig, p core.RuleProvider) (*ruleSetRule, err
 func (r *ruleSetRule) Match(point core.DataPoint) bool {
 	return r.provider.Match(point)
 }
-func (r *ruleSetRule) Action() core.Action { return r.action }
-func (r *ruleSetRule) Target() string      { return r.target }
-func (r *ruleSetRule) Targets() []string   { return r.targets }
-func (r *ruleSetRule) Priority() int       { return r.priority }
-func (r *ruleSetRule) Name() string        { return r.name }
-func (r *ruleSetRule) Payload() string     { return fmt.Sprintf("RULE-SET:%s", r.provider.Name()) }
-func (r *ruleSetRule) RuleType() string    { return "rule-set" }
+func (r *ruleSetRule) Action() core.Action              { return r.action }
+func (r *ruleSetRule) Target() string                   { return r.target }
+func (r *ruleSetRule) Targets() []string                { return r.targets }
+func (r *ruleSetRule) Priority() int                    { return r.priority }
+func (r *ruleSetRule) Name() string                     { return r.name }
+func (r *ruleSetRule) Payload() string                  { return fmt.Sprintf("RULE-SET:%s", r.provider.Name()) }
+func (r *ruleSetRule) RuleType() string                 { return "rule-set" }
 func (r *ruleSetRule) Transform() *core.TransformConfig { return nil }
 func (r *ruleSetRule) String() string {
 	return fmt.Sprintf("RuleSet{name=%s, provider=%s, action=%d, target=%s}",
@@ -525,7 +547,7 @@ func (r *subRuleRef) Name() string        { return r.name }
 func (r *subRuleRef) Payload() string {
 	return fmt.Sprintf("SUB-RULE:%s", r.name)
 }
-func (r *subRuleRef) RuleType() string { return "sub-rule" }
+func (r *subRuleRef) RuleType() string                 { return "sub-rule" }
 func (r *subRuleRef) Transform() *core.TransformConfig { return nil }
 func (r *subRuleRef) String() string {
 	return fmt.Sprintf("SubRule{name=%s, action=%d, target=%s}", r.name, r.action, r.target)

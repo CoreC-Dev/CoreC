@@ -22,7 +22,7 @@ type configOverview struct {
 }
 
 type globalOverview struct {
-	LogLevel string `json:"log-level"`
+	LogLevel string      `json:"log-level"`
 	API      apiOverview `json:"api"`
 }
 

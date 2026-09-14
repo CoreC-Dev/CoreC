@@ -47,18 +47,25 @@ type s7Address struct {
 type S7Driver struct {
 	mu sync.RWMutex
 
+	// writeMu serializes bit-write read-modify-write sequences. Writing a
+	// single bit requires reading the containing byte, modifying one bit, and
+	// writing the byte back; without serialization, concurrent bit writes to
+	// the same byte can lose updates. It is separate from mu (which protects
+	// config/state) so non-bit writes and reads are not blocked by it.
+	writeMu sync.Mutex
+
 	name   string
 	config core.DriverConfig
 
 	// Connection settings
-	host               string
-	port               int
-	rack               int
-	slot               int
-	timeout            time.Duration
-	idleTimeout        time.Duration
-	reconnectBackoff   time.Duration
-	maxReconnectBackoff time.Duration
+	host                 string
+	port                 int
+	rack                 int
+	slot                 int
+	timeout              time.Duration
+	idleTimeout          time.Duration
+	reconnectBackoff     time.Duration
+	maxReconnectBackoff  time.Duration
 	maxReconnectFailures int // circuit breaker threshold; 0 = disabled
 
 	// Connection instances
@@ -385,8 +392,17 @@ func (d *S7Driver) writeAddress(client gos7.Client, addr s7Address, cmd core.Wri
 		return fmt.Errorf("s7 encode %s: %w", cmd.Tag, err)
 	}
 
-	// If writing a single bit, we must read-modify-write byte
+	// If writing a single bit, we must read-modify-write the containing byte.
+	// The read and the write are separate PLC operations, so without
+	// serialization two concurrent bit writes to the same byte can lose
+	// updates (each reads the old byte, sets its own bit, and writes back,
+	// clobbering the other). Acquire writeMu for the whole read-modify-write
+	// sequence (the deferred unlock releases it after the write below).
+	// Non-bit writes do not need this lock.
 	if addr.isBit {
+		d.writeMu.Lock()
+		defer d.writeMu.Unlock()
+
 		currentByte := make([]byte, 1)
 		switch addr.area {
 		case areaDB:
@@ -600,6 +616,26 @@ func dataSizeForKind(kind string, dt core.DataType) int {
 func decodeS7Buffer(buf []byte, addr s7Address, dt core.DataType, h *gos7.Helper) (any, error) {
 	if addr.isBit {
 		return h.GetBoolAt(buf[0], addr.bit), nil
+	}
+
+	// Verify the buffer is large enough for the requested data type. A
+	// mismatch between the address kind and the configured type (e.g. a
+	// DBB0 byte address configured with type uint16, yielding a 1-byte
+	// buffer) would otherwise cause an index-out-of-range panic inside the
+	// decoding helpers below. Convert that into a graceful error.
+	requiredSize := 0
+	switch dt {
+	case core.TypeBool, core.TypeUint8, core.TypeInt8, core.TypeString:
+		requiredSize = 1
+	case core.TypeUint16, core.TypeInt16:
+		requiredSize = 2
+	case core.TypeUint32, core.TypeInt32, core.TypeFloat32:
+		requiredSize = 4
+	case core.TypeFloat64:
+		requiredSize = 8
+	}
+	if requiredSize > 0 && len(buf) < requiredSize {
+		return nil, fmt.Errorf("s7: buffer too small for type %s: have %d bytes, need %d", dt, len(buf), requiredSize)
 	}
 
 	switch dt {

@@ -9,11 +9,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gopcua/opcua"
-	"github.com/gopcua/opcua/ua"
-	"github.com/CoreC-Dev/CoreC/engine/statistic"
 	"github.com/CoreC-Dev/CoreC/common/util"
 	"github.com/CoreC-Dev/CoreC/core"
+	"github.com/CoreC-Dev/CoreC/engine/statistic"
+	"github.com/gopcua/opcua"
+	"github.com/gopcua/opcua/ua"
 )
 
 // OPCUADriver implements core.Driver for OPC UA protocol.
@@ -24,19 +24,19 @@ type OPCUADriver struct {
 	config core.DriverConfig
 
 	// OPC UA settings
-	endpoint            string
-	securityPolicy      string
-	securityMode        string
-	username            string
-	password            string
-	certFile            string
-	keyFile             string
-	timeout             time.Duration
-	reconnectBackoff    time.Duration
-	maxReconnectBackoff time.Duration
+	endpoint             string
+	securityPolicy       string
+	securityMode         string
+	username             string
+	password             string
+	certFile             string
+	keyFile              string
+	timeout              time.Duration
+	reconnectBackoff     time.Duration
+	maxReconnectBackoff  time.Duration
 	maxReconnectFailures int // circuit breaker threshold; 0 = disabled
-	subBufferSize       int
-	maxBatchSize        int
+	subBufferSize        int
+	maxBatchSize         int
 
 	// OPC UA client
 	client *opcua.Client
@@ -79,12 +79,12 @@ func NewOPCUADriver(config core.DriverConfig) (core.Driver, error) {
 		bufSize = int(v)
 	}
 	d := &OPCUADriver{
-		name:         config.Name,
-		config:       config,
-		tags:         make(map[string]core.TagConfig),
-		nodeIDs:      make(map[string]*ua.NodeID),
-		state:        core.StateDisconnected,
-		subChannel:   make(chan core.DataPoint, bufSize),
+		name:          config.Name,
+		config:        config,
+		tags:          make(map[string]core.TagConfig),
+		nodeIDs:       make(map[string]*ua.NodeID),
+		state:         core.StateDisconnected,
+		subChannel:    make(chan core.DataPoint, bufSize),
 		subBufferSize: bufSize,
 	}
 	return d, nil
@@ -534,6 +534,12 @@ func (d *OPCUADriver) Write(ctx context.Context, commands []core.WriteCommand) (
 
 	results := make([]core.WriteResult, len(commands))
 	writeValues := make([]*ua.WriteValue, 0, len(commands))
+	// validIndices tracks the original command index for each entry in
+	// writeValues. Skipped commands (tag not found, variant error) are
+	// excluded from writeValues, so resp.Results indexes writeValues, not
+	// commands. Without this mapping, results would be written to the wrong
+	// positions whenever any command is skipped.
+	validIndices := make([]int, 0, len(commands))
 
 	for i, cmd := range commands {
 		d.mu.RLock()
@@ -565,6 +571,7 @@ func (d *OPCUADriver) Write(ctx context.Context, commands []core.WriteCommand) (
 				Value:        variant,
 			},
 		})
+		validIndices = append(validIndices, i)
 	}
 
 	if len(writeValues) == 0 {
@@ -581,10 +588,11 @@ func (d *OPCUADriver) Write(ctx context.Context, commands []core.WriteCommand) (
 	}
 
 	for i, code := range resp.Results {
+		origIdx := validIndices[i]
 		if code == ua.StatusOK {
-			results[i] = core.WriteResult{Success: true}
+			results[origIdx] = core.WriteResult{Success: true}
 		} else {
-			results[i] = core.WriteResult{
+			results[origIdx] = core.WriteResult{
 				Success: false,
 				Error:   fmt.Sprintf("opcua write status: %v", code),
 			}

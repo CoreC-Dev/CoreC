@@ -36,11 +36,11 @@ type transportBatcher struct {
 	// offlineBuffer stores failed batches for later replay. nil = disabled.
 	offlineBuffer *OfflineBuffer
 
-	mu      sync.Mutex
-	buffer  []core.DataPoint
-	ctx     context.Context
-	cancel  context.CancelFunc
-	wg      sync.WaitGroup // tracks the flushLoop + drainLoop goroutines
+	mu     sync.Mutex
+	buffer []core.DataPoint
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup // tracks the flushLoop + drainLoop goroutines
 }
 
 // newTransportBatcher creates a batcher if batching config is set, otherwise returns nil.

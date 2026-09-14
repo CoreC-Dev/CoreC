@@ -33,12 +33,13 @@ type HTTPTransport struct {
 	timeout time.Duration
 
 	// Webhook server (chained-core inbound — receives data via HTTP POST)
-	webhookAddr string // listen address, e.g. ":9090"
-	webhookPath string // URL path, e.g. "/data"
-	webhookSrv  *http.Server
-	dataParser  parser.Parser
-	dataCh      chan core.DataPoint
-	received    atomic.Uint64
+	webhookAddr   string // listen address, e.g. ":9090"
+	webhookPath   string // URL path, e.g. "/data"
+	webhookSecret string // shared secret for authenticating webhook requests; empty = no auth
+	webhookSrv    *http.Server
+	dataParser    parser.Parser
+	dataCh        chan core.DataPoint
+	received      atomic.Uint64
 
 	// State
 	state core.ConnState
@@ -78,6 +79,11 @@ func NewHTTPTransport(config core.TransportConfig) (core.Transport, error) {
 func (t *HTTPTransport) Init(ctx context.Context, config core.TransportConfig) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
+	// Keep the full config so PublishBatch can read RetryCount.  This is
+	// set here (under the lock) rather than only at construction so that
+	// a re-Init with a different config is honoured.
+	t.config = config
 
 	settings := config.Settings
 
@@ -134,6 +140,15 @@ func (t *HTTPTransport) Init(ctx context.Context, config core.TransportConfig) e
 	if addr, ok := settings["webhook-addr"].(string); ok && addr != "" {
 		t.webhookAddr = addr
 		t.webhookPath = getStringSetting(settings, "webhook-path", "/data")
+		// Optional shared secret for authenticating webhook POSTs.
+		// When set, requests must carry it in either an
+		// "Authorization: Bearer <secret>" header or an
+		// "X-Webhook-Secret: <secret>" header.  When empty, requests
+		// are accepted unauthenticated (backward-compatible, but a
+		// warning is logged at Start() time).
+		if secret, ok := settings["webhook-secret"].(string); ok {
+			t.webhookSecret = secret
+		}
 		p, err := parser.New(settings)
 		if err != nil {
 			return fmt.Errorf("http transport: invalid parser config: %w", err)
@@ -158,6 +173,13 @@ func (t *HTTPTransport) Start(ctx context.Context) error {
 
 	// Start webhook server if configured (chained-core inbound)
 	if t.webhookAddr != "" {
+		// Warn when the webhook has no shared secret: in that mode any
+		// client can POST data to the webhook endpoint.  This keeps
+		// backward compatibility while making the risk visible.
+		if t.webhookSecret == "" {
+			slog.Warn("http webhook has no webhook-secret; accepting unauthenticated requests",
+				"name", t.name, "addr", t.webhookAddr, "path", t.webhookPath)
+		}
 		mux := http.NewServeMux()
 		mux.HandleFunc(t.webhookPath, t.handleWebhook)
 		t.webhookSrv = &http.Server{
@@ -226,7 +248,11 @@ func (t *HTTPTransport) PublishBatch(ctx context.Context, points []core.DataPoin
 	for k, v := range t.headers {
 		headers[k] = v
 	}
+	retryCount := t.config.RetryCount
 	t.mu.RUnlock()
+	if retryCount < 0 {
+		retryCount = 0
+	}
 
 	payload, err := json.Marshal(points)
 	if err != nil {
@@ -234,38 +260,68 @@ func (t *HTTPTransport) PublishBatch(ctx context.Context, points []core.DataPoin
 		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(payload))
-	if err != nil {
-		t.failed.Add(uint64(len(points)))
-		return fmt.Errorf("failed to create http request: %w", err)
+	// Retry transient failures up to RetryCount times with exponential
+	// backoff (500ms, 1s, 2s, ...).  Transient failures are network
+	// errors and 5xx responses; 4xx (and other non-2xx non-5xx) responses
+	// are client errors that will not change on retry and are returned
+	// immediately.  A RetryCount of 0 disables retry (single attempt),
+	// preserving the previous behaviour.
+	var lastErr error
+	backoff := 500 * time.Millisecond
+	maxAttempts := retryCount + 1
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				t.failed.Add(uint64(len(points)))
+				return fmt.Errorf("http push cancelled during retry: %w", ctx.Err())
+			case <-time.After(backoff):
+			}
+			backoff *= 2
+		}
+
+		req, rerr := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(payload))
+		if rerr != nil {
+			t.failed.Add(uint64(len(points)))
+			return fmt.Errorf("failed to create http request: %w", rerr)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+
+		resp, derr := client.Do(req)
+		if derr != nil {
+			// Network error — transient, retry.
+			lastErr = fmt.Errorf("http push error: %w", derr)
+			slog.Warn("http push failed, will retry",
+				"name", t.name, "attempt", attempt+1, "max", maxAttempts, "error", derr)
+			continue
+		}
+
+		// Drain and close the body so the connection can be reused.
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			t.published.Add(uint64(len(points)))
+			t.mu.Lock()
+			t.lastPublish = time.Now()
+			t.mu.Unlock()
+			return nil
+		}
+
+		lastErr = fmt.Errorf("http push returned non-2xx status: %d", resp.StatusCode)
+		// Only 5xx is retried; 4xx and other non-2xx are terminal.
+		if resp.StatusCode < 500 || resp.StatusCode >= 600 {
+			break
+		}
+		slog.Warn("http push returned 5xx, will retry",
+			"name", t.name, "attempt", attempt+1, "max", maxAttempts, "status", resp.StatusCode)
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		t.failed.Add(uint64(len(points)))
-		return fmt.Errorf("http push error: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Drain body
-	_, _ = io.Copy(io.Discard, resp.Body)
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		t.failed.Add(uint64(len(points)))
-		return fmt.Errorf("http push returned non-2xx status: %d", resp.StatusCode)
-	}
-
-	t.published.Add(uint64(len(points)))
-	t.mu.Lock()
-	t.lastPublish = time.Now()
-	t.mu.Unlock()
-
-	return nil
+	t.failed.Add(uint64(len(points)))
+	return lastErr
 }
 
 func (t *HTTPTransport) OnCommand() <-chan core.WriteCommand {
@@ -281,6 +337,11 @@ func (t *HTTPTransport) OnData() <-chan core.DataPoint {
 	return t.dataCh
 }
 
+// webhookMaxBodyBytes is the hard cap on a single webhook request body.
+// It protects the process from OOM caused by oversized or malicious
+// payloads (H1).
+const webhookMaxBodyBytes = 10 * 1024 * 1024 // 10 MiB
+
 // handleWebhook processes incoming POST requests containing DataPoint JSON
 // (single object or array).  This is the chained-core inbound path for
 // HTTP.
@@ -290,8 +351,27 @@ func (t *HTTPTransport) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Authenticate the request when a webhook secret is configured.  The
+	// secret may be supplied in either an "Authorization: Bearer <secret>"
+	// header or an "X-Webhook-Secret: <secret>" header.  Mismatched or
+	// missing credentials are rejected with 401.  When no secret is
+	// configured, authentication is skipped (backward-compatible).
+	if t.webhookSecret != "" {
+		auth := r.Header.Get("Authorization")
+		xSecret := r.Header.Get("X-Webhook-Secret")
+		if auth != "Bearer "+t.webhookSecret && xSecret != t.webhookSecret {
+			slog.Warn("http webhook: unauthorized request",
+				"name", t.name, "addr", t.webhookAddr, "remote", r.RemoteAddr)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+	}
+
 	defer r.Body.Close()
-	body, err := io.ReadAll(r.Body)
+	// Limit the body size to prevent OOM from oversized payloads.  When
+	// the limit is exceeded, io.ReadAll returns an error and we reject
+	// the request.
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, webhookMaxBodyBytes))
 	if err != nil {
 		http.Error(w, "failed to read body", http.StatusBadRequest)
 		return
