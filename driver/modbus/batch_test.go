@@ -50,13 +50,13 @@ func (c *countingHandler) HandleInputRegisters(req *mb.InputRegistersRequest) ([
 // startTestServer is a small helper shared by the batch tests: it stands
 // up a loopback modbus server on a free port and returns it (the caller
 // must defer server.Stop()).
-func startTestServer(t *testing.T, handler mb.RequestHandler) (*mb.ModbusServer, int) {
+func startTestServer(t *testing.T, handler mb.RequestHandler) (server *mb.ModbusServer, port int) {
 	t.Helper()
 	port, err := getFreePort()
 	if err != nil {
 		t.Fatalf("getFreePort: %v", err)
 	}
-	server, err := mb.NewServer(&mb.ServerConfiguration{
+	server, err = mb.NewServer(&mb.ServerConfiguration{
 		URL:     fmt.Sprintf("tcp://127.0.0.1:%d", port),
 		Timeout: 5 * time.Second,
 	}, handler)
