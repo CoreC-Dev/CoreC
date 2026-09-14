@@ -35,6 +35,22 @@ type DriverConfig struct {
 	Type     string         `yaml:"type"`
 	Settings map[string]any `yaml:"settings"`
 	Tags     []TagConfig    `yaml:"tags"`
+
+	// TagsFile loads tags from an external YAML file instead of (or in
+	// addition to) the inline tags list. The file contains a YAML list of
+	// TagConfig entries. This is useful when a driver has hundreds of
+	// collection points and the main config file becomes unwieldy.
+	//
+	// If both Tags and TagsFile are set, the inline tags are appended
+	// after the file-loaded tags. Tag names must be unique across both
+	// sources.
+	TagsFile string `yaml:"tags-file,omitempty"`
+
+	// TagsInterval is the hot-reload interval for the tags file.
+	// When set (e.g. "30s"), the engine periodically re-reads the file
+	// and hot-swaps the driver's tags if the content changed.
+	// Empty or "0" means no auto-reload (tags loaded once at startup).
+	TagsInterval string `yaml:"tags-interval,omitempty"`
 }
 
 // DriverStatus reports the current status of a driver.

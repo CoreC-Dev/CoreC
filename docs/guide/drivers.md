@@ -137,6 +137,21 @@ tags:
 | `deadband` | ❌ | 死区，抑制无意义的小幅波动上报（可选） |
 | `read-timeout` | ❌ | 单次读取超时，独立于 `interval`（可选，默认同 `interval`） |
 
+### 外部标签文件
+
+当一个驱动的采集点较多时，可将标签列表拆分到独立文件，主配置更简洁：
+
+```yaml
+drivers:
+  - name: plc-modbus
+    type: modbus-tcp
+    settings: { host: 192.168.1.100, port: 502 }
+    tags-file: ./tags/plc-modbus-tags.yaml   # 外部标签文件
+    tags-interval: 30s                        # 热重载间隔（可选）
+```
+
+标签文件格式为 YAML 列表，与内联 `tags` 结构相同。`tags` 与 `tags-file` 可同时使用，文件标签在前、内联标签在后。配置 `tags-interval` 后引擎定期检查文件变化并自动热重载，详见[驱动配置参考](../config/drivers.md#外部标签文件-tags-file)。
+
 ### 支持的数据类型
 
 | 类型 | 说明 | 典型用途 |

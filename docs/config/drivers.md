@@ -35,7 +35,11 @@ drivers:
 | `name` | string | **是** | — | 驱动实例名称，全局唯一，用于规则匹配与 API 引用 |
 | `type` | string | **是** | — | 驱动协议类型，见下表 |
 | `settings` | object | **是** | — | 协议专属连接参数 |
-| `tags` | array | **是** | — | 标签（数据点）采集定义列表 |
+| `tags` | array | **是** ¹ | — | 标签（数据点）采集定义列表 |
+| `tags-file` | string | 否 | — | 从外部 YAML 文件加载标签列表，适合数百以上采集点场景 ¹ |
+| `tags-interval` | duration | 否 | — | `tags-file` 的热重载间隔（如 `30s`），为空则仅启动时加载一次 |
+
+¹ `tags` 与 `tags-file` 至少配置其一；两者同时配置时，文件标签在前，内联标签在后追加，标签名在两者间必须唯一。
 
 支持的驱动类型：
 
@@ -489,3 +493,80 @@ tags:
   interval: 200ms
   read-timeout: 500ms   # 允许单次读取最多 500ms，而非默认的 200ms
 ```
+
+---
+
+## 外部标签文件（tags-file）
+
+当一个驱动的采集点数量较多（数十至数百以上），将所有标签内联在主配置文件中会使文件臃肿且难以维护。`tags-file` 允许将标签列表拆分到独立的 YAML 文件中。
+
+### 基本用法
+
+主配置文件：
+
+```yaml
+drivers:
+  - name: plc-modbus
+    type: modbus-tcp
+    settings:
+      host: 192.168.1.100
+      port: 502
+    tags-file: ./tags/plc-modbus-tags.yaml
+```
+
+外部标签文件（`./tags/plc-modbus-tags.yaml`）格式为 YAML 列表，与内联 `tags` 字段结构完全相同：
+
+```yaml
+- name: temperature
+  address: "40001"
+  type: float32
+  group: sensors
+  interval: 1s
+- name: pressure
+  address: "40003"
+  type: float32
+  group: sensors
+  interval: 1s
+- name: pump_status
+  address: "00001"
+  type: bool
+  group: actuators
+  interval: 2s
+```
+
+### 内联与文件混用
+
+`tags` 与 `tags-file` 可同时配置。文件标签排列在前，内联标签追加在后。标签名在两者间必须唯一，否则配置校验会报错。
+
+```yaml
+drivers:
+  - name: plc-modbus
+    type: modbus-tcp
+    settings: { host: 192.168.1.100, port: 502 }
+    tags-file: ./tags/plc-modbus-tags.yaml   # 文件中的标签
+    tags:                                      # 内联标签（追加在后）
+      - name: custom_tag
+        address: "40010"
+        type: float32
+        interval: 5s
+```
+
+### 热重载
+
+配置 `tags-interval` 后，引擎会按指定间隔周期性检查标签文件。文件内容变化时（基于 SHA-256 校验），引擎自动移除旧标签的采集任务并按新标签列表重建驱动，无需重启或手动触发配置重载。
+
+```yaml
+drivers:
+  - name: plc-modbus
+    type: modbus-tcp
+    settings: { host: 192.168.1.100, port: 502 }
+    tags-file: ./tags/plc-modbus-tags.yaml
+    tags-interval: 30s   # 每 30 秒检查一次文件变化
+```
+
+::: info 热重载机制
+- 变更检测基于文件内容的 SHA-256 哈希，仅内容真正变化时才触发重载。
+- 重载过程为移除旧驱动实例并按新标签列表重新创建，期间该驱动短暂中断采集。
+- `tags-interval` 为空时不启动 watcher，标签仅在启动时加载一次。
+- 通过 API `PUT /configs` 触发的全量配置重载也会重新读取标签文件。
+:::

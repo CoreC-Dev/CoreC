@@ -73,7 +73,11 @@ drivers:
       # reconnect-interval: 2s
       # reconnect-max-interval: 30s
       # max-reconnect-failures: 20  # circuit breaker: stop reconnecting after N consecutive failures
-    # tags:
+    ## tags-file: load tags from an external YAML file (useful for hundreds of points)
+    ## tags-interval: hot-reload interval, e.g. "30s" (empty = load once, no auto-reload)
+    # tags-file: ./tags/plc-modbus-tags.yaml
+    # tags-interval: 30s
+    # tags:                      # inline tags (appended after file tags if both set)
       # - name: temperature
         # address: "40001"      # Holding register 0
         # type: float32

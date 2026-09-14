@@ -79,6 +79,14 @@ type CoreCEngine struct {
 	deadLetterQueue  []core.DeadLetterEntry
 	deadLetterMaxLen int
 
+	// tagFileWatchers tracks per-driver hot-reload watchers for tags-file.
+	// Keyed by driver name; nil entry means no watcher for that driver.
+	tagFileWatchers map[string]*tagFileWatcher
+
+	// driverConfigs stores the last-applied DriverConfig per driver name,
+	// so tag-file watchers can rebuild the config with updated tags.
+	driverConfigs map[string]core.DriverConfig
+
 	// Lifecycle
 	ctx       context.Context
 	parentCtx context.Context // saved from Start() for Reload()
@@ -128,6 +136,8 @@ func New() core.Engine {
 		badQualityPolicy:   badQualityPublish,
 		writeRetryCount:    3,
 		deadLetterMaxLen:   1000,
+		tagFileWatchers:    make(map[string]*tagFileWatcher),
+		driverConfigs:      make(map[string]core.DriverConfig),
 	}
 }
 
@@ -413,6 +423,9 @@ func (e *CoreCEngine) Stop() error {
 		e.ruleEngine.CloseProviders()
 	}
 
+	// Stop all tag-file watchers to prevent goroutine leaks on reload.
+	e.stopAllTagFileWatchers()
+
 	e.wg.Wait()
 	e.mu.Lock()
 	e.status = core.EngineStatusStopped
@@ -526,11 +539,23 @@ func (e *CoreCEngine) AddDriver(config core.DriverConfig) error {
 	// Schedule collection tasks based on tag intervals
 	e.scheduleDriverTags(config)
 
+	// Store config for tag-file watcher rebuilds.
+	e.mu.Lock()
+	e.driverConfigs[config.Name] = config
+	e.mu.Unlock()
+
+	// Start tag-file watcher if configured.
+	e.startTagFileWatcher(config)
+
 	slog.Info("driver added", "name", config.Name, "type", config.Type, "tags", len(config.Tags))
 	return nil
 }
 
 func (e *CoreCEngine) RemoveDriver(name string) error {
+	// Stop tag-file watcher first so it doesn't try to reload a
+	// driver that's being removed.
+	e.stopTagFileWatcher(name)
+
 	e.mu.Lock()
 	driver, ok := e.drivers[name]
 	if !ok {
@@ -539,6 +564,7 @@ func (e *CoreCEngine) RemoveDriver(name string) error {
 	}
 	delete(e.drivers, name)
 	delete(e.tagGroups, name)
+	delete(e.driverConfigs, name)
 	e.mu.Unlock()
 
 	if e.scheduler != nil {
@@ -565,6 +591,91 @@ func (e *CoreCEngine) ListDrivers() []core.DriverStatus {
 		result = append(result, d.Status())
 	}
 	return result
+}
+
+// ── Tag-File Watcher helpers ────────────────────────────────────────
+
+// startTagFileWatcher starts a hot-reload watcher for a driver's tags-file
+// if both TagsFile and TagsInterval are configured.
+func (e *CoreCEngine) startTagFileWatcher(config core.DriverConfig) {
+	if config.TagsFile == "" || config.TagsInterval == "" {
+		return
+	}
+
+	// The reload callback replaces the driver's tags with the file content.
+	// It rebuilds the DriverConfig with the new tags and re-adds the driver.
+	driverName := config.Name
+	onReload := func(newTags []core.TagConfig) error {
+		e.mu.RLock()
+		baseCfg, ok := e.driverConfigs[driverName]
+		e.mu.RUnlock()
+		if !ok {
+			return fmt.Errorf("driver %s config not found during tag-file reload", driverName)
+		}
+
+		// Build updated config: new file tags + original inline tags.
+		// We need to recover inline tags from the stored config.
+		// baseCfg.Tags already includes file tags from initial parse,
+		// so we can't easily separate them. Instead, just use newTags
+		// as the complete replacement (file is the source of truth).
+		updatedCfg := baseCfg
+		updatedCfg.Tags = newTags
+
+		slog.Info("reloading driver from tags-file",
+			"driver", driverName, "old_tags", len(baseCfg.Tags), "new_tags", len(newTags))
+
+		// Remove and re-add the driver with updated tags.
+		if err := e.RemoveDriver(driverName); err != nil {
+			return fmt.Errorf("failed to remove driver for tag reload: %w", err)
+		}
+		// Clear the watcher we just stopped so AddDriver can start a fresh one.
+		e.mu.Lock()
+		delete(e.tagFileWatchers, driverName)
+		e.mu.Unlock()
+
+		if err := e.AddDriver(updatedCfg); err != nil {
+			return fmt.Errorf("failed to re-add driver with new tags: %w", err)
+		}
+		return nil
+	}
+
+	w, err := newTagFileWatcher(config.Name, config.TagsFile, config.TagsInterval, onReload)
+	if err != nil {
+		slog.Error("failed to start tag-file watcher",
+			"driver", config.Name, "path", config.TagsFile, "error", err)
+		return
+	}
+
+	e.mu.Lock()
+	e.tagFileWatchers[config.Name] = w
+	e.mu.Unlock()
+}
+
+// stopTagFileWatcher stops the watcher for a specific driver if one exists.
+func (e *CoreCEngine) stopTagFileWatcher(name string) {
+	e.mu.Lock()
+	w, ok := e.tagFileWatchers[name]
+	if ok {
+		delete(e.tagFileWatchers, name)
+	}
+	e.mu.Unlock()
+	if ok {
+		w.stop()
+	}
+}
+
+// stopAllTagFileWatchers stops all active tag-file watchers.
+func (e *CoreCEngine) stopAllTagFileWatchers() {
+	e.mu.Lock()
+	watchers := make([]*tagFileWatcher, 0, len(e.tagFileWatchers))
+	for name, w := range e.tagFileWatchers {
+		watchers = append(watchers, w)
+		delete(e.tagFileWatchers, name)
+	}
+	e.mu.Unlock()
+	for _, w := range watchers {
+		w.stop()
+	}
 }
 
 // --- Transport Management ---

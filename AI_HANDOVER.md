@@ -33,7 +33,7 @@ corec/
 ├── cmd/corec/
 │   └── main.go                  # CLI 主入口（Banner打印、配置加载、日志初始化、生命周期管理与优雅停机）
 ├── config/                      # 配置模块
-│   ├── config.go                # YAML 配置解析与业务语义校验（唯一性、目标存在性）
+│   ├── config.go                # YAML 配置解析与业务语义校验（唯一性、目标存在性、tags-file 外部标签加载）
 │   └── config_test.go           # 配置文件解析与校验单元测试
 ├── core/                        # 核心契约层（领域模型与标准接口，无外部依赖）
 │   ├── types.go                 # 数据模型: DataPoint, TagValue, WriteCommand, DataType, Quality
@@ -91,7 +91,8 @@ corec/
 │   ├── engine_test.go   # 规则匹配、统计与禁用单元测试
 │   └── p1p2_test.go     # 表达式解析 P1/P2 回归测试
 ├── engine/                      # 引擎核心实现
-│   ├── engine.go                # Engine 编排器（流水线、驱动/传输生命周期、指令反向下发、Suspend/Resume、autoFillNodeConfig、startDiscovery）
+│   ├── engine.go                # Engine 编排器（流水线、驱动/传输生命周期、指令反向下发、Suspend/Resume、autoFillNodeConfig、startDiscovery、tagFileWatchers）
+│   ├── tagfile.go               # 标签文件热重载 watcher（SHA-256 变更检测 + ticker 轮询）
 │   ├── discovery.go             # 拓扑自动发现（MQTT 心跳、节点注册表、auto-subscribe）
 │   ├── scheduler.go             # Ticker 并发采集调度器（含错误与超限抑制机制、Pause/Resume）
 │   ├── databus.go               # 高并发无锁 Go Channel 内部数据总线
@@ -348,6 +349,11 @@ MQTT Command Topic ──> Transport.OnCommand() ──> Engine.startCommandList
     - `autoFillNodeConfig` 自动填充省略的 `topic-template`（`topo/{node-id}/data/...`）、`command-topic`、`parser`、forward rule。
     - 原则：显式配置优先，省略才自动填。无 `node` 段时完全向后兼容。
     - 多 broker：每个 transport 在自己的 broker 上独立发现，桥接节点连多个 broker 自动跨网。
+ 15. **外部标签文件与热重载 (`engine/tagfile.go`, `config/config.go` loadTagsFiles)**：
+     - `DriverConfig.TagsFile` 从外部 YAML 文件加载标签列表，适合数百以上采集点场景。
+     - `DriverConfig.TagsInterval` 配置热重载间隔，watcher 基于 SHA-256 检测文件变更，变化时移除旧驱动并按新标签列表重建。
+     - `tags` 与 `tags-file` 可同时使用，文件标签在前、内联标签追加在后。
+     - 配置解析在 `config.Parse` 中统一处理，全量配置重载（`PUT /configs`）也会重新读取标签文件。
 
 ### 6.2 Phase 3 规划 (后续演进方向)
 1. **DataPoint Device 富化**：

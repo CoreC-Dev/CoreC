@@ -26,10 +26,38 @@ func Parse(data []byte) (*core.Config, error) {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
+	// Load tags from external files for drivers that use tags-file.
+	if err := loadTagsFiles(cfg); err != nil {
+		return nil, fmt.Errorf("failed to load tags files: %w", err)
+	}
 	if err := validate(cfg); err != nil {
 		return nil, fmt.Errorf("config validation failed: %w", err)
 	}
 	return cfg, nil
+}
+
+// loadTagsFiles reads external tag files referenced by drivers via the
+// tags-file field and merges the loaded tags into each driver's Tags slice.
+// Inline tags (from the Tags field) are appended after file-loaded tags.
+// Tag name uniqueness across both sources is enforced by validate().
+func loadTagsFiles(cfg *core.Config) error {
+	for i := range cfg.Drivers {
+		dc := &cfg.Drivers[i]
+		if dc.TagsFile == "" {
+			continue
+		}
+		data, err := os.ReadFile(dc.TagsFile)
+		if err != nil {
+			return fmt.Errorf("driver %s: failed to read tags file %s: %w", dc.Name, dc.TagsFile, err)
+		}
+		var fileTags []core.TagConfig
+		if err := yaml.Unmarshal(data, &fileTags); err != nil {
+			return fmt.Errorf("driver %s: failed to parse tags file %s: %w", dc.Name, dc.TagsFile, err)
+		}
+		// File tags first, then inline tags appended.
+		dc.Tags = append(fileTags, dc.Tags...)
+	}
+	return nil
 }
 
 // validate performs config validation, failing fast on invalid values

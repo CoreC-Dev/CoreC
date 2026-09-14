@@ -30,7 +30,7 @@
 
 - **纯核心定位 (Headless & Embeddable)**: 无任何 UI 强绑定，轻量级单二进制，既可作为独立 Daemon 运行，也能轻松嵌入上层 SCADA、MES 或边缘网关系统。
 - **六边形插件化架构**: 统一抽象的 `core.Driver`（南向）与 `core.Transport`（北向）接口，支持 Go `init()` 自动工厂注册模式。
-- **配置即逻辑 (YAML-Driven)**: 三段式 YAML 配置，统一管理驱动、点位、传输与路由规则。
+- **配置即逻辑 (YAML-Driven)**: 三段式 YAML 配置，统一管理驱动、点位、传输与路由规则。支持 `tags-file` 将数百采集点拆分到独立文件，配合 `tags-interval` 实现标签热重载。
 - **双向数据通道 (Bidirectional)**:
   - **上行采集**: 周期定时轮询调度 (Scheduler) 与事件驱动主动订阅 (Subscription)。
   - **下行控制**: 北向传输（如 MQTT Command Topic）接收控制指令，反向调度驱动写入 PLC 寄存器/线圈。
