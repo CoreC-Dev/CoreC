@@ -1,6 +1,6 @@
 # Chained Core 可运行 Demo
 
-将 [链式核心文档](../../docs/guide/chained-core.md) 中的 7 个场景做成可运行的多容器部署。
+将 [链式核心文档](../../docs/guide/chained-core.md) 中的场景做成可运行的多容器部署。
 每个场景一条 `docker compose up` 即可看到数据在链上真实流动。
 
 ## 前置条件
@@ -35,6 +35,7 @@ docker compose down
 | ⑤ 多对一汇聚 | `scenario5/` | A+B+C → G → subscriber | 8 |
 | ⑥ 一对多分发 | `scenario6/` | PLC → CoreC → MQTT + HTTP | 5 |
 | ⑦ 双向级联 | `scenario7/` | PLC ↔ A ↔ B → subscriber | 5 |
+| ⑧ 自动发现 | `scenario8/` | PLC → CoreC-A → CoreC-B → subscriber | 5 |
 
 ## 共享组件
 

@@ -1,0 +1,41 @@
+# Scenario 8: Auto-Discovery — Relay node B
+#
+# B declares it wants to receive from edge-A. The discovery module
+# automatically subscribes to A's publish topic when A comes online.
+#
+# B also republishes to a cloud/ topic for the subscriber to observe.
+# The cloud/ topic-template is explicit (not auto-generated) because
+# the subscriber expects that specific format — demonstrating that
+# explicit config and auto-discovery coexist.
+
+node:
+  id: relay-B
+  role: relay
+  subscribe:
+    - edge-A              # auto-discover and subscribe to edge-A
+
+global:
+  api:
+    addr: "0.0.0.0:9091"
+
+drivers: []                # relay mode: no drivers, only inbound data
+
+transports:
+  - name: mqtt-in
+    type: mqtt
+    settings:
+      broker: tcp://broker:1883
+      # data-topic: OMITTED → auto-discovered from edge-A's heartbeat
+      # parser:    OMITTED → auto-set to default (CoreC→CoreC JSON)
+
+  - name: mqtt-out
+    type: mqtt
+    settings:
+      broker: tcp://broker:1883
+      topic-template: "cloud/{{.Driver}}/{{.Tag}}"   # explicit: subscriber expects this
+
+rules:
+  - name: forward-to-cloud
+    match: ALL
+    action: forward
+    target: mqtt-out

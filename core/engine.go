@@ -37,6 +37,14 @@ type Engine interface {
 	WriteTag(ctx context.Context, cmd WriteCommand) (*WriteResult, error)
 	LatestValues(driver string) map[string]DataPoint
 
+	// StaleThreshold returns the configured staleness threshold for
+	// cached values. Returns 0 if staleness detection is disabled.
+	StaleThreshold() time.Duration
+
+	// DeadLetterEntries returns write commands that failed after all
+	// retries, stored for inspection or manual retry.
+	DeadLetterEntries() []DeadLetterEntry
+
 	// Event subscription
 	Subscribe(filter string) (<-chan DataPoint, func())
 	OnAlert(handler func(point DataPoint, rule Rule))
@@ -47,12 +55,41 @@ type Engine interface {
 
 // Config is the top-level configuration structure.
 type Config struct {
+	Node          NodeConfig              `yaml:"node,omitempty"`
 	Global        GlobalConfig            `yaml:"global"`
 	Drivers       []DriverConfig          `yaml:"drivers"`
 	Transports    []TransportConfig       `yaml:"transports"`
 	Rules         []RuleConfig            `yaml:"rules"`
 	RuleProviders []RuleProviderConfig    `yaml:"rule-providers,omitempty"`
 	RuleGroups    map[string][]RuleConfig `yaml:"rule-groups,omitempty"`
+}
+
+// NodeConfig holds node-level configuration for topology auto-discovery.
+// When ID is non-empty, the engine enables auto-discovery: topic-template,
+// command-topic, and parser are auto-generated where not explicitly set,
+// and the node broadcasts heartbeats so other instances can find it.
+// When ID is empty (the default), all auto-discovery features are disabled
+// and the engine behaves exactly as before — full backward compatibility.
+type NodeConfig struct {
+	// ID is the unique identifier for this node in the topology.
+	// Must be set to enable auto-discovery.
+	ID string `yaml:"id"`
+
+	// Role declares this node's function in the topology.
+	//   collector  — has drivers, publishes data, no upstream
+	//   relay      — receives from upstream, processes, republishes
+	//   aggregator — receives from multiple upstreams, merges
+	//   sink       — receives from upstream, does not republish
+	Role string `yaml:"role"`
+
+	// Subscribe lists upstream node IDs to receive data from.
+	// The discovery module auto-subscribes to each upstream's publish
+	// topic when the upstream comes online.
+	Subscribe []string `yaml:"subscribe,omitempty"`
+
+	// TopicPrefix overrides the default "topo" prefix for auto-generated
+	// topics. Auto-generated format: {prefix}/{node-id}/data/{driver}/{tag}
+	TopicPrefix string `yaml:"topic-prefix,omitempty"`
 }
 
 // GlobalConfig holds global settings.
@@ -90,6 +127,29 @@ type EngineConfig struct {
 	// that do not specify their own interval.
 	// Default: 1s. Parse as a duration string, e.g. "1s".
 	DefaultTagInterval string `yaml:"default-tag-interval,omitempty"`
+
+	// OnBadQuality controls how DataPoints with QualityBad are handled
+	// in the processing pipeline. Valid values:
+	//   "publish"         — forward normally (default, backward-compatible).
+	//   "drop"            — discard bad-quality points before rule matching.
+	//   "mark-and-publish" — publish but set Value to nil, keeping quality=bad.
+	//   "alert"           — forward and trigger alert callback.
+	// An empty/unrecognized value defaults to "publish".
+	OnBadQuality string `yaml:"on-bad-quality,omitempty"`
+
+	// StaleThreshold is the duration after which a cached data point is
+	// considered stale (not updated within this window). The API layer
+	// uses this to annotate /tags and /drivers/{name}/tags responses
+	// with an is_stale flag so consumers can distinguish live data
+	// from values held over from a disconnected driver.
+	// Default: 0 (disabled; no staleness annotation). e.g. "30s".
+	StaleThreshold string `yaml:"stale-threshold,omitempty"`
+
+	// WriteRetryCount is the number of times to retry a failed write
+	// command before placing it in the dead letter queue.
+	// Unset or 0 uses the default (3 retries). Set to a positive value
+	// to override. The total attempt count is WriteRetryCount + 1.
+	WriteRetryCount int `yaml:"write-retry-count,omitempty"`
 }
 
 // APIConfig holds API server settings.
@@ -118,14 +178,14 @@ type APIConfig struct {
 	IdleTimeout string `yaml:"idle-timeout,omitempty"`
 }
 
-// BufferConfig holds offline buffer settings.
-//
-// Deprecated: buffer is parsed for backwards compatibility but not used.
-// A non-empty buffer config will trigger a validation warning.
+// BufferConfig holds offline buffer settings for persisting failed
+// publish batches to disk so they can be replayed after transport
+// recovery. This prevents data loss when the northbound transport
+// (MQTT broker / HTTP endpoint) is temporarily unavailable.
 type BufferConfig struct {
 	Enabled bool   `yaml:"enabled"`
-	MaxSize int    `yaml:"max-size"`
-	Path    string `yaml:"path"`
+	MaxSize int    `yaml:"max-size"` // max number of buffered batches; <=0 defaults to 10000
+	Path    string `yaml:"path"`     // directory path for buffer files
 }
 
 // EngineStatus represents the operational state of the engine.

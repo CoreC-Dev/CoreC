@@ -1,0 +1,41 @@
+# Scenario 8: Auto-Discovery Two-Level Cascade
+#
+# Same topology as scenario2, but using auto-discovery instead of
+# explicit topic-template / data-topic configuration.
+#
+#   PLC ──modbus──▶ CoreC-A ──MQTT(auto)──▶ CoreC-B ──MQTT(auto)──▶ subscriber
+#   (mock-plc)      (collector)              (relay)
+#
+# Key difference from scenario2:
+#   - No topic-template on A (auto-generated as topo/edge-A/data/...)
+#   - No data-topic on B (auto-discovered from A's heartbeat)
+#   - No parser on B (auto-set to default)
+#   - No rules on A (auto-added forward-all)
+#   - B declares subscribe: [edge-A] and the engine handles the rest
+
+node:
+  id: edge-A
+  role: collector
+
+global:
+  api:
+    addr: "0.0.0.0:9090"
+
+drivers:
+  - name: plc
+    type: modbus-tcp
+    settings:
+      host: mock-plc
+      port: 502
+      slave-id: 1
+    tags:
+      - { name: temperature, address: "40001", type: float32, interval: 1s }
+      - { name: humidity,    address: "40003", type: uint16,  interval: 1s }
+
+transports:
+  - name: mqtt
+    type: mqtt
+    settings:
+      broker: tcp://broker:1883
+      # topic-template: OMITTED → auto-generated "topo/edge-A/data/{{.Driver}}/{{.Tag}}"
+      # command-topic:  OMITTED → auto-generated "topo/edge-A/cmd/#"

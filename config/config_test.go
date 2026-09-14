@@ -59,14 +59,14 @@ func TestValidateConfigErrors(t *testing.T) {
 		{
 			name:    "empty drivers and no inbound transport",
 			cfg:     &core.Config{},
-			wantErr: "no data source: configure at least one driver, or at least one transport as inbound consumer (mqtt data-topic / http webhook-addr) for relay mode",
+			wantErr: "no data source: configure at least one driver, or at least one transport as inbound consumer (mqtt data-topic / http webhook-addr) for relay mode, or enable auto-discovery with node.subscribe",
 		},
 		{
 			name: "empty drivers with non-inbound transport",
 			cfg: &core.Config{
 				Transports: []core.TransportConfig{{Name: "t1", Type: "mqtt"}},
 			},
-			wantErr: "no data source: configure at least one driver, or at least one transport as inbound consumer (mqtt data-topic / http webhook-addr) for relay mode",
+			wantErr: "no data source: configure at least one driver, or at least one transport as inbound consumer (mqtt data-topic / http webhook-addr) for relay mode, or enable auto-discovery with node.subscribe",
 		},
 		{
 			name: "empty transports",
@@ -181,6 +181,31 @@ func TestValidateRelayMode(t *testing.T) {
 		}
 		if err := validate(cfg); err != nil {
 			t.Fatalf("expected no error for relay node, got %v", err)
+		}
+	})
+
+	t.Run("zero drivers with auto-discovery subscribe is valid", func(t *testing.T) {
+		cfg := &core.Config{
+			Node: core.NodeConfig{ID: "relay-B", Role: "relay", Subscribe: []string{"edge-A"}},
+			Transports: []core.TransportConfig{
+				{Name: "mqtt", Type: "mqtt", Settings: map[string]any{"broker": "tcp://broker:1883"}},
+			},
+		}
+		if err := validate(cfg); err != nil {
+			t.Fatalf("expected no error for auto-discovery relay node, got %v", err)
+		}
+	})
+
+	t.Run("zero drivers with node.id but no subscribe is invalid", func(t *testing.T) {
+		cfg := &core.Config{
+			Node: core.NodeConfig{ID: "relay-B", Role: "relay"},
+			Transports: []core.TransportConfig{
+				{Name: "mqtt", Type: "mqtt", Settings: map[string]any{"broker": "tcp://broker:1883"}},
+			},
+		}
+		err := validate(cfg)
+		if err == nil {
+			t.Fatal("expected error for relay with no data source and no subscribe, got nil")
 		}
 	})
 }

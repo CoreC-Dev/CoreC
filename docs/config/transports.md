@@ -34,6 +34,7 @@ transports:
 | `flush-interval` | duration | 否 | — | 触发刷新的时间间隔，未设置则不启用定时刷新 |
 | `retry-count` | int | 否 | `0`（不重试） | 发送失败后的重试次数 |
 | `buffer-size` | int | 否 | `100` | 命令/数据通道容量，超出后丢弃 |
+| `fallback` | string | 否 | — | 备用传输名称，本传输发布失败时自动切换到该传输 |
 
 支持的传输类型：
 
@@ -70,11 +71,26 @@ transports:
 
 ### retry-count
 
-发送失败后的重试次数。每次重试间隔采用指数退避（base × 2^n）。**默认 `0` 表示不重试**，重试耗尽后数据点直接丢弃并累加 `failed` 计数。
+发送失败后的重试次数。每次重试间隔采用指数退避（base × 2^n）。**默认 `0` 表示不重试**。重试耗尽后，若启用了全局 `buffer`，数据批次写入本地磁盘缓冲待后续回放；否则数据点丢弃并累加 `failed` 计数。
 
 ::: tip 离线缓冲
-全局 `buffer` 已废弃，不再支持本地落盘缓冲。如需重试与批量，请使用 transport 级别的 `retry-count`、`batch-size`、`flush-interval`。
+全局 `buffer` 配置启用后，传输重试耗尽时数据会写入本地磁盘，待传输恢复后自动回放，防止数据丢失。详见[全局配置 - buffer](./global#buffer)。
 :::
+
+### fallback
+
+配置备用传输名称。当本传输发布失败（重试耗尽后）时，引擎自动将数据点转发到 `fallback` 指定的传输。适用于双链路冗余场景（如 MQTT 主链路 + HTTP 备用链路）。fallback 仅尝试一次，不递归（即备用传输的 fallback 不会被跟随）。
+
+```yaml
+transports:
+  - name: primary-mqtt
+    type: mqtt
+    settings: { ... }
+    fallback: backup-http    # 主链路失败时切换到 HTTP 备用
+  - name: backup-http
+    type: http
+    settings: { ... }
+```
 
 ### buffer-size
 
@@ -109,9 +125,9 @@ transports:
 | `password` | string | 否 | — | 密码认证 |
 | `qos` | int | 否 | `1` | 服务质量等级，取值 `0`、`1`、`2` |
 | `retained` | bool | 否 | `false` | 是否发布保留消息 |
-| `topic-template` | string | 否 | <code v-pre>corec/{{.Driver}}/{{.Tag}}</code> | 发布主题模板，支持 Go 模板变量 |
-| `command-topic` | string | 否 | — | 订阅的命令主题，支持通配符 `+` / `#` |
-| `data-topic` | string | 否 | — | 订阅的数据主题（链式核心入站），需配合 `parser` |
+| `topic-template` | string | 否 | <code v-pre>corec/{{.Driver}}/{{.Tag}}</code> ¹ | 发布主题模板，支持 Go 模板变量 |
+| `command-topic` | string | 否 | — ¹ | 订阅的命令主题，支持通配符 `+` / `#` |
+| `data-topic` | string | 否 | — ¹ | 订阅的数据主题（链式核心入站），需配合 `parser` |
 | `keep-alive` | duration | 否 | `60s` | 心跳保活间隔 |
 | `connect-timeout` | duration | 否 | `10s` | 连接超时时间 |
 | `auto-reconnect` | bool | 否 | `true` | 是否自动重连 |
@@ -122,6 +138,10 @@ transports:
 | `publish-timeout` | duration | 否 | `5s` | 发布操作超时 |
 | `disconnect-quiesce` | duration | 否 | `1s` | 断开连接时的静默等待时长 |
 | `parser` | object | 否 | — | 入站数据解析器配置，见[解析器配置](#解析器配置-parser) |
+
+::: info ¹ 自动发现
+当配置了 `node.id`（拓扑自动发现）时，`topic-template`、`command-topic`、`data-topic`、`parser` 在省略时会自动生成或发现。显式配置的字段始终优先，不会被覆盖。详见 [链式核心 → 拓扑自动发现](/guide/chained-core#拓扑自动发现-auto-discovery)。
+:::
 
 ### broker
 

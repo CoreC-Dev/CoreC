@@ -3,7 +3,6 @@ package config
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -36,18 +35,25 @@ func Parse(data []byte) (*core.Config, error) {
 // validate performs config validation, failing fast on invalid values
 // that would otherwise only surface at runtime.
 func validate(cfg *core.Config) error {
-	// H2: Warn about deprecated buffer config
-	if cfg.Global.Buffer.Enabled || cfg.Global.Buffer.MaxSize > 0 || cfg.Global.Buffer.Path != "" {
-		slog.Warn("config: 'buffer' section is deprecated and ignored; " +
-			"offline buffering is no longer supported. Remove this section to silence this warning.")
+	// Validate offline buffer configuration if enabled.
+	if cfg.Global.Buffer.Enabled {
+		if cfg.Global.Buffer.Path == "" {
+			return fmt.Errorf("buffer.enabled is true but buffer.path is not set")
+		}
+		if cfg.Global.Buffer.MaxSize > 0 && cfg.Global.Buffer.MaxSize < 10 {
+			return fmt.Errorf("buffer.max-size must be at least 10, got %d", cfg.Global.Buffer.MaxSize)
+		}
 	}
 
 	// A node needs at least one data source. That is normally a driver,
 	// but a pure relay (chained-core) node has no drivers and instead
 	// receives data via an inbound transport (MQTT data-topic or HTTP
-	// webhook-addr). Allow zero drivers only when such an inbound exists.
-	if len(cfg.Drivers) == 0 && !hasInboundTransport(cfg.Transports) {
-		return fmt.Errorf("no data source: configure at least one driver, or at least one transport as inbound consumer (mqtt data-topic / http webhook-addr) for relay mode")
+	// webhook-addr). Allow zero drivers when:
+	//   - an explicit inbound transport exists, OR
+	//   - auto-discovery is enabled (node.id set) with a non-empty subscribe list
+	//     (the discovery module will auto-create inbound transports at runtime).
+	if len(cfg.Drivers) == 0 && !hasInboundTransport(cfg.Transports) && !hasAutoDiscoveryInbound(cfg) {
+		return fmt.Errorf("no data source: configure at least one driver, or at least one transport as inbound consumer (mqtt data-topic / http webhook-addr) for relay mode, or enable auto-discovery with node.subscribe")
 	}
 	if len(cfg.Transports) == 0 {
 		return fmt.Errorf("at least one transport must be configured")
@@ -108,6 +114,13 @@ func validate(cfg *core.Config) error {
 					return fmt.Errorf("driver %s: tag %q: invalid interval %q: %w", d.Name, tag.Name, tag.Interval, err)
 				} else if dur <= 0 {
 					return fmt.Errorf("driver %s: tag %q: interval must be positive, got %v", d.Name, tag.Name, dur)
+				}
+			}
+			if tag.ReadTimeout != "" {
+				if dur, err := time.ParseDuration(tag.ReadTimeout); err != nil {
+					return fmt.Errorf("driver %s: tag %q: invalid read-timeout %q: %w", d.Name, tag.Name, tag.ReadTimeout, err)
+				} else if dur <= 0 {
+					return fmt.Errorf("driver %s: tag %q: read-timeout must be positive, got %v", d.Name, tag.Name, dur)
 				}
 			}
 		}
@@ -195,4 +208,11 @@ func hasInboundTransport(transports []core.TransportConfig) bool {
 		}
 	}
 	return false
+}
+
+// hasAutoDiscoveryInbound returns true when auto-discovery is enabled
+// (node.id is set) and the node declares upstream subscriptions — the
+// discovery module will auto-create inbound transports at runtime.
+func hasAutoDiscoveryInbound(cfg *core.Config) bool {
+	return cfg.Node.ID != "" && len(cfg.Node.Subscribe) > 0
 }

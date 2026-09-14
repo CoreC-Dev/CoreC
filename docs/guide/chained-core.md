@@ -38,7 +38,7 @@ Transport.OnData() ──▶ startDataListener() ──▶ DataBus.Push() ─┘
 ---
 
 ::: tip 可运行 Demo
-本文档中所有 7 个场景均有对应的 **Docker Compose 可运行实现**，位于 `demo/chained/scenario1/` ~ `scenario7/`。
+本文档中所有场景均有对应的 **Docker Compose 可运行实现**，位于 `demo/chained/scenario1/` ~ `scenario8/`。
 进入对应目录执行 `docker compose up` 即可看到数据在链上真实流动，详见 [demo/chained/README.md](https://github.com/CoreC-Dev/CoreC/tree/main/demo/chained/README.md)。
 :::
 
@@ -368,10 +368,12 @@ transports:
 | 参数 | 作用 | 必填 |
 |:---|:---|:---|
 | `broker` | MQTT broker 地址 | ✅ |
-| `topic-template` | 发数据的 topic 模板 | 有默认值 |
-| `command-topic` | 收写命令的 topic | 可选 |
-| `data-topic` | 收数据的 topic（开启链式核心） | 可选 |
-| `parser` | 数据解析器（配了 `data-topic` 就必须配） | 条件必填 |
+| `topic-template` | 发数据的 topic 模板 | 有默认值 ² |
+| `command-topic` | 收写命令的 topic | 可选 ² |
+| `data-topic` | 收数据的 topic（开启链式核心） | 可选 ² |
+| `parser` | 数据解析器（配了 `data-topic` 就必须配） | 条件必填 ² |
+
+² 配置了 `node.id` 时，这些字段省略则自动生成/发现，显式配置优先。详见上方[拓扑自动发现](#拓扑自动发现-auto-discovery)。
 
 ### HTTP Transport
 
@@ -408,3 +410,94 @@ parser:
   # 或 tag-from-topic: 2            # 从 topic 第 2 段取 tag
   data-type: "float64"
 ```
+
+## 拓扑自动发现（Auto-Discovery）
+
+当配置了 `node` 段时，引擎启用拓扑自动发现：节点通过 MQTT 心跳广播自己的身份和端点信息，自动建立 CoreC 实例间的连接，无需手动配置 `topic-template`、`data-topic`、`parser` 等字段。
+
+### 核心原则：写了的用你写的，没写的才自动填
+
+```
+配置里写了 topic-template → 用你写的（原有功能不变）
+配置里没写 topic-template → 自动生成 "topo/{node-id}/data/{{.Driver}}/{{.Tag}}"
+
+data-topic、parser、command-topic 同理
+```
+
+**没有 `node` 段的配置完全不受影响**——向后兼容。
+
+### 配置
+
+```yaml {v-pre}
+node:
+  id: edge-A                    # 节点唯一标识
+  role: collector               # collector | relay | aggregator | sink
+  subscribe: [edge-B]           # 声明要接收哪些上游节点的数据
+  # topic-prefix: topo          # 可选，默认 "topo"
+```
+
+### 自动生成的字段
+
+| 字段 | 自动生成值 | 条件 |
+|:---|:---|:---|
+| `topic-template` | <code v-pre>topo/{node-id}/data/{{.Driver}}/{{.Tag}}</code> | MQTT transport 未显式配置时 |
+| `command-topic` | `topo/{node-id}/cmd/#` | MQTT transport 未显式配置时 |
+| `parser` | `{ type: default }` | 有 `data-topic` 但未配 parser 时 |
+| forward rule | `match: ALL → first transport` | 无 rules 时 |
+
+### 心跳机制
+
+每个节点在连接的每个 MQTT broker 上广播心跳到 `corec/_discovery/{node-id}`：
+
+```json
+{
+  "id": "edge-A",
+  "role": "collector",
+  "publish": { "type": "mqtt", "topic": "topo/edge-A/data/#" },
+  "ts": 1234567890
+}
+```
+
+- 心跳间隔：5 秒
+- 消息 retained：后启动的节点也能发现先启动的节点
+- 每个 broker 独立发现：多 broker 场景下，节点在自己连接的每个 broker 上做发现
+
+### 多 broker 场景
+
+发现是 per-broker 的：同一个 broker 上的节点自动发现，跨 broker 的节点通过桥接节点（连多个 broker）连接。`subscribe` 不需要指定 broker——节点在自己所有连接的 broker 上搜索上游。
+
+```
+工厂 (broker-1)              云端 (broker-2)
+  CoreC-A ──→ CoreC-B(连两个broker) ──→ CoreC-C
+```
+
+B 在 broker-1 发现 A，在 broker-2 被 C 发现，数据自动跨 broker 流转。
+
+### 与第三方数据共存
+
+一个节点可以同时有自动发现 transport 和手动配置 transport：
+
+```yaml {v-pre}
+transports:
+  - name: mqtt-auto             # CoreC 间通道（自动发现）
+    type: mqtt
+    settings:
+      broker: tcp://broker:1883
+      # data-topic 不写 → 自动发现上游
+
+  - name: mqtt-3rdparty         # 第三方数据通道（手动配置）
+    type: mqtt
+    settings:
+      broker: tcp://broker:1883
+      data-topic: "lora/+/up"           # 保留：第三方订阅
+      parser:                            # 保留：第三方解析
+        type: jsonpath
+        driver: "lora"
+        tag: "{{ .payload.dev_id }}"
+        value: "{{ .payload.temp }}"
+        data-type: "float32"
+```
+
+### 示例
+
+参见 `demo/chained/scenario8/`：与 scenario2 相同的拓扑，但使用自动发现替代手动 topic 配置。

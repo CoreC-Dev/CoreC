@@ -277,7 +277,7 @@ pymodbus simulator --modbus-server tcp --modbus-port 502
 
 ### 启动报错 "no data source: ..."
 
-配置中没有数据源。CoreC 要求至少配置一个驱动（`drivers`），或者——纯转发（链式核心）节点——至少有一个传输配置了入站：MQTT 的 `data-topic` 或 HTTP 的 `webhook-addr`。如果既没有驱动也没有入站传输，引擎没有数据可处理，因此校验会拒绝。
+配置中没有数据源。CoreC 要求至少配置一个驱动（`drivers`），或者——纯转发（链式核心）节点——至少有一个传输配置了入站：MQTT 的 `data-topic` 或 HTTP 的 `webhook-addr`，或者启用了拓扑自动发现（`node.id` + `node.subscribe` 非空）。如果三者都没有，引擎没有数据可处理，因此校验会拒绝。
 
 ### 启动报错 "unknown driver type: xxx"
 

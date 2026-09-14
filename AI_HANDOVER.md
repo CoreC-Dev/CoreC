@@ -21,7 +21,7 @@ CoreC 采用 **“六边形端口与适配器架构 (Ports and Adapters)”**，
 - **Inbound 适配器** $\rightarrow$ **南向驱动 (Driver)**：主动周期轮询或事件订阅从 PLC / 传感器获取数据。
 - **Tunnel / Routing** $\rightarrow$ **核心引擎 (Engine) 与 规则匹配 (Rule)**：无锁 Channel 数据总线、最新值缓存、优先级规则分发。
 - **Outbound 适配器** $\rightarrow$ **北向传输 (Transport)**：向 MQTT Broker、HTTP Webhook / 平台推送（Kafka、gRPC 等为规划项）；同时提供反向通道接收下发指令写回 PLC。
-- **Config-driven** $\rightarrow$ **三段式 YAML**：统一声明 `drivers`、`transports`、`rules`。
+- **Config-driven** $\rightarrow$ **声明式 YAML**：统一声明 `node`（可选，拓扑自动发现）、`global`、`drivers`、`transports`、`rules`。
 - **Factory Registration** $\rightarrow$ **`init()` 自动工厂注册**：新协议只需实现接口并通过 `init()` 注册，零侵入扩展。
 
 ---
@@ -82,20 +82,22 @@ corec/
 │   │   └── parser_test.go       # 解析器单元测试
 │   └── all/all.go               # 空导入聚合引入所有北向传输
 ├── rule/                        # 规则路由模块
-│   ├── arith.go         # 表达式算术与类型转换辅助
+│   ├── arith.go         # 算术表达式求值（expr-lang/expr，含编译缓存）
 │   ├── engine.go        # 规则引擎（优先级切片排序、字段等值与数值区间比较、命中/未命中统计、运行时禁用）
-│   ├── expr.go          # 零依赖递归下降表达式解析器（~560 行）
+│   ├── expr.go          # DSL→expr-lang/expr 翻译层（~176 行，零传递依赖）
 │   ├── provider.go      # RULE-SET 外部规则集 provider
 │   ├── wrapper.go       # RuleWrapper（命中/未命中原子计数、运行时禁用）
 │   ├── arith_test.go    # 算术辅助单元测试
 │   ├── engine_test.go   # 规则匹配、统计与禁用单元测试
 │   └── p1p2_test.go     # 表达式解析 P1/P2 回归测试
 ├── engine/                      # 引擎核心实现
-│   ├── engine.go                # Engine 编排器（流水线、驱动/传输生命周期、指令反向下发、Suspend/Resume）
+│   ├── engine.go                # Engine 编排器（流水线、驱动/传输生命周期、指令反向下发、Suspend/Resume、autoFillNodeConfig、startDiscovery）
+│   ├── discovery.go             # 拓扑自动发现（MQTT 心跳、节点注册表、auto-subscribe）
 │   ├── scheduler.go             # Ticker 并发采集调度器（含错误与超限抑制机制、Pause/Resume）
 │   ├── databus.go               # 高并发无锁 Go Channel 内部数据总线
 │   ├── cache.go                 # 最新测点值并发安全实时缓存 (LatestCache)
 │   ├── batcher.go               # 传输批量聚合与重试
+│   ├── offlinebuffer.go         # 离线持久化缓冲（传输中断时数据写磁盘，恢复后自动补传）
 │   ├── engine_test.go           # 引擎生命周期集成测试
 │   ├── chained_core_test.go       # 链式核心（relay）集成测试
 │   ├── chained_core_scenarios_test.go # 链式核心多场景测试
@@ -316,8 +318,8 @@ MQTT Command Topic ──> Transport.OnCommand() ──> Engine.startCommandList
 5. **规则命中统计与运行时禁用 (`rule/engine.go`)**：
    - `RuleWrapper` 的 `HitCount`/`MissCount`/`HitAt`/`MissAt` 原子计数。
    - `PATCH /rules/disable` 支持运行时启用/禁用规则，无需重载配置。
-6. **零依赖规则表达式引擎 (`rule/expr.go`, `rule/engine.go`)**：
-   - 手写递归下降解析器（~560 行，无第三方依赖，替代 cel-go ~5MB），支持 `==`/`!=`/`=~`/`!~`/`contains`/`suffix`/`prefix`/`> < >= <=`/`in lo..hi`/`&&`/`||`/`!`/`( )` 表达式语法。
+6. **规则表达式引擎 (`rule/expr.go`, `rule/engine.go`)**：
+   - 基于 expr-lang/expr v1.17.8（MIT，零传递依赖）的 DSL 翻译层（~176 行），将 CoreC DSL 转译为 expr-lang/expr 内置算子后编译求值。支持 `==`/`!=`/`=~`/`!~`/`contains`/`suffix`/`prefix`/`> < >= <=`/`in lo..hi`/`&&`/`||`/`!`/`( )` 表达式语法。
    - 可用字段：`driver`、`device`、`group`、`tag`、`type`、`quality`、`value`。
    - `ALL` 特殊匹配全部；`RULE-SET:`/`SUB-RULE:` 委托外部 provider 与子规则组。
 7. **死区过滤 (Deadband Filter, `engine/scheduler.go`)**：
@@ -340,6 +342,12 @@ MQTT Command Topic ──> Transport.OnCommand() ──> Engine.startCommandList
     - `subscription` 模式已对接 `gopcua/opcua` 的 `Subscription` API：`connect()` 成功后自动创建订阅、为所有配置标签创建 MonitoredItem，通知 goroutine 将值变更写入 `subChannel`。断线时自动取消订阅，重连后重建。
 13. **DataPoint Group 富化 (`engine/engine.go`)**：
     - 在 `onDriverData` 中从 `TagConfig.Group`（`AddDriver` 时缓存的 `tagGroups` 映射）补全 `DataPoint.Group` 字段，支撑 `group == 'reactor'` 规则匹配与 `{{.Group}}` 主题模板。
+14. **拓扑自动发现 (`engine/discovery.go`, `core/engine.go` NodeConfig)**：
+    - 配置 `node.id` 后，节点通过 MQTT 心跳（`corec/_discovery/{node-id}`，retained，5s 间隔）广播身份与端点信息。
+    - `subscribe` 声明上游节点，发现模块自动创建 inbound transport（auto-subscribe）。
+    - `autoFillNodeConfig` 自动填充省略的 `topic-template`（`topo/{node-id}/data/...`）、`command-topic`、`parser`、forward rule。
+    - 原则：显式配置优先，省略才自动填。无 `node` 段时完全向后兼容。
+    - 多 broker：每个 transport 在自己的 broker 上独立发现，桥接节点连多个 broker 自动跨网。
 
 ### 6.2 Phase 3 规划 (后续演进方向)
 1. **DataPoint Device 富化**：
@@ -348,7 +356,7 @@ MQTT Command Topic ──> Transport.OnCommand() ──> Engine.startCommandList
    - **南向**：EtherNet/IP (CIP), IEC 60870-5-104 (电力), BACnet (楼宇), Omron FINS, Mitsubishi MC Protocol。
    - **北向**：Kafka, Webhook Stream, InfluxDB / TDengine 时序库直连。
 
-> 注：早期规划中的“断线持久化缓存 (Offline Buffer)”已被废弃——`global.buffer` 配置段现仅向后兼容解析并告警，离线缓存不再支持，故不再列入路线图。
+> 注：断线持久化缓存（Offline Buffer）已重新启用并实现——`global.buffer` 配置段支持 `enabled`/`path`/`max-size` 字段，`engine/offlinebuffer.go` 提供基于文件的离线缓冲，传输中断时数据写入磁盘待恢复后自动补传。
 
 ---
 

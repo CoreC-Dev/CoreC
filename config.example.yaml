@@ -3,6 +3,19 @@
 # IIoT Data Collection and Distribution Core
 # ============================================================
 
+# --- Topology Auto-Discovery (optional) ---
+# When node.id is set, the engine enables auto-discovery:
+#   - topic-template, command-topic, parser auto-generated where omitted
+#   - node broadcasts heartbeats so other instances can find it
+#   - subscribe lists upstream nodes to auto-connect when they come online
+# When omitted entirely, all auto-discovery is disabled (backward compatible).
+# See docs/guide/chained-core.md → "拓扑自动发现" for details.
+node:
+  id: edge-A                    # unique node identifier
+  role: collector               # collector | relay | aggregator | sink
+  # subscribe: [upstream-1]     # upstream node IDs to receive from (relay/sink only)
+  # topic-prefix: topo          # default "topo"; auto topics use {prefix}/{node-id}/data/...
+
 global:
   log-level: info
   api:
@@ -30,6 +43,17 @@ global:
     shutdown-timeout: 30s        # graceful shutdown deadline
     error-throttle-window: 10s   # suppress repeated error logs within this window
     default-tag-interval: 1s     # fallback interval for tags without explicit interval
+    # on-bad-quality: mark-and-publish  # bad quality policy: publish|drop|mark-and-publish|alert
+    # stale-threshold: 30s              # mark cached values as is_stale if not updated within this duration
+    # write-retry-count: 3              # write command retry count before entering dead letter queue
+
+  ## Offline buffer (optional): persists failed publish batches to disk
+  ## for replay after transport recovery. Enabled per-engine, applies to all
+  ## transports with batch-size or flush-interval configured.
+  # buffer:
+    # enabled: true
+    # path: /var/lib/corec/buffer  # buffer file directory (required when enabled=true)
+    # max-size: 10000              # max buffered batches, evicts oldest when exceeded
 
 # ============================================================
 # Southbound Drivers
@@ -48,6 +72,7 @@ drivers:
       ## Reconnect backoff (optional, defaults shown)
       # reconnect-interval: 2s
       # reconnect-max-interval: 30s
+      # max-reconnect-failures: 20  # circuit breaker: stop reconnecting after N consecutive failures
     # tags:
       # - name: temperature
         # address: "40001"      # Holding register 0
@@ -55,6 +80,7 @@ drivers:
         # group: sensors
         # interval: 1s
         # deadband: 0.2
+        # read-timeout: 500ms   # per-tag read timeout (optional, default = interval)
       # - name: pressure
         # address: "40003"      # Holding register 2
         # type: float32
@@ -165,6 +191,7 @@ drivers:
       # idle-timeout: 60s     # connection idle timeout (default 60s)
       # reconnect-interval: 2s
       # reconnect-max-interval: 30s
+      # max-reconnect-failures: 20  # circuit breaker threshold
     # tags:
       # - name: reactor_temp
         # address: "DB1.DBD0"   # DB 1 Double Word 0 (Float32)
@@ -197,6 +224,7 @@ drivers:
       # max-batch-size: 1000       # max nodes per read request (default 1000)
       # reconnect-interval: 2s
       # reconnect-max-interval: 30s
+      # max-reconnect-failures: 20  # circuit breaker threshold
     # tags:
       # - name: conveyor_speed
         # address: "ns=2;s=Conveyor.Speed"
@@ -260,6 +288,7 @@ transports:
     # buffer-size: 100           # command/data channel capacity (default 100)
     # batch-size: 50
     # flush-interval: 1s
+    # fallback: mes-http-push     # fallback transport name (optional, used when this transport fails)
 
   ## 2. HTTP Webhook / REST Push (MES / Data Lake API + Chained Inbound)
   # - name: mes-http-push

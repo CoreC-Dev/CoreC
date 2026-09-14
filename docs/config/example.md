@@ -19,14 +19,19 @@ description: CoreC 配置文件完整带注释示例，涵盖全局、驱动、�
 
 ## 配置总览
 
-CoreC 配置采用 YAML，顶层共四段：
+CoreC 配置采用 YAML，顶层段如下：
 
-| 段 | 作用 | 对应文档 |
-| --- | --- | --- |
-| `global` | 核心全局设置（日志、API、引擎调优） | [全局配置](/config/global) |
-| `drivers` | 南向采集驱动列表 | [驱动配置](/config/drivers) |
-| `transports` | 北向传输通道列表 | [传输配置](/config/transports) |
-| `rules` | 数据路由与处理规则 | [规则配置](/config/rules) |
+| 段 | 作用 | 必填 | 对应文档 |
+| --- | --- | --- | --- |
+| `node` | 拓扑自动发现（节点身份、上游订阅） | 否 | [链式核心 → 自动发现](/guide/chained-core#拓扑自动发现-auto-discovery) |
+| `global` | 核心全局设置（日志、API、引擎调优） | 否 | [全局配置](/config/global) |
+| `drivers` | 南向采集驱动列表 | 条件必填 | [驱动配置](/config/drivers) |
+| `transports` | 北向传输通道列表 | **是** | [传输配置](/config/transports) |
+| `rules` | 数据路由与处理规则 | 否 | [规则配置](/config/rules) |
+
+::: info
+`node` 段是可选的。省略时所有自动发现功能关闭，引擎行为与旧版完全一致。设置 `node.id` 后，`topic-template`、`command-topic`、`parser` 等字段在省略时自动生成。
+:::
 
 ---
 
@@ -50,7 +55,13 @@ global:
     shutdown-timeout: 30s            # 优雅关停超时
     error-throttle-window: 10s       # 错误日志抑制窗口
     default-tag-interval: 1s         # 标签未设 interval 时的回退周期
-  # buffer 段已废弃（deprecated），解析不报错但不生效，建议移除
+    on-bad-quality: mark-and-publish # 坏质量数据处理策略
+    stale-threshold: 30s             # 数据陈旧判定阈值
+    write-retry-count: 3             # 写入指令重试次数
+  buffer:                            # 离线持久化缓冲（可选）
+    enabled: false
+    path: /var/lib/corec/buffer      # 缓冲文件目录（enabled=true 时必填）
+    max-size: 10000                  # 缓冲文件最大数量
 
 # ============================================================
 # 南向驱动
@@ -223,10 +234,10 @@ global:
 | `engine.data-bus-size` | 内部数据通道容量 8192 |
 | `engine.workers` | 规则管道处理协程数 |
 | `engine.default-tag-interval` | 标签未设 `interval` 时的回退采集周期 |
-
-::: warning
-`global.buffer` 段已废弃，解析不报错但不生效，建议从配置中移除。
-:::
+| `engine.on-bad-quality` | 坏质量数据处理策略（`publish`/`drop`/`mark-and-publish`/`alert`） |
+| `engine.stale-threshold` | 数据陈旧判定阈值，超过此时间未更新的值标记 `is_stale` |
+| `engine.write-retry-count` | 写入指令失败重试次数，耗尽后进入死信队列 |
+| `buffer.enabled` | 启用离线缓冲后，传输失败时数据落盘待回放 |
 
 详见 [全局配置](/config/global)。
 
