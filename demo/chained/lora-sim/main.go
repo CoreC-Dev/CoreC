@@ -2,7 +2,8 @@
 // JSON to MQTT. Used in scenario 1 to demonstrate parser: jsonpath.
 //
 // Publishes to topic "lora/{dev_id}/up" every 2 seconds with a payload like:
-//   {"dev_id":"sensor-01","temp":23.4,"hum":55.0,"ts":1700000000}
+//
+//	{"dev_id":"sensor-01","temp":23.4,"hum":55.0,"ts":1700000000}
 package main
 
 import (

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,10 +13,10 @@ import (
 )
 
 type testModbusHandler struct {
-	coils         map[uint16]bool
+	coils          map[uint16]bool
 	discreteInputs map[uint16]bool
-	holding       map[uint16]uint16
-	inputRegs     map[uint16]uint16
+	holding        map[uint16]uint16
+	inputRegs      map[uint16]uint16
 }
 
 func (h *testModbusHandler) HandleCoils(req *mb.CoilsRequest) ([]bool, error) {
@@ -278,5 +279,102 @@ func TestModbusDiscreteInputsRead(t *testing.T) {
 		if values[i].Value != want {
 			t.Errorf("di%d: expected %v, got %v", i, want, values[i].Value)
 		}
+	}
+}
+
+// TestModbusNonBoolOnBitArea verifies that configuring a non-bool type on a
+// coil (0xxxx) or discrete-input (1xxxx) address returns an explicit error on
+// both read and write, instead of silently routing the request to a holding
+// register and reading/writing the wrong memory area (H12).
+func TestModbusNonBoolOnBitArea(t *testing.T) {
+	port, err := getFreePort()
+	if err != nil {
+		t.Fatalf("failed to find free port: %v", err)
+	}
+
+	handler := &testModbusHandler{
+		coils:          map[uint16]bool{0: true},
+		discreteInputs: map[uint16]bool{0: true},
+		holding:        map[uint16]uint16{0: 42},
+		inputRegs:      map[uint16]uint16{},
+	}
+
+	server, err := mb.NewServer(&mb.ServerConfiguration{
+		URL:     fmt.Sprintf("tcp://127.0.0.1:%d", port),
+		Timeout: 5 * time.Second,
+	}, handler)
+	if err != nil {
+		t.Fatalf("failed to create modbus server: %v", err)
+	}
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start modbus server: %v", err)
+	}
+	defer server.Stop()
+
+	driverCfg := core.DriverConfig{
+		Name: "test-plc-bitarea",
+		Type: "modbus-tcp",
+		Settings: map[string]any{
+			"host":     "127.0.0.1",
+			"port":     port,
+			"slave-id": 1,
+			"timeout":  "2s",
+		},
+		Tags: []core.TagConfig{
+			{Name: "coil_u16", Address: "00001", Type: "uint16"}, // coil (0xxxx), non-bool
+			{Name: "di_u16", Address: "10001", Type: "uint16"},   // discrete input (1xxxx), non-bool
+		},
+	}
+
+	drv, err := NewModbusTCPDriver(driverCfg)
+	if err != nil {
+		t.Fatalf("NewModbusTCPDriver error: %v", err)
+	}
+	ctx := context.Background()
+	if err := drv.Init(ctx, driverCfg); err != nil {
+		t.Fatalf("Init error: %v", err)
+	}
+	if err := drv.Start(ctx); err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+	defer drv.Stop()
+
+	// Reading a non-bool type on a bit area must fail explicitly rather than
+	// silently returning data from the holding-register area.
+	values, err := drv.Read(ctx, []string{"coil_u16", "di_u16"})
+	if err != nil {
+		t.Fatalf("Read error: %v", err)
+	}
+	if len(values) != 2 {
+		t.Fatalf("expected 2 values, got %d", len(values))
+	}
+	for _, v := range values {
+		if v.Quality != core.QualityBad {
+			t.Errorf("tag %s: expected QualityBad, got %v", v.Tag, v.Quality)
+		}
+		if v.Error == nil {
+			t.Errorf("tag %s: expected error, got nil", v.Tag)
+			continue
+		}
+		if !strings.Contains(v.Error.Error(), "not supported") {
+			t.Errorf("tag %s: expected 'not supported' error, got: %v", v.Tag, v.Error)
+		}
+	}
+
+	// Writing a non-bool type on a coil area must also fail explicitly.
+	writeResults, err := drv.Write(ctx, []core.WriteCommand{
+		{Driver: "test-plc-bitarea", Tag: "coil_u16", Value: uint16(1), Type: core.TypeUint16},
+	})
+	if err != nil {
+		t.Fatalf("Write error: %v", err)
+	}
+	if len(writeResults) != 1 {
+		t.Fatalf("expected 1 write result, got %d", len(writeResults))
+	}
+	if writeResults[0].Success {
+		t.Errorf("expected write to fail, got success")
+	}
+	if !strings.Contains(writeResults[0].Error, "not supported") {
+		t.Errorf("expected 'not supported' error, got: %v", writeResults[0].Error)
 	}
 }

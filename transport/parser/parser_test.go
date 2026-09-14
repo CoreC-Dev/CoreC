@@ -53,13 +53,13 @@ func TestDefaultParserFillsTimestamp(t *testing.T) {
 func TestJSONPathParser(t *testing.T) {
 	settings := map[string]any{
 		"parser": map[string]any{
-			"type":            "jsonpath",
-			"driver":          "lora-gateway",
-			"tag":             "{{ .payload.dev_id }}",
-			"value":           "{{ .payload.temp }}",
-			"data-type":       "float32",
-			"group":           "sensors",
-			"timestamp":       "{{ .payload.ts }}",
+			"type":             "jsonpath",
+			"driver":           "lora-gateway",
+			"tag":              "{{ .payload.dev_id }}",
+			"value":            "{{ .payload.temp }}",
+			"data-type":        "float32",
+			"group":            "sensors",
+			"timestamp":        "{{ .payload.ts }}",
 			"timestamp-format": "unix",
 		},
 	}
@@ -98,10 +98,10 @@ func TestJSONPathParser(t *testing.T) {
 func TestRawParser(t *testing.T) {
 	settings := map[string]any{
 		"parser": map[string]any{
-			"type":          "raw",
-			"driver":        "factory",
+			"type":           "raw",
+			"driver":         "factory",
 			"tag-from-topic": 2,
-			"data-type":     "float32",
+			"data-type":      "float32",
 		},
 	}
 	p, err := New(settings)
@@ -129,9 +129,9 @@ func TestRawParser(t *testing.T) {
 func TestRawParserStaticTag(t *testing.T) {
 	settings := map[string]any{
 		"parser": map[string]any{
-			"type":     "raw",
-			"driver":   "dev",
-			"tag":      "temperature",
+			"type":      "raw",
+			"driver":    "dev",
+			"tag":       "temperature",
 			"data-type": "float64",
 		},
 	}

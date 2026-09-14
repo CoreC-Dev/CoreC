@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	_ "github.com/CoreC-Dev/CoreC/driver/all"
@@ -132,9 +133,9 @@ drivers:
 // errors for semantically invalid configs.
 func TestLoadValidationErrors(t *testing.T) {
 	tests := []struct {
-		name     string
-		yaml     string
-		wantErr  string
+		name    string
+		yaml    string
+		wantErr string
 	}{
 		{
 			name: "empty driver name",
@@ -454,20 +455,20 @@ rules:
 }
 
 // TestLoadExampleConfig verifies that the project's own config.example.yaml
-// is parseable. The example file is a documentation template — it may have
-// commented-out drivers/transports, so we only verify it doesn't crash on
-// YAML syntax errors. If it has active drivers+transports, it should fully
-// validate; if not, we expect the "no data source" validation error.
+// is parseable. The example file is a documentation template — it has
+// commented-out drivers/transports/rules, so the only acceptable outcome is
+// either a fully valid load or the specific "no data source" validation
+// error. Any other error (e.g. a rule referencing a missing transport, or a
+// YAML parse error) indicates the template is broken.
 func TestLoadExampleConfig(t *testing.T) {
 	_, err := Load("../config.example.yaml")
 	if err == nil {
-		// Fully valid config — that's fine.
-		return
+		return // Fully valid — fine
 	}
-	// If there's an error, it should be a validation error (not a YAML parse error).
-	// Validation errors are expected for a template with commented-out sections.
-	if !contains(err.Error(), "config validation failed") {
-		t.Errorf("expected validation error or success for example config, got: %v", err)
+	// The example is a template with commented-out drivers/transports.
+	// The only acceptable error is "no data source".
+	if !strings.Contains(err.Error(), "no data source") {
+		t.Errorf("expected 'no data source' error or success for example config, got: %v", err)
 	}
 }
 

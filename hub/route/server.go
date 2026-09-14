@@ -1,6 +1,7 @@
 package route
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"net/http"
@@ -17,9 +18,17 @@ import (
 // Default HTTP server timeouts. Overridable via APIConfig.
 const (
 	defaultReadHeaderTimeout = 10 * time.Second
-	defaultReadTimeout       = 30 * time.Second
-	defaultWriteTimeout      = 30 * time.Second
-	defaultIdleTimeout       = 120 * time.Second
+	// defaultReadTimeout and defaultWriteTimeout are 0 (disabled) by default.
+	// Non-zero values set absolute deadlines on the underlying net.Conn that
+	// silently kill long-lived WebSocket connections (/traffic, /memory,
+	// /tags/stream) after the deadline elapses. WebSocket per-write timeouts
+	// are handled separately via wsWriteTimeout, and ReadHeaderTimeout still
+	// protects against slowloris attacks, so leaving these disabled is safe.
+	// Operators who serve only short-lived REST requests may set explicit
+	// values via APIConfig; a config value of 0 means "disabled".
+	defaultReadTimeout  = 0
+	defaultWriteTimeout = 0
+	defaultIdleTimeout  = 120 * time.Second
 
 	// wsWriteTimeout is the per-write timeout for WebSocket streams.
 	wsWriteTimeout = 5 * time.Second
@@ -30,11 +39,19 @@ const (
 
 	// corsMaxAge is the CORS preflight cache duration in seconds (24h).
 	corsMaxAge = "86400"
+
+	// rateLimitBucketTTL is how long a rate-limit bucket is kept after its
+	// last access before being eligible for eviction. Buckets that go idle
+	// for longer than this are removed so the per-IP map cannot grow
+	// unbounded under a flood of distinct (e.g. spoofed) source IPs.
+	rateLimitBucketTTL = 5 * time.Minute
+	// rateLimitEvictInterval is how often the eviction sweep runs.
+	rateLimitEvictInterval = 1 * time.Minute
 )
 
 type Config struct {
-	Addr    string
-	Secret  string
+	Addr   string
+	Secret string
 
 	// TLS support (M1). When both are set, the server uses HTTPS.
 	TLSCert string
@@ -48,7 +65,10 @@ type Config struct {
 	// 0 means no limit.
 	RateLimitPerSec int
 
-	// HTTP server timeouts. Zero values fall back to defaults.
+	// HTTP server timeouts. Zero values fall back to defaults, except for
+	// ReadTimeout and WriteTimeout whose default is 0 (disabled) so that
+	// long-lived WebSocket connections are not killed by an absolute
+	// deadline. Set them explicitly to enable absolute deadlines.
 	ReadHeaderTimeout time.Duration
 	ReadTimeout       time.Duration
 	WriteTimeout      time.Duration
@@ -56,11 +76,11 @@ type Config struct {
 }
 
 var (
-	httpServer   *http.Server
-	engine       core.Engine
-	engineMu     sync.RWMutex
-	ReloadFunc   func(path, payload string) error
-	PatchFunc    func(patch map[string]any) error
+	httpServer    *http.Server
+	engine        core.Engine
+	engineMu      sync.RWMutex
+	ReloadFunc    func(path, payload string) error
+	PatchFunc     func(patch map[string]any) error
 	GetConfigFunc func() *core.Config
 
 	// Version is the build version, injected via ldflags:
@@ -99,8 +119,15 @@ func ReCreateServer(cfg *Config) {
 	}
 
 	if cfg.Secret == "" {
-		log.Warnln("API server starting WITHOUT authentication — secret is empty. " +
-			"This is insecure for production. All endpoints will be publicly accessible.")
+		// Fail closed: an empty secret would leave every endpoint
+		// (including POST /write, PUT /configs, PATCH /rules/disable)
+		// publicly accessible. Refuse to start the server instead of
+		// silently running in an insecure mode. Operators must set
+		// api.secret in the configuration.
+		log.Errorln("API server refusing to start: api.secret is empty. " +
+			"An empty secret disables authentication and exposes all endpoints. " +
+			"Set api.secret in the configuration before starting the server.")
+		return
 	}
 
 	startTime = time.Now()
@@ -148,13 +175,25 @@ func ReCreateServer(cfg *Config) {
 	}()
 }
 
+// serverShutdownTimeout is the maximum time CloseServer waits for in-flight
+// requests to finish during a graceful shutdown before forcefully closing
+// remaining connections.
+const serverShutdownTimeout = 10 * time.Second
+
 func CloseServer() error {
-	if httpServer != nil {
-		err := httpServer.Close()
-		httpServer = nil
-		return err
+	if httpServer == nil {
+		return nil
 	}
-	return nil
+	// Graceful shutdown: stop accepting new connections and give in-flight
+	// requests up to serverShutdownTimeout to complete. This avoids killing
+	// active requests (and in-progress WebSocket handshakes) mid-flight,
+	// which httpServer.Close() would do abruptly. When the context expires,
+	// Shutdown closes any remaining connections.
+	ctx, cancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
+	defer cancel()
+	err := httpServer.Shutdown(ctx)
+	httpServer = nil
+	return err
 }
 
 func router(secret string, allowedOrigins []string, rateLimitPerSec int) *chi.Mux {
@@ -242,16 +281,48 @@ func corsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
 // rateLimitMiddleware limits requests per second per client IP using a simple
 // token-bucket approach. This prevents brute-force attacks on the API secret
 // and flood attacks on POST /write.
+//
+// The client IP is always taken from r.RemoteAddr. The X-Real-IP (and
+// X-Forwarded-For) headers are intentionally NOT trusted, because a client
+// can spoof them to attribute requests to arbitrary IPs and bypass the
+// limit. If trusted-proxy support is needed in the future, it must be an
+// explicit, opt-in configuration that only honors forwarded headers from
+// known proxy addresses.
+//
+// To keep the buckets map from growing unbounded under a spoofed-IP flood,
+// a background goroutine periodically evicts buckets that have not been
+// accessed within rateLimitBucketTTL.
 func rateLimitMiddleware(perSec int) func(http.Handler) http.Handler {
 	type bucket struct {
-		mu       sync.Mutex
-		tokens   int
-		lastTime time.Time
+		mu         sync.Mutex
+		tokens     int
+		lastTime   time.Time
+		lastAccess time.Time
 	}
 	var (
 		bucketsMu sync.Mutex
 		buckets   = make(map[string]*bucket)
 	)
+
+	// Evict stale buckets periodically so the map cannot grow unbounded.
+	go func() {
+		ticker := time.NewTicker(rateLimitEvictInterval)
+		defer ticker.Stop()
+		for now := range ticker.C {
+			cutoff := now.Add(-rateLimitBucketTTL)
+			bucketsMu.Lock()
+			for ip, b := range buckets {
+				b.mu.Lock()
+				stale := b.lastAccess.Before(cutoff)
+				b.mu.Unlock()
+				if stale {
+					delete(buckets, ip)
+				}
+			}
+			bucketsMu.Unlock()
+		}
+	}()
+
 	refill := func(b *bucket) {
 		now := time.Now()
 		elapsed := now.Sub(b.lastTime)
@@ -266,19 +337,21 @@ func rateLimitMiddleware(perSec int) func(http.Handler) http.Handler {
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Always use the direct remote address. Never trust
+			// client-supplied forwarding headers for rate-limit keying.
 			ip := r.RemoteAddr
-			if host := r.Header.Get("X-Real-IP"); host != "" {
-				ip = host
-			}
+			now := time.Now()
+
 			bucketsMu.Lock()
 			b, ok := buckets[ip]
 			if !ok {
-				b = &bucket{tokens: perSec, lastTime: time.Now()}
+				b = &bucket{tokens: perSec, lastTime: now, lastAccess: now}
 				buckets[ip] = b
 			}
 			bucketsMu.Unlock()
 
 			b.mu.Lock()
+			b.lastAccess = now
 			refill(b)
 			if b.tokens <= 0 {
 				b.mu.Unlock()

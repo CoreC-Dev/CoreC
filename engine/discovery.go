@@ -31,9 +31,9 @@ type nodeInfo struct {
 
 // endpoint describes a data channel.
 type endpoint struct {
-	Type  string `json:"type"`              // "mqtt" or "http"
-	Topic string `json:"topic,omitempty"`   // for mqtt: subscription pattern
-	URL   string `json:"url,omitempty"`     // for http: full URL
+	Type  string `json:"type"`            // "mqtt" or "http"
+	Topic string `json:"topic,omitempty"` // for mqtt: subscription pattern
+	URL   string `json:"url,omitempty"`   // for http: full URL
 }
 
 // brokerEndpoint pairs a broker URL with the publish endpoint active on it.
@@ -274,9 +274,9 @@ func (d *Discovery) reconcile() {
 				Name: fmt.Sprintf("auto-%s", upstreamID),
 				Type: "mqtt",
 				Settings: map[string]any{
-					"broker":    be.Broker,
+					"broker":     be.Broker,
 					"data-topic": info.Publish.Topic,
-					"parser":    map[string]any{"type": "default"},
+					"parser":     map[string]any{"type": "default"},
 				},
 			}
 

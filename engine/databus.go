@@ -125,10 +125,16 @@ func (b *DataBus) SubscribeWithBuffer(filter string, size int) (events <-chan co
 }
 
 // Broadcast sends a DataPoint to all subscribers.
+// Subscribers with a non-empty filter only receive points whose Driver
+// matches the filter; an empty filter receives all points.
 func (b *DataBus) Broadcast(point core.DataPoint) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	for _, sub := range b.subscribers {
+		// Apply filter: empty filter = all data, non-empty = matching driver only.
+		if sub.filter != "" && point.Driver != sub.filter {
+			continue
+		}
 		select {
 		case sub.ch <- point:
 		default:

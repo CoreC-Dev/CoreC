@@ -37,10 +37,10 @@ type OfflineBuffer struct {
 
 // offlineEntry is the on-disk JSON representation of a buffered batch.
 type offlineEntry struct {
-	Seq     uint64             `json:"seq"`
-	Time    time.Time          `json:"time"`
-	Points  []core.DataPoint   `json:"points"`
-	Source  string             `json:"source"` // transport name
+	Seq    uint64           `json:"seq"`
+	Time   time.Time        `json:"time"`
+	Points []core.DataPoint `json:"points"`
+	Source string           `json:"source"` // transport name
 }
 
 // NewOfflineBuffer creates an OfflineBuffer rooted at dir.

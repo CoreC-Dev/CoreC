@@ -47,9 +47,9 @@ func main() {
 }
 
 type handler struct {
-	mu       sync.RWMutex
-	temp     float32 // holding reg 0-1 (big-endian float32)
-	counter  uint16  // holding reg 2
+	mu        sync.RWMutex
+	temp      float32   // holding reg 0-1 (big-endian float32)
+	counter   uint16    // holding reg 2
 	holdUntil time.Time // pause sine wave after a write
 }
 

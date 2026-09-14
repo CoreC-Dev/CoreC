@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gopcua/opcua/ua"
 	"github.com/CoreC-Dev/CoreC/core"
+	"github.com/gopcua/opcua/ua"
 )
 
 // validConfig returns a minimal, fully-valid driver config that Init will

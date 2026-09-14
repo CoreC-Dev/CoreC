@@ -264,6 +264,11 @@ transports:
       # qos: 1
       # topic-template: "factory/{{.Driver}}/{{.Group}}/{{.Tag}}"
       # command-topic: "factory/commands/#"
+      ## Command authentication (recommended for production): when set, command
+      ## messages must carry hex(HMAC-SHA256(secret, payload)) in the
+      ## "X-Signature" header or a "signature" JSON field. Empty = accept all
+      ## commands (insecure, backward-compatible).
+      # command-secret: "your-hmac-secret-here"
       ## --- Chained Core Inbound ---
       ## Subscribe to data from upstream CoreC instances or third-party MQTT publishers.
       ## The parser converts each message body into a DataPoint.
@@ -309,6 +314,10 @@ transports:
       ## DataPoint(s) and fed into the engine's DataBus.
       # webhook-addr: "0.0.0.0:9091"
       # webhook-path: "/ingest"
+      ## Webhook authentication (recommended for production): when set, requests
+      ## must carry "Authorization: Bearer <secret>" or "X-Webhook-Secret: <secret>".
+      ## Empty = accept all requests (insecure, backward-compatible).
+      # webhook-secret: "your-webhook-secret-here"
       # parser:
         # type: default          # json.Unmarshal(DataPoint), for CoreC→CoreC
       ## HTTP connection pool (optional, defaults shown)
@@ -365,13 +374,13 @@ transports:
       # action: alert
       # target: cloud-mqtt
 
-rules:
+# rules:
   ## High Temperature Alert -> Forward immediately to Cloud MQTT
-  - name: high-temp-alert
-    match: "tag == 'temperature' && value > 95"
-    action: alert
-    target: cloud-mqtt
-    priority: 1
+  # - name: high-temp-alert
+    # match: "tag == 'temperature' && value > 95"
+    # action: alert
+    # target: cloud-mqtt
+    # priority: 1
 
   ## Emergency Stop -> High-priority Alert
   # - name: emergency-stop-alert
@@ -411,8 +420,8 @@ rules:
     # priority: 50
 
   ## Default rule: Forward all remaining points to MES HTTP Push
-  - name: default-catch-all
-    match: "ALL"
-    action: forward
-    target: mes-http-push
-    priority: 999
+  # - name: default-catch-all
+    # match: "ALL"
+    # action: forward
+    # target: mes-http-push
+    # priority: 999
