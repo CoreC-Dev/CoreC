@@ -1,47 +1,46 @@
-# Scenario 8: Auto-Discovery Two-Level Cascade
+# 场景 8：自动发现两级级联
 
-Same topology as scenario2, but using **topology auto-discovery** instead of
-explicit topic configuration.
+与 scenario2 拓扑相同，但使用**拓扑自动发现**替代显式 topic 配置。
 
-## Topology
+## 拓扑
 
 ```
-PLC ──modbus──▶ CoreC-A ──MQTT(auto)──▶ CoreC-B ──MQTT(cloud/...)──▶ subscriber
-(mock-plc)      (collector)              (relay)                       (observe)
+PLC ──modbus──▶ CoreC-A ──MQTT(自动)──▶ CoreC-B ──MQTT(cloud/...)──▶ 订阅者
+(mock-plc)      (采集器)                (中继)                        (观察端)
 ```
 
-## What's Different from Scenario 2
+## 与场景 2 的区别
 
-| Field | Scenario 2 (manual) | Scenario 8 (auto-discovery) |
+| 字段 | 场景 2（手动） | 场景 8（自动发现） |
 |:---|:---|:---|
-| A's `topic-template` | `"edgeA/{{.Driver}}/{{.Tag}}"` | **omitted** → auto `"topo/edge-A/data/..."` |
-| B's `data-topic` | `"edgeA/#"` | **omitted** → auto-discovered from A's heartbeat |
-| B's `parser` | `{ type: default }` | **omitted** → auto-set to `default` |
-| A's `rules` | `forward-all → mqtt` | **omitted** → auto-added |
-| B's `rules` | `forward → mqtt-out` | explicit (business logic) |
-| B's `topic-template` | `"cloud/{{.Driver}}/{{.Tag}}"` | explicit (subscriber expects this) |
+| A 的 `topic-template` | `"edgeA/{{.Driver}}/{{.Tag}}"` | **省略** → 自动生成 `"topo/edge-A/data/..."` |
+| B 的 `data-topic` | `"edgeA/#"` | **省略** → 从 A 的心跳自动发现 |
+| B 的 `parser` | `{ type: default }` | **省略** → 自动设为 `default` |
+| A 的 `rules` | `forward-all → mqtt` | **省略** → 自动添加 |
+| B 的 `rules` | `forward → mqtt-out` | 显式配置（业务逻辑） |
+| B 的 `topic-template` | `"cloud/{{.Driver}}/{{.Tag}}"` | 显式配置（订阅者期望此格式） |
 
-## How Auto-Discovery Works
+## 自动发现工作原理
 
-1. Both nodes broadcast heartbeats to `corec/_discovery/{node-id}` on the broker
-2. A's heartbeat says: "I'm edge-A, I publish to `topo/edge-A/data/#`"
-3. B's heartbeat says: "I'm relay-B, I subscribe to `edge-A`"
-4. B sees A's heartbeat → auto-creates a transport with `data-topic: "topo/edge-A/data/#"`
-5. Data flows: A → broker → B → broker → subscriber
+1. 两个节点在 broker 上向 `corec/_discovery/{node-id}` 广播心跳
+2. A 的心跳声明："我是 edge-A，发布到 `topo/edge-A/data/#`"
+3. B 的心跳声明："我是 relay-B，订阅 `edge-A`"
+4. B 收到 A 的心跳 → 自动创建 transport，设 `data-topic: "topo/edge-A/data/#"`
+5. 数据流：A → broker → B → broker → 订阅者
 
-## Key Principle: Explicit Overrides Auto
+## 核心原则：显式优先，省略自动填
 
-- Fields you write are used as-is (e.g., B's `topic-template: "cloud/..."`)
-- Fields you omit are auto-generated
-- Existing configs without a `node:` section work unchanged
+- 你写的字段原样使用（如 B 的 `topic-template: "cloud/..."`）
+- 你省略的字段自动生成
+- 没有 `node:` 段的现有配置完全不受影响
 
-## Run
+## 运行
 
 ```bash
 docker compose up --build
 ```
 
-The subscriber should see:
+订阅者应看到：
 ```
 cloud/plc/temperature {"driver":"plc","name":"temperature","value":25.5,...}
 cloud/plc/humidity    {"driver":"plc","name":"humidity","value":60,...}
