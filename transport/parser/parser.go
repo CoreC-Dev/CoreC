@@ -5,7 +5,7 @@
 // parsers are needed.
 // The "default" parser handles CoreC→CoreC chaining (both sides share the
 // same DataPoint JSON schema); "jsonpath" maps arbitrary JSON fields onto
-// DataPoint via configurable templates; "raw" treats the entire payload as
+// DataPoint via configurable paths; "raw" treats the entire payload as
 // a scalar value.
 package parser
 
@@ -14,10 +14,10 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"text/template"
 	"time"
 
 	"github.com/CoreC-Dev/CoreC/core"
+	"github.com/tidwall/gjson"
 )
 
 // Parser converts a raw payload (and optional MQTT topic for context) into
@@ -30,16 +30,22 @@ type Parser interface {
 //
 //	parser.type        "default" | "jsonpath" | "raw"  (default: "default")
 //	parser.driver      static string for driver field
-//	parser.tag         template or static string
-//	parser.value       template path (jsonpath) — for "raw" ignored
-//	parser.type-field  template or static for DataType
+//	parser.tag         path or static string
+//	parser.value       path (jsonpath) — for "raw" ignored
+//	parser.type-field  path or static for DataType
 //	parser.group       static string
 //	parser.device      static string
-//	parser.timestamp   template path
+//	parser.timestamp   path
 //	parser.timestamp-format  "rfc3339" | "unix" | "unixmilli"  (default: "rfc3339")
 //
 // When parser.type is absent or "default", the parser is a straight
 // json.Unmarshal into DataPoint — the zero-cost path for CoreC→CoreC.
+//
+// For "jsonpath", field values use Go template syntax (backward-compatible):
+//
+//	"{{ .payload.dev_id }}"  →  gjson path "dev_id"
+//	"{{ .topic }}"           →  the MQTT topic string
+//	"static-string"          →  literal value
 func New(settings map[string]any) (Parser, error) {
 	parserSettings := getMapSetting(settings, "parser")
 	ptype := getStringSetting(parserSettings, "type", "default")
@@ -71,45 +77,104 @@ func (p *defaultParser) Parse(payload []byte, _ string) (core.DataPoint, error) 
 	return dp, nil
 }
 
-// --- jsonpathParser: field mapping via text/template ---
+// --- jsonpathParser: field mapping via gjson ---
+
+// jsonPathField represents a configurable field that can be either:
+//   - a static string literal
+//   - a gjson path into the payload JSON (extracted from "{{ .payload.X }}" syntax)
+//   - a reference to the MQTT topic ("{{ .topic }}")
+type jsonPathField struct {
+	static    string
+	gjsonPath string
+	isTopic   bool
+	isStatic  bool
+}
+
+func parseField(s string) jsonPathField {
+	s = strings.TrimSpace(s)
+	// Check for template syntax {{ .payload.X }}
+	if strings.HasPrefix(s, "{{") && strings.HasSuffix(s, "}}") {
+		inner := strings.TrimSpace(s[2 : len(s)-2])
+		if inner == ".topic" {
+			return jsonPathField{isTopic: true}
+		}
+		// Strip ".payload." prefix to get the gjson path
+		const prefix = ".payload."
+		if strings.HasPrefix(inner, prefix) {
+			return jsonPathField{gjsonPath: inner[len(prefix):]}
+		}
+		// Unknown template expression — treat as static
+		return jsonPathField{static: s, isStatic: true}
+	}
+	return jsonPathField{static: s, isStatic: true}
+}
+
+func (f jsonPathField) resolve(payload []byte, topic string) string {
+	if f.isStatic {
+		return f.static
+	}
+	if f.isTopic {
+		return topic
+	}
+	if f.gjsonPath != "" {
+		return gjson.GetBytes(payload, f.gjsonPath).String()
+	}
+	return ""
+}
+
+// resolveValue is like resolve but preserves the original JSON type
+// (number, bool, string) instead of always returning a string.
+func (f jsonPathField) resolveValue(payload []byte, topic string) any {
+	if f.isStatic {
+		return parseTplValueString(f.static)
+	}
+	if f.isTopic {
+		return topic
+	}
+	if f.gjsonPath != "" {
+		r := gjson.GetBytes(payload, f.gjsonPath)
+		switch {
+		case r.Type == gjson.JSON:
+			return r.String()
+		case r.IsBool():
+			return r.Bool()
+		default:
+			// Numbers, strings, and nulls are handled via .Value()
+			return r.Value()
+		}
+	}
+	return ""
+}
 
 type jsonPathParser struct {
-	driver       string
-	tagTpl       *template.Template
-	valueTpl     *template.Template
-	typeStr      string
-	group        string
-	device       string
-	timestampTpl *template.Template
-	timestampFmt string
+	driver         string
+	tagField       jsonPathField
+	valueField     jsonPathField
+	typeStr        string
+	group          string
+	device         string
+	timestampField jsonPathField
+	timestampFmt   string
 }
 
 func newJSONPathParser(s map[string]any) (*jsonPathParser, error) {
 	p := &jsonPathParser{
-		driver:       getStringSetting(s, "driver", ""),
-		typeStr:      getStringSetting(s, "data-type", ""),
-		group:        getStringSetting(s, "group", ""),
-		device:       getStringSetting(s, "device", ""),
-		timestampFmt: getStringSetting(s, "timestamp-format", "rfc3339"),
+		driver:         getStringSetting(s, "driver", ""),
+		typeStr:        getStringSetting(s, "data-type", ""),
+		group:          getStringSetting(s, "group", ""),
+		device:         getStringSetting(s, "device", ""),
+		timestampFmt:   getStringSetting(s, "timestamp-format", "rfc3339"),
+		tagField:       parseField(getStringSetting(s, "tag", "")),
+		valueField:     parseField(getStringSetting(s, "value", "")),
+		timestampField: parseField(getStringSetting(s, "timestamp", "")),
 	}
-
-	p.tagTpl = compileTpl(s, "tag")
-	p.valueTpl = compileTpl(s, "value")
-	p.timestampTpl = compileTpl(s, "timestamp")
-
 	return p, nil
 }
 
 func (p *jsonPathParser) Parse(payload []byte, topic string) (core.DataPoint, error) {
-	var data any
-	if err := json.Unmarshal(payload, &data); err != nil {
-		return core.DataPoint{}, fmt.Errorf("jsonpath parser: invalid JSON: %w", err)
-	}
-
-	// Build template context: the parsed JSON plus the MQTT topic.
-	ctx := map[string]any{
-		"payload": data,
-		"topic":   topic,
+	// Validate JSON (gjson handles parsing lazily, but we check validity)
+	if !gjson.ValidBytes(payload) {
+		return core.DataPoint{}, fmt.Errorf("jsonpath parser: invalid JSON")
 	}
 
 	dp := core.DataPoint{
@@ -118,20 +183,17 @@ func (p *jsonPathParser) Parse(payload []byte, topic string) (core.DataPoint, er
 		Device: p.device,
 	}
 
-	if p.tagTpl != nil {
-		dp.Tag = renderTpl(p.tagTpl, ctx)
-	}
-	if p.valueTpl != nil {
-		dp.Value = renderTplValue(p.valueTpl, ctx)
-	}
+	dp.Tag = p.tagField.resolve(payload, topic)
+	dp.Value = p.valueField.resolveValue(payload, topic)
+
 	if p.typeStr != "" {
 		dt, _ := core.ParseDataType(p.typeStr)
 		dp.Type = dt
 	}
 
 	// Timestamp
-	if p.timestampTpl != nil {
-		tsStr := renderTpl(p.timestampTpl, ctx)
+	tsStr := p.timestampField.resolve(payload, topic)
+	if tsStr != "" {
 		dp.Timestamp = parseTimestamp(tsStr, p.timestampFmt)
 	}
 	if dp.Timestamp.IsZero() {
@@ -228,38 +290,16 @@ func getIntSetting(s map[string]any, key string, def int) int {
 	return def
 }
 
-func compileTpl(s map[string]any, key string) *template.Template {
-	v, ok := s[key].(string)
-	if !ok || v == "" {
-		return nil
-	}
-	t, err := template.New(key).Parse(v)
-	if err != nil {
-		return nil
-	}
-	return t
-}
-
-func renderTpl(t *template.Template, ctx map[string]any) string {
-	var buf strings.Builder
-	if err := t.Execute(&buf, ctx); err != nil {
-		return ""
-	}
-	return strings.TrimSpace(buf.String())
-}
-
-// renderTplValue executes the template and tries to preserve the original
-// JSON type (number, bool, string) rather than always returning a string.
-func renderTplValue(t *template.Template, ctx map[string]any) any {
-	s := renderTpl(t, ctx)
-	// Try bool
+// parseTplValueString tries to preserve the original JSON type from a
+// static string value (for backward compatibility with non-template configs).
+func parseTplValueString(s string) any {
+	s = strings.TrimSpace(s)
 	if s == "true" {
 		return true
 	}
 	if s == "false" {
 		return false
 	}
-	// Try float (JSON numbers unmarshal to float64)
 	if f, err := strconv.ParseFloat(s, 64); err == nil {
 		return f
 	}

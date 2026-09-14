@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/goccy/go-yaml"
 	"github.com/CoreC-Dev/CoreC/core"
+	"github.com/goccy/go-yaml"
 )
 
 // FileProvider loads match-only rules from a YAML file and supports
@@ -140,8 +140,3 @@ func (p *FileProvider) Update() error { return p.load() }
 func (p *FileProvider) Close() {
 	close(p.stopCh)
 }
-
-// allNode matches everything.
-type allNode struct{}
-
-func (n *allNode) eval(_ core.DataPoint) bool { return true }
