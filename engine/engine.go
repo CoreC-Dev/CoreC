@@ -604,6 +604,14 @@ func (e *CoreCEngine) startTagFileWatcher(config core.DriverConfig) {
 
 	// The reload callback replaces the driver's tags with the file content.
 	// It rebuilds the DriverConfig with the new tags and re-adds the driver.
+	//
+	// IMPORTANT: This callback runs inside the watcher's own loop() goroutine.
+	// We must NOT call RemoveDriver() here because RemoveDriver →
+	// stopTagFileWatcher → w.stop() → <-w.done would deadlock (loop() is
+	// blocked in this callback and can never close done). Instead we do
+	// the driver teardown inline, removing the watcher from the map without
+	// calling w.stop() — the watcher goroutine will continue running this
+	// callback and then return to loop(); AddDriver starts a fresh watcher.
 	driverName := config.Name
 	onReload := func(newTags []core.TagConfig) error {
 		e.mu.RLock()
@@ -613,25 +621,35 @@ func (e *CoreCEngine) startTagFileWatcher(config core.DriverConfig) {
 			return fmt.Errorf("driver %s config not found during tag-file reload", driverName)
 		}
 
-		// Build updated config: new file tags + original inline tags.
-		// We need to recover inline tags from the stored config.
-		// baseCfg.Tags already includes file tags from initial parse,
-		// so we can't easily separate them. Instead, just use newTags
-		// as the complete replacement (file is the source of truth).
+		// Build updated config: new file tags as the complete replacement
+		// (file is the source of truth).
 		updatedCfg := baseCfg
 		updatedCfg.Tags = newTags
 
 		slog.Info("reloading driver from tags-file",
 			"driver", driverName, "old_tags", len(baseCfg.Tags), "new_tags", len(newTags))
 
-		// Remove and re-add the driver with updated tags.
-		if err := e.RemoveDriver(driverName); err != nil {
-			return fmt.Errorf("failed to remove driver for tag reload: %w", err)
-		}
-		// Clear the watcher we just stopped so AddDriver can start a fresh one.
+		// Inline driver teardown (mirrors RemoveDriver but skips
+		// stopTagFileWatcher to avoid the deadlock described above).
 		e.mu.Lock()
-		delete(e.tagFileWatchers, driverName)
+		driver, ok := e.drivers[driverName]
+		if !ok {
+			e.mu.Unlock()
+			return fmt.Errorf("driver %s not found during tag-file reload", driverName)
+		}
+		delete(e.drivers, driverName)
+		delete(e.tagGroups, driverName)
+		delete(e.driverConfigs, driverName)
+		delete(e.tagFileWatchers, driverName) // remove self from map; don't call w.stop()
 		e.mu.Unlock()
+
+		if e.scheduler != nil {
+			e.scheduler.RemoveDriverTasks(driverName)
+		}
+		if err := driver.Stop(); err != nil {
+			slog.Error("failed to stop driver for tag reload",
+				"driver", driverName, "error", err)
+		}
 
 		if err := e.AddDriver(updatedCfg); err != nil {
 			return fmt.Errorf("failed to re-add driver with new tags: %w", err)

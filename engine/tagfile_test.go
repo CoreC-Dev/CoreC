@@ -3,6 +3,7 @@ package engine
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -30,11 +31,14 @@ func TestTagFileWatcherDetectsChange(t *testing.T) {
 	}
 
 	var reloadCount atomic.Int32
+	var lastTagsMu sync.Mutex
 	var lastTags []core.TagConfig
 
 	onReload := func(tags []core.TagConfig) error {
 		reloadCount.Add(1)
+		lastTagsMu.Lock()
 		lastTags = tags
+		lastTagsMu.Unlock()
 		return nil
 	}
 
@@ -81,11 +85,18 @@ func TestTagFileWatcherDetectsChange(t *testing.T) {
 	if reloadCount.Load() < 1 {
 		t.Fatalf("expected at least 1 reload after change, got %d", reloadCount.Load())
 	}
-	if len(lastTags) != 3 {
-		t.Fatalf("expected 3 tags after reload, got %d", len(lastTags))
+	lastTagsMu.Lock()
+	gotLen := len(lastTags)
+	gotName := ""
+	if gotLen > 2 {
+		gotName = lastTags[2].Name
 	}
-	if lastTags[2].Name != "humidity" {
-		t.Errorf("tag[2] name = %q, want %q", lastTags[2].Name, "humidity")
+	lastTagsMu.Unlock()
+	if gotLen != 3 {
+		t.Fatalf("expected 3 tags after reload, got %d", gotLen)
+	}
+	if gotName != "humidity" {
+		t.Errorf("tag[2] name = %q, want %q", gotName, "humidity")
 	}
 }
 
