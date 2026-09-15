@@ -214,6 +214,8 @@ func (e *CoreCEngine) processingLoop() {
 }
 ```
 
+> 注：实际 `processingLoop` 在读取 `DataPoint` 后会**最先应用坏质量策略（drop/mark/alert）**，再依次更新缓存、广播、规则匹配与执行动作。上方代码片段为简化展示，省略了坏质量策略步骤。
+
 ### 阶段 6：最新值缓存（LatestCache）
 
 每个 `DataPoint` 都会更新 `LatestCache`。为降低多 worker 并发更新时的锁竞争，缓存采用 **64 分片（shard）设计**——按驱动名哈希取模分散到 64 个分片，每个分片各自持有 `RWMutex`：
@@ -315,7 +317,7 @@ DataPoint{Driver:"demo-plc", Group:"sensors", Tag:"temperature", Value:42.5}
 MQTT Command Topic ──订阅──▶ Transport.OnCommand() ──chan──▶ startCommandListener ──▶ Driver.Write ──▶ 设备
 ```
 
-引擎为**每个传输**启动一个独立的 `startCommandListener` goroutine 监听该传输的 `OnCommand()` 通道，收到 `WriteCommand` 后调用对应驱动的 `Write` 方法写入设备。`commandLoop` goroutine 本身只等待 `ctx.Done()`，仅用于被 `WaitGroup` 跟踪以保证优雅退出：
+引擎为**每个传输**在 `AddTransport` 时启动一个独立的 `startCommandListener` goroutine 监听该传输的 `OnCommand()` 通道，收到 `WriteCommand` 后调用对应驱动的 `Write` 方法写入设备：
 
 ```go
 type WriteCommand struct {

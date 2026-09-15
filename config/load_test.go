@@ -3,7 +3,6 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	_ "github.com/CoreC-Dev/CoreC/driver/all"
@@ -455,20 +454,23 @@ rules:
 }
 
 // TestLoadExampleConfig verifies that the project's own config.example.yaml
-// is parseable. The example file is a documentation template — it has
-// commented-out drivers/transports/rules, so the only acceptable outcome is
-// either a fully valid load or the specific "no data source" validation
-// error. Any other error (e.g. a rule referencing a missing transport, or a
-// YAML parse error) indicates the template is broken.
+// loads and validates successfully. The example ships with one active driver
+// (plc-modbus), two active transports (cloud-mqtt, mes-http-push) and two
+// active rules (high-temp-alert, default-catch-all) whose targets resolve to
+// those transports, so it must be a fully valid, runnable configuration.
 func TestLoadExampleConfig(t *testing.T) {
-	_, err := Load("../config.example.yaml")
-	if err == nil {
-		return // Fully valid — fine
+	cfg, err := Load("../config.example.yaml")
+	if err != nil {
+		t.Fatalf("config.example.yaml must load successfully, got: %v", err)
 	}
-	// The example is a template with commented-out drivers/transports.
-	// The only acceptable error is "no data source".
-	if !strings.Contains(err.Error(), "no data source") {
-		t.Errorf("expected 'no data source' error or success for example config, got: %v", err)
+	if len(cfg.Drivers) == 0 {
+		t.Fatal("expected at least one driver in example config")
+	}
+	if len(cfg.Transports) == 0 {
+		t.Fatal("expected at least one transport in example config")
+	}
+	if len(cfg.Rules) == 0 {
+		t.Fatal("expected at least one rule in example config")
 	}
 }
 

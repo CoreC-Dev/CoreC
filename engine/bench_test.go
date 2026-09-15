@@ -169,7 +169,6 @@ func runScaleTest(numDrivers, tagsPerDriver int, interval, duration time.Duratio
 	time.Sleep(duration)
 
 	stats := eng.Stats()
-	schedStats := eng.(*CoreCEngine).scheduler.Stats()
 	// Capture push drops, subscriber drops, and in-flight before Stop
 	ce := eng.(*CoreCEngine)
 	pushDropped := uint64(ce.dataBus.PushDropped())
@@ -203,8 +202,6 @@ func runScaleTest(numDrivers, tagsPerDriver int, interval, duration time.Duratio
 		totalDropped:    subDropped,
 		pointsPerSec:    pointsPerSec,
 		publishedPerSec: publishedPerSec,
-		avgLatencyMs:    schedStats.AvgLatencyMs,
-		overruns:        schedStats.Overruns,
 		allocMB:         float64(m.Alloc) / 1024 / 1024,
 		goroutines:      runtime.NumGoroutine(),
 		pushDropped:     pushDropped,

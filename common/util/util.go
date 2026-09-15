@@ -215,21 +215,16 @@ func ApplyTransform(value any, scale, offset float64) any {
 	}
 }
 
-// ReconnectLoop repeatedly calls connect with exponential backoff until
-// it succeeds or ctx is cancelled. The backoff starts at initialBackoff
-// and doubles on each failure, capped at maxBackoff.
+// ReconnectLoopWithBreaker repeatedly calls connect with exponential
+// backoff until it succeeds or ctx is cancelled. The backoff starts at
+// initialBackoff and doubles on each failure, capped at maxBackoff.
 // <=0 values fall back to 2s initial and 30s max.
-// This is the backward-compatible variant without a circuit breaker.
-func ReconnectLoop(ctx context.Context, name string, connect func() error, initialBackoff, maxBackoff time.Duration) {
-	ReconnectLoopWithBreaker(ctx, name, connect, initialBackoff, maxBackoff, 0)
-}
-
-// ReconnectLoopWithBreaker is like ReconnectLoop but adds a circuit
-// breaker: after maxFailures consecutive failures (maxFailures > 0),
-// the backoff is increased to circuitBreakerBackoff (5 minutes) to
-// avoid hammering a permanently offline device. The breaker resets
-// on the next successful connection. maxFailures <= 0 disables the
-// breaker (pure exponential backoff, backward-compatible behaviour).
+//
+// After maxFailures consecutive failures (maxFailures > 0), a circuit
+// breaker trips and the backoff is increased to circuitBreakerBackoff
+// (5 minutes) to avoid hammering a permanently offline device. The
+// breaker resets on the next successful connection. maxFailures <= 0
+// disables the breaker (pure exponential backoff).
 func ReconnectLoopWithBreaker(ctx context.Context, name string, connect func() error, initialBackoff, maxBackoff time.Duration, maxFailures int) {
 	backoff := initialBackoff
 	if backoff <= 0 {

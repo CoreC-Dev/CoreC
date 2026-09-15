@@ -38,16 +38,12 @@ curl "http://localhost:9090/drivers?token=corec-secret-token"
 Token 比较使用恒定时间比较（`crypto/hmac.Equal`），可防止时序攻击。
 
 ::: warning 未配置 Secret
-若 `global.api.secret` 为空，核心将跳过鉴权中间件，**所有端点均可公开访问**。日志会输出警告：
+若 `global.api.secret` 为空，核心将**拒绝启动**（fail-closed）以确保安全，而非跳过鉴权公开所有端点。具体而言：
 
-```
-API server starting WITHOUT authentication — secret is empty.
-This is insecure for production. All endpoints will be publicly accessible.
-```
+- **配置加载阶段**：当 `global.api.listen` 非空时，`global.api.secret` 必须非空且不少于 8 个字符，否则配置加载直接失败（参见 `config.validate`）。
+- **服务启动阶段**：即便绕过配置校验直接调用 `ReCreateServer`，空 Secret 也会令服务端打印 `API server refusing to start: api.secret is empty.` 并**拒绝启动**（参见 `hub/route/server.go`）。
 
-生产环境务必配置非空 Secret。
-
-> **注**：该无鉴权状态在正常配置加载下**不可达**。配置校验规定：当 `global.api.listen` 非空时，`global.api.secret` 必须非空且不少于 8 个字符，否则配置加载直接失败（参见 `config.validate`）。因此通过配置文件正常启动时不会进入此分支；该警告仅在绕过校验、直接构造 `Config` 并调用 `ReCreateServer` 时才可能出现。
+**Secret 必须显式设置**，不存在"空 Secret 即跳过鉴权、公开所有端点"的回退行为。
 :::
 
 ### 公开端点

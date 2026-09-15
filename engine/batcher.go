@@ -181,7 +181,7 @@ func (b *transportBatcher) flush() {
 	b.buffer = make([]core.DataPoint, 0, b.batchSize)
 	b.mu.Unlock()
 
-	b.publishWithRetry(b.ctx, batch)
+	b.publishWithRetryAndBuffer(b.ctx, batch)
 }
 
 // flushFinal is the shutdown flush. It uses a fresh background context
@@ -199,22 +199,17 @@ func (b *transportBatcher) flushFinal() {
 	b.buffer = make([]core.DataPoint, 0, b.batchSize)
 	b.mu.Unlock()
 
-	if !b.publishWithRetryAndBuffer(context.Background(), batch) {
-		// publishWithRetryAndBuffer already handled the offline buffer.
-		return
-	}
+	// Result is ignored: on success the batch is published; on failure
+	// publishWithRetryAndBuffer already persisted it to the offline
+	// buffer (or logged the drop when no buffer is configured).
+	b.publishWithRetryAndBuffer(context.Background(), batch)
 }
 
-// publishWithRetry sends a batch with exponential backoff. If all
-// retries are exhausted and an offline buffer is configured, the
-// batch is persisted to disk for later replay.
-func (b *transportBatcher) publishWithRetry(ctx context.Context, batch []core.DataPoint) {
-	b.publishWithRetryAndBuffer(ctx, batch)
-}
-
-// publishWithRetryAndBuffer returns true if the batch was published
-// successfully, false if it was buffered to disk (or dropped if no
-// offline buffer is configured).
+// publishWithRetryAndBuffer sends a batch with exponential backoff. If all
+// retries are exhausted and an offline buffer is configured, the batch is
+// persisted to disk for later replay.
+// Returns true if the batch was published successfully, false if it was
+// buffered to disk (or dropped if no offline buffer is configured).
 func (b *transportBatcher) publishWithRetryAndBuffer(ctx context.Context, batch []core.DataPoint) bool {
 	maxAttempts := b.retryCount + 1
 	baseDelay := defaultRetryBaseDelay

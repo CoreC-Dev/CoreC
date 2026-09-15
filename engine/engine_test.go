@@ -132,25 +132,15 @@ func TestScheduler(t *testing.T) {
 		t.Fatal("timed out waiting for scheduled task execution")
 	}
 
-	stats := sched.Stats()
-	if stats.ActiveTasks != 1 {
-		t.Errorf("expected 1 active task, got %d", stats.ActiveTasks)
-	}
-
+	// PauseDriver is a kept interface method; verify it suppresses ticks.
 	if err := sched.PauseDriver("d1"); err != nil {
 		t.Fatalf("PauseDriver failed: %v", err)
 	}
-	stats = sched.Stats()
-	if stats.PausedTasks != 1 {
-		t.Errorf("expected 1 paused task, got %d", stats.PausedTasks)
-	}
-
-	if err := sched.ResumeDriver("d1"); err != nil {
-		t.Fatalf("ResumeDriver failed: %v", err)
-	}
-
-	if err := sched.RemoveTask("task-1"); err != nil {
-		t.Fatalf("RemoveTask failed: %v", err)
+	select {
+	case <-received:
+		t.Fatal("received a tick after PauseDriver")
+	case <-time.After(80 * time.Millisecond):
+		// expected: no tick while paused
 	}
 }
 

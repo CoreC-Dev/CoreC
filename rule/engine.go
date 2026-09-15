@@ -12,17 +12,13 @@ import (
 )
 
 // Engine is the rule matching engine.
-// It evaluates DataPoints against a sorted list of rules.
-// Rules are indexed by tag and driver for O(1) lookup in the
-// common case; ALL and complex-expression rules fall back to
-// a linear scan.
+// It evaluates DataPoints against a priority-sorted list of rules
+// using a linear scan, so that every evaluated rule records its
+// hit/miss statistics and the priority order is preserved (see
+// the Match doc comment for the full rationale).
 type Engine struct {
 	mu         sync.RWMutex
 	rules      []core.Rule
-	byTag      map[string][]core.Rule // tag == 'xxx' → rules
-	byDriver   map[string][]core.Rule // driver == 'xxx' → rules
-	allRules   []core.Rule            // match: ALL
-	other      []core.Rule            // complex expressions (linear scan)
 	providers  map[string]core.RuleProvider
 	subEngines map[string]*Engine // sub-rule groups
 }
@@ -30,8 +26,6 @@ type Engine struct {
 // NewEngine creates a new rule engine.
 func NewEngine() *Engine {
 	return &Engine{
-		byTag:      make(map[string][]core.Rule),
-		byDriver:   make(map[string][]core.Rule),
 		providers:  make(map[string]core.RuleProvider),
 		subEngines: make(map[string]*Engine),
 	}
@@ -163,70 +157,12 @@ func (e *Engine) SetRules(configs []core.RuleConfig) error {
 		wrapped[i] = newRuleWrapper(r)
 	}
 
-	// Build indexes for O(1) lookup.
-	//
-	// NOTE (M38): these indexes are currently built but not consumed by Match,
-	// which keeps a linear scan to preserve priority ordering and per-rule
-	// hit/miss statistics. They are retained for a future statistics-relaxed
-	// fast path. See the Match doc comment for the full rationale.
-	byTag := make(map[string][]core.Rule)
-	byDriver := make(map[string][]core.Rule)
-	var allRules, other []core.Rule
-
-	for _, w := range wrapped {
-		inner := w.(*ruleWrapper).Unwrap()
-		expr := strings.TrimSpace(inner.Payload())
-		upper := strings.ToUpper(expr)
-
-		if upper == "ALL" {
-			allRules = append(allRules, w)
-			continue
-		}
-
-		// Try to extract a single tag == 'xxx' or driver == 'xxx' condition
-		if tag, ok := extractSingleFieldEq(expr, "tag"); ok {
-			byTag[tag] = append(byTag[tag], w)
-			continue
-		}
-		if driver, ok := extractSingleFieldEq(expr, "driver"); ok {
-			byDriver[driver] = append(byDriver[driver], w)
-			continue
-		}
-
-		// Complex expression — linear scan
-		other = append(other, w)
-	}
-
 	e.mu.Lock()
 	e.rules = wrapped
-	e.byTag = byTag
-	e.byDriver = byDriver
-	e.allRules = allRules
-	e.other = other
 	e.mu.Unlock()
 
-	slog.Info("rules updated", "count", len(rules),
-		"by_tag", len(byTag), "by_driver", len(byDriver),
-		"all", len(allRules), "other", len(other))
+	slog.Info("rules updated", "count", len(rules))
 	return nil
-}
-
-// extractSingleFieldEq returns the value if expr is exactly "field == 'value'"
-// (no && or ||), indicating the rule can be indexed by that field.
-func extractSingleFieldEq(expr, field string) (string, bool) {
-	cond := strings.TrimSpace(expr)
-	if strings.Contains(cond, "&&") || strings.Contains(cond, "||") {
-		return "", false
-	}
-	parts := strings.SplitN(cond, "==", 2)
-	if len(parts) != 2 {
-		return "", false
-	}
-	if strings.TrimSpace(parts[0]) != field {
-		return "", false
-	}
-	val := strings.Trim(strings.TrimSpace(parts[1]), "'\"")
-	return val, val != ""
 }
 
 // Rules returns the active rules.
@@ -314,25 +250,23 @@ type MatchResult struct {
 // Rules are evaluated in priority order (lower priority = higher precedence).
 // Returns nil if no rule matches.
 //
-// M38: SetRules builds byTag/byDriver/allRules/other indexes for O(1) lookup,
-// but Match intentionally keeps a linear scan over e.rules. Using the indexes
-// directly would break two invariants that existing tests rely on:
+// Match intentionally uses a linear scan over e.rules rather than
+// tag/driver indexes. Using indexes would break two invariants that
+// existing tests rely on:
 //
 //  1. Priority order — candidates gathered from separate index buckets
-//     (allRules, byDriver, byTag, other) are each sorted by priority but are
-//     NOT globally sorted across buckets, so the first bucket hit could be a
-//     lower-priority rule than one in another bucket (see TestEngineMatch).
+//     are each sorted by priority but are NOT globally sorted across
+//     buckets, so the first bucket hit could be a lower-priority rule
+//     than one in another bucket (see TestEngineMatch).
 //  2. Statistics — ruleWrapper.Match updates hit/miss counters on every
-//     evaluation. Indexed lookup skips rules whose indexed tag/driver differs
-//     from the point, so those rules would never record their misses even
-//     though they sit before the first match in priority order (see
-//     TestRuleStats / TestWrapperStats). Because matchInRules returns on the
-//     first match, only rules up to and including that match are evaluated —
-//     exactly the set the linear scan covers.
+//     evaluation. Indexed lookup skips rules whose indexed tag/driver
+//     differs from the point, so those rules would never record their
+//     misses even though they sit before the first match in priority
+//     order (see TestRuleStats / TestWrapperStats). Because matchInRules
+//     returns on the first match, only rules up to and including that
+//     match are evaluated — exactly the set the linear scan covers.
 //
-// The indexes are retained for a future fast path that can relax the
-// statistics requirement (e.g. a "match-only" code path that does not need
-// per-rule hit/miss counters). Correctness is preserved over performance.
+// Correctness is preserved over performance.
 func (e *Engine) Match(point core.DataPoint) *MatchResult {
 	e.mu.RLock()
 	defer e.mu.RUnlock()

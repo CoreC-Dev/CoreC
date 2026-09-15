@@ -69,7 +69,7 @@ type WriteCommand struct {
 
 流向：MQTT 订阅 command-topic → `Transport.OnCommand()` → `startCommandListener` → `Driver.Write()` → PLC
 
-> 注：`commandLoop` 本身仅等待 `ctx.Done()` 参与优雅停机，实际命令分发由每个传输的 `startCommandListener` goroutine 完成。
+> 注：每个传输在 `AddTransport` 注册时启动各自的 `startCommandListener` goroutine 完成命令分发并参与优雅停机。
 
 ### 4. 控制面 API 请求
 

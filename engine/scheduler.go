@@ -29,10 +29,6 @@ type scheduler struct {
 	// error/overrun log messages. Defaults to core.DefaultErrorThrottleWindow.
 	errorThrottleWindow time.Duration
 
-	overruns     atomic.Uint64
-	totalLatency atomic.Int64
-	totalTicks   atomic.Int64
-
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -141,16 +137,6 @@ func (s *scheduler) AddTask(task core.ScheduleTask) error {
 	return nil
 }
 
-func (s *scheduler) RemoveTask(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if t, ok := s.tasks[id]; ok {
-		t.cancel()
-		delete(s.tasks, id)
-	}
-	return nil
-}
-
 func (s *scheduler) Pause() error {
 	s.globalPaused.Store(true)
 	slog.Info("scheduler paused globally")
@@ -187,41 +173,6 @@ func (s *scheduler) PauseDriver(name string) error {
 	s.mu.Unlock()
 	slog.Info("driver paused", "driver", name)
 	return nil
-}
-
-func (s *scheduler) ResumeDriver(name string) error {
-	s.mu.Lock()
-	delete(s.paused, name)
-	s.mu.Unlock()
-	slog.Info("driver resumed", "driver", name)
-	return nil
-}
-
-func (s *scheduler) Stats() core.SchedulerStats {
-	s.mu.RLock()
-	active := 0
-	paused := 0
-	for _, t := range s.tasks {
-		if s.paused[t.task.Driver] {
-			paused++
-		} else {
-			active++
-		}
-	}
-	s.mu.RUnlock()
-
-	totalTicks := s.totalTicks.Load()
-	avgLatency := float64(0)
-	if totalTicks > 0 {
-		avgLatency = float64(s.totalLatency.Load()) / float64(totalTicks) / float64(time.Millisecond)
-	}
-
-	return core.SchedulerStats{
-		ActiveTasks:  active,
-		PausedTasks:  paused,
-		Overruns:     s.overruns.Load(),
-		AvgLatencyMs: avgLatency,
-	}
 }
 
 func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) {
@@ -276,11 +227,8 @@ func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) {
 			readCancel()
 
 			latency := time.Since(start)
-			s.totalLatency.Add(int64(latency))
-			s.totalTicks.Add(1)
 
 			if latency > interval {
-				s.overruns.Add(1)
 				runner.overrunCount++
 				if time.Since(runner.lastOverrunLog) >= s.errorThrottleWindow {
 					slog.Warn("scheduler overrun",
@@ -360,8 +308,11 @@ func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) {
 
 				// Apply deadband filtering: skip values that haven't changed
 				// beyond the configured threshold since last report.
+				// A fresh slice is allocated so the filter never aliases
+				// the driver's returned slice (a driver may legitimately
+				// reuse its return buffer across Read calls).
 				if len(runner.task.DeadBands) > 0 {
-					filtered := values[:0]
+					filtered := make([]core.TagValue, 0, len(values))
 					for _, v := range values {
 						threshold, ok := runner.task.DeadBands[v.Tag]
 						if !ok || threshold <= 0 {

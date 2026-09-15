@@ -27,6 +27,12 @@ var arithCompileEnv = map[string]any{
 
 // arithCache caches compiled programs by expression string to avoid
 // recompilation overhead on repeated calls with the same expression.
+//
+// Boundedness: expressions originate from static configuration (the
+// transform field of core.RuleConfig), which is a finite set loaded at
+// startup/reload. The cache therefore grows to at most one entry per
+// distinct configured expression and is never driven by unbounded
+// runtime input, so no eviction is needed.
 var arithCache sync.Map
 
 // EvalArith parses and evaluates an arithmetic expression against the given

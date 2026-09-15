@@ -124,6 +124,27 @@ func (c *LatestCache) GetByDriver(driver string) map[string]core.DataPoint {
 	return snap
 }
 
+// GetAll retrieves the latest values for every driver, keyed by tag name.
+// When two drivers share a tag name, the last one visited wins (the
+// DataPoint value carries its own Driver field, so the source is not lost).
+// This is the backing implementation for the GET /tags endpoint.
+func (c *LatestCache) GetAll() map[string]core.DataPoint {
+	all := make(map[string]core.DataPoint)
+	for i := range c.shards {
+		shard := &c.shards[i]
+		shard.mu.RLock()
+		for _, dc := range shard.drivers {
+			dc.mu.RLock()
+			for k := range dc.values {
+				all[k] = dc.values[k]
+			}
+			dc.mu.RUnlock()
+		}
+		shard.mu.RUnlock()
+	}
+	return all
+}
+
 // Clear removes all cached data.
 func (c *LatestCache) Clear() {
 	for i := range c.shards {

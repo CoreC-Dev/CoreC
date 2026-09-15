@@ -62,8 +62,11 @@ type CoreCEngine struct {
 	errorThrottleWin   time.Duration
 	defaultTagInterval time.Duration
 	badQualityPolicy   badQualityPolicy
-	staleThreshold     time.Duration // 0 = disabled
-	writeRetryCount    int
+	// staleThreshold is stored as nanoseconds in an atomic so that
+	// StaleThreshold() can be read lock-free while applyEngineConfig
+	// writes it during Reload/Start without a data race.
+	staleThreshold  atomic.Int64 // nanoseconds; 0 = disabled
+	writeRetryCount int
 
 	// offlineBuffer persists failed publish batches to disk for replay
 	// after transport recovery. nil = disabled (no buffer config).
@@ -163,7 +166,7 @@ func (e *CoreCEngine) applyEngineConfig(cfg *core.EngineConfig) {
 		e.badQualityPolicy = parseBadQualityPolicy(cfg.OnBadQuality)
 	}
 	if d, err := time.ParseDuration(cfg.StaleThreshold); err == nil && d > 0 {
-		e.staleThreshold = d
+		e.staleThreshold.Store(int64(d))
 	}
 	if cfg.WriteRetryCount > 0 {
 		e.writeRetryCount = cfg.WriteRetryCount
@@ -315,10 +318,6 @@ func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error {
 	for i := 0; i < numWorkers; i++ {
 		go e.processingLoop()
 	}
-
-	// Start handling write commands from transports
-	e.wg.Add(1)
-	go e.commandLoop()
 
 	// Start topology auto-discovery if node config is present.
 	e.startDiscovery(config)
@@ -919,11 +918,17 @@ func (e *CoreCEngine) WriteTag(ctx context.Context, cmd core.WriteCommand) (*cor
 }
 
 func (e *CoreCEngine) LatestValues(driver string) map[string]core.DataPoint {
+	if driver == "" {
+		// Aggregate every driver; this backs the GET /tags endpoint.
+		return e.cache.GetAll()
+	}
 	return e.cache.GetByDriver(driver)
 }
 
 func (e *CoreCEngine) StaleThreshold() time.Duration {
-	return e.staleThreshold
+	// Read atomically: this is called from HTTP handlers concurrently
+	// with applyEngineConfig writes during Reload/Start.
+	return time.Duration(e.staleThreshold.Load())
 }
 
 // --- Event Subscription ---
@@ -1046,17 +1051,23 @@ func (e *CoreCEngine) onDriverData(driver string, values []core.TagValue) {
 }
 
 func (e *CoreCEngine) scheduleDriverTags(config core.DriverConfig) {
-	// Group tags by interval
-	intervalGroups := make(map[string][]string)
+	// Group tags by their parsed interval so that equivalent spellings
+	// (e.g. "1s" and "1000ms") collapse into a single task instead of
+	// creating duplicate tasks with the same cadence.
+	intervalGroups := make(map[time.Duration][]string)
 	deadBands := make(map[string]float64)
 	// readTimeouts tracks the max parsed read-timeout per interval group.
 	// Tags in the same group are read together in a single readFunc call,
 	// so the effective timeout is the most generous one requested.
-	readTimeouts := make(map[string]time.Duration)
+	readTimeouts := make(map[time.Duration]time.Duration)
 	for _, tag := range config.Tags {
-		interval := tag.Interval
-		if interval == "" {
-			interval = e.defaultTagInterval.String() // default
+		interval := e.defaultTagInterval
+		if tag.Interval != "" {
+			if d, err := time.ParseDuration(tag.Interval); err == nil && d > 0 {
+				interval = d
+			} else {
+				slog.Error("invalid interval", "interval", tag.Interval, "error", err)
+			}
 		}
 		intervalGroups[interval] = append(intervalGroups[interval], tag.Name)
 		if tag.DeadBand > 0 {
@@ -1071,21 +1082,15 @@ func (e *CoreCEngine) scheduleDriverTags(config core.DriverConfig) {
 		}
 	}
 
-	for intervalStr, tags := range intervalGroups {
-		interval, err := time.ParseDuration(intervalStr)
-		if err != nil {
-			slog.Error("invalid interval", "interval", intervalStr, "error", err)
-			interval = e.defaultTagInterval
-		}
-
-		taskID := fmt.Sprintf("%s_%s", config.Name, intervalStr)
+	for interval, tags := range intervalGroups {
+		taskID := fmt.Sprintf("%s_%s", config.Name, interval.String())
 		if err := e.scheduler.AddTask(core.ScheduleTask{
 			ID:          taskID,
 			Driver:      config.Name,
 			Tags:        tags,
 			Interval:    interval,
 			DeadBands:   deadBands,
-			ReadTimeout: readTimeouts[intervalStr],
+			ReadTimeout: readTimeouts[interval],
 		}); err != nil {
 			slog.Error("failed to add schedule task", "task", taskID, "error", err)
 		}
@@ -1156,23 +1161,12 @@ func (e *CoreCEngine) processingLoop() {
 	}
 }
 
-func (e *CoreCEngine) commandLoop() {
-	defer e.wg.Done()
-
-	// Listener goroutines for transports are started by AddTransport,
-	// which is called for every transport during Start() and for any
-	// transport added later via the management API.  This goroutine
-	// exists solely to be tracked by e.wg so that Stop() waits for
-	// all listener goroutines to exit before returning.
-	<-e.ctx.Done()
-}
-
 // startCommandListener launches a goroutine that listens for write commands
 // from a transport's OnCommand channel and dispatches them to the engine.
 // Failed writes are retried with exponential backoff; if all retries fail,
 // the command is placed in the dead letter queue for later inspection.
-// Called both from commandLoop (for initial transports) and from AddTransport
-// (for transports added at runtime), so no transport's commands are dropped.
+// It is called from AddTransport for every transport (initial and runtime),
+// so no transport's commands are dropped.
 func (e *CoreCEngine) startCommandListener(t core.Transport) {
 	cmdCh := t.OnCommand()
 	if cmdCh == nil {
@@ -1271,7 +1265,7 @@ func (e *CoreCEngine) DeadLetterEntries() []core.DeadLetterEntry {
 // processing loop via a channel so chained transports feed the same
 // pipeline as driver-sourced data.
 //
-// Called from commandLoop (initial transports) and AddTransport (runtime).
+// It is called from AddTransport for every transport (initial and runtime).
 func (e *CoreCEngine) startDataListener(t core.Transport) {
 	dataCh := t.OnData()
 	if dataCh == nil {

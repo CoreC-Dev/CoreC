@@ -61,40 +61,40 @@ global:
 # ============================================================
 drivers:
   ## 1. Modbus TCP Driver (PLC / Sensor Gateway)
-  # - name: plc-modbus
-    # type: modbus-tcp
-    # settings:
-      # host: 192.168.1.100
-      # port: 502
-      # slave-id: 1
-      # timeout: 3s
-      # retry: 3
+  - name: plc-modbus
+    type: modbus-tcp
+    settings:
+      host: 192.168.1.100
+      port: 502
+      slave-id: 1
+      timeout: 3s
+      retry: 3
       ## Reconnect backoff (optional, defaults shown)
-      # reconnect-interval: 2s
-      # reconnect-max-interval: 30s
-      # max-reconnect-failures: 20  # circuit breaker: stop reconnecting after N consecutive failures
+      reconnect-interval: 2s
+      reconnect-max-interval: 30s
+      max-reconnect-failures: 20  # circuit breaker: after N consecutive failures, switch to 5-minute low-frequency retry
     ## tags-file: load tags from an external YAML file (useful for hundreds of points)
     ## tags-interval: hot-reload interval, e.g. "30s" (empty = load once, no auto-reload)
     # tags-file: ./tags/plc-modbus-tags.yaml
     # tags-interval: 30s
-    # tags:                      # inline tags (appended after file tags if both set)
-      # - name: temperature
-        # address: "40001"      # Holding register 0
-        # type: float32
-        # group: sensors
-        # interval: 1s
-        # deadband: 0.2
-        # read-timeout: 500ms   # per-tag read timeout (optional, default = interval)
-      # - name: pressure
-        # address: "40003"      # Holding register 2
-        # type: float32
-        # group: sensors
-        # interval: 1s
-      # - name: pump_status
-        # address: "00001"      # Coil 0
-        # type: bool
-        # group: actuators
-        # interval: 2s
+    tags:                      # inline tags (appended after file tags if both set)
+      - name: temperature
+        address: "40001"      # Holding register 0
+        type: float32
+        group: sensors
+        interval: 1s
+        deadband: 0.2
+        read-timeout: 500ms   # per-tag read timeout (optional, default = interval)
+      - name: pressure
+        address: "40003"      # Holding register 2
+        type: float32
+        group: sensors
+        interval: 1s
+      - name: pump_status
+        address: "00001"      # Coil 0
+        type: bool
+        group: actuators
+        interval: 2s
 
   ## 1b. Modbus RTU Driver (Serial line, e.g. RS-485 sensor)
   # - name: sensor-rtu
@@ -195,7 +195,7 @@ drivers:
       # idle-timeout: 60s     # connection idle timeout (default 60s)
       # reconnect-interval: 2s
       # reconnect-max-interval: 30s
-      # max-reconnect-failures: 20  # circuit breaker threshold
+      # max-reconnect-failures: 20  # circuit breaker: after N consecutive failures, switch to 5-minute low-frequency retry
     # tags:
       # - name: reactor_temp
         # address: "DB1.DBD0"   # DB 1 Double Word 0 (Float32)
@@ -228,7 +228,7 @@ drivers:
       # max-batch-size: 1000       # max nodes per read request (default 1000)
       # reconnect-interval: 2s
       # reconnect-max-interval: 30s
-      # max-reconnect-failures: 20  # circuit breaker threshold
+      # max-reconnect-failures: 20  # circuit breaker: after N consecutive failures, switch to 5-minute low-frequency retry
     # tags:
       # - name: conveyor_speed
         # address: "ns=2;s=Conveyor.Speed"
@@ -254,15 +254,15 @@ drivers:
 # ============================================================
 transports:
   ## 1. MQTT Cloud Transport (Publish + Command Writeback + Chained Inbound)
-  # - name: cloud-mqtt
-    # type: mqtt
-    # settings:
-      # broker: tcp://broker.emqx.io:1883
-      # client-id: factory-edge-01
+  - name: cloud-mqtt
+    type: mqtt
+    settings:
+      broker: tcp://broker.emqx.io:1883
+      client-id: factory-edge-01
       # username: "your-username"     # broker 认证用户名（可选，公共 broker 不需要）
       # password: "your-password"     # broker 认证密码（可选）
-      # qos: 1
-      # topic-template: "factory/{{.Driver}}/{{.Group}}/{{.Tag}}"
+      qos: 1
+      topic-template: "factory/{{.Driver}}/{{.Group}}/{{.Tag}}"
       # command-topic: "factory/commands/#"
       ## Command authentication (recommended for production): when set, command
       ## messages must carry hex(HMAC-SHA256(secret, payload)) in the
@@ -300,14 +300,14 @@ transports:
     # fallback: mes-http-push     # fallback transport name (optional, used when this transport fails)
 
   ## 2. HTTP Webhook / REST Push (MES / Data Lake API + Chained Inbound)
-  # - name: mes-http-push
-    # type: http
-    # settings:
-      # url: "http://localhost:8080/api/v1/telemetry"
-      # method: POST
+  - name: mes-http-push
+    type: http
+    settings:
+      url: "http://localhost:8080/api/v1/telemetry"
+      method: POST
       # headers:
         # Authorization: "Bearer mes-secret-key"
-      # timeout: 3s
+      timeout: 3s
       ## --- Chained Core Inbound ---
       ## Start a webhook server to receive data from upstream CoreC instances
       ## or third-party HTTP POST sources.  Each POST body is parsed into
@@ -374,13 +374,13 @@ transports:
       # action: alert
       # target: cloud-mqtt
 
-# rules:
+rules:
   ## High Temperature Alert -> Forward immediately to Cloud MQTT
-  # - name: high-temp-alert
-    # match: "tag == 'temperature' && value > 95"
-    # action: alert
-    # target: cloud-mqtt
-    # priority: 1
+  - name: high-temp-alert
+    match: "tag == 'temperature' && value > 95"
+    action: alert
+    target: cloud-mqtt
+    priority: 1
 
   ## Emergency Stop -> High-priority Alert
   # - name: emergency-stop-alert
@@ -420,8 +420,8 @@ transports:
     # priority: 50
 
   ## Default rule: Forward all remaining points to MES HTTP Push
-  # - name: default-catch-all
-    # match: "ALL"
-    # action: forward
-    # target: mes-http-push
-    # priority: 999
+  - name: default-catch-all
+    match: "ALL"
+    action: forward
+    target: mes-http-push
+    priority: 999

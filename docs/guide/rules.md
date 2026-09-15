@@ -124,7 +124,7 @@ match: "group == 'safety' && tag == 'emergency_stop' && value == true"
 ```
 
 ::: info 当前表达式能力
-CoreC 规则匹配使用内置的**零依赖表达式引擎**（`rule/expr.go`，无第三方依赖），支持：`==`/`!=` 相等、`=~`/`!~` 正则匹配（RE2）、`contains`/`suffix`/`prefix` 字符串运算、`> < >= <=` 数值比较、`in lo..hi` 数值区间、`&&`/`||` 逻辑与或、`!` 逻辑非、`( )` 括号分组、`ALL` 全匹配。可用的字段包括 `driver`、`device`、`group`、`tag`、`type`、`quality`、`value`。
+CoreC 规则匹配的 DSL 经翻译后由第三方库 **expr-lang/expr**（`github.com/expr-lang/expr`）编译执行（`rule/expr.go` 负责 DSL→expr-lang 语法翻译），支持：`==`/`!=` 相等、`=~`/`!~` 正则匹配（RE2）、`contains`/`suffix`/`prefix` 字符串运算、`> < >= <=` 数值比较、`in lo..hi` 数值区间、`&&`/`||` 逻辑与或、`!` 逻辑非、`( )` 括号分组、`ALL` 全匹配。可用的字段包括 `driver`、`device`、`group`、`tag`、`type`、`quality`、`value`。
 :::
 
 ### 匹配示例速查
@@ -231,7 +231,7 @@ WARN ALERT rule=high-temp-alert driver=plc-modbus tag=temperature value=96.3
 | `tag-rename` | 变换后的新测点名 |
 
 ::: info transform 求值引擎
-`transform` 动作使用内置的算术求值引擎（`rule/arith.go`）对 `expression` 求值后替换 `value`，再应用 `tag-rename` 重命名测点，最后转发到目标传输。表达式支持 `+`/`-`/`*`/`/` 四则运算、`( )` 括号分组、数值字面量与 `value` 变量（如 `value * 1.8 + 32`）。非数值 `value`（如 `bool`、`string`、`nil`）时**静默保留原值**（不记录警告）；仅当表达式本身求值失败时才记录警告并保留原值。
+`transform` 动作使用第三方库 expr-lang/expr（`github.com/expr-lang/expr`）对 `expression` 求值（`rule/arith.go` 负责 DSL→expr-lang 语法翻译）后替换 `value`，再应用 `tag-rename` 重命名测点，最后转发到目标传输。表达式支持 `+`/`-`/`*`/`/` 四则运算、`( )` 括号分组、数值字面量与 `value` 变量（如 `value * 1.8 + 32`）。非数值 `value`（如 `bool`、`string`、`nil`）时**静默保留原值**（不记录警告）；仅当表达式本身求值失败时才记录警告并保留原值。
 :::
 
 ## 优先级机制

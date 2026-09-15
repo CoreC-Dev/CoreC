@@ -41,7 +41,7 @@ corec/
 │   ├── driver.go                # 南向 Driver 接口定义、DriverConfig、DriverStatus、Capabilities
 │   ├── transport.go             # 北向 Transport 接口定义、TransportConfig、TransportStatus
 │   ├── rule.go                  # 规则 Rule 接口定义、Action 枚举、RuleConfig
-│   ├── scheduler.go             # 采集调度器 Scheduler 接口定义、ScheduleTask、SchedulerStats
+│   ├── scheduler.go             # 采集调度器 Scheduler 接口定义、ScheduleTask
 │   ├── engine.go                # 核心中枢 Engine 接口定义、EngineStats、Config 顶层结构
 │   ├── registry.go              # 全局工厂注册表 (DriverFactory / TransportFactory)
 │   └── registry_test.go         # 注册表单元测试
@@ -84,17 +84,17 @@ corec/
 ├── rule/                        # 规则路由模块
 │   ├── arith.go         # 算术表达式求值（expr-lang/expr，含编译缓存）
 │   ├── engine.go        # 规则引擎（优先级切片排序、字段等值与数值区间比较、命中/未命中统计、运行时禁用）
-│   ├── expr.go          # DSL→expr-lang/expr 翻译层（~176 行，零传递依赖）
+│   ├── expr.go          # DSL→expr-lang/expr 翻译层（~176 行，依赖 expr-lang/expr）
 │   ├── provider.go      # RULE-SET 外部规则集 provider
 │   ├── wrapper.go       # RuleWrapper（命中/未命中原子计数、运行时禁用）
 │   ├── arith_test.go    # 算术辅助单元测试
 │   ├── engine_test.go   # 规则匹配、统计与禁用单元测试
 │   └── p1p2_test.go     # 表达式解析 P1/P2 回归测试
 ├── engine/                      # 引擎核心实现
-│   ├── engine.go                # Engine 编排器（流水线、驱动/传输生命周期、指令反向下发、Suspend/Resume、autoFillNodeConfig、startDiscovery、tagFileWatchers）
+│   ├── engine.go                # Engine 编排器（流水线、驱动/传输生命周期、Suspend/Resume、autoFillNodeConfig、startDiscovery、tagFileWatchers）
 │   ├── tagfile.go               # 标签文件热重载 watcher（SHA-256 变更检测 + ticker 轮询）
 │   ├── discovery.go             # 拓扑自动发现（MQTT 心跳、节点注册表、auto-subscribe）
-│   ├── scheduler.go             # Ticker 并发采集调度器（含错误与超限抑制机制、Pause/Resume）
+│   ├── scheduler.go             # Ticker 并发采集调度器（含错误抑制机制、Pause/Resume）
 │   ├── databus.go               # 高并发无锁 Go Channel 内部数据总线
 │   ├── cache.go                 # 最新测点值并发安全实时缓存 (LatestCache)
 │   ├── batcher.go               # 传输批量聚合与重试
@@ -106,14 +106,14 @@ corec/
 │   ├── chained_core_bench_test.go # 链式核心性能基准
 │   ├── bench_test.go            # 引擎性能基准
 │   └── statistic/
-│       ├── manager.go           # 吞吐量统计管理器（原子计数 + 1s Ticker 采样）
+│       ├── manager.go           # 吞吐量统计管理器（原子计数 + Snapshot）
 │       └── manager_test.go      # 统计管理器单元测试
 ├── common/
 │   ├── observable/
 │   │   ├── observable.go        # 泛型 Observable 事件总线（非阻塞扇出）
 │   │   └── observable_test.go   # Observable 单元测试
 │   └── util/
-│       └── util.go              # 共享辅助函数（设置提取、时长解析等）
+│       └── util.go              # 共享辅助函数（设置提取、时长解析、ReconnectLoopWithBreaker 等）
 ├── log/                         # 可观测日志系统
 │   ├── level.go                 # LogLevel 枚举与映射
 │   ├── log.go                   # ObservableHandler 包装 slog，自动捕获所有日志调用 + 便捷函数
@@ -255,7 +255,7 @@ MQTT Command Topic ──> Transport.OnCommand() ──> Engine.startCommandList
 
 ### 4.4 优雅停机保证 (Graceful Teardown)
 - 捕获 `os.Interrupt`, `syscall.SIGTERM` 信号。
-- 退出顺序：**停止 API 服务器 $\rightarrow$ 停止调度器 (Scheduler) $\rightarrow$ 停止南向驱动连接 $\rightarrow$ 停止传输批量器 (Batcher) $\rightarrow$ 停止北向传输发布 $\rightarrow$ 关闭内部数据总线 (DataBus) $\rightarrow$ 等待所有工作协程退出**。耗时毫秒级，零资源泄露。
+- 退出顺序：**取消全局 Context → 停止拓扑发现 (Discovery) → 停止调度器 (Scheduler) → 停止南向驱动连接 → 停止传输批量器 (Batcher, flush 残留数据) → 停止北向传输发布 → 关闭内部数据总线 (DataBus) → 关闭规则 Provider → 停止标签文件 watcher → 等待所有工作协程退出**。每个驱动/传输的 Stop 均有超时保护，防止永久阻塞。耗时毫秒级，零资源泄露。
 
 ---
 
@@ -307,7 +307,7 @@ MQTT Command Topic ──> Transport.OnCommand() ──> Engine.startCommandList
    - 基于 `go-chi/chi/v5` 路由器，严格隔离公共路由与认证路由组。
    - `crypto/hmac.Equal`（对 sha256 哈希做常量时间比较）防时序攻击的 Bearer Token / URL query token 认证。
    - CORS 中间件支持浏览器 Dashboard 跨域访问。
-   - 完备 API：`/` (hello), `/version`, `/configs` (GET/PUT/PATCH), `/drivers`, `/drivers/{name}`, `/drivers/{name}/tags`, `/transports`, `/transports/{name}`, `/tags`, `/write`, `/rules` (含命中统计), `/rules/disable` (PATCH), `/stats`, `/logs` (WS), `/traffic` (WS), `/tags/stream` (WS), `/memory` (WS)。
+   - 完备 API：`/` (hello), `/version`, `/configs` (GET/PUT/PATCH), `/drivers`, `/drivers/{name}`, `/drivers/{name}/tags`, `/transports`, `/transports/{name}`, `/tags`, `/write` (POST), `/write/failed` (GET), `/rules` (含命中统计), `/rules/disable` (PATCH), `/stats`, `/logs` (WS), `/traffic` (WS), `/tags/stream` (WS), `/memory` (WS)。
 2. **配置热重载流水线 (`hub/executor/executor.go`)**：
    - 采用 `Suspend` -> `Diff` -> `Apply` -> `Resume` 状态机。
    - `reflect.DeepEqual` 细粒度 diff 驱动、传输通道及规则，变更的驱动/传输自动重启。
@@ -315,12 +315,12 @@ MQTT Command Topic ──> Transport.OnCommand() ──> Engine.startCommandList
    - 泛型 Observable 事件总线，非阻塞扇出至 WebSocket 订阅端。
    - **`ObservableHandler` 包装 `slog.Handler`**：自动捕获全代码库所有 `slog.Info`/`slog.Error` 调用，无需改动现有代码即可实现日志流。
 4. **吞吐量与性能统计 (`engine/statistic/`)**：
-   - 1s Ticker 原子 Swap 采样模式 (`PushRead`, `PushPublish`, `PushError`, `Now`, `Total`, `Snapshot`)。
+   - 原子计数器模式 (`PushRead`, `PushPublish`, `PushError`, `Snapshot`)，无后台 goroutine，调用方按需读取快照。
 5. **规则命中统计与运行时禁用 (`rule/engine.go`)**：
    - `RuleWrapper` 的 `HitCount`/`MissCount`/`HitAt`/`MissAt` 原子计数。
    - `PATCH /rules/disable` 支持运行时启用/禁用规则，无需重载配置。
 6. **规则表达式引擎 (`rule/expr.go`, `rule/engine.go`)**：
-   - 基于 expr-lang/expr v1.17.8（MIT，零传递依赖）的 DSL 翻译层（~176 行），将 CoreC DSL 转译为 expr-lang/expr 内置算子后编译求值。支持 `==`/`!=`/`=~`/`!~`/`contains`/`suffix`/`prefix`/`> < >= <=`/`in lo..hi`/`&&`/`||`/`!`/`( )` 表达式语法。
+   - 基于 expr-lang/expr v1.17.8（MIT）的 DSL 翻译层（~176 行），将 CoreC DSL 转译为 expr-lang/expr 内置算子后编译求值。支持 `==`/`!=`/`=~`/`!~`/`contains`/`suffix`/`prefix`/`> < >= <=`/`in lo..hi`/`&&`/`||`/`!`/`( )` 表达式语法。
    - 可用字段：`driver`、`device`、`group`、`tag`、`type`、`quality`、`value`。
    - `ALL` 特殊匹配全部；`RULE-SET:`/`SUB-RULE:` 委托外部 provider 与子规则组。
 7. **死区过滤 (Deadband Filter, `engine/scheduler.go`)**：
@@ -330,9 +330,10 @@ MQTT Command Topic ──> Transport.OnCommand() ──> Engine.startCommandList
    - `transportBatcher` 包装层实现 `batch-size`/`flush-interval`/`retry-count` 配置。
    - 数据点先进入内存缓冲，达到 batch-size 或 flush-interval 触发时一次性调用 `PublishBatch`。
    - 发送失败按指数退避重试。
-9. **驱动运行期断线重连 (S7/OPC UA)**：
-   - S7 和 OPC UA 驱动在读取失败时检测连接错误，自动触发 `handleConnectionLost` → `reconnectLoop`。
-   - 与 Modbus 驱动的重连机制保持一致。
+9. **驱动运行期断线重连与断路器 (所有驱动)**：
+   - 所有驱动在读取失败时检测连接错误，自动触发 `handleConnectionLost` → `ReconnectLoopWithBreaker`（指数退避，上限 `reconnect-max-interval`）。
+   - 连续失败达到 `max-reconnect-failures`（默认 20）后触发断路器，将重连间隔提升至 5 分钟低频重试（重连不会停止，设备恢复后仍可自动接入）。
+   - Modbus、S7、OPC UA 驱动共享同一重连与断路器机制。
 10. **Modbus 离散输入功能码修复 (`driver/modbus/modbus_base.go`)**：
     - 离散输入读取改用 FC02 (`ReadDiscreteInput`) 而非 FC01 (`ReadCoil`)。
     - 离散输入和输入寄存器添加写保护。

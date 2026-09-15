@@ -123,7 +123,7 @@ mosquitto_sub -h broker.emqx.io -p 1883 -t "corec/demo/#" -v
 每秒应收到一条 JSON 消息：
 
 ```json
-corec/demo/temperature {"driver":"demo-plc","device":"","group":"sensors","tag":"temperature","value":42.5,"type":"float32","quality":"good","timestamp":"2024-01-15T10:30:01.234Z"}
+corec/demo/temperature {"driver":"demo-plc","device":"","group":"sensors","tag":"temperature","value":42.5,"type":9,"quality":0,"timestamp":"2024-01-15T10:30:01.234Z"}
 ```
 
 这就是 CoreC 的标准数据点 `DataPoint` 结构——从设备读出的原始 `TagValue` 经引擎富化后，补充了 `driver`、`group` 等路由元信息。
@@ -142,7 +142,7 @@ curl -s -H "Authorization: Bearer corec-secret-token" http://localhost:9090/stat
 ```json
 {
   "status": "running",
-  "uptime": 15.2,
+  "uptime": 15000000000,
   "drivers": 1,
   "transports": 1,
   "rules": 1,
@@ -225,16 +225,16 @@ curl -s -H "Authorization: Bearer corec-secret-token" \
 
 ```json
 {
-  "tags": [
-    {
+  "tags": {
+    "temperature": {
       "driver": "demo-plc",
       "tag": "temperature",
       "value": 42.5,
-      "type": "float32",
-      "quality": "good",
+      "type": 9,
+      "quality": 0,
       "timestamp": "2024-01-15T10:30:15.234Z"
     }
-  ]
+  }
 }
 ```
 
@@ -249,7 +249,7 @@ curl -s -H "Authorization: Bearer corec-secret-token" \
 ```bash
 curl -s -X POST -H "Authorization: Bearer corec-secret-token" \
   -H "Content-Type: application/json" \
-  -d '{"driver":"demo-plc","tag":"temperature","value":50.0,"type":"float32"}' \
+  -d '{"driver":"demo-plc","tag":"temperature","value":50.0,"type":9}' \
   http://localhost:9090/write | jq
 ```
 

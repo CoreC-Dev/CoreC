@@ -45,8 +45,9 @@ global:
 | `debug` | 调试信息，包含每次采集的原始数据，仅用于开发排障 |
 | `info` | 常规运行信息，包含连接建立、规则命中、传输统计等 |
 | `warn` | 警告信息，如重试、单次采集失败、规则解析告警 |
+| `warning` | `warn` 的别名，等价于 `warn` |
 | `error` | 错误信息，仅记录驱动断连、传输不可达等严重事件 |
-| `fatal` | 致命错误，核心无法继续运行时输出 |
+| `silent` | 静默级别，抑制所有日志输出 |
 
 ```yaml
 global:
@@ -72,8 +73,8 @@ CoreC 内置管理 API，提供驱动管理、数据读写、规则热更新、�
 | `api.allowed-origins` | string[] | 否 | — | CORS 允许的来源列表；留空则默认放行所有来源（`*`） |
 | `api.rate-limit-per-sec` | int | 否 | `0`（不限速） | 每秒每 IP 最大请求数，用于限流防护 |
 | `api.read-header-timeout` | duration | 否 | `10s` | 读取请求头的最大时长 |
-| `api.read-timeout` | duration | 否 | `30s` | 读取整个请求的最大时长 |
-| `api.write-timeout` | duration | 否 | `30s` | 写响应的最大时长 |
+| `api.read-timeout` | duration | 否 | `0`（禁用） | 读取整个请求的最大时长 |
+| `api.write-timeout` | duration | 否 | `0`（禁用） | 写响应的最大时长 |
 | `api.idle-timeout` | duration | 否 | `120s` | keep-alive 下等待下一请求的最大时长 |
 
 > † `secret` 在 `listen` 设置时为必填，且长度至少 8 个字符。
@@ -147,8 +148,8 @@ api:
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
 | `read-header-timeout` | `10s` | 读取请求头超时 |
-| `read-timeout` | `30s` | 读取整个请求超时 |
-| `write-timeout` | `30s` | 写响应超时 |
+| `read-timeout` | `0`（禁用） | 读取整个请求超时 |
+| `write-timeout` | `0`（禁用） | 写响应超时 |
 | `idle-timeout` | `120s` | keep-alive 空闲超时 |
 
 ### 鉴权示例

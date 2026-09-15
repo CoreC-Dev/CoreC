@@ -8,7 +8,7 @@ description: CoreC 配置文件完整带注释示例，涵盖全局、驱动、�
 本页给出一份可直接使用的 CoreC 配置文件，每个段落附带注释说明。可将其作为 `config.yaml` 启动核心：
 
 ```bash
-./corec -f config.yaml
+./corec -c config.yaml
 ```
 
 ::: tip
@@ -295,7 +295,7 @@ topic-template: "factory/{{.Driver}}/{{.Group}}/{{.Tag}}"
 将上述配置保存为 `config.yaml`，启动核心：
 
 ```bash
-./corec -f config.yaml
+./corec -c config.yaml
 ```
 
 验证管理 API 可达：

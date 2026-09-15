@@ -51,7 +51,7 @@ wscat -c "ws://localhost:9090/tags/stream" \
 
 ## /tags/stream — 数据点实时流
 
-实时推送引擎采集的每一个 `DataPoint`。数据来自核心 `Subscribe` 机制，经规则引擎匹配后推送。
+实时推送引擎采集的每一个 `DataPoint`。数据来自核心 `Subscribe` 机制，在应用坏质量策略之后、规则匹配之前广播给订阅者——订阅者收到的是原始数据点，与规则匹配结果无关。
 
 ### 请求
 
@@ -72,7 +72,7 @@ GET /tags/stream?driver={name}
 ```json
 {
   "driver": "plc1",
-  "device": "192.168.1.10",
+  "device": "",
   "group": "g1",
   "tag": "temperature",
   "value": 42.5,

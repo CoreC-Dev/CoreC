@@ -86,7 +86,7 @@ Modbus TCP 是工业现场最常见的以太网协议，CoreC 通过 TCP 502 端
 | `retry` | int | 否 | `3` | 通信失败后的重试次数 |
 | `reconnect-interval` | duration | 否 | `2s` | 重连初始退避间隔 |
 | `reconnect-max-interval` | duration | 否 | `30s` | 重连退避上限 |
-| `max-reconnect-failures` | int | 否 | `20` | 断路器阈值，连续失败达到此值后停止重连并进入冷却期 |
+| `max-reconnect-failures` | int | 否 | `20` | 断路器阈值，连续失败达到此值后将重连间隔提升至 5 分钟低频重试 |
 
 ### 地址格式
 
@@ -137,7 +137,7 @@ Modbus RTU 通过串口（如 RS-485）与从站通信，适用于串口传感�
 | `retry` | int | 否 | `3` | 通信失败后的重试次数 |
 | `reconnect-interval` | duration | 否 | `2s` | 重连初始退避间隔 |
 | `reconnect-max-interval` | duration | 否 | `30s` | 重连退避上限 |
-| `max-reconnect-failures` | int | 否 | `20` | 断路器阈值，连续失败达到此值后停止重连并进入冷却期 |
+| `max-reconnect-failures` | int | 否 | `20` | 断路器阈值，连续失败达到此值后将重连间隔提升至 5 分钟低频重试 |
 
 地址格式与 [Modbus TCP](#地址格式) 相同。
 
@@ -168,7 +168,7 @@ Modbus RTU 通过串口（如 RS-485）与从站通信，适用于串口传感�
 | `retry` | int | 否 | `3` | 通信失败后的重试次数 |
 | `reconnect-interval` | duration | 否 | `2s` | 重连初始退避间隔 |
 | `reconnect-max-interval` | duration | 否 | `30s` | 重连退避上限 |
-| `max-reconnect-failures` | int | 否 | `20` | 断路器阈值，连续失败达到此值后停止重连并进入冷却期 |
+| `max-reconnect-failures` | int | 否 | `20` | 断路器阈值，连续失败达到此值后将重连间隔提升至 5 分钟低频重试 |
 
 ---
 
@@ -197,7 +197,7 @@ Modbus RTU 通过串口（如 RS-485）与从站通信，适用于串口传感�
 | `retry` | int | 否 | `3` | 通信失败后的重试次数 |
 | `reconnect-interval` | duration | 否 | `2s` | 重连初始退避间隔 |
 | `reconnect-max-interval` | duration | 否 | `30s` | 重连退避上限 |
-| `max-reconnect-failures` | int | 否 | `20` | 断路器阈值，连续失败达到此值后停止重连并进入冷却期 |
+| `max-reconnect-failures` | int | 否 | `20` | 断路器阈值，连续失败达到此值后将重连间隔提升至 5 分钟低频重试 |
 
 ---
 
@@ -226,7 +226,7 @@ Modbus RTU 通过串口（如 RS-485）与从站通信，适用于串口传感�
 | `retry` | int | 否 | `3` | 通信失败后的重试次数 |
 | `reconnect-interval` | duration | 否 | `2s` | 重连初始退避间隔 |
 | `reconnect-max-interval` | duration | 否 | `30s` | 重连退避上限 |
-| `max-reconnect-failures` | int | 否 | `20` | 断路器阈值，连续失败达到此值后停止重连并进入冷却期 |
+| `max-reconnect-failures` | int | 否 | `20` | 断路器阈值，连续失败达到此值后将重连间隔提升至 5 分钟低频重试 |
 
 ---
 
@@ -261,7 +261,7 @@ Modbus TCP over TLS，需要双向 TLS（mTLS）证书。
 | `retry` | int | 否 | `3` | 通信失败后的重试次数 |
 | `reconnect-interval` | duration | 否 | `2s` | 重连初始退避间隔 |
 | `reconnect-max-interval` | duration | 否 | `30s` | 重连退避上限 |
-| `max-reconnect-failures` | int | 否 | `20` | 断路器阈值，连续失败达到此值后停止重连并进入冷却期 |
+| `max-reconnect-failures` | int | 否 | `20` | 断路器阈值，连续失败达到此值后将重连间隔提升至 5 分钟低频重试 |
 
 ---
 
@@ -292,7 +292,7 @@ Modbus TCP over TLS，需要双向 TLS（mTLS）证书。
 | `idle-timeout` | duration | 否 | `60s` | 连接空闲超时时间 |
 | `reconnect-interval` | duration | 否 | `2s` | 重连初始退避间隔 |
 | `reconnect-max-interval` | duration | 否 | `30s` | 重连退避上限 |
-| `max-reconnect-failures` | int | 否 | `20` | 断路器阈值，连续失败达到此值后停止重连并进入冷却期 |
+| `max-reconnect-failures` | int | 否 | `20` | 断路器阈值，连续失败达到此值后将重连间隔提升至 5 分钟低频重试 |
 
 ### slot 取值
 
@@ -360,7 +360,7 @@ tags:
 | `max-batch-size` | int | 否 | `1000` | 单次读请求的最大节点数 |
 | `reconnect-interval` | duration | 否 | `2s` | 重连初始退避间隔 |
 | `reconnect-max-interval` | duration | 否 | `30s` | 重连退避上限 |
-| `max-reconnect-failures` | int | 否 | `20` | 断路器阈值，连续失败达到此值后停止重连并进入冷却期 |
+| `max-reconnect-failures` | int | 否 | `20` | 断路器阈值，连续失败达到此值后将重连间隔提升至 5 分钟低频重试 |
 
 ### mode 取值
 

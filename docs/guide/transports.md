@@ -67,7 +67,7 @@ PublishBatch(ctx context.Context, points []DataPoint) error
 OnCommand() <-chan WriteCommand
 ```
 
-返回一个接收 `WriteCommand` 的只读 channel。传输在收到外部控制指令时（如 MQTT Command Topic 的消息），将指令推入此 channel，引擎的 `commandLoop` 消费后调用驱动 `Write` 写入设备。
+返回一个接收 `WriteCommand` 的只读 channel。传输在收到外部控制指令时（如 MQTT Command Topic 的消息），将指令推入此 channel，引擎为每个传输启动 `startCommandListener` 消费下发指令并调用驱动 `Write` 写入设备。
 
 ```go
 type WriteCommand struct {

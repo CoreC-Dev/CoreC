@@ -41,7 +41,6 @@ type endpoint struct {
 type brokerEndpoint struct {
 	Broker  string
 	Publish *endpoint // nil if this node doesn't publish on this broker
-	Receive *endpoint // nil if this node doesn't receive on this broker
 }
 
 // Discovery manages topology auto-discovery via MQTT heartbeats.
@@ -179,7 +178,6 @@ func (d *Discovery) sendHeartbeats() {
 			Role:      d.role,
 			Subscribe: d.subscribe,
 			Publish:   be.Publish,
-			Receive:   be.Receive,
 			Timestamp: time.Now().Unix(),
 		}
 

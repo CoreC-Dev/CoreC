@@ -126,7 +126,7 @@ func TestReconnectLoopDelegatesToBreaker(t *testing.T) {
 		return nil
 	}
 
-	go ReconnectLoop(ctx, "test", connectFn, 10*time.Millisecond, 100*time.Millisecond)
+	go ReconnectLoopWithBreaker(ctx, "test", connectFn, 10*time.Millisecond, 100*time.Millisecond, 0)
 
 	time.Sleep(300 * time.Millisecond)
 	cancel()

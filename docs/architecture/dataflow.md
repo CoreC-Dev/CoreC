@@ -58,7 +58,7 @@ DataBus.Push(point)
 
 ## 下行控制
 
-下行控制（Downlink）不经过 DataBus，由每个传输独立的 `startCommandListener` goroutine 处理（`commandLoop` 本身仅等待 `ctx.Done()` 以参与优雅停机，实际命令分发在 `startCommandListener` 中按传输逐个进行）：
+下行控制（Downlink）不经过 DataBus，由每个传输在 `AddTransport` 时启动的独立 `startCommandListener` goroutine 按传输逐个处理命令分发：
 
 ```
 MQTT command-topic → Transport.OnCommand() → startCommandListener → Driver.Write() → Device

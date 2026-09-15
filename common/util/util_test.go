@@ -348,7 +348,7 @@ func TestApplyTransform(t *testing.T) {
 	})
 }
 
-// --- ReconnectLoop ---
+// --- ReconnectLoopWithBreaker (breaker disabled: maxFailures=0) ---
 
 func TestReconnectLoop(t *testing.T) {
 	t.Run("connect succeeds on first try", func(t *testing.T) {
@@ -361,7 +361,7 @@ func TestReconnectLoop(t *testing.T) {
 			return nil
 		}
 		// Use very short backoff so the test is fast.
-		ReconnectLoop(ctx, "test", connect, 10*time.Millisecond, 100*time.Millisecond)
+		ReconnectLoopWithBreaker(ctx, "test", connect, 10*time.Millisecond, 100*time.Millisecond, 0)
 		if callCount != 1 {
 			t.Errorf("expected 1 connect call, got %d", callCount)
 		}
@@ -379,7 +379,7 @@ func TestReconnectLoop(t *testing.T) {
 			}
 			return nil
 		}
-		ReconnectLoop(ctx, "test", connect, 10*time.Millisecond, 50*time.Millisecond)
+		ReconnectLoopWithBreaker(ctx, "test", connect, 10*time.Millisecond, 50*time.Millisecond, 0)
 		if callCount != 3 {
 			t.Errorf("expected 3 connect calls, got %d", callCount)
 		}
@@ -400,7 +400,7 @@ func TestReconnectLoop(t *testing.T) {
 			cancel()
 		}()
 
-		ReconnectLoop(ctx, "test", connect, 10*time.Millisecond, 50*time.Millisecond)
+		ReconnectLoopWithBreaker(ctx, "test", connect, 10*time.Millisecond, 50*time.Millisecond, 0)
 		// Should have made some calls but not infinite.
 		if callCount == 0 {
 			t.Error("expected at least 1 connect call before cancellation")
@@ -422,7 +422,7 @@ func TestReconnectLoop(t *testing.T) {
 			return errors.New("connection refused")
 		}
 		// Should return quickly due to cancellation, not hang.
-		ReconnectLoop(ctx, "test", connect, 0, 0)
+		ReconnectLoopWithBreaker(ctx, "test", connect, 0, 0, 0)
 	})
 
 	t.Run("backoff doubles up to max", func(t *testing.T) {
@@ -439,7 +439,7 @@ func TestReconnectLoop(t *testing.T) {
 			return errors.New("connection refused")
 		}
 		// initial=5ms, max=20ms → backoff sequence: 5, 10, 20, 20
-		ReconnectLoop(ctx, "test", connect, 5*time.Millisecond, 20*time.Millisecond)
+		ReconnectLoopWithBreaker(ctx, "test", connect, 5*time.Millisecond, 20*time.Millisecond, 0)
 		if callCount != 4 {
 			t.Errorf("expected 4 connect calls, got %d", callCount)
 		}
@@ -519,7 +519,7 @@ func TestReconnectLoopNameInError(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 		cancel()
 	}()
-	ReconnectLoop(ctx, "", func() error { return errors.New("x") }, 1*time.Millisecond, 5*time.Millisecond)
+	ReconnectLoopWithBreaker(ctx, "", func() error { return errors.New("x") }, 1*time.Millisecond, 5*time.Millisecond, 0)
 }
 
 // TestGetIntSettingFloatTruncation verifies that float64 values from YAML
@@ -574,7 +574,7 @@ func TestReconnectLoopMaxBackoffCap(t *testing.T) {
 	}
 	// initial=2ms, max=4ms → backoff: 2, 4, 4, 4, 4 (capped)
 	start := time.Now()
-	ReconnectLoop(ctx, "test", connect, 2*time.Millisecond, 4*time.Millisecond)
+	ReconnectLoopWithBreaker(ctx, "test", connect, 2*time.Millisecond, 4*time.Millisecond, 0)
 	elapsed := time.Since(start)
 	// Total time should be roughly 2+4+4+4+4 = 18ms (with some tolerance).
 	if elapsed > 200*time.Millisecond {

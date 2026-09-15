@@ -11,12 +11,9 @@ type Scheduler interface {
 	Start(ctx context.Context) error
 	Stop() error
 	AddTask(task ScheduleTask) error
-	RemoveTask(id string) error
 	Pause() error
 	Resume() error
 	PauseDriver(name string) error
-	ResumeDriver(name string) error
-	Stats() SchedulerStats
 }
 
 // ScheduleTask defines a periodic collection task.
@@ -34,13 +31,4 @@ type ScheduleTask struct {
 	// 200 ms interval) can still allow a generous read timeout (e.g. 1 s)
 	// without being cut short by network jitter.
 	ReadTimeout time.Duration `json:"read_timeout,omitempty"`
-}
-
-// SchedulerStats reports scheduler metrics.
-type SchedulerStats struct {
-	ActiveTasks  int     `json:"active_tasks"`
-	PausedTasks  int     `json:"paused_tasks"`
-	TickRate     float64 `json:"tick_rate"`
-	Overruns     uint64  `json:"overruns"`
-	AvgLatencyMs float64 `json:"avg_latency_ms"`
 }

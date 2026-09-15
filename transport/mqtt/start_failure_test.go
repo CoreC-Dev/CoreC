@@ -5,7 +5,6 @@ import (
 	"net"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/CoreC-Dev/CoreC/core"
 )
@@ -85,6 +84,3 @@ func TestMQTTStartReturnsNilWhenReconnectEnabled(t *testing.T) {
 		t.Fatalf("expected Start to return nil when auto-reconnect is enabled, got %v", err)
 	}
 }
-
-// Ensure imports are used.
-var _ = time.Second
