@@ -3,6 +3,7 @@ package route
 import (
 	"fmt"
 	"net/http"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -39,26 +40,32 @@ func promMetrics(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(&b, "corec_dropped_total %d\n", stats.TotalDropped)
 
 	// ─── Gauges (instantaneous values) ────────────────────────────────
-	writePromHeader(&b, "corec_drivers_total", "gauge", "Number of configured drivers")
-	fmt.Fprintf(&b, "corec_drivers_total %d\n", stats.Drivers)
+	// Note: gauges must NOT use the _total suffix — that is reserved for
+	// counters (monotonically increasing values) per Prometheus/OpenMetrics
+	// convention.
+	writePromHeader(&b, "corec_drivers", "gauge", "Number of configured drivers")
+	fmt.Fprintf(&b, "corec_drivers %d\n", stats.Drivers)
 
-	writePromHeader(&b, "corec_transports_total", "gauge", "Number of configured transports")
-	fmt.Fprintf(&b, "corec_transports_total %d\n", stats.Transports)
+	writePromHeader(&b, "corec_transports", "gauge", "Number of configured transports")
+	fmt.Fprintf(&b, "corec_transports %d\n", stats.Transports)
 
-	writePromHeader(&b, "corec_rules_total", "gauge", "Number of configured rules")
-	fmt.Fprintf(&b, "corec_rules_total %d\n", stats.Rules)
+	writePromHeader(&b, "corec_rules", "gauge", "Number of configured rules")
+	fmt.Fprintf(&b, "corec_rules %d\n", stats.Rules)
 
 	writePromHeader(&b, "corec_uptime_seconds", "gauge", "Engine uptime in seconds")
 	fmt.Fprintf(&b, "corec_uptime_seconds %g\n", stats.Uptime.Seconds())
 
-	writePromHeader(&b, "corec_points_per_sec", "gauge", "Current data points processed per second")
-	fmt.Fprintf(&b, "corec_points_per_sec %g\n", stats.PointsPerSec)
+	writePromHeader(&b, "corec_points_per_second", "gauge", "Current data points processed per second")
+	fmt.Fprintf(&b, "corec_points_per_second %g\n", stats.PointsPerSec)
 
 	// ─── Per-driver metrics ───────────────────────────────────────────
 	writeDriverMetrics(&b, stats.DriverStats)
 
 	// ─── Per-transport metrics ────────────────────────────────────────
 	writeTransportMetrics(&b, stats.TransportStats)
+
+	// ─── Go runtime / process metrics ─────────────────────────────────
+	writeRuntimeMetrics(&b)
 
 	w.Header().Set("Content-Type", promContentType)
 	w.WriteHeader(http.StatusOK)
@@ -153,6 +160,43 @@ func writeTransportMetrics(b *strings.Builder, transportStats map[string]core.Tr
 		fmt.Fprintf(b, "corec_transport_connected{transport=%q} %d\n",
 			promEscape(name), val)
 	}
+}
+
+// writeRuntimeMetrics emits Go runtime and process-level metrics as
+// Prometheus gauges. These are essential for production monitoring:
+// goroutine leaks, memory pressure, GC pressure, and CPU usage.
+func writeRuntimeMetrics(b *strings.Builder) {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
+	// Goroutines
+	writePromHeader(b, "corec_goroutines", "gauge", "Number of running goroutines")
+	fmt.Fprintf(b, "corec_goroutines %d\n", runtime.NumGoroutine())
+
+	// Memory: heap in-use
+	writePromHeader(b, "corec_mem_heap_alloc_bytes", "gauge", "Bytes of heap memory allocated and still in use")
+	fmt.Fprintf(b, "corec_mem_heap_alloc_bytes %d\n", m.HeapAlloc)
+
+	writePromHeader(b, "corec_mem_heap_sys_bytes", "gauge", "Bytes of heap memory obtained from the OS")
+	fmt.Fprintf(b, "corec_mem_heap_sys_bytes %d\n", m.HeapSys)
+
+	writePromHeader(b, "corec_mem_stack_inuse_bytes", "gauge", "Bytes of stack memory in use")
+	fmt.Fprintf(b, "corec_mem_stack_inuse_bytes %d\n", m.StackInuse)
+
+	// Memory: total alloc (counter-like, but exposed as gauge since it's cumulative)
+	writePromHeader(b, "corec_mem_total_alloc_bytes", "gauge", "Total bytes of memory allocated (cumulative)")
+	fmt.Fprintf(b, "corec_mem_total_alloc_bytes %d\n", m.TotalAlloc)
+
+	// GC
+	writePromHeader(b, "corec_gc_count", "gauge", "Total number of GC completions")
+	fmt.Fprintf(b, "corec_gc_count %d\n", m.NumGC)
+
+	writePromHeader(b, "corec_gc_pause_total_seconds", "gauge", "Total GC pause time in seconds")
+	fmt.Fprintf(b, "corec_gc_pause_total_seconds %g\n", float64(m.PauseTotalNs)/1e9)
+
+	// CPU: number of logical CPUs available to the process
+	writePromHeader(b, "corec_cpu_count", "gauge", "Number of logical CPUs available to the process")
+	fmt.Fprintf(b, "corec_cpu_count %d\n", runtime.NumCPU())
 }
 
 // writePromHeader writes the HELP and TYPE preamble lines for a metric family.

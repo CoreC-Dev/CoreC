@@ -88,7 +88,7 @@ func TestRoutes(t *testing.T) { //nolint:gocyclo // comprehensive routing table 
 	defer func() { GetConfigFunc = nil }()
 
 	secret := "secret-123"
-	handler := router(secret, nil, 0)
+	handler := router(secret, nil, 0, true)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -192,7 +192,7 @@ func TestCORS(t *testing.T) {
 	SetEngine(me)
 
 	// Only explicitly allowed origins should receive CORS headers (M3 fix).
-	handler := router("", []string{"http://localhost:3000"}, 0)
+	handler := router("", []string{"http://localhost:3000"}, 0, true)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -228,7 +228,7 @@ func TestGetStats(t *testing.T) {
 	me := &mockEngine{}
 	SetEngine(me)
 
-	handler := router("", nil, 0)
+	handler := router("", nil, 0, true)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -258,7 +258,7 @@ func TestGetRulesWithStats(t *testing.T) {
 	}
 	SetEngine(me)
 
-	handler := router("", nil, 0)
+	handler := router("", nil, 0, true)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -291,7 +291,7 @@ func TestDisableRule(t *testing.T) {
 	me := &mockEngine{}
 	SetEngine(me)
 
-	handler := router("", nil, 0)
+	handler := router("", nil, 0, true)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -317,7 +317,7 @@ func TestAuthWithQueryToken(t *testing.T) {
 	SetEngine(me)
 
 	secret := "my-secret"
-	handler := router(secret, nil, 0)
+	handler := router(secret, nil, 0, true)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -341,5 +341,41 @@ func TestAuthWithQueryToken(t *testing.T) {
 
 	if resp2.StatusCode != http.StatusUnauthorized {
 		t.Errorf("expected 401 with wrong token, got %d", resp2.StatusCode)
+	}
+}
+
+// TestPprofDisabled verifies that when pprofEnabled is false, the pprof
+// endpoints are not registered on the main router.
+func TestPprofDisabled(t *testing.T) {
+	handler := router("", nil, 0, false) // pprofEnabled = false
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	resp, err := ts.Client().Get(ts.URL + "/debug/pprof/")
+	if err != nil {
+		t.Fatalf("GET /debug/pprof/ failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 when pprof disabled, got %d", resp.StatusCode)
+	}
+}
+
+// TestPprofEnabled verifies that when pprofEnabled is true, the pprof
+// endpoints are registered on the main router.
+func TestPprofEnabled(t *testing.T) {
+	handler := router("", nil, 0, true) // pprofEnabled = true
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	resp, err := ts.Client().Get(ts.URL + "/debug/pprof/")
+	if err != nil {
+		t.Fatalf("GET /debug/pprof/ failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		t.Error("expected pprof to be available when enabled, got 404")
 	}
 }

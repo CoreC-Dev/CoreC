@@ -11,10 +11,10 @@
 
 ```bash
 go build ./...                                  # 全包编译
-CGO_ENABLED=0 go build -o /dev/null ./cmd/corec # 交叉编译入口（CI 还会跑 linux/darwin/windows × amd64/arm64 矩阵）
+CGO_ENABLED=0 go build -o /dev/null ./cmd/corec # 交叉编译入口（CI build-check 跑 linux/darwin/windows × amd64/arm64，排除 windows/arm64）
 go vet ./...                                    # 静态检查
 go test -race -short -timeout 120s ./...        # 测试（-race 需 cgo；无 C 编译器时去掉 -race）
-golangci-lint run --timeout 5m                  # v2，配置见 .golangci.yml（启用 bodyclose/gocritic/misspell/revive）
+golangci-lint run --timeout 5m                  # v2，配置见 .golangci.yml（默认 errcheck/govet/ineffassign/staticcheck/unused + bodyclose/gocritic/gocyclo/misspell/nilerr/nilnil/revive；格式化 gofmt/goimports）
 ```
 
 **任何一项不过，不要提交。** CI 会原样跑这些，CI 红了 PR 不合。
@@ -65,7 +65,7 @@ golangci-lint run --timeout 5m                  # v2，配置见 .golangci.yml�
 
 ## 4. 测试契约
 
-- **新功能必须带测试。** 本项目 40+ 测试文件，测试是默认预期，不是可选。
+- **新功能必须带测试。** 本项目 60+ 测试文件，测试是默认预期，不是可选。
 - 测试必须 `-short` 友好：依赖真实 PLC / 外部 broker / 串口的测试，用 `if testing.Short() { t.Skip(...) }` 跳过，或用 `//go:build` tag 隔离。`go test -short ./...` 必须在无外设环境下全绿。
 - **不准引入 flaky 测试**：不要用 `time.Sleep` 等固定时序去对齐并发（等 goroutine 启动、等消息到达），用 channel/`WaitGroup`/轮询+超时 模式。轮询辅助函数见 `engine` 包的 `waitFor` 和 `e2e` 包的同名 helper。
 - 不准在测试里 `os.Exit`（除 `main`）。用 `t.Fatal` / `t.Skip`。
@@ -80,7 +80,7 @@ golangci-lint run --timeout 5m                  # v2，配置见 .golangci.yml�
 <type>(<scope>): <subject>
 ```
 
-- **type** 必须是其一：`feat` `fix` `docs` `style` `refactor` `test` `perf` `chore` `ci` `build` `revert`
+- **type** 必须是其一：`feat` `fix` `docs` `style` `refactor` `test` `perf` `chore` `ci` `build`（`revert` 亦合规，但 `.github/scripts/changelog.sh` 不自动归类，需在 CHANGELOG.md 手动补记）
 - **scope**（可选但推荐）用包/模块名：`modbus` `s7` `opcua` `mqtt` `http` `engine` `rule` `route` `config` `demo` `ci` `docs` `api` …
 - **subject** 用祈使句、句末不加句号。
 - 破坏性变更：在 footer 加 `BREAKING CHANGE: <说明>`。

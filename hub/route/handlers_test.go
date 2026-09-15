@@ -65,7 +65,7 @@ func (m *mockEngineV2) SetRuleDisabled(index int, disabled bool) error {
 
 func newTestServer(secret string, eng core.Engine) *httptest.Server {
 	SetEngine(eng)
-	return httptest.NewServer(router(secret, nil, 0))
+	return httptest.NewServer(router(secret, nil, 0, true))
 }
 
 func authedGet(t *testing.T, ts *httptest.Server, path, secret string) *http.Response {

@@ -213,6 +213,18 @@ type APIConfig struct {
 	// IdleTimeout is the maximum amount of time to wait for the next
 	// request when keep-alives are enabled. Default: 120s.
 	IdleTimeout string `yaml:"idle-timeout,omitempty"`
+
+	// PprofDisabled controls whether pprof profiling endpoints are
+	// disabled. Defaults to false (pprof enabled) for backward
+	// compatibility. Set to true to completely disable pprof.
+	PprofDisabled bool `yaml:"pprof-disabled,omitempty"`
+
+	// PprofAddr, when non-empty, starts a separate HTTP server for pprof
+	// on this address (e.g. "127.0.0.1:6060"). The separate server does
+	// NOT require authentication, so it should be bound to a loopback or
+	// private interface only. When empty, pprof runs on the main API
+	// port (unless PprofDisabled is true).
+	PprofAddr string `yaml:"pprof-addr,omitempty"`
 }
 
 // BufferConfig holds offline buffer settings for persisting failed

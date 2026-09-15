@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"net/url"
 	"os"
 	"strings"
@@ -94,6 +95,79 @@ type MQTTTransport struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	// replayCache stores recently-seen command message hashes to prevent
+	// replay within the command-max-skew window. It is a bounded map with
+	// time-based eviction so entries expire after the skew window passes.
+	replayCache *replayWindow
+}
+
+// replayWindow is a bounded, time-expiring set of seen message hashes.
+// It prevents true replay attacks (same message accepted twice) within
+// the timestamp skew window. Entries older than the TTL are evicted
+// lazily on each check and periodically via a background goroutine.
+type replayWindow struct {
+	mu      sync.Mutex
+	seen    map[string]time.Time
+	ttl     time.Duration
+	maxSize int
+}
+
+func newReplayWindow(ttl time.Duration, maxSize int) *replayWindow {
+	rw := &replayWindow{
+		seen:    make(map[string]time.Time),
+		ttl:     ttl,
+		maxSize: maxSize,
+	}
+	if ttl > 0 {
+		go rw.evictLoop()
+	}
+	return rw
+}
+
+func (rw *replayWindow) evictLoop() {
+	ticker := time.NewTicker(rw.ttl)
+	defer ticker.Stop()
+	for range ticker.C {
+		rw.evictExpired()
+	}
+}
+
+func (rw *replayWindow) evictExpired() {
+	rw.mu.Lock()
+	defer rw.mu.Unlock()
+	now := time.Now()
+	for k, t := range rw.seen {
+		if now.Sub(t) > rw.ttl {
+			delete(rw.seen, k)
+		}
+	}
+}
+
+// checkAndAdd returns true if the hash is new (not seen before), false if
+// it is a replay (already seen within the TTL window). It atomically adds
+// the hash to the set if it is new.
+func (rw *replayWindow) checkAndAdd(hash string) bool {
+	rw.mu.Lock()
+	defer rw.mu.Unlock()
+	now := time.Now()
+	if _, ok := rw.seen[hash]; ok {
+		return false // replay
+	}
+	// Bound the cache size: if at capacity, evict oldest entries.
+	if len(rw.seen) >= rw.maxSize {
+		var oldestKey string
+		var oldestTime time.Time
+		for k, t := range rw.seen {
+			if oldestKey == "" || t.Before(oldestTime) {
+				oldestKey = k
+				oldestTime = t
+			}
+		}
+		delete(rw.seen, oldestKey)
+	}
+	rw.seen[hash] = now
+	return true
 }
 
 // NewMQTTTransport creates a new MQTT transport from configuration.
@@ -156,6 +230,17 @@ func (t *MQTTTransport) Init(ctx context.Context, config core.TransportConfig) e
 	t.connectRetry = util.GetBoolSetting(settings, "connect-retry", true)
 	t.connectRetryInterval = util.GetDurationSetting(settings, "connect-retry-interval", 5*time.Second)
 
+	// Apply ±20% jitter to the reconnect interval to prevent thundering-herd
+	// when multiple MQTT transports reconnect simultaneously after a broker
+	// outage. Each instance gets a slightly different interval, spreading
+	// reconnect attempts over time. This is instance-level jitter (not
+	// per-attempt exponential backoff); paho's reconnect uses a fixed
+	// interval, so we randomize it once at Init time.
+	if t.connectRetryInterval > 0 {
+		jitter := 0.8 + rand.Float64()*0.4 // 0.8–1.2 → ±20%
+		t.connectRetryInterval = time.Duration(float64(t.connectRetryInterval) * jitter)
+	}
+
 	// Operation timeouts
 	t.subscribeTimeout = util.GetDurationSetting(settings, "subscribe-timeout", 5*time.Second)
 	t.publishTimeout = util.GetDurationSetting(settings, "publish-timeout", 5*time.Second)
@@ -196,6 +281,15 @@ func (t *MQTTTransport) Init(ctx context.Context, config core.TransportConfig) e
 	//     compatibility with senders that predate replay protection.
 	t.commandMaxSkew = util.GetDurationSetting(settings, "command-max-skew", 5*time.Minute)
 	t.commandStrictReplay = util.GetBoolSetting(settings, "command-strict-replay", false)
+
+	// Initialize the replay-detection cache. When a command secret is
+	// configured, each authenticated command's hash is recorded so that
+	// the same message cannot be accepted twice within the skew window.
+	// The cache is bounded to 10,000 entries and entries expire after
+	// 2× the skew window (to cover clock drift on both sides).
+	if t.commandSecret != "" && t.commandMaxSkew > 0 {
+		t.replayCache = newReplayWindow(2*t.commandMaxSkew, 10000)
+	}
 
 	// Parse data topic (for receiving data points — chained core inbound)
 	if dataTopic, ok := settings["data-topic"].(string); ok && dataTopic != "" {
@@ -291,6 +385,7 @@ func (t *MQTTTransport) buildTLSConfig() (*tls.Config, error) {
 
 	cfg := &tls.Config{
 		ServerName: u.Hostname(),
+		MinVersion: tls.VersionTLS12,
 	}
 
 	// CA certificate pool for server verification.  When omitted, Go falls
@@ -320,12 +415,13 @@ func (t *MQTTTransport) buildTLSConfig() (*tls.Config, error) {
 		cfg.Certificates = []tls.Certificate{cert}
 	}
 
-	// Warn if TLS files were provided but the broker scheme is plaintext:
+	// Fail if TLS files were provided but the broker scheme is plaintext:
 	// paho only applies the TLS config to TLS-scheme brokers, so the config
-	// would otherwise silently have no effect on the wire.
+	// would silently have no effect on the wire. Failing here prevents a
+	// misconfiguration where the operator thinks TLS is enabled but
+	// credentials/commands are actually sent in plaintext.
 	if !schemeTLS && anyFile {
-		slog.Warn("mqtt TLS files configured but broker scheme is not TLS; TLS config will not be applied to the connection",
-			"name", t.name, "broker", t.broker, "scheme", u.Scheme)
+		return nil, fmt.Errorf("mqtt: TLS files configured but broker scheme %q is not TLS; use mqtts:// or ssl:// scheme to enable TLS", u.Scheme)
 	}
 
 	return cfg, nil
@@ -349,7 +445,8 @@ func (t *MQTTTransport) Start(ctx context.Context) error {
 	if t.commandTopic != "" && t.commandSecret != "" {
 		slog.Info("mqtt command authentication enabled",
 			"name", t.name, "topic", t.commandTopic,
-			"max-skew", t.commandMaxSkew, "strict-replay", t.commandStrictReplay)
+			"max-skew", t.commandMaxSkew, "strict-replay", t.commandStrictReplay,
+			"replay-cache", t.replayCache != nil)
 	}
 
 	// Build MQTT client options
@@ -536,6 +633,18 @@ func (t *MQTTTransport) handleCommandMessage(topic string, payload []byte) {
 					"topic", topic, "name", t.name,
 					"skew", t.commandMaxSkew, "timestamp", ts)
 				return
+			}
+			// True replay detection: compute a hash of the authenticated
+			// payload and check it against the seen-commands cache. This
+			// prevents the same message from being accepted twice within
+			// the skew window, even if an attacker re-sends it.
+			if t.replayCache != nil {
+				msgHash := fmt.Sprintf("%x", sha256.Sum256(payload))
+				if !t.replayCache.checkAndAdd(msgHash) {
+					slog.Error("mqtt: command rejected as duplicate (replay detected)",
+						"topic", topic, "name", t.name)
+					return
+				}
 			}
 		}
 	}

@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/CoreC-Dev/CoreC/common/trace"
 	"github.com/CoreC-Dev/CoreC/core"
 	"github.com/CoreC-Dev/CoreC/engine/statistic"
 	"github.com/CoreC-Dev/CoreC/log"
@@ -1054,6 +1055,11 @@ func (e *CoreCEngine) Stats() core.EngineStats {
 // --- Internal Methods ---
 
 func (e *CoreCEngine) readFromDriver(ctx context.Context, driver string, tags []string) ([]core.TagValue, error) {
+	ctx, span := trace.Start(ctx, "engine.readFromDriver")
+	defer span.End()
+	span.SetAttr("driver", driver)
+	span.SetAttr("tag_count", len(tags))
+
 	e.mu.RLock()
 	d, ok := e.drivers[driver]
 	e.mu.RUnlock()

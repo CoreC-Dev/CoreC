@@ -158,8 +158,9 @@ func TestMQTTConfigParsingEdgeCases(t *testing.T) {
 	if mtr.connectTimeout != 15*time.Second {
 		t.Errorf("connectTimeout: got %v, want 15s", mtr.connectTimeout)
 	}
-	if mtr.connectRetryInterval != 2*time.Second {
-		t.Errorf("connectRetryInterval: got %v, want 2s", mtr.connectRetryInterval)
+	// connectRetryInterval has ±20% jitter. 2s ±20% = [1.6s, 2.4s].
+	if mtr.connectRetryInterval < 1600*time.Millisecond || mtr.connectRetryInterval > 2400*time.Millisecond {
+		t.Errorf("connectRetryInterval: got %v, want 1.6s–2.4s (2s ±20%% jitter)", mtr.connectRetryInterval)
 	}
 	if mtr.subscribeTimeout != 3*time.Second {
 		t.Errorf("subscribeTimeout: got %v, want 3s", mtr.subscribeTimeout)
@@ -212,8 +213,10 @@ func TestMQTTConfigDefaults(t *testing.T) {
 	if mtr.connectTimeout != 10*time.Second {
 		t.Errorf("default connectTimeout: got %v, want 10s", mtr.connectTimeout)
 	}
-	if mtr.connectRetryInterval != 5*time.Second {
-		t.Errorf("default connectRetryInterval: got %v, want 5s", mtr.connectRetryInterval)
+	// connectRetryInterval has ±20% jitter applied at Init time to
+	// prevent thundering-herd. Verify it's within [4s, 6s].
+	if mtr.connectRetryInterval < 4*time.Second || mtr.connectRetryInterval > 6*time.Second {
+		t.Errorf("default connectRetryInterval: got %v, want 4s–6s (5s ±20%% jitter)", mtr.connectRetryInterval)
 	}
 	if mtr.subscribeTimeout != 5*time.Second {
 		t.Errorf("default subscribeTimeout: got %v, want 5s", mtr.subscribeTimeout)

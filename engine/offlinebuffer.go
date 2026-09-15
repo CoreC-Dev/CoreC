@@ -155,6 +155,23 @@ func (ob *OfflineBuffer) Push(points []core.DataPoint, source string) error {
 		return fmt.Errorf("offline buffer: rename: %w", err)
 	}
 
+	// Fsync the directory to persist the rename metadata (directory entry
+	// update). Without this, a power loss could leave the file content
+	// durable (we fsync'd the data above) but the rename invisible — the
+	// file would appear as the .tmp name or not at all after recovery.
+	// On journaling filesystems (ext4 data=ordered, xfs) this is typically
+	// safe even without the dir fsync, but for strict crash consistency
+	// we include it.
+	dir, err := os.Open(ob.dir)
+	if err != nil {
+		slog.Warn("offline buffer: cannot open dir for fsync", "dir", ob.dir, "error", err)
+		return nil
+	}
+	if err := dir.Sync(); err != nil {
+		slog.Warn("offline buffer: directory fsync failed", "dir", ob.dir, "error", err)
+	}
+	dir.Close()
+
 	return nil
 }
 

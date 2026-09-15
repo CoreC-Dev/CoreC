@@ -43,6 +43,8 @@ corec/
 │   ├── rule.go                  # 规则 Rule 接口定义、Action 枚举、RuleConfig
 │   ├── scheduler.go             # 采集调度器 Scheduler 接口定义、ScheduleTask
 │   ├── engine.go                # 核心中枢 Engine 接口定义、EngineStats、Config 顶层结构
+│   ├── logger.go                # Logger 端口接口 + NoopLogger（端口已定义，尚未注入驱动；驱动当前仍直接用 log/slog）
+│   ├── metrics.go               # Metrics 端口接口 + NoopMetrics（端口已定义，尚未注入驱动；未来重构接入 Prometheus 等后端）
 │   ├── registry.go              # 全局工厂注册表 (DriverFactory / TransportFactory)
 │   └── registry_test.go         # 注册表单元测试
 ├── driver/                      # 南向驱动实现层
@@ -112,8 +114,12 @@ corec/
 │   ├── observable/
 │   │   ├── observable.go        # 泛型 Observable 事件总线（非阻塞扇出）
 │   │   └── observable_test.go   # Observable 单元测试
+│   ├── trace/
+│   │   ├── trace.go             # 轻量级追踪：context 传播 trace ID + Span 计时（End() 以 slog.Debug 记录）。无 OpenTelemetry/OTLP 导出；Span/Start API 被 engine.readFromDriver 调用
+│   │   ├── middleware.go        # HTTP 中间件：解析入站 W3C traceparent 头提取 trace ID（无则取 chi RequestID 或生成），用于 hub/route；InjectTraceparent() 向出站 HTTP 请求注入 traceparent
+│   │   └── trace_test.go        # 追踪单元测试
 │   └── util/
-│       └── util.go              # 共享辅助函数（设置提取、时长解析、ReconnectLoopWithBreaker 等）
+│       └── util.go              # 共享辅助函数（设置提取、时长解析、ReconnectLoopWithBreaker 含 ±20% jitter 指数退避与断路器）
 ├── log/                         # 可观测日志系统
 │   ├── level.go                 # LogLevel 枚举与映射
 │   ├── log.go                   # ObservableHandler 包装 slog，自动捕获所有日志调用 + 便捷函数
@@ -124,14 +130,16 @@ corec/
 │   │   ├── executor.go          # 配置热重载执行器（Suspend→Diff→Apply→Resume）
 │   │   └── executor_test.go     # 执行器单元测试
 │   └── route/
-│       ├── server.go            # HTTP 服务器、路由注册、认证、CORS 中间件
+│       ├── server.go            # HTTP 服务器、路由注册、认证（hmac.Equal 常量时间）、CORS、限流、TLS 中间件
 │       ├── common.go            # JSON 渲染辅助
+│       ├── health.go            # /healthz/live + /healthz/ready（Kubernetes 探针，免认证）
 │       ├── configs.go           # /configs 端点
-│       ├── drivers.go           # /drivers 端点
+│       ├── drivers.go           # /drivers 端点（含 staleness 标注）
 │       ├── transports.go        # /transports 端点
-│       ├── tags.go              # /tags + /write 端点
+│       ├── tags.go              # /tags + /write 端点（annotateStaleness 标注过期缓存测点）
 │       ├── rules.go             # /rules（含统计）+ /rules/disable 端点
 │       ├── stats.go             # /stats 端点
+│       ├── metrics.go           # /metrics 端点（Prometheus 文本格式，无外部 client 库，取自 engine.Stats()）
 │       ├── logs.go              # /logs WebSocket（实时日志流）
 │       ├── traffic.go           # /traffic WebSocket（吞吐量流）
 │       ├── memory.go            # /memory WebSocket（内存使用流）
@@ -163,6 +171,7 @@ corec/
       Quality   Quality           `json:"quality"`
       Timestamp time.Time         `json:"timestamp"`
       Metadata  map[string]string `json:"metadata,omitempty"`
+      IsStale   bool              `json:"is_stale,omitempty"` // API 层标注缓存值过期，正常流水线不设置
   }
   ```
 - **`WriteCommand`**：反向控制下发结构：包含目标 `Driver`、`Device`、`Tag`、写入 `Value` 及期望 `DataType`。
@@ -305,9 +314,11 @@ MQTT Command Topic ──> Transport.OnCommand() ──> Engine.startCommandList
 ### 6.1 Phase 2 已完成内容
 1. **控制面 REST API (`hub/route/`, `hub/hub.go`)**：
    - 基于 `go-chi/chi/v5` 路由器，严格隔离公共路由与认证路由组。
-   - `crypto/hmac.Equal`（对 sha256 哈希做常量时间比较）防时序攻击的 Bearer Token / URL query token 认证。
-   - CORS 中间件支持浏览器 Dashboard 跨域访问。
-   - 完备 API：`/` (hello), `/version`, `/configs` (GET/PUT/PATCH), `/drivers`, `/drivers/{name}`, `/drivers/{name}/tags`, `/transports`, `/transports/{name}`, `/tags`, `/write` (POST), `/write/failed` (GET), `/rules` (含命中统计), `/rules/disable` (PATCH), `/stats`, `/logs` (WS), `/traffic` (WS), `/tags/stream` (WS), `/memory` (WS)。
+   - `crypto/hmac.Equal`（对 sha256 哈希做常量时间比较）防时序攻击的 Bearer Token / URL query token 认证；`api.secret` 为空时**拒绝启动**（fail-closed，避免裸奔暴露 `/write`、`/configs` 等写端点）。
+   - CORS 中间件支持浏览器 Dashboard 跨域访问；可选 TLS（`api.tls-cert`/`api.tls-key`）与按客户端真实 RemoteAddr（不信任 `X-Forwarded-For`）的令牌桶限流。
+   - 公共（免认证）端点：`/` (hello), `/version`, `/healthz/live` (K8s liveness，仅进程存活), `/healthz/ready` (K8s readiness，检查 engine 运行态 + 至少一条数据通路连通)。
+   - 认证端点：`/configs` (GET/PUT/PATCH), `/drivers`, `/drivers/{name}`, `/drivers/{name}/tags`, `/transports`, `/transports/{name}`, `/tags`, `/write` (POST), `/write/failed` (GET), `/rules` (含命中统计), `/rules/disable` (PATCH), `/stats`, `/metrics` (Prometheus 文本格式 + Go 运行时/进程指标，无外部 client 库), `/debug/pprof/*` (pprof 性能剖析，可配置开关 `pprof-disabled` 与独立端口 `pprof-addr`), `/logs` (WS), `/traffic` (WS), `/tags/stream` (WS), `/memory` (WS)。
+   - `/tags` 与 `/drivers/{name}/tags` 在响应中对超过 `stale-threshold` 的缓存测点标注 `is_stale`（仅 API 层设置，不进入发布载荷）。
 2. **配置热重载流水线 (`hub/executor/executor.go`)**：
    - 采用 `Suspend` -> `Diff` -> `Apply` -> `Resume` 状态机。
    - `reflect.DeepEqual` 细粒度 diff 驱动、传输通道及规则，变更的驱动/传输自动重启。
@@ -355,6 +366,12 @@ MQTT Command Topic ──> Transport.OnCommand() ──> Engine.startCommandList
      - `DriverConfig.TagsInterval` 配置热重载间隔，watcher 基于 SHA-256 检测文件变更，变化时移除旧驱动并按新标签列表重建。
      - `tags` 与 `tags-file` 可同时使用，文件标签在前、内联标签追加在后。
      - 配置解析在 `config.Parse` 中统一处理，全量配置重载（`PUT /configs`）也会重新读取标签文件。
+ 16. **已定义但尚未接入的契约（实现状态诚实说明）**：
+     - **`core.Logger` / `core.Metrics` 端口**：接口与 `NoopLogger`/`NoopMetrics` 默认实现已定义，但**尚未注入驱动**；驱动当前仍直接调用 `log/slog`，且无驱动级指标后端（Prometheus `/metrics` 端点取自 `engine.Stats()` 聚合计数，非逐驱动埋点）。接入需经 `Driver.Init`/构造器改造，列为后续重构。
+     - **`common/trace` 分布式追踪**：W3C Trace Context 实现——HTTP 中间件解析入站 `traceparent` 头（`version-trace_id-parent_id-trace_flags` 格式），提取 trace ID 并注入 context；无 traceparent 时回退至 chi RequestID 或生成新 W3C trace ID。`InjectTraceparent()` 向出站 HTTP push 请求注入 `traceparent` 头实现跨服务传播。`engine.readFromDriver` 调用 `trace.Start()` 创建管线 span（含属性与计时，`End()` 以 `slog.Debug` 记录）。**无 OpenTelemetry/OTLP 导出后端、无采样、无父子 span 树**——如需完整可观测追踪需后续接入 OTel。
+     - **MQTT 反向指令 "replay protection"**：HMAC-SHA256 签名 + 时间戳偏移（anti-stale）校验（`command-max-skew`，默认 5m）+ **有界重放缓存**（10,000 条目，TTL = 2× skew 窗口，自动过期）记录已认证指令的 SHA256 哈希，实现真正防重放——同一指令在窗口内不可二次接受。`command-strict-replay=false`（默认）时无时间戳的认证指令仅告警放行；`=true` 时拒绝无时间戳指令。
+     - **重连 jitter 覆盖范围**：`ReconnectLoopWithBreaker` 的 ±20% 随机抖动覆盖使用该工具的驱动（Modbus/S7/OPC UA）；MQTT（paho）在 Init 时对 `connect-retry-interval` 施加 ±20% 抖动（实例级，随机一次）以防止多传输同时重连的 thundering-herd。
+     - **`LatestCache` 并发模型**：按驱动名 FNV 哈希分 64 分片，每分片 `sync.RWMutex` + `atomic.Pointer` 快照（非 seqlock）；读快照在数据未变时免 map 拷贝。
 
 ### 6.2 Phase 3 规划 (后续演进方向)
 1. **DataPoint Device 富化**：

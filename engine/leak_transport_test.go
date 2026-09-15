@@ -38,13 +38,13 @@ func (t *mqttLikeTransport) Stop() error {
 	})
 	return nil
 }
-func (t *mqttLikeTransport) Publish(_ context.Context, _ core.DataPoint) error          { return nil }
-func (t *mqttLikeTransport) PublishBatch(_ context.Context, _ []core.DataPoint) error   { return nil }
-func (t *mqttLikeTransport) OnCommand() <-chan core.WriteCommand                        { return t.cmdCh }
-func (t *mqttLikeTransport) OnData() <-chan core.DataPoint                              { return t.dataCh }
-func (t *mqttLikeTransport) Name() string                                               { return t.name }
-func (t *mqttLikeTransport) Type() string                                               { return "mqtt-leak-test" }
-func (t *mqttLikeTransport) Status() core.TransportStatus                               { return core.TransportStatus{} }
+func (t *mqttLikeTransport) Publish(_ context.Context, _ core.DataPoint) error        { return nil }
+func (t *mqttLikeTransport) PublishBatch(_ context.Context, _ []core.DataPoint) error { return nil }
+func (t *mqttLikeTransport) OnCommand() <-chan core.WriteCommand                      { return t.cmdCh }
+func (t *mqttLikeTransport) OnData() <-chan core.DataPoint                            { return t.dataCh }
+func (t *mqttLikeTransport) Name() string                                             { return t.name }
+func (t *mqttLikeTransport) Type() string                                             { return "mqtt-leak-test" }
+func (t *mqttLikeTransport) Status() core.TransportStatus                             { return core.TransportStatus{} }
 
 // registerOnce ensures we only register the mock transport factory once.
 var registerOnce sync.Once
@@ -78,8 +78,8 @@ func TestRemoveTransportNoGoroutineLeak(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		name := fmt.Sprintf("leak-test-%d", i)
 		if err := e.AddTransport(core.TransportConfig{
-			Name:    name,
-			Type:    "mqtt-leak-test",
+			Name:     name,
+			Type:     "mqtt-leak-test",
 			Settings: map[string]any{},
 		}); err != nil {
 			t.Fatalf("AddTransport %d failed: %v", i, err)

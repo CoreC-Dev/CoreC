@@ -8,6 +8,7 @@ import (
 	"net/http/pprof"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/CoreC-Dev/CoreC/common/trace"
@@ -75,11 +76,26 @@ type Config struct {
 	ReadTimeout       time.Duration
 	WriteTimeout      time.Duration
 	IdleTimeout       time.Duration
+
+	// PprofDisabled controls whether pprof profiling endpoints are
+	// disabled. Default false (pprof enabled, backward compatible).
+	// Set to true to disable pprof entirely.
+	PprofDisabled bool
+
+	// PprofAddr, when non-empty, starts a separate HTTP server for pprof
+	// endpoints on this address. This keeps profiling endpoints off the
+	// main API port. When empty, pprof is registered on the main server
+	// (unless PprofDisabled is true). The separate server does NOT require
+	// authentication, so it should only be bound to a loopback or
+	// private interface.
+	PprofAddr string
 }
 
 var (
 	httpServer    *http.Server
 	serverMu      sync.Mutex // protects httpServer in ReCreateServer/CloseServer
+	pprofServer   *http.Server
+	pprofMu       sync.Mutex // protects pprofServer
 	engine        core.Engine
 	engineMu      sync.RWMutex
 	ReloadFunc    func(path, payload string) error
@@ -92,13 +108,22 @@ var (
 	Version = "dev"
 
 	// startTime records when the API server was (re)created, used for uptime.
-	startTime = time.Now()
+	// Stored as an atomic pointer because ReCreateServer writes it under
+	// serverMu while the hello handler reads it without any lock; a bare
+	// time.Time variable would be a data race (time.Time is a multi-field
+	// struct). atomic.Pointer provides lock-free safe reads.
+	startTime atomic.Pointer[time.Time]
 )
 
 func SetEngine(e core.Engine) {
 	engineMu.Lock()
 	defer engineMu.Unlock()
 	engine = e
+}
+
+func init() {
+	now := time.Now()
+	startTime.Store(&now)
 }
 
 // getEngine returns the current engine under a read lock. Handlers must use
@@ -136,7 +161,13 @@ func ReCreateServer(cfg *Config) {
 		return
 	}
 
-	startTime = time.Now()
+	now := time.Now()
+	startTime.Store(&now)
+
+	// Determine pprof configuration. PprofDisabled defaults to false
+	// (pprof enabled, backward compatible). When PprofAddr is set, pprof
+	// runs on a separate server and is NOT registered on the main router.
+	pprofOnMain := !cfg.PprofDisabled && cfg.PprofAddr == ""
 
 	// Apply configured timeouts, falling back to defaults.
 	rht := cfg.ReadHeaderTimeout
@@ -158,7 +189,7 @@ func ReCreateServer(cfg *Config) {
 
 	server := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           router(cfg.Secret, cfg.AllowedOrigins, cfg.RateLimitPerSec),
+		Handler:           router(cfg.Secret, cfg.AllowedOrigins, cfg.RateLimitPerSec, pprofOnMain),
 		ReadHeaderTimeout: rht,
 		ReadTimeout:       rt,
 		WriteTimeout:      wt,
@@ -180,6 +211,34 @@ func ReCreateServer(cfg *Config) {
 			log.Errorln("RESTful API error: %v", err)
 		}
 	}()
+
+	// Start a separate pprof server if PprofAddr is configured. This
+	// keeps profiling endpoints off the main API port and does NOT
+	// require authentication, so it should be bound to a loopback or
+	// private interface only.
+	if cfg.PprofAddr != "" && !cfg.PprofDisabled {
+		pprofMu.Lock()
+		if pprofServer != nil {
+			_ = pprofServer.Close()
+		}
+		pMux := http.NewServeMux()
+		pMux.HandleFunc("/debug/pprof/", pprof.Index)
+		pMux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		pMux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		pMux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		pMux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+		pprofServer = &http.Server{
+			Addr:    cfg.PprofAddr,
+			Handler: pMux,
+		}
+		pprofMu.Unlock()
+		go func() {
+			log.Infoln("pprof server listening at %s (no auth)", cfg.PprofAddr)
+			if err := pprofServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Errorln("pprof server error: %v", err)
+			}
+		}()
+	}
 }
 
 // serverShutdownTimeout is the maximum time CloseServer waits for in-flight
@@ -191,6 +250,13 @@ func CloseServer() error {
 	serverMu.Lock()
 	defer serverMu.Unlock()
 	if httpServer == nil {
+		// Still close pprof server if it exists
+		pprofMu.Lock()
+		if pprofServer != nil {
+			_ = pprofServer.Close()
+			pprofServer = nil
+		}
+		pprofMu.Unlock()
 		return nil
 	}
 	// Graceful shutdown: stop accepting new connections and give in-flight
@@ -202,10 +268,19 @@ func CloseServer() error {
 	defer cancel()
 	err := httpServer.Shutdown(ctx)
 	httpServer = nil
+
+	// Also close the pprof server if running.
+	pprofMu.Lock()
+	if pprofServer != nil {
+		_ = pprofServer.Close()
+		pprofServer = nil
+	}
+	pprofMu.Unlock()
+
 	return err
 }
 
-func router(secret string, allowedOrigins []string, rateLimitPerSec int) *chi.Mux {
+func router(secret string, allowedOrigins []string, rateLimitPerSec int, pprofEnabled bool) *chi.Mux {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -263,11 +338,17 @@ func router(secret string, allowedOrigins []string, rateLimitPerSec int) *chi.Mu
 		// keeping them off the public surface.
 		r.Get("/metrics", promMetrics)
 
-		r.HandleFunc("/debug/pprof/*", pprof.Index)
-		r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-		r.HandleFunc("/debug/pprof/profile", pprof.Profile)
-		r.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-		r.HandleFunc("/debug/pprof/trace", pprof.Trace)
+		// pprof profiling endpoints. Registered on the main server only
+		// when PprofEnabled is true and no separate pprof address is
+		// configured. Both are inside the authenticated group so a
+		// profiling client must present the API secret.
+		if pprofEnabled {
+			r.HandleFunc("/debug/pprof/*", pprof.Index)
+			r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+			r.HandleFunc("/debug/pprof/profile", pprof.Profile)
+			r.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+			r.HandleFunc("/debug/pprof/trace", pprof.Trace)
+		}
 	})
 
 	return r
@@ -449,12 +530,16 @@ func authentication(secret string) func(http.Handler) http.Handler {
 }
 
 func hello(w http.ResponseWriter, r *http.Request) {
+	uptime := "unknown"
+	if st := startTime.Load(); st != nil {
+		uptime = time.Since(*st).String()
+	}
 	render(w, r, http.StatusOK, map[string]string{
 		"name":    "corec",
 		"version": Version,
 		"status":  "ok",
 		"time":    time.Now().Format(time.RFC3339),
-		"uptime":  time.Since(startTime).String(),
+		"uptime":  uptime,
 	})
 }
 

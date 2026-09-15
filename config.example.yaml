@@ -41,9 +41,15 @@ global:
     ##   GET /stats           — JSON statistics snapshot
     ##   GET /logs            — WebSocket log stream
     ##   GET /traffic         — WebSocket traffic stream
-    ## Distributed tracing: every API request receives a trace ID (visible in logs
-    ## as the chi request ID). Use common/trace.Start(ctx, "span.name") in code
-    ## to create timed spans within a request context.
+    ## pprof configuration:
+    # pprof-disabled: false         # set true to disable pprof endpoints entirely
+    # pprof-addr: "127.0.0.1:6060"  # optional: run pprof on a separate port (no auth)
+    ## Request tracing: the API middleware parses the W3C `traceparent` header
+    ## and propagates the trace ID through the request context for log
+    ## correlation. Outbound HTTP push requests inject `traceparent` so the
+    ## trace context spans service boundaries. Spans are created in the
+    ## engine's readFromDriver step and logged at debug level via slog.
+    ## No OTLP export backend is configured; spans are log-based only.
 
   ## Engine tuning (optional, defaults shown)
   engine:
@@ -280,6 +286,9 @@ transports:
       ##   tls-key-file:  client private key PEM (must be set together with tls-cert-file).
       ## When no TLS scheme is used and no tls-* file is set, the connection
       ## stays plaintext (backward compatible).
+      ## If TLS files are set but the broker scheme is plaintext (tcp://), Init
+      ## returns an ERROR rather than silently sending credentials in plaintext.
+      ## Use a TLS scheme (mqtts://, ssl://, ...) to actually enable TLS.
       # tls-ca-file: /etc/corec/certs/ca.crt
       # tls-cert-file: /etc/corec/certs/client.crt
       # tls-key-file: /etc/corec/certs/client.key
@@ -295,12 +304,15 @@ transports:
       ## When a command message includes a "timestamp" field (Unix milliseconds),
       ## the signature is verified over the payload (signature excluded, timestamp
       ## included) and the timestamp must fall within ±command-max-skew of the
-      ## current time; otherwise the command is rejected as a replay/stale.
+      ## current time; otherwise the command is rejected as stale.
+      ## A bounded replay cache (10,000 entries, auto-expiring after 2× the skew
+      ## window) records the hash of each authenticated command, preventing true
+      ## replay: the same message cannot be accepted twice within the window.
       ##   command-max-skew:     allowed timestamp drift (default 5m).
       ##   command-strict-replay: when true, authenticated commands WITHOUT a
       ##     timestamp are rejected outright. When false (default), they are
       ##     accepted with a warning for backward compatibility with senders
-      ##     that predate replay protection.
+      ##     that predate timestamp enforcement.
       # command-max-skew: 5m
       # command-strict-replay: false
       ## --- Chained Core Inbound ---
@@ -327,7 +339,13 @@ transports:
       # publish-timeout: 5s
       # subscribe-timeout: 5s
       # disconnect-quiesce: 1s
-      # connect-retry-interval: 5s
+      # connect-retry-interval: 5s   ## ±20% jitter applied at init to prevent thundering-herd
+      ## Reconnect note: MQTT uses the paho client's built-in auto-reconnect
+      ## (auto-reconnect + connect-retry, exponential backoff handled by paho).
+      ## A ±20% jitter is applied to connect-retry-interval at init time to
+      ## prevent thundering-herd when multiple transports reconnect after a
+      ## broker outage. The circuit breaker that applies to DRIVERS does NOT apply
+      ## to the MQTT transport.
     # buffer-size: 100           # command/data channel capacity (default 100)
     # batch-size: 50
     # flush-interval: 1s

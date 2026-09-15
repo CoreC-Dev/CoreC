@@ -181,7 +181,7 @@ func TestRateLimitMiddleware(t *testing.T) {
 
 	// Create a server with rate limiting at 5 req/s.
 	SetEngine(eng)
-	ts := httptest.NewServer(router("", nil, 5))
+	ts := httptest.NewServer(router("", nil, 5, true))
 	defer ts.Close()
 
 	// Fire 10 rapid requests — some should be rate limited (429).
@@ -208,7 +208,7 @@ func TestRateLimitMiddleware(t *testing.T) {
 func TestCORSMiddleware(t *testing.T) {
 	eng := &mockEngineV2{}
 	SetEngine(eng)
-	ts := httptest.NewServer(router("", nil, 0))
+	ts := httptest.NewServer(router("", nil, 0, true))
 	defer ts.Close()
 
 	// Test permissive CORS (no allowed origins configured).
@@ -228,7 +228,7 @@ func TestCORSMiddlewareRestricted(t *testing.T) {
 	eng := &mockEngineV2{}
 	SetEngine(eng)
 	allowedOrigins := []string{"http://localhost:3000", "https://dashboard.example.com"}
-	ts := httptest.NewServer(router("", allowedOrigins, 0))
+	ts := httptest.NewServer(router("", allowedOrigins, 0, true))
 	defer ts.Close()
 
 	// Request with allowed origin.

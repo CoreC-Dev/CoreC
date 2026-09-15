@@ -360,3 +360,45 @@ func TestReplayCustomMaxSkew(t *testing.T) {
 		t.Errorf("command 120s old should be rejected with 90s skew, but received %+v", got)
 	}
 }
+
+// TestReplayDuplicateRejected verifies that the replay cache prevents the
+// same authenticated command from being accepted twice within the skew
+// window. This is true replay protection (not just timestamp freshness).
+func TestReplayDuplicateRejected(t *testing.T) {
+	mtr := newCommandTransport(t, "replay-dup", "secret")
+	now := time.Now().UnixMilli()
+	payload := buildSignedCommand("secret", now, true)
+
+	// First send: should be accepted.
+	mtr.handleCommandMessage("commands/opc/set", payload)
+	if got := drainCommand(mtr); got == nil {
+		t.Fatal("first send of valid command should be accepted")
+	}
+
+	// Second send of the exact same payload: should be rejected as duplicate.
+	mtr.handleCommandMessage("commands/opc/set", payload)
+	if got := drainCommand(mtr); got != nil {
+		t.Errorf("duplicate command must be rejected by replay cache, but received %+v", got)
+	}
+}
+
+// TestReplayDifferentCommandsBothAccepted verifies that the replay cache
+// does not false-positive on different commands with different timestamps.
+func TestReplayDifferentCommandsBothAccepted(t *testing.T) {
+	mtr := newCommandTransport(t, "replay-diff", "secret")
+	now := time.Now().UnixMilli()
+
+	// First command.
+	payload1 := buildSignedCommand("secret", now, true)
+	mtr.handleCommandMessage("commands/opc/set", payload1)
+	if got := drainCommand(mtr); got == nil {
+		t.Fatal("first command should be accepted")
+	}
+
+	// Second command with a different timestamp (1ms later).
+	payload2 := buildSignedCommand("secret", now+1, true)
+	mtr.handleCommandMessage("commands/opc/set", payload2)
+	if got := drainCommand(mtr); got == nil {
+		t.Fatal("second different command should be accepted")
+	}
+}

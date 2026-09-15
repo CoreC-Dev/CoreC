@@ -53,14 +53,20 @@ func TestPromMetricsBasic(t *testing.T) {
 		"corec_errors_total 10",
 		"# HELP corec_dropped_total",
 		"corec_dropped_total 5",
-		"# HELP corec_drivers_total",
-		"corec_drivers_total 2",
-		"# HELP corec_transports_total",
-		"corec_transports_total 1",
-		"# HELP corec_rules_total",
-		"corec_rules_total 3",
+		"# HELP corec_drivers",
+		"corec_drivers 2",
+		"# HELP corec_transports",
+		"corec_transports 1",
+		"# HELP corec_rules",
+		"corec_rules 3",
 		"# HELP corec_uptime_seconds",
-		"# HELP corec_points_per_sec",
+		"# HELP corec_points_per_second",
+		// Runtime metrics
+		"# HELP corec_goroutines",
+		"# TYPE corec_goroutines gauge",
+		"# HELP corec_mem_heap_alloc_bytes",
+		"# HELP corec_gc_count",
+		"# HELP corec_cpu_count",
 	}
 	for _, s := range required {
 		if !strings.Contains(output, s) {

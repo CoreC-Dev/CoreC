@@ -46,7 +46,7 @@
   - **传输故障降级**: 配置 `fallback` 备用传输，主传输失败时自动切换。
   - **毫秒级优雅退出**: 信号中断即时捕获，倒序清理协程与网络连接，零资源泄露。
 - **External Controller RESTful API**: 提供完整的控制面 API，支持配置热重载、规则命中统计与运行时禁用、实时日志/数据/流量 WebSocket 流。
-- **生产级可观测性**: Prometheus `/metrics` 端点（计数器/仪表盘指标，Prometheus 文本格式）、pprof 性能分析端点（CPU/堆/goroutine）、分布式追踪（trace ID 传播 + span 计时）。
+- **生产级可观测性**: Prometheus `/metrics` 端点（计数器/仪表盘指标 + Go 运行时/进程指标 [goroutine/heap/GC/CPU]，Prometheus 文本格式）、pprof 性能分析端点（可配置开关与独立端口）、W3C Trace Context 请求追踪（解析/注入 `traceparent` 跨服务传播、管线内 span 计时 [engine.readFromDriver]、基于 context 的日志关联；注：未配置 OTLP 导出后端，span 仅以 slog.Debug 记录）。
 - **传输层加密**: MQTT 支持 TLS/mTLS（`mqtts://` + 客户端证书 + CA 验证），API 支持 HTTPS。
 
 ---

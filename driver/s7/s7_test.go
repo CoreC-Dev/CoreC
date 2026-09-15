@@ -322,10 +322,10 @@ func TestS7WriteEncode(t *testing.T) {
 // byte back. Both the read and the write are recorded by the mock.
 func TestS7WriteEncodeBit(t *testing.T) {
 	tests := []struct {
-		name       string
-		address    string
-		current    byte // existing byte value in the PLC
-		value      bool
+		name        string
+		address     string
+		current     byte // existing byte value in the PLC
+		value       bool
 		wantWritten byte
 	}{
 		{"set bit 3 of zero byte", "M0.3", 0x00, true, 0x08},

@@ -41,6 +41,12 @@ func healthzLive(w http.ResponseWriter, r *http.Request) {
 // probes can reach it without presenting an API secret.
 func healthzReady(w http.ResponseWriter, r *http.Request) {
 	eng := getEngine()
+	if eng == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"status":"not_ready","reason":"engine not initialized"}`))
+		return
+	}
 	stats := eng.Stats()
 
 	ready := stats.Status == core.EngineStatusRunning

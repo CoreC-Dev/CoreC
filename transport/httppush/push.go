@@ -4,6 +4,9 @@ package httppush
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/CoreC-Dev/CoreC/common/trace"
 	"github.com/CoreC-Dev/CoreC/common/util"
 	"github.com/CoreC-Dev/CoreC/core"
 	"github.com/CoreC-Dev/CoreC/transport/parser"
@@ -198,6 +202,9 @@ func (t *HTTPTransport) Start(ctx context.Context) error {
 		t.webhookSrv = &http.Server{
 			Addr:    t.webhookAddr,
 			Handler: mux,
+			TLSConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+			},
 		}
 		go func() {
 			// TLS is enabled only when both the cert and key file paths
@@ -319,6 +326,9 @@ func (t *HTTPTransport) PublishBatch(ctx context.Context, points []core.DataPoin
 		for k, v := range headers {
 			req.Header.Set(k, v)
 		}
+		// Propagate W3C trace context to the downstream service so that
+		// the trace spans can be correlated across service boundaries.
+		trace.InjectTraceparent(ctx, req)
 
 		resp, derr := client.Do(req)
 		if derr != nil {
@@ -389,7 +399,19 @@ func (t *HTTPTransport) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	if t.webhookSecret != "" {
 		auth := r.Header.Get("Authorization")
 		xSecret := r.Header.Get("X-Webhook-Secret")
-		if auth != "Bearer "+t.webhookSecret && xSecret != t.webhookSecret {
+
+		// Use constant-time comparison to prevent timing side-channel
+		// attacks that could leak the webhook secret byte-by-byte.
+		// Hash both values to fixed 32-byte length before comparison
+		// so timing doesn't leak the secret length.
+		hashSecret := sha256.Sum256([]byte(t.webhookSecret))
+		hashAuth := sha256.Sum256([]byte(auth))
+		hashXSecret := sha256.Sum256([]byte(xSecret))
+		expectedAuth := sha256.Sum256([]byte("Bearer " + t.webhookSecret))
+
+		authOK := hmac.Equal(hashAuth[:], expectedAuth[:])
+		xSecretOK := hmac.Equal(hashXSecret[:], hashSecret[:])
+		if !authOK && !xSecretOK {
 			slog.Warn("http webhook: unauthorized request",
 				"name", t.name, "addr", t.webhookAddr, "remote", r.RemoteAddr)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)

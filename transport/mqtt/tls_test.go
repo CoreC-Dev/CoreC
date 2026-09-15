@@ -185,24 +185,26 @@ func TestMQTTTLSAllSchemes(t *testing.T) {
 }
 
 // TestMQTTTLSFilesOnPlaintextBroker verifies that setting TLS files on a
-// plaintext broker still builds a config (and logs a warning) rather than
-// silently dropping it — the user explicitly asked for tlsCAFile to trigger
-// TLS handling.
+// plaintext broker fails Init with a clear error rather than silently
+// degrading to plaintext — the operator explicitly asked for TLS, so
+// silently sending credentials in plaintext would be a security risk.
 func TestMQTTTLSFilesOnPlaintextBroker(t *testing.T) {
 	certFile, keyFile := generateCertFiles(t)
-	tr := initTransport(t, newTLSConfig("plain-tlsfiles", "tcp://broker.example.com:1883", map[string]any{
+	cfg := newTLSConfig("plain-tlsfiles", "tcp://broker.example.com:1883", map[string]any{
 		"tls-ca-file":   certFile,
 		"tls-cert-file": certFile,
 		"tls-key-file":  keyFile,
-	}))
-	if tr.tlsConfig == nil {
-		t.Fatal("expected TLS config to be built when TLS files are set, even on a plaintext scheme")
+	})
+	tr, err := NewMQTTTransport(cfg)
+	if err != nil {
+		t.Fatalf("NewMQTTTransport: %v", err)
 	}
-	if tr.tlsConfig.RootCAs == nil {
-		t.Error("RootCAs should be loaded")
+	err = tr.Init(context.Background(), cfg)
+	if err == nil {
+		t.Fatal("expected Init to fail when TLS files are set on a plaintext broker scheme")
 	}
-	if len(tr.tlsConfig.Certificates) != 1 {
-		t.Fatalf("Certificates: expected 1, got %d", len(tr.tlsConfig.Certificates))
+	if !strings.Contains(err.Error(), "not TLS") {
+		t.Errorf("expected error about non-TLS scheme, got: %v", err)
 	}
 }
 
