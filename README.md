@@ -185,8 +185,10 @@ curl -H "Authorization: Bearer your-secret-token" http://localhost:9090/drivers
 
 | 方法 | 路径 | 说明 |
 |:---|:---|:---|
-| GET | `/` | 健康检查 |
+| GET | `/` | 服务信息（名称/版本/运行时间） |
 | GET | `/version` | 版本信息 |
+| GET | `/healthz/live` | 存活探针（无需认证，Kubernetes liveness） |
+| GET | `/healthz/ready` | 就绪探针（无需认证，Kubernetes readiness） |
 | GET | `/configs` | 当前配置概要 |
 | PUT | `/configs` | 热重载配置（`{"path":"config.yaml"}` 或 `{"payload":"<yaml>"}` ） |
 | PATCH | `/configs` | 修改运行时设置（如 `{"log-level":"debug"}` ） |
@@ -201,6 +203,8 @@ curl -H "Authorization: Bearer your-secret-token" http://localhost:9090/drivers
 | GET | `/rules` | 列出规则 + **命中/未命中统计** |
 | PATCH | `/rules/disable` | 运行时启用/禁用规则 `{"index":0,"disabled":true}` |
 | GET | `/stats` | 引擎运行统计 |
+| GET | `/metrics` | Prometheus 文本格式指标（计数器/仪表盘 + Go 运行时指标） |
+| GET | `/debug/pprof/*` | pprof 性能分析端点（CPU/heap/goroutine，可配置关闭或独立端口） |
 
 ### WebSocket 端点
 

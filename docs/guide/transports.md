@@ -167,7 +167,7 @@ DataPoint{Driver:"plc-modbus", Group:"sensors", Tag:"temperature"}
 ```bash
 # 云端下发：将 plc-modbus 的 pump_status 置为 true
 mosquitto_pub -h broker.emqx.io -t "factory/commands/pump" \
-  -m '{"driver":"plc-modbus","tag":"pump_status","value":true,"type":"bool"}'
+  -m '{"driver":"plc-modbus","tag":"pump_status","value":true,"type":0}'
 ```
 
 CoreC 日志：
@@ -236,9 +236,9 @@ HTTP 传输的 `PublishBatch` 将多个 `DataPoint` 序列化为 JSON 数组，�
 ```json
 // 单次 POST body（batch-size=3）
 [
-  {"driver":"plc","tag":"temp","value":42.5,"type":"float32","quality":"good","timestamp":"..."},
-  {"driver":"plc","tag":"press","value":1.2,"type":"float32","quality":"good","timestamp":"..."},
-  {"driver":"plc","tag":"flow","value":88.0,"type":"float32","quality":"good","timestamp":"..."}
+  {"driver":"plc","tag":"temp","value":42.5,"type":9,"quality":0,"timestamp":"..."},
+  {"driver":"plc","tag":"press","value":1.2,"type":9,"quality":0,"timestamp":"..."},
+  {"driver":"plc","tag":"flow","value":88.0,"type":9,"quality":0,"timestamp":"..."}
 ]
 ```
 
@@ -273,7 +273,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 {
   "name": "cloud-mqtt",
   "type": "mqtt",
-  "state": "connected",
+  "state": 2,
   "published": 15234,
   "failed": 3,
   "received": 0,

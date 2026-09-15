@@ -166,7 +166,7 @@ GET /drivers/{name}/tags
   "tags": {
     "temperature": {
       "driver": "plc1",
-      "device": "192.168.1.10",
+      "device": "",
       "group": "g1",
       "tag": "temperature",
       "value": 42.5,
@@ -176,7 +176,7 @@ GET /drivers/{name}/tags
     },
     "pressure": {
       "driver": "plc1",
-      "device": "192.168.1.10",
+      "device": "",
       "group": "g1",
       "tag": "pressure",
       "value": 101.3,
@@ -193,7 +193,7 @@ GET /drivers/{name}/tags
 | 字段 | 类型 | 说明 |
 |:---|:---|:---|
 | `driver` | string | 采集该值的驱动名称 |
-| `device` | string | 设备标识（如 IP 地址） |
+| `device` | string | 设备标识。当前始终为空字符串 `""`（配置无 Device 来源） |
 | `group` | string | 采集分组名称 |
 | `tag` | string | 标签名称 |
 | `value` | any | 标签值（类型由 `type` 决定） |

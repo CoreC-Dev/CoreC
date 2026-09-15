@@ -3,7 +3,7 @@
 > 由 6 个独立 AI Agent 并行多维度评估生成，后续多 Agent 实施改进  
 > 评估日期: 2025-09-15 · 改进日期: 2026-09-15 · 订正日期: 2026-09-15  
 > 项目: CoreC (Connect · Collect · Control) — 工业物联网数据采集与控制核心  
-> 规模: 137 Go 文件, 66 测试文件, ~32,400 LOC
+> 规模: 137 Go 文件, 66 测试文件, ~32,900 LOC
 
 > ⚠️ **订正说明**: 本报告曾给出 A+ (94/100) 的总评，经逐条对照源码复核，发现多处高估与
 > 不实 "✅" 标记（最严重者为 "W3C 分布式追踪" 实为空壳、"重放保护" 实为时间戳新鲜度、
@@ -51,9 +51,9 @@ MQTT 真重放缓存、MQTT 重连抖动 (±20%)、pprof 可配置、CI lint 增
 ### 关键问题
 | 严重度 | 问题 | 位置 | 状态 |
 |--------|------|------|------|
-| 🔴 严重 | **依赖方向违规**: `driver/opcua` 导入 `engine/statistic`，适配器反向依赖应用层 | `driver/opcua/client.go:14` | ✅ **已修复** (opcua 不再 import statistic) |
+| 🔴 严重 | **依赖方向违规**: `driver/opcua` 导入 `engine/statistic`，适配器反向依赖应用层 | `driver/opcua/client.go` (import removed) | ✅ **已修复** (opcua 不再 import statistic) |
 | 🟡 中等 | **God Interface**: `core.Engine` 25 方法接口违反接口隔离原则 (ISP) | `core/engine.go` | ✅ **已改善** (拆为 7 角色接口；复合接口仍保留向后兼容) |
-| 🟡 中等 | **引擎硬编码 rule 包**: `ruleEngine` 字段已改为 `core.RuleEngine` 接口，但 `engine/engine.go` 仍 import 具体 `rule` 包用于构造 (`rule.NewEngine()`/`rule.NewFileProvider`) | `engine/engine.go:16,143,294` | 🟡 **部分修复** (字段已接口化，构造仍耦合) |
+| 🟡 中等 | **引擎硬编码 rule 包**: `ruleEngine` 字段已改为 `core.RuleEngine` 接口，但 `engine/engine.go` 仍 import 具体 `rule` 包用于构造 (`rule.NewEngine()`/`rule.NewFileProvider`) | `engine/engine.go:17,144,295` | 🟡 **部分修复** (字段已接口化，构造仍耦合) |
 | 🟡 中等 | **全局单例**: `statistic.DefaultManager` 仍被 scheduler/engine 多处直接引用 | `engine/statistic/manager.go:13` | ⏳ 待改进 |
 | 🟡 中等 | **`core.Metrics`/`core.Logger` 端口未注入**: 端口与 Noop 实现已定义，但驱动/组件并未实际持有或调用（源码注释自述 "defined but NOT yet injected"） | `core/metrics.go`, `core/logger.go` | ⏳ 待改进 (端口已立，未接线) |
 
@@ -98,19 +98,20 @@ MQTT 真重放缓存、MQTT 重连抖动 (±20%)、pprof 可配置、CI lint 增
 ```
 core               100.0%  ████████████████████
 engine/statistic   100.0%  ████████████████████
-common/util         99.1%  ███████████████████
+common/util         99.2%  ███████████████████
 hub                 96.4%  ███████████████████
 common/observable   95.1%  ███████████████████
-transport/httppush  90.4%  ██████████████████
+common/trace        93.0%  ███████████████████
+transport/httppush  91.0%  ██████████████████
 config              89.7%  ██████████████████
-hub/route           89.4%  ██████████████████
+hub/route           93.0%  ███████████████████
 hub/executor        86.5%  █████████████████
 rule                84.3%  █████████████████
-log                 81.9%  ████████████████
+log                 83.0%  █████████████████
 driver/modbus       78.8%  ███████████████
-transport/mqtt      75.2%  █████████████
+transport/mqtt      73.8%  ███████████████
 transport/parser    67.6%  █████████████
-engine              67.5%  █████████████
+engine              67.7%  █████████████
 driver/s7           83.5%  █████████████████
 driver/opcua        56.1%  ███████
 cmd/corec           22.7%  ████
@@ -119,7 +120,7 @@ cmd/corec           22.7%  ████
 ```
 
 ### 核心优势
-- 17 个文件使用 table-driven tests (Go 最佳实践)
+- 22 个文件使用 table-driven tests (Go 最佳实践)
 - 16 个有意义的 benchmark (含端到端吞吐/延迟)
 - 真实 Modbus loopback server 测试协议帧
 - goroutine 泄漏检测 + 并发死锁测试
@@ -130,13 +131,13 @@ cmd/corec           22.7%  ████
 |--------|------|------|------|
 | 🔴 严重 | **S7 驱动 44.6%→83.5%**: Read/Write 路径已补 loopback 测试 | 工业 PLC 通信有保障 | ✅ **已修复** |
 | 🔴 严重 | **OPC UA 驱动 40.2%→56.1%**: session/Read/Subscribe 部分覆盖 | 覆盖仍偏低，工业 OPC 通信保障有限 | 🟡 **已改善** (仍未达 70% 目标) |
-| 🔴 严重 | **MQTT 69.1%→75.2%**: 已加 TLS 等测试，但无真实 broker 集成测试 | 生产关键传输保障仍不足 | 🟡 **已改善** |
+| 🔴 严重 | **MQTT 69.1%→73.8%**: 已加 TLS 等测试，但无真实 broker 集成测试 | 生产关键传输保障仍不足 | 🟡 **已改善** |
 | 🟡 中等 | **cmd/corec 22.7%**: 信号处理/优雅关闭验证弱 | 关闭回归可能过 CI | ⏳ 待改进 |
 
 ### 改进建议
 1. (S7 loopback 已完成)
 2. 创建 OPC UA 内存测试服务器，目标 >70% (当前 56.1%)
-3. 添加 MQTT 集成测试 (mochi-mqtt 或 dockerized mosquitto)，目标 >85% (当前 75.2%)
+3. 添加 MQTT 集成测试 (mochi-mqtt 或 dockerized mosquitto)，目标 >85% (当前 73.8%)
 4. CI 启用 `-race` 检测 (需 CGO_ENABLED=1)
 
 ---
@@ -159,11 +160,11 @@ cmd/corec           22.7%  ████
 | 严重度 | 问题 | 位置 | 状态 |
 |--------|------|------|------|
 | 🟡 中等 | **可观测性部分实现**: Prometheus /metrics (含运行时指标) 与 pprof (可配置) 已加，"W3C 分布式追踪" 已解析/注入 `traceparent` 并在引擎 `readFromDriver` 管线步经 `trace.Start` 创建 span、span 时长与属性经 slog.Debug 记录；**但仍无采样、无 OTLP 导出后端** | `common/trace/*`, `hub/route/server.go` | 🟡 **部分实现** (traceparent 解析/注入 + 管线 span 已落地；缺采样与 OTLP 导出) |
-| 🔴 严重 | **MQTT RemoveTransport goroutine 泄漏**: Stop 不关闭 channel，listener 永久阻塞 | `publisher.go:461` | ✅ **已修复** (per-transport ctx) |
+| 🔴 严重 | **MQTT RemoveTransport goroutine 泄漏**: Stop 不关闭 channel，listener 永久阻塞 | `publisher.go:819` | ✅ **已修复** (per-transport ctx) |
 | 🟡 中等 | **离线缓冲非 power-loss safe**: 缺少 fsync | `offlinebuffer.go` | ✅ **已修复** (数据 fsync + rename 后目录 fsync) |
 | 🟡 中等 | **健康端点不反映真实健康**: 始终返回 ok | `server.go` | ✅ **已修复** (readiness/liveness 分离 + 引擎 nil 返回 503) |
 | 🟡 中等 | **无重连抖动 (jitter)**: 网络恢复后 thundering herd | `util.go` | ✅ **已修复** (±20% 抖动已加于驱动 `ReconnectLoopWithBreaker`；MQTT 传输 `connect-retry-interval` 在 Init 时施加 ±20% 实例级抖动，防多传输同步重连) |
-| 🟡 中等 | **pprof 无法关闭且与主端口共用**: `/debug/pprof/*` 始终注册于主 API 端口认证组内，无配置开关；生产环境暴露 profiling 端面于业务端口 | `hub/route/server.go:277-281` | ✅ **已修复** (`api.pprof-disabled: true` 可关闭；`api.pprof-addr` 可指定独立免认证端口；为空时回退主 API 端口，向后兼容) |
+| 🟡 中等 | **pprof 无法关闭且与主端口共用**: `/debug/pprof/*` 始终注册于主 API 端口认证组内，无配置开关；生产环境暴露 profiling 端面于业务端口 | `hub/route/server.go:346-350` | ✅ **已修复** (`api.pprof-disabled: true` 可关闭；`api.pprof-addr` 可指定独立免认证端口；为空时回退主 API 端口，向后兼容) |
 | 🟡 中等 | **指标缺直方图**: 已补 goroutine/heap (alloc/sys)/stack/GC (count+pause)/CPU 等运行时指标 (Prometheus gauges)，但仍无延迟/耗时直方图 (histogram/summary) | `hub/route/metrics.go` | 🟡 **部分修复** (运行时指标已加；直方图仍缺) |
 
 ### 改进建议
@@ -196,7 +197,7 @@ cmd/corec           22.7%  ████
 | 🟡 中等 | **Webhook auth 非常量时间**: 字符串比较短路 | `transport/httppush/push.go` | ✅ **已修复** (SHA256 定长 + `hmac.Equal`) |
 | 🟡 中等 | **"重放保护"**: HMAC + timestamp ±5min 窗口 + strict 模式 + **有界重放缓存 (10,000 条, 2×skew TTL, SHA256 去重)**，同一认证命令在 skew 窗口内不可重复接受；属真正 anti-replay | `transport/mqtt/publisher.go` | ✅ **已修复** (有界重放缓存；非仅时间戳新鲜度) |
 | 🟡 中等 | **无 RBAC**: 单一共享 secret 授予全部权限 (含控制/配置) | `hub/route/` | ⏳ 待改进 |
-| 🟡 中等 | **控制面认证可选**: `command-secret` 缺失仅 warn 不 fail | `transport/mqtt/publisher.go:344` | ⏳ 待改进 |
+| 🟡 中等 | **控制面认证可选**: `command-secret` 缺失仅 warn 不 fail | `transport/mqtt/publisher.go:438-440` | ⏳ 待改进 |
 | 🟡 中等 | **pprof 暴露于业务端口**: 见维度 4 | `hub/route/server.go` | ✅ **已修复** (可关闭/独立端口，见维度 4) |
 
 ### 改进建议
@@ -211,9 +212,9 @@ cmd/corec           22.7%  ████
 ## 📖 维度 6: 文档与配置 — A- (87)
 
 ### 核心优势
-- **异常深度的文档体系**: README + 24KB AI_HANDOVER + 完整 VitePress 站点
+- **异常深度的文档体系**: README + 29KB AI_HANDOVER + 完整 VitePress 站点
 - **完整准确的 API 参考**: 每个端点含请求/响应 JSON、状态码表、字段表
-- **最佳实践配置文档**: 每字段 `type/required/default/description` + 427 行注释示例
+- **最佳实践配置文档**: 每字段 `type/required/default/description` + 487 行注释示例
 - **可操作入门**: minimal-config → 验证 → Docker Compose 多容器 demo
 - **强工程约束**: CONTRIBUTING.md 强制 Go 版本锁、lint、约定式提交、架构不变量
 - **CHANGELOG.md + VERSIONING.md**: 已新增 (Keep a Changelog 格式 + SemVer 策略)
@@ -292,7 +293,7 @@ CoreC 是一个**架构设计尤为出色的工业 IoT 数据采集核心**。�
 1. ✅ 修复 5 个 P0 关键缺陷: cache 竞态 (互斥锁快照)、httpServer/startTime 数据竞争、MQTT goroutine 泄漏、opcua 依赖违规、offlinebuffer fsync (数据+目录)
 2. ✅ 可观测性部分实现: Prometheus /metrics 端点 (18 指标族 + 运行时指标) + pprof 端点 (可配置) + W3C traceparent 解析/注入与引擎管线 span (无 OTLP 导出)
 3. ✅ 传输层加密: MQTT TLS/mTLS (mqtts:// + CA/cert/key + TLS1.2 下限 + 静默降级拒绝) + Webhook HTTPS (TLS1.2 下限)
-4. ✅ 驱动测试覆盖: S7 44.6%→83.5% (+38.9%), OPC UA 40.2%→56.1% (+15.9%), MQTT 69.1%→75.2%, 总覆盖率 ~77%
+4. ✅ 驱动测试覆盖: S7 44.6%→83.5% (+38.9%), OPC UA 40.2%→56.1% (+15.9%), MQTT 69.1%→73.8%, 总覆盖率 ~77%
 5. ✅ 回归测试: goroutine 泄漏检测, Prometheus 端点测试
 
 **第二轮 (A- → B+ 上限，未达 A+)**:

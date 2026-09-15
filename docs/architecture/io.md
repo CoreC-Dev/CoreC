@@ -109,7 +109,7 @@ Parser 支持三种模式（`transport/parser`）：
 ```go
 type DataPoint struct {
     Driver    string            // "plc-modbus"
-    Device    string            // "192.168.1.10"
+    Device    string            // ""（始终为空）
     Group     string            // "sensors"
     Tag       string            // "temperature"
     Value     any               // 42.5

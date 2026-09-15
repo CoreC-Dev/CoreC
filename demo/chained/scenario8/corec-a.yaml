@@ -19,7 +19,8 @@ node:
 
 global:
   api:
-    addr: "0.0.0.0:9090"
+    listen: "0.0.0.0:9090"
+    secret: "demo-token"
 
 drivers:
   - name: plc

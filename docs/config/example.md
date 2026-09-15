@@ -45,7 +45,7 @@ CoreC 配置采用 YAML，顶层段如下：
 
 # ---------- 全局设置 ----------
 global:
-  log-level: info                    # 日志级别：debug/info/warn/error/fatal
+  log-level: info                    # 日志级别：debug/info/warn/warning/error/silent
   api:
     listen: 0.0.0.0:9090             # 管理 API 监听地址（未设置则不启用 API）
     secret: "corec-secret-token"     # 鉴权令牌（listen 设置时必填，至少 8 字符）
@@ -96,7 +96,7 @@ drivers:
         group: actuators
         interval: 2s
 
-  # ---------- 2. Siemens S7 驱动 (S7-300 / S7-1200 / S7-1500) ----------
+  # ---------- 2. Siemens S7 驱动 (S7-200 / S7-300 / S7-400 / S7-1200 / S7-1500) ----------
   - name: siemens-s7-300
     type: s7
     settings:
@@ -303,11 +303,11 @@ topic-template: "factory/{{.Driver}}/{{.Group}}/{{.Tag}}"
 ```bash
 # 查看驱动列表
 curl -H "Authorization: Bearer corec-secret-token" \
-     http://localhost:9090/api/v1/drivers
+     http://localhost:9090/drivers
 
 # 查看传输状态
 curl -H "Authorization: Bearer corec-secret-token" \
-     http://localhost:9090/api/v1/transports
+     http://localhost:9090/transports
 ```
 
 预期返回各驱动与传输的运行状态 JSON。更多接口见 [API 参考](/api/overview)。

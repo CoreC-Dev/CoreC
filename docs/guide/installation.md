@@ -203,7 +203,7 @@ sudo systemctl enable --now corec
 | 参数 | 简写 | 默认值 | 说明 |
 |:---|:---|:---|:---|
 | `-config` | `-c` | `config.yaml` | 配置文件路径 |
-| `-log-level` | — | 配置文件中的值 | 覆盖日志级别：`debug` / `info` / `warn` / `error` / `silent` |
+| `-log-level` | — | 配置文件中的值 | 覆盖日志级别：`debug` / `info` / `warn` / `warning` / `error` / `silent` |
 
 `-log-level` 参数会覆盖配置文件中 `global.log-level` 的设置，便于临时调试：
 
@@ -229,7 +229,7 @@ cp config.example.yaml config.yaml
 ```text
 INFO registered drivers types=[modbus-tcp modbus-rtu modbus-rtuovertcp modbus-udp modbus-rtuoverudp modbus-tls s7 opcua]
 INFO registered transports types=[mqtt http]
-INFO CoreC engine starting drivers=3 transports=2 rules=4
+INFO CoreC engine starting drivers=1 transports=2 rules=2
 INFO CoreC engine started successfully
 INFO CoreC is running config=config.yaml
 ```

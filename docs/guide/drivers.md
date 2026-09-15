@@ -413,7 +413,7 @@ tags:
             └────────────┘
 ```
 
-状态可通过 `GET /drivers/{name}` API 的 `state` 字段查询，取值为 `disconnected` / `connecting` / `connected` / `error`。
+状态可通过 `GET /drivers/{name}` API 的 `state` 字段查询，取值为 `0`(disconnected) / `1`(connecting) / `2`(connected) / `3`(error)。
 
 ## 驱动状态查询
 
@@ -426,7 +426,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 {
   "name": "plc-modbus",
   "type": "modbus-tcp",
-  "state": "connected",
+  "state": 2,
   "last_read": "2024-01-15T10:30:15Z",
   "last_error": "",
   "tag_count": 3,

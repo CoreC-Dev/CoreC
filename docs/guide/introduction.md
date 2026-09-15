@@ -113,6 +113,11 @@ CoreC 由六个核心组件构成，各司其职：
 | 驱动 | 类型名 | 读取 | 写入 | 订阅 | 批量读 | 最大批量 |
 |:---|:---|:---:|:---:|:---:|:---:|:---:|
 | Modbus TCP | `modbus-tcp` | ✅ | ✅ | ❌ | ✅ | 125 |
+| Modbus RTU | `modbus-rtu` | ✅ | ✅ | ❌ | ✅ | 125 |
+| Modbus RTU over TCP | `modbus-rtuovertcp` | ✅ | ✅ | ❌ | ✅ | 125 |
+| Modbus UDP | `modbus-udp` | ✅ | ✅ | ❌ | ✅ | 125 |
+| Modbus RTU over UDP | `modbus-rtuoverudp` | ✅ | ✅ | ❌ | ✅ | 125 |
+| Modbus TLS | `modbus-tls` | ✅ | ✅ | ❌ | ✅ | 125 |
 | Siemens S7 | `s7` | ✅ | ✅ | ❌ | ✅ | 220 |
 | OPC UA | `opcua` | ✅ | ✅ | ✅ | ✅ | 1000 |
 

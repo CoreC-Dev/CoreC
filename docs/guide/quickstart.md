@@ -155,7 +155,7 @@ curl -s -H "Authorization: Bearer corec-secret-token" http://localhost:9090/stat
     "demo-plc": {
       "name": "demo-plc",
       "type": "modbus-tcp",
-      "state": "connected",
+      "state": 2,
       "last_read": "2024-01-15T10:30:15Z",
       "last_error": "",
       "tag_count": 1,
@@ -167,7 +167,7 @@ curl -s -H "Authorization: Bearer corec-secret-token" http://localhost:9090/stat
     "cloud-mqtt": {
       "name": "cloud-mqtt",
       "type": "mqtt",
-      "state": "connected",
+      "state": 2,
       "published": 15,
       "failed": 0,
       "received": 0,
@@ -189,7 +189,7 @@ curl -s -H "Authorization: Bearer corec-secret-token" \
 {
   "name": "demo-plc",
   "type": "modbus-tcp",
-  "state": "connected",
+  "state": 2,
   "last_read": "2024-01-15T10:30:15Z",
   "last_error": "",
   "tag_count": 1,
@@ -232,7 +232,9 @@ curl -s -H "Authorization: Bearer corec-secret-token" \
       "value": 42.5,
       "type": 9,
       "quality": 0,
-      "timestamp": "2024-01-15T10:30:15.234Z"
+      "timestamp": "2024-01-15T10:30:15.234Z",
+      "device": "",
+      "group": "sensors"
     }
   }
 }

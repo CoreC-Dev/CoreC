@@ -76,6 +76,8 @@ CoreC 内置管理 API，提供驱动管理、数据读写、规则热更新、�
 | `api.read-timeout` | duration | 否 | `0`（禁用） | 读取整个请求的最大时长 |
 | `api.write-timeout` | duration | 否 | `0`（禁用） | 写响应的最大时长 |
 | `api.idle-timeout` | duration | 否 | `120s` | keep-alive 下等待下一请求的最大时长 |
+| `api.pprof-disabled` | bool | 否 | `false` | 设为 `true` 完全禁用 pprof 端点 |
+| `api.pprof-addr` | string | 否 | — | pprof 独立端口地址（如 `127.0.0.1:6060`），无需认证，应绑定回环地址 |
 
 > † `secret` 在 `listen` 设置时为必填，且长度至少 8 个字符。
 
@@ -90,8 +92,8 @@ global:
     #   - http://localhost:3000
     # rate-limit-per-sec: 100
     # read-header-timeout: 10s
-    # read-timeout: 30s
-    # write-timeout: 30s
+    # read-timeout: 0        # 0 = disabled
+    # write-timeout: 0       # 0 = disabled
     # idle-timeout: 120s
 ```
 
@@ -158,13 +160,13 @@ api:
 
 ```bash
 curl -H "Authorization: Bearer corec-secret-token" \
-     http://localhost:9090/api/v1/drivers
+     http://localhost:9090/drivers
 ```
 
 WebSocket 连接以查询参数传递：
 
 ```bash
-wscat -c "ws://localhost:9090/api/v1/ws?token=corec-secret-token"
+wscat -c "ws://localhost:9090/tags/stream?token=corec-secret-token"
 ```
 
 ---

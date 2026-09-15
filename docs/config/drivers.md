@@ -51,7 +51,7 @@ drivers:
 | `modbus-udp` | Modbus TCP over UDP | UDP 设备 |
 | `modbus-rtuoverudp` | Modbus RTU over UDP | UDP 上的 RTU 帧 |
 | `modbus-tls` | Modbus TCP over TLS（mTLS） | 加密通信 PLC |
-| `s7` | Siemens S7 协议 | S7-300 / S7-1200 / S7-1500 PLC |
+| `s7` | Siemens S7 协议 | S7-200 / S7-300 / S7-400 / S7-1200 / S7-1500 PLC |
 | `opcua` | OPC UA Client | SCADA、MES、OPC 服务器 |
 
 ::: info
@@ -267,7 +267,7 @@ Modbus TCP over TLS，需要双向 TLS（mTLS）证书。
 
 ## Siemens S7 (`s7`)
 
-通过 ISO-on-TCP（102 端口）连接西门子 S7 系列 PLC，支持 S7-300、S7-1200、S7-1500。
+通过 ISO-on-TCP（102 端口）连接西门子 S7 系列 PLC，支持 S7-200、S7-300、S7-400、S7-1200、S7-1500。
 
 ```yaml
 - name: siemens-s7-300
@@ -298,6 +298,7 @@ Modbus TCP over TLS，需要双向 TLS（mTLS）证书。
 
 | PLC 型号 | `slot` | 说明 |
 | --- | --- | --- |
+| S7-200 | `2` | 需 CP 243-1 以太网模块 |
 | S7-300 | `2` | CPU 位于机架 0 槽 2 |
 | S7-400 | `2`（典型） | 视实际机架配置而定 |
 | S7-1200 | `1` | CPU 集成 PN 接口 |

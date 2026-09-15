@@ -13,7 +13,7 @@
 go build ./...                                  # 全包编译
 CGO_ENABLED=0 go build -o /dev/null ./cmd/corec # 交叉编译入口（CI build-check 跑 linux/darwin/windows × amd64/arm64，排除 windows/arm64）
 go vet ./...                                    # 静态检查
-go test -race -short -timeout 120s ./...        # 测试（-race 需 cgo；无 C 编译器时去掉 -race）
+go test -v -race -short -timeout 120s ./...        # 测试（-race 需 cgo；无 C 编译器时去掉 -race）
 golangci-lint run --timeout 5m                  # v2，配置见 .golangci.yml（默认 errcheck/govet/ineffassign/staticcheck/unused + bodyclose/gocritic/gocyclo/misspell/nilerr/nilnil/revive；格式化 gofmt/goimports）
 ```
 

@@ -32,7 +32,7 @@ docker compose down
 | ② 两级级联 | `scenario2/` | PLC → CoreC-A → CoreC-B → subscriber | 5 |
 | ③ 多级级联 | `scenario3/` | PLC → A → B → C → subscriber | 6 |
 | ④ 协议转换 | `scenario4/` | PLC → A → B → http-sink | 5 |
-| ⑤ 多对一汇聚 | `scenario5/` | A+B+C → G → subscriber | 8 |
+| ⑤ 多对一汇聚 | `scenario5/` | A+B+C → G → subscriber | 9 |
 | ⑥ 一对多分发 | `scenario6/` | PLC → CoreC → MQTT + HTTP | 5 |
 | ⑦ 双向级联 | `scenario7/` | PLC ↔ A ↔ B → subscriber | 5 |
 | ⑧ 自动发现 | `scenario8/` | PLC → CoreC-A → CoreC-B → subscriber | 5 |

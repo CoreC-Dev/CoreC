@@ -40,7 +40,7 @@ transports:
 
 | `type` | 协议 | 典型目标 |
 | --- | --- | --- |
-| `mqtt` | MQTT 3.x/5.0 | IoT 平台、边缘网关、命令回写 |
+| `mqtt` | MQTT 3.1.1 | IoT 平台、边缘网关、命令回写 |
 | `http` | HTTP/REST | MES、数据湖 API、Webhook |
 
 ::: info
@@ -148,7 +148,7 @@ transports:
 | scheme | 含义 | 示例 |
 | --- | --- | --- |
 | `tcp://` | 明文 MQTT | `tcp://broker.emqx.io:1883` |
-| `ssl://` | TLS 加密 MQTT | `ssl://broker.emqx.io:8883` |
+| `ssl://` `tls://` `mqtts://` `mqtt+ssl://` `tcps://` | TLS 加密 MQTT | `mqtts://broker.emqx.io:8883` |
 | `ws://` | WebSocket | `ws://broker.emqx.io:8083/mqtt` |
 | `wss://` | WebSocket over TLS | `wss://broker.emqx.io:8084/mqtt` |
 
@@ -194,7 +194,7 @@ topic-template: "factory/{{.Driver}}/{{.Group}}/{{.Tag}}"
   "device": "plc-01",
   "tag": "pump_status",
   "value": true,
-  "type": "bool"
+  "type": 0
 }
 ```
 

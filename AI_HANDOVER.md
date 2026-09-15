@@ -36,11 +36,11 @@ corec/
 │   ├── config.go                # YAML 配置解析与业务语义校验（唯一性、目标存在性、tags-file 外部标签加载）
 │   └── config_test.go           # 配置文件解析与校验单元测试
 ├── core/                        # 核心契约层（领域模型与标准接口，无外部依赖）
-│   ├── types.go                 # 数据模型: DataPoint, TagValue, WriteCommand, DataType, Quality
+│   ├── types.go                 # 数据模型: DataPoint, TagValue, WriteCommand, DataType, Quality, Action 枚举, ConnState, WriteResult, DeadLetterEntry, TagConfig
 │   ├── types_test.go            # 数据类型解析单元测试
 │   ├── driver.go                # 南向 Driver 接口定义、DriverConfig、DriverStatus、Capabilities
 │   ├── transport.go             # 北向 Transport 接口定义、TransportConfig、TransportStatus
-│   ├── rule.go                  # 规则 Rule 接口定义、Action 枚举、RuleConfig
+│   ├── rule.go                  # 规则 Rule 接口定义、RuleConfig、RuleProviderConfig、TransformConfig、RuleStat
 │   ├── scheduler.go             # 采集调度器 Scheduler 接口定义、ScheduleTask
 │   ├── engine.go                # 核心中枢 Engine 接口定义、EngineStats、Config 顶层结构
 │   ├── logger.go                # Logger 端口接口 + NoopLogger（端口已定义，尚未注入驱动；驱动当前仍直接用 log/slog）

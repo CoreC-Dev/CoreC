@@ -52,8 +52,10 @@ Token 比较使用恒定时间比较（`crypto/hmac.Equal`），可防止时序�
 
 | 方法 | 路径 | 说明 |
 |:---|:---|:---|
-| `GET` | `/` | 健康检查，返回 `{"name": "corec", "version": "...", "status": "ok", "time": "...", "uptime": "..."}` |
+| `GET` | `/` | 服务信息，返回 `{"name": "corec", "version": "...", "status": "ok", "time": "...", "uptime": "..."}` |
 | `GET` | `/version` | 版本信息，返回 `{"version": "dev"}` |
+| `GET` | `/healthz/live` | 存活探针，返回 `{"status": "alive"}`（Kubernetes liveness） |
+| `GET` | `/healthz/ready` | 就绪探针，检查引擎状态与数据通路（Kubernetes readiness） |
 
 ## CORS
 
@@ -103,8 +105,10 @@ API 内置 CORS 中间件，用于支持浏览器端仪表盘跨域访问。行�
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |:---|:---|:---|:---|
-| `GET` | `/` | 否 | 健康检查 |
+| `GET` | `/` | 否 | 服务信息（名称/版本/运行时间） |
 | `GET` | `/version` | 否 | 版本信息 |
+| `GET` | `/healthz/live` | 否 | 存活探针（Kubernetes liveness） |
+| `GET` | `/healthz/ready` | 否 | 就绪探针（Kubernetes readiness） |
 | `GET` | `/configs` | 是 | 获取当前配置概要（脱敏） |
 | `PUT` | `/configs` | 是 | 全量重载配置 |
 | `PATCH` | `/configs` | 是 | 增量更新配置 |
@@ -119,6 +123,8 @@ API 内置 CORS 中间件，用于支持浏览器端仪表盘跨域访问。行�
 | `GET` | `/rules` | 是 | 列出所有规则统计 |
 | `PATCH` | `/rules/disable` | 是 | 启用/禁用指定规则 |
 | `GET` | `/stats` | 是 | 获取引擎运行统计 |
+| `GET` | `/metrics` | 是 | Prometheus 文本格式指标 |
+| `GET` | `/debug/pprof/*` | 是 | pprof 性能分析端点（可配置关闭或独立端口） |
 
 ::: tip 传输管理端点
 `GET /transports` 与 `GET /transports/{name}` 用于查询传输（transport）运行状态，返回 `TransportStatus`（含 `name`、`type`、`state`（连接状态）、`published`、`failed`、`received`、`last_publish`、`queue_size`）。`{name}` 不存在时返回 `404 Not Found`。当前未提供独立的传输管理文档页，相关字段以代码中 `core.TransportStatus` 为准。
@@ -142,18 +148,19 @@ WebSocket 端点同样受认证中间件保护。由于浏览器 WebSocket API �
 所有请求依次经过以下中间件处理：
 
 1. **RequestID** — 生成唯一请求 ID
-2. **SafeRequestLogger** — 计算耗时并记录访问日志（自动脱敏 `token` 查询参数，防止凭证泄露）
-3. **Recoverer** — 捕获 panic，返回 `500` 防止进程崩溃
-4. **CORS** — 跨域处理
-5. **RateLimit**（仅当 `global.api.rate-limit-per-sec > 0` 时启用）— 按客户端 IP 令牌桶限速，超限返回 `429 Too Many Requests`
-6. **Authentication**（仅受保护路由，且 `global.api.secret` 非空时启用）— Bearer Token 校验
+2. **Trace** — W3C Trace Context 传播（解析 `traceparent` 头，注入 trace ID 到 context）
+3. **SafeRequestLogger** — 计算耗时并记录访问日志（自动脱敏 `token` 查询参数，防止凭证泄露）
+4. **Recoverer** — 捕获 panic，返回 `500` 防止进程崩溃
+5. **CORS** — 跨域处理
+6. **RateLimit**（仅当 `global.api.rate-limit-per-sec > 0` 时启用）— 按客户端 IP 令牌桶限速，超限返回 `429 Too Many Requests`
+7. **Authentication**（仅受保护路由，且 `global.api.secret` 非空时启用）— Bearer Token 校验
 
 ## 快速验证
 
 启动核心后，可用以下命令快速验证 API 是否可用：
 
 ```bash
-# 健康检查（无需认证）
+# 服务信息（无需认证）
 curl http://localhost:9090/
 
 # 获取驱动列表

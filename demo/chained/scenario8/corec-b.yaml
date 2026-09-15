@@ -16,7 +16,8 @@ node:
 
 global:
   api:
-    addr: "0.0.0.0:9091"
+    listen: "0.0.0.0:9091"
+    secret: "demo-token"
 
 drivers: []                # relay mode: no drivers, only inbound data
 

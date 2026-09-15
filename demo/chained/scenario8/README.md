@@ -16,8 +16,8 @@ PLC ──modbus──▶ CoreC-A ──MQTT(自动)──▶ CoreC-B ──MQTT
 | A 的 `topic-template` | `"edgeA/{{.Driver}}/{{.Tag}}"` | **省略** → 自动生成 `"topo/edge-A/data/..."` |
 | B 的 `data-topic` | `"edgeA/#"` | **省略** → 从 A 的心跳自动发现 |
 | B 的 `parser` | `{ type: default }` | **省略** → 自动设为 `default` |
-| A 的 `rules` | `forward-all → mqtt` | **省略** → 自动添加 |
-| B 的 `rules` | `forward → mqtt-out` | 显式配置（业务逻辑） |
+| A 的 `rules` | `forward-all → mqtt-out` | **省略** → 自动添加 |
+| B 的 `rules` | `alert + forward → mqtt-chain` | 显式配置（业务逻辑） |
 | B 的 `topic-template` | `"cloud/{{.Driver}}/{{.Tag}}"` | 显式配置（订阅者期望此格式） |
 
 ## 自动发现工作原理
@@ -42,6 +42,6 @@ docker compose up --build
 
 订阅者应看到：
 ```
-cloud/plc/temperature {"driver":"plc","name":"temperature","value":25.5,...}
-cloud/plc/humidity    {"driver":"plc","name":"humidity","value":60,...}
+cloud/plc/temperature {"driver":"plc","tag":"temperature","value":25.5,...}
+cloud/plc/humidity    {"driver":"plc","tag":"humidity","value":60,...}
 ```

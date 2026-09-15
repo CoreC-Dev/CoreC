@@ -10,8 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Prometheus `/metrics` endpoint** exposing 15+ metric families for drivers,
-  transports, the engine, routes, and the offline buffer.
+- **Prometheus `/metrics` endpoint** exposing 26 metric families for drivers,
+  transports, the engine, and the Go runtime/process.
 - **pprof profiling endpoints** for on-demand CPU/heap/goroutine analysis in
   production. Configurable via `api.pprof-disabled` (default false) and
   `api.pprof-addr` (optional separate port for pprof, no auth required).
@@ -56,7 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **S7 driver test coverage: 44.6% → 83.5%.**
 - **OPC UA driver test coverage: 40.3% → 56.1%.**
-- **Total project test coverage: 70.4% → 76.8%.**
+- **Total project test coverage: 70.4% → 77.6%.**
 - `golangci-lint` now enforces a cyclomatic-complexity limit of 20 for new
   code; eight pre-existing complex functions are annotated with
   `//nolint:gocyclo` (five production functions tracked for future
@@ -124,9 +124,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a hard error at transport construction so the misconfiguration is caught
   instead of silently downgrading.
 
-## [0.0.5] - 2025-09-15
+## [0.0.5] - 2026-09-15
 
-Pre-improvement baseline release. This tag captures the state of the project
+Pre-improvement baseline release. This baseline captures the state of the project
 immediately before the reliability, observability, and CI/CD work recorded
 under [Unreleased]. The items listed above are not part of this baseline.
 

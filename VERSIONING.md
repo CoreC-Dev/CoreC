@@ -82,7 +82,7 @@ Breaking changes **must**:
 2. Be accompanied by a deprecation cycle in the prior minor release whenever
    feasible (see [Deprecation Policy](#deprecation-policy)).
 3. Update the version constant injected via ldflags
-   (`-X main.version=x.y.z` in `cmd/corec`).
+   (`-X main.version=x.y.z` and `-X github.com/CoreC-Dev/CoreC/hub/route.Version=x.y.z`).
 
 Non-breaking additions and fixes go under `## [Unreleased]` and are released
 with a minor or patch bump.
@@ -107,7 +107,7 @@ replacement introduced during the deprecation window.
 1. Move `## [Unreleased]` contents to a new dated `## [x.y.z] - YYYY-MM-DD`
    section in [CHANGELOG.md](./CHANGELOG.md).
 2. Update the **Current version** line above and the version injected at build
-   time (`-X main.version=x.y.z`).
-3. Ensure `go build ./...`, `go test ./... -count=1 -timeout 120s`, and
-   `golangci-lint run ./...` all pass cleanly.
+   time (`-X main.version=x.y.z` and `-X github.com/CoreC-Dev/CoreC/hub/route.Version=x.y.z`).
+3. Ensure `go build ./...`, `go test -race -short -count=1 -timeout 120s ./...`, and
+   `golangci-lint run --timeout 5m ./...` all pass cleanly.
 4. Tag the commit `vx.y.z` and let the release workflow build the binaries.

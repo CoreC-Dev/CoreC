@@ -106,7 +106,7 @@ Content-Type: application/json
 | 字段 | 类型 | 必填 | 说明 |
 |:---|:---|:---|:---|
 | `driver` | string | 是 | 目标驱动实例名称 |
-| `device` | string | 是 | 目标设备标识 |
+| `device` | string | 否 | 目标设备标识（当前未使用，保留字段） |
 | `tag` | string | 是 | 目标标签名称 |
 | `value` | any | 是 | 待写入的值 |
 | `type` | int | 是 | 值的数据类型枚举（`DataType` 为 `int`，同 `DataPoint.type`）：`0=bool, …, 10=float64, 11=string, 12=bytes` |

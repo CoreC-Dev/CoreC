@@ -32,8 +32,8 @@ global:
     # rate-limit-per-sec: 100
     ## HTTP server timeouts (optional, defaults shown)
     # read-header-timeout: 10s
-    # read-timeout: 30s
-    # write-timeout: 30s
+    # read-timeout: 0        # 0 = disabled (no overall read deadline)
+    # write-timeout: 0       # 0 = disabled (no overall write deadline)
     # idle-timeout: 120s
     ## Observability endpoints (all require authentication via api.secret):
     ##   GET /metrics         — Prometheus text-format metrics (scrape with Prometheus)

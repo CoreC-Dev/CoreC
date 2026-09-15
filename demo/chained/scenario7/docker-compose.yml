@@ -9,7 +9,7 @@
 # driver to write and cannot republish commands. See docs warning.
 # To test command downlink, publish directly to A's command topic:
 #   docker exec scenario7-broker-1 mosquitto_pub -h broker -t edgeA/commands/plc/temperature \
-#     -m '{"tag":"temperature","address":"40001","type":"float32","value":42.0}'
+#     -m '{"driver":"plc","tag":"temperature","value":42.0,"type":9}'
 services:
   broker:
     image: eclipse-mosquitto:2

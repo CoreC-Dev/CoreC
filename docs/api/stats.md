@@ -60,6 +60,7 @@ GET /stats
       "state": 2,
       "published": 44997,
       "failed": 0,
+      "received": 0,
       "last_publish": "2024-09-08T10:30:00.1Z",
       "queue_size": 3
     }
@@ -148,6 +149,7 @@ GET /stats
 | `state` | int | 连接状态枚举（`ConnState` 为 `int`）：`0=disconnected, 1=connecting, 2=connected, 3=error` |
 | `published` | uint64 | 累计成功发布次数 |
 | `failed` | uint64 | 累计失败次数 |
+| `received` | uint64 | 入站数据点计数 |
 | `last_publish` | string (RFC 3339) | 最近一次发布时间 |
 | `queue_size` | int | 当前待发送队列长度 |
 

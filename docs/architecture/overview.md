@@ -20,7 +20,7 @@ CoreC 采用六边形插件架构，将工业数据采集抽象为**南向驱动
 | `modbus-udp` | Modbus UDP | UDP 设备 |
 | `modbus-rtuoverudp` | Modbus RTU over UDP | UDP 串口网关 |
 | `modbus-tls` | Modbus TLS | 加密 Modbus TCP |
-| `s7` | Siemens S7 | S7-300 / S7-1200 / S7-1500 |
+| `s7` | Siemens S7 | S7-200 / S7-300 / S7-400 / S7-1200 / S7-1500 |
 | `opcua` | OPC UA | SCADA / MES / OPC 服务器 |
 
 所有驱动实现统一的 `Driver` 接口：

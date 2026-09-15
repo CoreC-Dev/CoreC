@@ -203,11 +203,11 @@ type APIConfig struct {
 	ReadHeaderTimeout string `yaml:"read-header-timeout,omitempty"`
 
 	// ReadTimeout is the maximum duration for reading the entire request.
-	// Default: 30s. Parse as a duration string.
+	// Default: 0 (disabled; no overall read deadline). Parse as a duration string.
 	ReadTimeout string `yaml:"read-timeout,omitempty"`
 
 	// WriteTimeout is the maximum duration before timing out writes of the
-	// response. Default: 30s. Parse as a duration string.
+	// response. Default: 0 (disabled; no overall write deadline). Parse as a duration string.
 	WriteTimeout string `yaml:"write-timeout,omitempty"`
 
 	// IdleTimeout is the maximum amount of time to wait for the next
