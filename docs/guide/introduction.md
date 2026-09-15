@@ -150,6 +150,8 @@ CoreC 只定义接口，不绑定任何具体协议。`core.Driver` 与 `core.Tr
 
 每一个组件（驱动、传输、规则、调度器、引擎）都暴露结构化的运行时状态与计数器，并通过统一的 API 与 WebSocket 流对外提供。规则命中统计（`HitCount` / `MissCount`）记录每条规则的命中与未命中次数，便于验证规则是否如预期工作。
 
+此外，CoreC 内置四套可观测性机制：26 个 Prometheus 指标族（`/metrics`）、Kubernetes 存活/就绪探针（`/healthz/live`、`/healthz/ready`）、W3C 分布式追踪和 pprof 性能分析端点。详见[可观测性](./observability)专章。
+
 ## 与同类工具对比
 
 | 特性 | CoreC | Telegraf | Node-RED | Fluent Bit | Ignition Edge |

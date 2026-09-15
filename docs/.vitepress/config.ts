@@ -41,6 +41,7 @@ export default defineConfig({
             { text: '传输', link: '/guide/transports' },
             { text: '链式核心', link: '/guide/chained-core' },
             { text: '规则引擎', link: '/guide/rules' },
+            { text: '可观测性', link: '/guide/observability' },
           ],
         },
       ],
