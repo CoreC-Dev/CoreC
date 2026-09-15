@@ -35,6 +35,15 @@ global:
     # read-timeout: 30s
     # write-timeout: 30s
     # idle-timeout: 120s
+    ## Observability endpoints (all require authentication via api.secret):
+    ##   GET /metrics         — Prometheus text-format metrics (scrape with Prometheus)
+    ##   GET /debug/pprof/*   — pprof profiling endpoints (CPU, heap, goroutines)
+    ##   GET /stats           — JSON statistics snapshot
+    ##   GET /logs            — WebSocket log stream
+    ##   GET /traffic         — WebSocket traffic stream
+    ## Distributed tracing: every API request receives a trace ID (visible in logs
+    ## as the chi request ID). Use common/trace.Start(ctx, "span.name") in code
+    ## to create timed spans within a request context.
 
   ## Engine tuning (optional, defaults shown)
   engine:
@@ -261,6 +270,19 @@ transports:
       client-id: factory-edge-01
       # username: "your-username"     # broker 认证用户名（可选，公共 broker 不需要）
       # password: "your-password"     # broker 认证密码（可选）
+      ## --- TLS / mutual TLS (optional) ---
+      ## Use a TLS scheme in the broker URL to enable encryption, e.g.:
+      ##   broker: mqtts://broker.emqx.io:8883   # also: tls:// ssl:// mqtt+ssl:// tcps:// wss://
+      ## Then optionally configure certificate files:
+      ##   tls-ca-file:   CA certificate PEM for server verification.
+      ##                  When omitted, the system root certificates are used.
+      ##   tls-cert-file: client certificate PEM (enables mutual TLS / mTLS).
+      ##   tls-key-file:  client private key PEM (must be set together with tls-cert-file).
+      ## When no TLS scheme is used and no tls-* file is set, the connection
+      ## stays plaintext (backward compatible).
+      # tls-ca-file: /etc/corec/certs/ca.crt
+      # tls-cert-file: /etc/corec/certs/client.crt
+      # tls-key-file: /etc/corec/certs/client.key
       qos: 1
       topic-template: "factory/{{.Driver}}/{{.Group}}/{{.Tag}}"
       # command-topic: "factory/commands/#"
@@ -269,6 +291,18 @@ transports:
       ## "X-Signature" header or a "signature" JSON field. Empty = accept all
       ## commands (insecure, backward-compatible).
       # command-secret: "your-hmac-secret-here"
+      ## --- Replay protection (optional, requires command-secret) ---
+      ## When a command message includes a "timestamp" field (Unix milliseconds),
+      ## the signature is verified over the payload (signature excluded, timestamp
+      ## included) and the timestamp must fall within ±command-max-skew of the
+      ## current time; otherwise the command is rejected as a replay/stale.
+      ##   command-max-skew:     allowed timestamp drift (default 5m).
+      ##   command-strict-replay: when true, authenticated commands WITHOUT a
+      ##     timestamp are rejected outright. When false (default), they are
+      ##     accepted with a warning for backward compatibility with senders
+      ##     that predate replay protection.
+      # command-max-skew: 5m
+      # command-strict-replay: false
       ## --- Chained Core Inbound ---
       ## Subscribe to data from upstream CoreC instances or third-party MQTT publishers.
       ## The parser converts each message body into a DataPoint.
@@ -318,6 +352,14 @@ transports:
       ## must carry "Authorization: Bearer <secret>" or "X-Webhook-Secret: <secret>".
       ## Empty = accept all requests (insecure, backward-compatible).
       # webhook-secret: "your-webhook-secret-here"
+      ## --- Webhook TLS (optional) ---
+      ## When both tls-cert-file and tls-key-file are set, the webhook server
+      ## listens over HTTPS (ListenAndServeTLS) instead of plaintext HTTP.
+      ## When either is empty the webhook stays plaintext (backward-compatible).
+      ## A partial config (only one of the two set) logs a warning and falls
+      ## back to plaintext rather than failing to start.
+      # tls-cert-file: /etc/corec/certs/webhook.crt   # server certificate PEM
+      # tls-key-file: /etc/corec/certs/webhook.key    # server private key PEM
       # parser:
         # type: default          # json.Unmarshal(DataPoint), for CoreC→CoreC
       ## HTTP connection pool (optional, defaults shown)

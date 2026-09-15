@@ -170,7 +170,7 @@ func Patch(patch map[string]any) error {
 }
 
 // ApplyConfig applies configuration diffs to the running engine.
-func ApplyConfig(cfg *core.Config, force bool) error {
+func ApplyConfig(cfg *core.Config, force bool) error { //nolint:gocyclo // applies per-subsystem config diffs; complexity 22. Refactor tracked as tech debt.
 	mux.Lock()
 	defer mux.Unlock()
 

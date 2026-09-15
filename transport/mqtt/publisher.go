@@ -6,10 +6,14 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -38,17 +42,27 @@ type MQTTTransport struct {
 	client pahomqtt.Client
 
 	// MQTT settings
-	broker        string
-	clientID      string
-	username      string
-	password      string
-	qos           byte
-	retained      bool
-	topicTemplate *template.Template
-	commandTopic  string
-	commandSecret string // HMAC-SHA256 secret for authenticating command messages; empty = no auth
-	dataTopic     string // topic to subscribe for incoming data (chained-core inbound)
-	dataParser    parser.Parser
+	broker              string
+	clientID            string
+	username            string
+	password            string
+	qos                 byte
+	retained            bool
+	topicTemplate       *template.Template
+	commandTopic        string        // MQTT topic to subscribe for write commands
+	commandSecret       string        // HMAC-SHA256 secret for authenticating command messages; empty = no auth
+	commandMaxSkew      time.Duration // max allowed timestamp drift for replay protection (default 5m); 0 = 5m
+	commandStrictReplay bool          // reject commands without a timestamp when true
+	dataTopic           string        // topic to subscribe for incoming data (chained-core inbound)
+	dataParser          parser.Parser
+
+	// TLS settings (mqtts://, tls://, ssl://, ...).  Empty file paths with
+	// a plaintext broker = no TLS (backward compatible).  Built into
+	// tlsConfig at Init time and applied to the paho client at Start time.
+	tlsCertFile string      // client certificate PEM (enables mutual TLS / mTLS)
+	tlsKeyFile  string      // client private key PEM (enables mutual TLS / mTLS)
+	tlsCAFile   string      // CA certificate PEM for server verification
+	tlsConfig   *tls.Config // nil when TLS is not required
 
 	// Connection options
 	keepAlive            time.Duration
@@ -172,6 +186,17 @@ func (t *MQTTTransport) Init(ctx context.Context, config core.TransportConfig) e
 		t.commandSecret = cmdSecret
 	}
 
+	// Replay-protection settings for authenticated command messages.
+	//   command-max-skew: how far a command's "timestamp" field (Unix
+	//     milliseconds) may drift from the current time before the
+	//     command is rejected as a replay/stale message (default 5m).
+	//   command-strict-replay: when true, authenticated commands that do
+	//     not include a timestamp are rejected outright; when false
+	//     (default), they are accepted with a warning for backward
+	//     compatibility with senders that predate replay protection.
+	t.commandMaxSkew = util.GetDurationSetting(settings, "command-max-skew", 5*time.Minute)
+	t.commandStrictReplay = util.GetBoolSetting(settings, "command-strict-replay", false)
+
 	// Parse data topic (for receiving data points — chained core inbound)
 	if dataTopic, ok := settings["data-topic"].(string); ok && dataTopic != "" {
 		t.dataTopic = dataTopic
@@ -182,13 +207,128 @@ func (t *MQTTTransport) Init(ctx context.Context, config core.TransportConfig) e
 		t.dataParser = p
 	}
 
+	// Parse TLS settings (optional).  When the broker URL uses a TLS scheme
+	// (mqtts://, tls://, ssl://, ...) or any TLS file is set, a *tls.Config
+	// is built and applied to the MQTT client at Start time.  This enables
+	// encrypted connections and optional mutual TLS (mTLS) using a client
+	// certificate/key pair, with server verification against a custom CA.
+	// When none of those conditions hold, no TLS config is built and the
+	// connection stays plaintext (backward compatible).
+	if v, ok := settings["tls-cert-file"].(string); ok {
+		t.tlsCertFile = v
+	}
+	if v, ok := settings["tls-key-file"].(string); ok {
+		t.tlsKeyFile = v
+	}
+	if v, ok := settings["tls-ca-file"].(string); ok {
+		t.tlsCAFile = v
+	}
+	tlsCfg, err := t.buildTLSConfig()
+	if err != nil {
+		return err
+	}
+	t.tlsConfig = tlsCfg
+
 	slog.Info("mqtt transport initialized",
 		"name", t.name,
 		"broker", t.broker,
 		"client-id", t.clientID,
+		"tls", t.tlsConfig != nil,
 	)
 
 	return nil
+}
+
+// tlsSchemes are the broker URL schemes that the paho MQTT client routes
+// over TLS (see paho netconn.go).  Using one of these schemes is what
+// actually enables TLS on the wire; SetTLSConfig only supplies the
+// configuration that the TLS dial then uses.
+var tlsSchemes = map[string]bool{
+	"ssl": true, "tls": true, "mqtts": true, "mqtt+ssl": true, "tcps": true, "wss": true,
+}
+
+// buildTLSConfig constructs the *tls.Config for the MQTT client when TLS is
+// required.  TLS is required when the broker URL uses a TLS scheme or when
+// any TLS file setting (CA / client cert / key) is provided.  Returns nil
+// (no TLS) when neither condition holds, preserving backward compatibility
+// with plaintext mqtt:// / tcp:// brokers.
+//
+//   - tls-ca-file:     loads a CA certificate pool for server verification.
+//     When omitted, Go uses the system root certificates.
+//   - tls-cert-file + tls-key-file: loads a client certificate/key pair for
+//     mutual TLS (mTLS).  Both must be set together.
+//   - ServerName is derived from the broker URL host so that certificate
+//     hostname verification works correctly.
+func (t *MQTTTransport) buildTLSConfig() (*tls.Config, error) {
+	// Normalize the broker the same way paho's AddBroker does so that any
+	// broker paho accepts (including schemeless "host:port" forms) is
+	// accepted here too, and we derive the same scheme paho would use.
+	broker := t.broker
+	if broker != "" && broker[0] == ':' {
+		broker = "127.0.0.1" + broker
+	}
+	if !strings.Contains(broker, "://") {
+		broker = "tcp://" + broker
+	}
+
+	u, err := url.Parse(broker)
+	schemeTLS := err == nil && tlsSchemes[strings.ToLower(u.Scheme)]
+	anyFile := t.tlsCAFile != "" || t.tlsCertFile != "" || t.tlsKeyFile != ""
+
+	// Plaintext (or unparseable plaintext) with no TLS files: build no TLS
+	// config.  This preserves the historical behaviour where Init accepts
+	// any broker string and connection failures surface only at
+	// Start/Connect time, so existing non-TLS setups are unaffected.
+	if !schemeTLS && !anyFile {
+		return nil, nil //nolint:nilnil // a nil *tls.Config with no error intentionally signals "no TLS needed"
+	}
+
+	// TLS is required (TLS scheme or TLS files set).  A valid parsed URL is
+	// needed to derive ServerName for certificate hostname verification.
+	if err != nil {
+		return nil, fmt.Errorf("mqtt: invalid broker URL %q: %w", t.broker, err)
+	}
+
+	cfg := &tls.Config{
+		ServerName: u.Hostname(),
+	}
+
+	// CA certificate pool for server verification.  When omitted, Go falls
+	// back to the system root certificates.
+	if t.tlsCAFile != "" {
+		pem, err := os.ReadFile(t.tlsCAFile)
+		if err != nil {
+			return nil, fmt.Errorf("mqtt: failed to read CA file %s: %w", t.tlsCAFile, err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("mqtt: failed to parse CA certificate(s) from %s", t.tlsCAFile)
+		}
+		cfg.RootCAs = pool
+	}
+
+	// Client certificate + key for mutual TLS.  Both must be provided
+	// together; specifying only one is a configuration error.
+	if t.tlsCertFile != "" || t.tlsKeyFile != "" {
+		if t.tlsCertFile == "" || t.tlsKeyFile == "" {
+			return nil, fmt.Errorf("mqtt: tls-cert-file and tls-key-file must both be set for mutual TLS")
+		}
+		cert, err := tls.LoadX509KeyPair(t.tlsCertFile, t.tlsKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("mqtt: failed to load client key pair: %w", err)
+		}
+		cfg.Certificates = []tls.Certificate{cert}
+	}
+
+	// Warn if TLS files were provided but the broker scheme is plaintext:
+	// paho only applies the TLS config to TLS-scheme brokers, so the config
+	// would otherwise silently have no effect on the wire.
+	if !schemeTLS && anyFile {
+		slog.Warn("mqtt TLS files configured but broker scheme is not TLS; TLS config will not be applied to the connection",
+			"name", t.name, "broker", t.broker, "scheme", u.Scheme)
+	}
+
+	return cfg, nil
 }
 
 func (t *MQTTTransport) Start(ctx context.Context) error {
@@ -202,6 +342,14 @@ func (t *MQTTTransport) Start(ctx context.Context) error {
 	if t.commandTopic != "" && t.commandSecret == "" {
 		slog.Warn("mqtt command topic has no command-secret; accepting unauthenticated command messages",
 			"name", t.name, "topic", t.commandTopic)
+	}
+	// When command authentication is enabled, surface the replay-protection
+	// posture so operators can confirm whether timestamp enforcement and
+	// strict mode are active.
+	if t.commandTopic != "" && t.commandSecret != "" {
+		slog.Info("mqtt command authentication enabled",
+			"name", t.name, "topic", t.commandTopic,
+			"max-skew", t.commandMaxSkew, "strict-replay", t.commandStrictReplay)
 	}
 
 	// Build MQTT client options
@@ -220,6 +368,14 @@ func (t *MQTTTransport) Start(ctx context.Context) error {
 	}
 	if t.password != "" {
 		opts.SetPassword(t.password)
+	}
+
+	// Apply TLS configuration when present.  paho only uses this config for
+	// TLS-scheme brokers (mqtts://, tls://, ssl://, ...); for plaintext
+	// brokers it is ignored.  buildTLSConfig guarantees a non-nil config
+	// only when TLS is actually required.
+	if t.tlsConfig != nil {
+		opts.SetTLSConfig(t.tlsConfig)
 	}
 
 	// Connection handlers
@@ -321,6 +477,15 @@ func (t *MQTTTransport) subscribeCommands(c pahomqtt.Client) {
 // configured), unmarshals the payload into a WriteCommand, and forwards
 // it to the command channel.  Messages that fail authentication or
 // parsing are logged and dropped.
+//
+// Replay protection: when a command-secret is configured and the message
+// includes a "timestamp" field (Unix milliseconds), the signature is
+// verified over the canonical signing bytes (payload with the signature
+// fields removed) and the timestamp must fall within ±commandMaxSkew of
+// the current time.  Messages without a timestamp are accepted for
+// backward compatibility when command-strict-replay is false (a warning
+// is logged, since such messages cannot be protected against replay),
+// and rejected when command-strict-replay is true.
 func (t *MQTTTransport) handleCommandMessage(topic string, payload []byte) {
 	slog.Debug("mqtt command received",
 		"topic", topic,
@@ -328,17 +493,50 @@ func (t *MQTTTransport) handleCommandMessage(topic string, payload []byte) {
 	)
 
 	// Message-level authentication: when a command-secret is configured,
-	// every command message must carry a valid HMAC-SHA256 signature over
-	// the raw payload bytes.  The signature is carried in either an
-	// "X-Signature" or "signature" JSON field.  This prevents any client
-	// that can merely publish to the command topic from injecting
-	// arbitrary control commands.
+	// every command message must carry a valid HMAC-SHA256 signature.
+	// The signature is carried in either an "X-Signature" or "signature"
+	// JSON field.  This prevents any client that can merely publish to
+	// the command topic from injecting arbitrary control commands.
 	if t.commandSecret != "" {
 		provided := extractCommandSignature(payload)
-		if !verifyHMACSignature(t.commandSecret, payload, provided) {
-			slog.Error("mqtt: command signature verification failed, dropping command",
+		ts, hasTS := extractCommandTimestamp(payload)
+
+		if !hasTS {
+			// Legacy path: no timestamp.  Verify the HMAC over the
+			// canonical signing bytes (signature fields excluded) so
+			// that properly-constructed signed commands are accepted.
+			// This preserves backward compatibility with existing
+			// signed-command senders while making the signature
+			// verifiable (the signature value is not part of the
+			// bytes being signed).
+			if !verifyHMACSignature(t.commandSecret, commandSigningBytes(payload), provided) {
+				slog.Error("mqtt: command signature verification failed, dropping command",
+					"topic", topic, "name", t.name)
+				return
+			}
+			if t.commandStrictReplay {
+				slog.Error("mqtt: command rejected, strict replay protection requires a timestamp",
+					"topic", topic, "name", t.name)
+				return
+			}
+			slog.Warn("mqtt: command accepted without timestamp; replay protection not enforced",
 				"topic", topic, "name", t.name)
-			return
+		} else {
+			// Replay-protected path: verify the HMAC over the canonical
+			// signing bytes (signature excluded, timestamp included so
+			// the timestamp is authenticated and cannot be forged) and
+			// enforce timestamp freshness within ±commandMaxSkew.
+			if !verifyHMACSignature(t.commandSecret, commandSigningBytes(payload), provided) {
+				slog.Error("mqtt: command signature verification failed, dropping command",
+					"topic", topic, "name", t.name)
+				return
+			}
+			if !t.isCommandTimestampFresh(ts) {
+				slog.Error("mqtt: command timestamp outside allowed skew, rejected as replay",
+					"topic", topic, "name", t.name,
+					"skew", t.commandMaxSkew, "timestamp", ts)
+				return
+			}
 		}
 	}
 
@@ -394,6 +592,79 @@ func verifyHMACSignature(secret string, payload []byte, provided string) bool {
 	}
 	expected := computeHMACSignature(secret, payload)
 	return hmac.Equal([]byte(provided), []byte(expected))
+}
+
+// commandSigningBytes returns the canonical byte representation of a
+// command payload with the signature fields removed, over which the
+// command HMAC is computed.  Excluding the signature from the signed
+// bytes makes the signature self-consistent and verifiable: the signature
+// value is not part of the data being signed, so a sender can compute
+// signature = HMAC(secret, commandSigningBytes(payload)) and embed it
+// without a circular fixed-point.
+//
+// The payload is decoded into a map[string]json.RawMessage (preserving
+// each field's exact bytes), the "X-Signature" and "signature" keys are
+// removed, and the map is re-encoded.  Go's encoding/json emits map keys
+// in sorted order, so the result is deterministic and identical to what a
+// sender using the same canonicalisation produces — including the
+// "timestamp" field, which is therefore authenticated and cannot be
+// altered by an attacker without invalidating the signature.
+//
+// If the payload is not a valid JSON object, the raw bytes are returned
+// unchanged (falling back to authenticating the full payload), preserving
+// the historical behaviour for non-JSON command bodies.
+func commandSigningBytes(payload []byte) []byte {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &m); err != nil {
+		return payload
+	}
+	delete(m, "X-Signature")
+	delete(m, "signature")
+	b, err := json.Marshal(m)
+	if err != nil {
+		return payload
+	}
+	return b
+}
+
+// extractCommandTimestamp pulls the "timestamp" field (Unix milliseconds)
+// from a command JSON payload.  Returns ok=false when the payload is not
+// valid JSON or the field is missing or not a number.  JSON numbers are
+// decoded as float64; Unix millisecond timestamps (~1.7e12) are well
+// within float64's exact-integer range (2^53), so no precision is lost.
+func extractCommandTimestamp(payload []byte) (ts int64, ok bool) {
+	var m struct {
+		Timestamp any `json:"timestamp"`
+	}
+	if err := json.Unmarshal(payload, &m); err != nil {
+		return 0, false
+	}
+	switch v := m.Timestamp.(type) {
+	case float64:
+		return int64(v), true
+	case int:
+		return int64(v), true
+	case int64:
+		return v, true
+	default:
+		return 0, false
+	}
+}
+
+// isCommandTimestampFresh reports whether the given Unix-millisecond
+// timestamp falls within ±commandMaxSkew of the current time.  A skew of
+// zero or less accepts any timestamp (freshness check disabled).
+func (t *MQTTTransport) isCommandTimestampFresh(ts int64) bool {
+	skew := t.commandMaxSkew.Milliseconds()
+	if skew <= 0 {
+		return true
+	}
+	now := time.Now().UnixMilli()
+	diff := now - ts
+	if diff < 0 {
+		diff = -diff
+	}
+	return diff <= skew
 }
 
 // subscribeData subscribes to the data topic and feeds parsed DataPoints

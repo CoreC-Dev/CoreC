@@ -11,7 +11,6 @@ import (
 
 	"github.com/CoreC-Dev/CoreC/common/util"
 	"github.com/CoreC-Dev/CoreC/core"
-	"github.com/CoreC-Dev/CoreC/engine/statistic"
 	"github.com/gopcua/opcua"
 	"github.com/gopcua/opcua/ua"
 )
@@ -347,7 +346,6 @@ func (d *OPCUADriver) subscriptionLoop(ctx context.Context,
 				default:
 					// subChannel full; drop to avoid blocking the notification loop.
 					d.errorCount.Add(1)
-					statistic.DefaultManager.PushError()
 					slog.Warn("opcua subscription channel full, dropping data point",
 						"name", d.name,
 						"tag", dp.Tag,

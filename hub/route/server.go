@@ -5,10 +5,12 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"net/http"
+	"net/http/pprof"
 	"strconv"
 	"sync"
 	"time"
 
+	"github.com/CoreC-Dev/CoreC/common/trace"
 	"github.com/CoreC-Dev/CoreC/core"
 	"github.com/CoreC-Dev/CoreC/log"
 	"github.com/go-chi/chi/v5"
@@ -77,6 +79,7 @@ type Config struct {
 
 var (
 	httpServer    *http.Server
+	serverMu      sync.Mutex // protects httpServer in ReCreateServer/CloseServer
 	engine        core.Engine
 	engineMu      sync.RWMutex
 	ReloadFunc    func(path, payload string) error
@@ -109,16 +112,19 @@ func getEngine() core.Engine {
 }
 
 func ReCreateServer(cfg *Config) {
+	serverMu.Lock()
 	if httpServer != nil {
 		_ = httpServer.Close()
 		httpServer = nil
 	}
 
 	if cfg == nil || cfg.Addr == "" {
+		serverMu.Unlock()
 		return
 	}
 
 	if cfg.Secret == "" {
+		serverMu.Unlock()
 		// Fail closed: an empty secret would leave every endpoint
 		// (including POST /write, PUT /configs, PATCH /rules/disable)
 		// publicly accessible. Refuse to start the server instead of
@@ -159,6 +165,7 @@ func ReCreateServer(cfg *Config) {
 		IdleTimeout:       it,
 	}
 	httpServer = server
+	serverMu.Unlock()
 
 	go func() {
 		log.Infoln("RESTful API listening at %s", cfg.Addr)
@@ -181,6 +188,8 @@ func ReCreateServer(cfg *Config) {
 const serverShutdownTimeout = 10 * time.Second
 
 func CloseServer() error {
+	serverMu.Lock()
+	defer serverMu.Unlock()
 	if httpServer == nil {
 		return nil
 	}
@@ -200,6 +209,7 @@ func router(secret string, allowedOrigins []string, rateLimitPerSec int) *chi.Mu
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
+	r.Use(trace.Middleware)
 	r.Use(safeRequestLogger)
 	r.Use(middleware.Recoverer)
 	r.Use(corsMiddleware(allowedOrigins))
@@ -209,6 +219,13 @@ func router(secret string, allowedOrigins []string, rateLimitPerSec int) *chi.Mu
 
 	r.Get("/", hello)
 	r.Get("/version", getVersion)
+
+	// Health endpoints — no auth required (Kubernetes probes don't
+	// typically carry auth headers). Liveness checks only that the
+	// process is alive; readiness checks that the engine can serve
+	// traffic (running status + at least one healthy data path).
+	r.Get("/healthz/live", healthzLive)
+	r.Get("/healthz/ready", healthzReady)
 
 	r.Group(func(r chi.Router) {
 		if secret != "" {
@@ -239,6 +256,18 @@ func router(secret string, allowedOrigins []string, rateLimitPerSec int) *chi.Mu
 		r.Get("/logs", getLogs)
 		r.Get("/traffic", getTraffic)
 		r.Get("/tags/stream", streamTags)
+
+		// Observability: Prometheus-format metrics and pprof profiling
+		// endpoints. Both live inside the authenticated group so a
+		// scraper or profiling client must present the API secret,
+		// keeping them off the public surface.
+		r.Get("/metrics", promMetrics)
+
+		r.HandleFunc("/debug/pprof/*", pprof.Index)
+		r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		r.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		r.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		r.HandleFunc("/debug/pprof/trace", pprof.Trace)
 	})
 
 	return r

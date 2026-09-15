@@ -6,51 +6,88 @@ import (
 )
 
 // Engine is the core orchestrator of the CoreC core.
+//
+// It is a composite interface assembled from single-role interfaces so
+// that consumers can depend on exactly the capabilities they need
+// (Interface Segregation Principle) instead of the full 25-method
+// surface. Any type that implements every method below implements
+// Engine, so this decomposition is fully backward compatible: existing
+// implementations and mocks that embed Engine continue to satisfy the
+// interface unchanged.
+//
+// The role interfaces are:
+//   - Lifecycler        — Start, Stop, Reload, Suspend, Resume, Status
+//   - DriverManager     — AddDriver, RemoveDriver, GetDriver, ListDrivers
+//   - TransportManager  — AddTransport, RemoveTransport, GetTransport, ListTransports
+//   - RuleManager       — SetRules, GetRuleStats, SetRuleDisabled
+//   - DataAccessor      — ReadTag, WriteTag, LatestValues
+//   - EventSubscriber   — Subscribe, OnAlert
+//   - StatsProvider     — Stats, StaleThreshold, DeadLetterEntries
 type Engine interface {
-	// Lifecycle
+	Lifecycler
+	DriverManager
+	TransportManager
+	RuleManager
+	DataAccessor
+	EventSubscriber
+	StatsProvider
+}
+
+// Lifecycler covers engine start/stop and runtime state transitions.
+type Lifecycler interface {
 	Start(ctx context.Context, config *Config) error
 	Stop() error
 	Reload(config *Config) error
 	Suspend() error
 	Resume() error
 	Status() EngineStatus
+}
 
-	// Driver management
+// DriverManager covers adding, removing, and inspecting drivers.
+type DriverManager interface {
 	AddDriver(config DriverConfig) error
 	RemoveDriver(name string) error
 	GetDriver(name string) (Driver, bool)
 	ListDrivers() []DriverStatus
+}
 
-	// Transport management
+// TransportManager covers adding, removing, and inspecting transports.
+type TransportManager interface {
 	AddTransport(config TransportConfig) error
 	RemoveTransport(name string) error
 	GetTransport(name string) (Transport, bool)
 	ListTransports() []TransportStatus
+}
 
-	// Rule management
+// RuleManager covers configuring rules and reading rule statistics.
+type RuleManager interface {
 	SetRules(rules []RuleConfig) error
 	GetRuleStats() []RuleStat
 	SetRuleDisabled(index int, disabled bool) error
+}
 
-	// Data operations (for API layer)
+// DataAccessor covers synchronous read/write operations and cached
+// latest values, used by the API layer.
+type DataAccessor interface {
 	ReadTag(ctx context.Context, driver, tag string) (*TagValue, error)
 	WriteTag(ctx context.Context, cmd WriteCommand) (*WriteResult, error)
 	LatestValues(driver string) map[string]DataPoint
+}
 
-	// StaleThreshold returns the configured staleness threshold for
-	// cached values. Returns 0 if staleness detection is disabled.
-	StaleThreshold() time.Duration
-
-	// DeadLetterEntries returns write commands that failed after all
-	// retries, stored for inspection or manual retry.
-	DeadLetterEntries() []DeadLetterEntry
-
-	// Event subscription
+// EventSubscriber covers real-time data subscriptions and alert handlers.
+type EventSubscriber interface {
 	Subscribe(filter string) (<-chan DataPoint, func())
 	OnAlert(handler func(point DataPoint, rule Rule))
+}
 
-	// Status
+// StatsProvider covers aggregate engine statistics and staleness/dead-letter
+// inspection. StaleThreshold returns the configured staleness threshold for
+// cached values (0 if disabled); DeadLetterEntries returns write commands
+// that failed after all retries, stored for inspection or manual retry.
+type StatsProvider interface {
 	Stats() EngineStats
+	StaleThreshold() time.Duration
+	DeadLetterEntries() []DeadLetterEntry
 }
 
 // Config is the top-level configuration structure.

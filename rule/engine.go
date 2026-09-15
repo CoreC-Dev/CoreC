@@ -23,6 +23,11 @@ type Engine struct {
 	subEngines map[string]*Engine // sub-rule groups
 }
 
+// Compile-time assertion that the concrete rule.Engine satisfies the
+// core.RuleEngine port. This keeps the engine package decoupled from the
+// rule adapter: it depends only on core.RuleEngine.
+var _ core.RuleEngine = (*Engine)(nil)
+
 // NewEngine creates a new rule engine.
 func NewEngine() *Engine {
 	return &Engine{
@@ -239,12 +244,11 @@ func actionToString(a core.Action) string {
 	}
 }
 
-// MatchResult contains the matched rule and resolved targets.
-type MatchResult struct {
-	Rule      core.Rule
-	Targets   []string
-	Transform *core.TransformConfig
-}
+// MatchResult contains the matched rule and resolved targets. It is an
+// alias for core.RuleMatchResult so the concrete rule.Engine satisfies the
+// core.RuleEngine port (whose Match returns *core.RuleMatchResult) without
+// any conversion at the call site.
+type MatchResult = core.RuleMatchResult
 
 // Match finds the first matching rule for a DataPoint.
 // Rules are evaluated in priority order (lower priority = higher precedence).

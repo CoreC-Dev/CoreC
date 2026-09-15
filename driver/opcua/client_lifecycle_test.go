@@ -138,7 +138,7 @@ func TestNewOPCUADriverSubBufferSize(t *testing.T) {
 // Init — config parsing
 // ---------------------------------------------------------------------------
 
-func TestInitConfigParsing(t *testing.T) {
+func TestInitConfigParsing(t *testing.T) { //nolint:gocyclo // exhaustive config-parsing table test; complexity 22.
 	cfg := core.DriverConfig{
 		Name: "opcua-full",
 		Type: "opcua",

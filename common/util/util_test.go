@@ -3,6 +3,7 @@ package util
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -612,5 +613,130 @@ func TestStringContains(t *testing.T) {
 	err2 := errors.New("Connection lost")
 	if IsConnectionError(err2) {
 		t.Error("IsConnectionError should be case-sensitive; 'Connection' should not match 'connection'")
+	}
+}
+
+// --- Reconnect jitter (Task 4c) ---
+
+// TestJitteredBackoffBounds verifies that jitteredBackoff always returns a
+// value within ±20% of the base backoff, i.e. in [0.8*d, 1.2*d].
+func TestJitteredBackoffBounds(t *testing.T) {
+	tests := []struct {
+		name string
+		base time.Duration
+	}{
+		{"1s", 1 * time.Second},
+		{"100ms", 100 * time.Millisecond},
+		{"5min (breaker interval)", 5 * time.Minute},
+		{"small 2ms", 2 * time.Millisecond},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lo := time.Duration(float64(tt.base) * 0.8)
+			hi := time.Duration(float64(tt.base) * 1.2)
+			for i := 0; i < 10000; i++ {
+				got := jitteredBackoff(tt.base)
+				if got < lo || got > hi {
+					t.Fatalf("iteration %d: jitteredBackoff(%v) = %v, want [%v, %v]", i, tt.base, got, lo, hi)
+				}
+			}
+		})
+	}
+}
+
+// TestJitteredBackoffEdgeCases verifies the helper handles non-positive
+// inputs by returning them unchanged (no jitter applied to zero/negative).
+func TestJitteredBackoffEdgeCases(t *testing.T) {
+	if got := jitteredBackoff(0); got != 0 {
+		t.Errorf("jitteredBackoff(0) = %v, want 0", got)
+	}
+	neg := -1 * time.Second
+	if got := jitteredBackoff(neg); got != neg {
+		t.Errorf("jitteredBackoff(%v) = %v, want %v", neg, got, neg)
+	}
+}
+
+// TestJitteredBackoffVaries verifies that jitter actually produces
+// variation across calls (it is not degenerate/constant).
+func TestJitteredBackoffVaries(t *testing.T) {
+	base := 1 * time.Second
+	seen := make(map[time.Duration]bool)
+	for i := 0; i < 1000; i++ {
+		seen[jitteredBackoff(base)] = true
+	}
+	// With ±20% continuous jitter over 1000 draws we should observe many
+	// distinct values. A constant/degenerate implementation would yield 1.
+	if len(seen) < 100 {
+		t.Errorf("expected jitter to produce many distinct values, got %d", len(seen))
+	}
+}
+
+// TestReconnectSucceedsWithJitter verifies that the reconnect loop still
+// completes successfully after retries when jitter is applied to every
+// backoff wait.
+func TestReconnectSucceedsWithJitter(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var calls int32
+	connectFn := func() error {
+		n := atomic.AddInt32(&calls, 1)
+		if n < 3 {
+			return errors.New("connection refused")
+		}
+		return nil // success on 3rd attempt
+	}
+
+	// Run synchronously with short backoffs; jitter keeps each wait small
+	// enough that this completes well within the test timeout.
+	start := time.Now()
+	ReconnectLoopWithBreaker(ctx, "test", connectFn, 10*time.Millisecond, 100*time.Millisecond, 0)
+	elapsed := time.Since(start)
+
+	if got := atomic.LoadInt32(&calls); got != 3 {
+		t.Errorf("expected 3 connect calls, got %d", got)
+	}
+	// 3 attempts with backoffs <= 1.2*{10,20}ms ≈ 36ms; allow generous
+	// headroom. This mainly guards against jitter accidentally inflating
+	// waits into a much larger range.
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("reconnect with jitter took too long: %v", elapsed)
+	}
+}
+
+// TestReconnectJitterDoesNotBreakBreaker verifies that jitter does not
+// break the circuit-breaker logic: after maxFailures consecutive failures
+// the breaker still trips and switches to the long (~5min, jittered)
+// interval, so the call rate drops dramatically.
+func TestReconnectJitterDoesNotBreakBreaker(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var calls int32
+	connectFn := func() error {
+		atomic.AddInt32(&calls, 1)
+		return errors.New("always fails")
+	}
+
+	// maxFailures=3, short backoffs. After 3 failures the breaker trips
+	// and the base backoff becomes 5min (jittered to [4min, 6min]).
+	go ReconnectLoopWithBreaker(ctx, "test", connectFn, 10*time.Millisecond, 50*time.Millisecond, 3)
+
+	// Wait long enough for the 3 pre-breaker attempts (worst case
+	// ~12+24+48ms ≈ 84ms) but far short of the jittered 5min breaker
+	// interval.
+	time.Sleep(300 * time.Millisecond)
+	callsAtBreaker := atomic.LoadInt32(&calls)
+	if callsAtBreaker < 3 {
+		t.Fatalf("expected >= 3 calls before breaker trips, got %d", callsAtBreaker)
+	}
+
+	// No more calls should arrive within the breaker window (4min min
+	// jittered interval >> 300ms).
+	time.Sleep(300 * time.Millisecond)
+	callsAfter := atomic.LoadInt32(&calls)
+	if callsAfter > callsAtBreaker {
+		t.Fatalf("circuit breaker did not slow down with jitter: calls grew %d -> %d",
+			callsAtBreaker, callsAfter)
 	}
 }

@@ -5,10 +5,12 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/CoreC-Dev/CoreC/core"
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 )
 
+// getTraffic only depends on the StatsProvider role of the engine.
 func getTraffic(w http.ResponseWriter, r *http.Request) {
 	c, err := websocket.Accept(w, r, nil)
 	if err != nil {
@@ -32,7 +34,8 @@ func getTraffic(w http.ResponseWriter, r *http.Request) {
 			c.Close(websocket.StatusNormalClosure, "")
 			return
 		case <-ticker.C:
-			stats := getEngine().Stats()
+			var sp core.StatsProvider = getEngine()
+			stats := sp.Stats()
 			wctx, cancel := context.WithTimeout(ctx, wsWriteTimeout)
 			err = wsjson.Write(wctx, c, map[string]any{
 				"read":    stats.TotalRead,

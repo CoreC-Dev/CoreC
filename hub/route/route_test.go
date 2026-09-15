@@ -68,7 +68,7 @@ func (m *mockEngine) SetRuleDisabled(index int, disabled bool) error {
 	return nil
 }
 
-func TestRoutes(t *testing.T) {
+func TestRoutes(t *testing.T) { //nolint:gocyclo // comprehensive routing table test; complexity 21.
 	SetEngine(&mockEngine{})
 	GetConfigFunc = func() *core.Config {
 		return &core.Config{

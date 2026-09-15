@@ -175,7 +175,7 @@ func (s *scheduler) PauseDriver(name string) error {
 	return nil
 }
 
-func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) {
+func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) { //nolint:gocyclo // task lifecycle (connect/read/transform/publish/retry); complexity 27. Refactor tracked as tech debt.
 	defer s.wg.Done()
 
 	task := runner.task

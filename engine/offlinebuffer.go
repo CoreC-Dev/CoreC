@@ -129,11 +129,26 @@ func (ob *OfflineBuffer) Push(points []core.DataPoint, source string) error {
 		return fmt.Errorf("offline buffer: marshal: %w", err)
 	}
 
-	// Atomic write: write to temp file then rename.
+	// Atomic+durable write: write to temp file, fsync, then rename.
 	fullPath := filepath.Join(ob.dir, seqFileName(seq))
 	tmpPath := fullPath + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
+	f, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return fmt.Errorf("offline buffer: create: %w", err)
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tmpPath)
 		return fmt.Errorf("offline buffer: write: %w", err)
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("offline buffer: fsync: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("offline buffer: close: %w", err)
 	}
 	if err := os.Rename(tmpPath, fullPath); err != nil {
 		_ = os.Remove(tmpPath)
@@ -222,8 +237,11 @@ func (ob *OfflineBuffer) Drain(tryPublish func([]core.DataPoint) error) (int, er
 		}
 
 		if err := tryPublish(entry.Points); err != nil {
-			// Transport still down — stop draining.
-			return drained, nil
+			// Transport still down — stop draining. The publish error is not
+			// propagated because a down transport is a signal to pause the
+			// background drain, not a fatal failure of the drain operation.
+			slog.Debug("offline buffer: draining paused, transport unavailable", "error", err)
+			return drained, nil //nolint:nilerr // intentional: pause drain on transport-down, not a fatal error
 		}
 
 		ob.mu.Lock()

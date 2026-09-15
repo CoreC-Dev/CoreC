@@ -62,7 +62,7 @@ func loadTagsFiles(cfg *core.Config) error {
 
 // validate performs config validation, failing fast on invalid values
 // that would otherwise only surface at runtime.
-func validate(cfg *core.Config) error {
+func validate(cfg *core.Config) error { //nolint:gocyclo // central config validation; complexity 48. Refactor into per-section validators tracked as tech debt.
 	// Validate offline buffer configuration if enabled.
 	if cfg.Global.Buffer.Enabled {
 		if cfg.Global.Buffer.Path == "" {

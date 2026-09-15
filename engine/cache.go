@@ -111,16 +111,19 @@ func (c *LatestCache) GetByDriver(driver string) map[string]core.DataPoint {
 		}
 	}
 
-	// Slow path: rebuild snapshot
-	dc.mu.RLock()
+	// Slow path: rebuild snapshot under the write lock so that no
+	// concurrent Update can race between our map copy and the
+	// snapshot store / dirty clear. Without the write lock here,
+	// an Update that sets dirty=true after our copy but before we
+	// store dirty=false would be lost, leaving a stale snapshot.
+	dc.mu.Lock()
 	snap := make(map[string]core.DataPoint, len(dc.values))
 	for k := range dc.values {
 		snap[k] = dc.values[k]
 	}
-	dc.mu.RUnlock()
-
 	dc.snapshot.Store(&snap)
 	dc.dirty.Store(false)
+	dc.mu.Unlock()
 	return snap
 }
 

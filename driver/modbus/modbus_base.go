@@ -375,7 +375,7 @@ func (b *modbusBase) Read(ctx context.Context, tags []string) ([]core.TagValue, 
 }
 
 // readTag reads a single tag value from the Modbus device.
-func (b *modbusBase) readTag(client *mb.ModbusClient, ai addrInfo, dt core.DataType, tagName string) (any, error) {
+func (b *modbusBase) readTag(client *mb.ModbusClient, ai addrInfo, dt core.DataType, tagName string) (any, error) { //nolint:gocyclo // per-datatype Modbus decode dispatch; complexity 26. Splitting risks subtle bit-packing regressions.
 	// Coils (0xxxx) and discrete inputs (1xxxx) are single-bit areas. Only
 	// bool reads are meaningful there; any other type would be routed to a
 	// holding/input-register read via regType() (which returns HOLDING_REGISTER

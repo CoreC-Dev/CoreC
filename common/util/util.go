@@ -5,6 +5,7 @@ package util
 import (
 	"context"
 	"log/slog"
+	"math/rand/v2"
 	"strings"
 	"time"
 )
@@ -215,10 +216,36 @@ func ApplyTransform(value any, scale, offset float64) any {
 	}
 }
 
+// jitteredBackoff applies ±20% random jitter to a backoff duration.
+//
+// When the network recovers after an outage, every driver that lost its
+// connection around the same time would otherwise reconnect
+// simultaneously (the "thundering herd" problem), overwhelming the
+// recovered broker/PLC with a burst of connection attempts. Jitter
+// spreads these attempts over a wider window so they reconnect in a
+// staggered fashion.
+//
+// The returned duration is in the range [0.8*d, 1.2*d]. A non-positive
+// input is returned unchanged so the helper is safe to apply to
+// defaulted/zero backoffs without surprising behaviour.
+func jitteredBackoff(d time.Duration) time.Duration {
+	if d <= 0 {
+		return d
+	}
+	// d * (0.8 + rand(0.4)) gives ±20% randomness in [0.8, 1.2].
+	return time.Duration(float64(d) * (0.8 + rand.Float64()*0.4))
+}
+
 // ReconnectLoopWithBreaker repeatedly calls connect with exponential
 // backoff until it succeeds or ctx is cancelled. The backoff starts at
 // initialBackoff and doubles on each failure, capped at maxBackoff.
 // <=0 values fall back to 2s initial and 30s max.
+//
+// A ±20% random jitter is applied to every wait so that when the network
+// recovers, drivers that disconnected simultaneously do not all reconnect
+// at once (thundering herd). The base backoff progression (exponential
+// doubling and the circuit-breaker interval) is preserved; only the
+// actual sleep duration is jittered.
 //
 // After maxFailures consecutive failures (maxFailures > 0), a circuit
 // breaker trips and the backoff is increased to circuitBreakerBackoff
@@ -240,15 +267,22 @@ func ReconnectLoopWithBreaker(ctx context.Context, name string, connect func() e
 	breakerTripped := false
 
 	for {
+		// Apply ±20% jitter to the base backoff for this iteration.
+		// The base value is kept unjittered so the exponential
+		// progression and circuit-breaker interval remain stable.
+		wait := jitteredBackoff(backoff)
+
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(backoff):
+		case <-time.After(wait):
 		}
 
 		if err := connect(); err != nil {
 			failures++
-			slog.Warn("reconnect failed", "name", name, "error", err, "retry_in", backoff*2, "failures", failures)
+			slog.Warn("reconnect failed",
+				"name", name, "error", err, "failures", failures,
+				"backoff", backoff, "waited", wait)
 
 			// Circuit breaker: after maxFailures consecutive failures,
 			// switch to a long fixed interval to stop hammering the

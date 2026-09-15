@@ -33,13 +33,15 @@ type HTTPTransport struct {
 	timeout time.Duration
 
 	// Webhook server (chained-core inbound — receives data via HTTP POST)
-	webhookAddr   string // listen address, e.g. ":9090"
-	webhookPath   string // URL path, e.g. "/data"
-	webhookSecret string // shared secret for authenticating webhook requests; empty = no auth
-	webhookSrv    *http.Server
-	dataParser    parser.Parser
-	dataCh        chan core.DataPoint
-	received      atomic.Uint64
+	webhookAddr    string // listen address, e.g. ":9090"
+	webhookPath    string // URL path, e.g. "/data"
+	webhookSecret  string // shared secret for authenticating webhook requests; empty = no auth
+	webhookTLSCert string // PEM cert file path for the webhook server (enables HTTPS); empty = plaintext
+	webhookTLSKey  string // PEM key file path for the webhook server (enables HTTPS); empty = plaintext
+	webhookSrv     *http.Server
+	dataParser     parser.Parser
+	dataCh         chan core.DataPoint
+	received       atomic.Uint64
 
 	// State
 	state core.ConnState
@@ -149,6 +151,17 @@ func (t *HTTPTransport) Init(ctx context.Context, config core.TransportConfig) e
 		if secret, ok := settings["webhook-secret"].(string); ok {
 			t.webhookSecret = secret
 		}
+		// Optional TLS for the webhook server.  When both tls-cert-file
+		// and tls-key-file are set, the webhook listens over HTTPS
+		// (ListenAndServeTLS); when either is empty the webhook stays
+		// plaintext HTTP (backward-compatible).  This mirrors the MQTT
+		// transport's tls-cert-file / tls-key-file settings.
+		if cert, ok := settings["tls-cert-file"].(string); ok {
+			t.webhookTLSCert = cert
+		}
+		if key, ok := settings["tls-key-file"].(string); ok {
+			t.webhookTLSKey = key
+		}
 		p, err := parser.New(settings)
 		if err != nil {
 			return fmt.Errorf("http transport: invalid parser config: %w", err)
@@ -187,10 +200,27 @@ func (t *HTTPTransport) Start(ctx context.Context) error {
 			Handler: mux,
 		}
 		go func() {
-			slog.Info("http webhook server starting",
-				"name", t.name, "addr", t.webhookAddr, "path", t.webhookPath)
-			if err := t.webhookSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				slog.Error("http webhook server error", "name", t.name, "error", err)
+			// TLS is enabled only when both the cert and key file paths
+			// are configured.  When only one is set we warn and fall
+			// back to plaintext rather than failing to start, so a
+			// partial TLS config degrades safely instead of breaking
+			// the inbound path.
+			if t.webhookTLSCert != "" && t.webhookTLSKey != "" {
+				slog.Info("http webhook server starting (TLS)",
+					"name", t.name, "addr", t.webhookAddr, "path", t.webhookPath)
+				if err := t.webhookSrv.ListenAndServeTLS(t.webhookTLSCert, t.webhookTLSKey); err != nil && err != http.ErrServerClosed {
+					slog.Error("http webhook TLS server failed", "name", t.name, "error", err)
+				}
+			} else {
+				if t.webhookTLSCert != "" || t.webhookTLSKey != "" {
+					slog.Warn("http webhook TLS partially configured; both tls-cert-file and tls-key-file are required, falling back to plaintext",
+						"name", t.name, "addr", t.webhookAddr)
+				}
+				slog.Info("http webhook server starting (plaintext)",
+					"name", t.name, "addr", t.webhookAddr, "path", t.webhookPath)
+				if err := t.webhookSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					slog.Error("http webhook server failed", "name", t.name, "error", err)
+				}
 			}
 		}()
 	}

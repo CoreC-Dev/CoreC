@@ -30,12 +30,18 @@ func annotateStaleness(tags map[string]core.DataPoint, threshold time.Duration) 
 	return result
 }
 
+// getAllTags depends on the DataAccessor and StatsProvider roles of the
+// engine (latest values + staleness threshold). It snapshots the engine
+// once so both reads observe the same engine instance.
 func getAllTags(w http.ResponseWriter, r *http.Request) {
-	tags := getEngine().LatestValues("")
-	tags = annotateStaleness(tags, getEngine().StaleThreshold())
+	e := getEngine()
+	var da core.DataAccessor = e
+	var sp core.StatsProvider = e
+	tags := annotateStaleness(da.LatestValues(""), sp.StaleThreshold())
 	render(w, r, http.StatusOK, map[string]any{"tags": tags})
 }
 
+// writeTag only depends on the DataAccessor role of the engine.
 func writeTag(w http.ResponseWriter, r *http.Request) {
 	var cmd core.WriteCommand
 	if err := json.NewDecoder(limitedBody(r).Body).Decode(&cmd); err != nil {
@@ -43,7 +49,8 @@ func writeTag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := getEngine().WriteTag(r.Context(), cmd)
+	var da core.DataAccessor = getEngine()
+	res, err := da.WriteTag(r.Context(), cmd)
 	if err != nil {
 		renderInternalError(w, r, err)
 		return
@@ -53,9 +60,10 @@ func writeTag(w http.ResponseWriter, r *http.Request) {
 }
 
 // getFailedWrites returns the dead letter queue — write commands that
-// failed after all retries.
+// failed after all retries. It only depends on the StatsProvider role.
 func getFailedWrites(w http.ResponseWriter, r *http.Request) {
-	entries := getEngine().DeadLetterEntries()
+	var sp core.StatsProvider = getEngine()
+	entries := sp.DeadLetterEntries()
 	render(w, r, http.StatusOK, map[string]any{
 		"failed_writes": entries,
 		"count":         len(entries),

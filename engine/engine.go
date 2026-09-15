@@ -31,10 +31,20 @@ type CoreCEngine struct {
 	transports   map[string]core.Transport
 	transportCfg map[string]core.TransportConfig // for fallback lookups
 	batchers     map[string]*transportBatcher
-	ruleEngine   *rule.Engine
-	scheduler    *scheduler
-	dataBus      *DataBus
-	cache        *LatestCache
+
+	// transportCancels holds the per-transport context cancel func for each
+	// transport's startCommandListener/startDataListener goroutines. Each
+	// listener selects on a child context derived from e.ctx instead of e.ctx
+	// directly, so RemoveTransport can stop just that transport's listeners
+	// without cancelling the whole engine. This fixes the goroutine leak
+	// where MQTT transports' listener goroutines blocked forever after
+	// RemoveTransport (MQTTTransport.Stop deliberately does not close its
+	// command/data channels).
+	transportCancels map[string]context.CancelFunc
+	ruleEngine       core.RuleEngine
+	scheduler        *scheduler
+	dataBus          *DataBus
+	cache            *LatestCache
 
 	// tagGroups maps driver name -> tag name -> group.
 	// Populated from TagConfig.Group in AddDriver and consulted in
@@ -127,6 +137,7 @@ func New() core.Engine {
 		drivers:            make(map[string]core.Driver),
 		transports:         make(map[string]core.Transport),
 		transportCfg:       make(map[string]core.TransportConfig),
+		transportCancels:   make(map[string]context.CancelFunc),
 		batchers:           make(map[string]*transportBatcher),
 		tagGroups:          make(map[string]map[string]string),
 		ruleEngine:         rule.NewEngine(),
@@ -173,7 +184,7 @@ func (e *CoreCEngine) applyEngineConfig(cfg *core.EngineConfig) {
 	}
 }
 
-func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error {
+func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error { //nolint:gocyclo // engine startup orchestrates many subsystems; complexity 26. Refactor tracked as tech debt.
 	e.mu.Lock()
 	e.parentCtx = ctx
 	e.ctx, e.cancel = context.WithCancel(ctx)
@@ -185,6 +196,7 @@ func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error {
 	e.drivers = make(map[string]core.Driver)
 	e.transports = make(map[string]core.Transport)
 	e.batchers = make(map[string]*transportBatcher)
+	e.transportCancels = make(map[string]context.CancelFunc)
 	e.tagGroups = make(map[string]map[string]string)
 	e.mu.Unlock()
 
@@ -769,6 +781,7 @@ func (e *CoreCEngine) AddTransport(config core.TransportConfig) error {
 	// transport. The actual Stop() happens after Unlock to avoid blocking.
 	var oldTransport core.Transport
 	var oldBatcher *transportBatcher
+	var oldCancel context.CancelFunc
 	if t, exists := e.transports[config.Name]; exists {
 		oldTransport = t
 		delete(e.transports, config.Name)
@@ -776,9 +789,18 @@ func (e *CoreCEngine) AddTransport(config core.TransportConfig) error {
 			oldBatcher = b
 			delete(e.batchers, config.Name)
 		}
+		if c, hasCancel := e.transportCancels[config.Name]; hasCancel {
+			oldCancel = c
+			delete(e.transportCancels, config.Name)
+		}
 	}
 	e.mu.Unlock()
 
+	// Cancel the old transport's listener goroutines before stopping it so
+	// they don't block forever on the (unclosed) MQTT channels.
+	if oldCancel != nil {
+		oldCancel()
+	}
 	// Stop the old transport and batcher outside the lock.
 	if oldBatcher != nil {
 		oldBatcher.stop()
@@ -811,9 +833,18 @@ func (e *CoreCEngine) AddTransport(config core.TransportConfig) error {
 	// Start command and data listeners for this transport if the engine is
 	// already running.  This fixes M29: transports added after Start() now
 	// receive write commands and ingest data.
+	//
+	// Each transport gets its own child context derived from e.ctx so that
+	// RemoveTransport can cancel just this transport's listeners without
+	// tearing down the whole engine. This fixes the goroutine leak where
+	// MQTT listener goroutines blocked forever after RemoveTransport.
 	if e.ctx != nil && e.ctx.Err() == nil {
-		e.startCommandListener(transport)
-		e.startDataListener(transport)
+		tCtx, tCancel := context.WithCancel(e.ctx)
+		e.mu.Lock()
+		e.transportCancels[config.Name] = tCancel
+		e.mu.Unlock()
+		e.startCommandListener(transport, tCtx)
+		e.startDataListener(transport, tCtx)
 	}
 
 	slog.Info("transport added", "name", config.Name, "type", config.Type)
@@ -840,7 +871,23 @@ func (e *CoreCEngine) RemoveTransport(name string) error {
 		batcher = b
 		delete(e.batchers, name)
 	}
+
+	// Cancel this transport's listener goroutines so they exit instead of
+	// blocking forever on the (unclosed) MQTT command/data channels. This
+	// fixes the goroutine leak: the engine ctx stays alive (only full Stop
+	// cancels it) and MQTTTransport.Stop deliberately does not close its
+	// channels, so without per-transport cancellation the
+	// startCommandListener/startDataListener goroutines would block forever.
+	var tCancel context.CancelFunc
+	if c, hasCancel := e.transportCancels[name]; hasCancel {
+		tCancel = c
+		delete(e.transportCancels, name)
+	}
 	e.mu.Unlock()
+
+	if tCancel != nil {
+		tCancel()
+	}
 
 	if batcher != nil {
 		batcher.stop()
@@ -1167,7 +1214,7 @@ func (e *CoreCEngine) processingLoop() {
 // the command is placed in the dead letter queue for later inspection.
 // It is called from AddTransport for every transport (initial and runtime),
 // so no transport's commands are dropped.
-func (e *CoreCEngine) startCommandListener(t core.Transport) {
+func (e *CoreCEngine) startCommandListener(t core.Transport, tCtx context.Context) {
 	cmdCh := t.OnCommand()
 	if cmdCh == nil {
 		return
@@ -1177,7 +1224,7 @@ func (e *CoreCEngine) startCommandListener(t core.Transport) {
 		defer e.wg.Done()
 		for {
 			select {
-			case <-e.ctx.Done():
+			case <-tCtx.Done():
 				return
 			case cmd, ok := <-ch:
 				if !ok {
@@ -1266,7 +1313,7 @@ func (e *CoreCEngine) DeadLetterEntries() []core.DeadLetterEntry {
 // pipeline as driver-sourced data.
 //
 // It is called from AddTransport for every transport (initial and runtime).
-func (e *CoreCEngine) startDataListener(t core.Transport) {
+func (e *CoreCEngine) startDataListener(t core.Transport, tCtx context.Context) {
 	dataCh := t.OnData()
 	if dataCh == nil {
 		return
@@ -1277,7 +1324,7 @@ func (e *CoreCEngine) startDataListener(t core.Transport) {
 		slog.Info("data listener started", "transport", transportName)
 		for {
 			select {
-			case <-e.ctx.Done():
+			case <-tCtx.Done():
 				return
 			case point, ok := <-ch:
 				if !ok {

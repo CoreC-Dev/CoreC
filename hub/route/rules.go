@@ -3,11 +3,14 @@ package route
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/CoreC-Dev/CoreC/core"
 )
 
+// getRules only depends on the RuleManager role of the engine.
 func getRules(w http.ResponseWriter, r *http.Request) {
-	stats := getEngine().GetRuleStats()
-	render(w, r, http.StatusOK, map[string]any{"rules": stats})
+	var rm core.RuleManager = getEngine()
+	render(w, r, http.StatusOK, map[string]any{"rules": rm.GetRuleStats()})
 }
 
 type disableRuleRequest struct {
@@ -15,6 +18,7 @@ type disableRuleRequest struct {
 	Disabled bool `json:"disabled"`
 }
 
+// disableRule only depends on the RuleManager role of the engine.
 func disableRule(w http.ResponseWriter, r *http.Request) {
 	var req disableRuleRequest
 	if err := json.NewDecoder(limitedBody(r).Body).Decode(&req); err != nil {
@@ -22,7 +26,8 @@ func disableRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := getEngine().SetRuleDisabled(req.Index, req.Disabled); err != nil {
+	var rm core.RuleManager = getEngine()
+	if err := rm.SetRuleDisabled(req.Index, req.Disabled); err != nil {
 		renderError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}

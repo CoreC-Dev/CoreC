@@ -12,7 +12,7 @@ func TestRegisterAndCreateDriver(t *testing.T) {
 	typeName := "test-driver-registry"
 
 	factory := func(config DriverConfig) (Driver, error) {
-		return nil, nil
+		return nil, nil //nolint:nilnil // test stub: nil driver with no error signals successful creation
 	}
 	RegisterDriver(typeName, factory)
 
@@ -48,7 +48,7 @@ func TestRegisterAndCreateTransport(t *testing.T) {
 	typeName := "test-transport-registry"
 
 	factory := func(config TransportConfig) (Transport, error) {
-		return nil, nil
+		return nil, nil //nolint:nilnil // test stub: nil transport with no error signals successful creation
 	}
 	RegisterTransport(typeName, factory)
 

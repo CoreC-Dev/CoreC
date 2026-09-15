@@ -250,9 +250,11 @@ func TestModbusReconnectOnFailure(t *testing.T) {
 	}
 	defer server.Stop()
 
-	// Wait for reconnect.
+	// Wait for reconnect. The window is generous (6s) because the reconnect
+	// loop backs off up to max-retry-interval and, under CI/load, goroutine
+	// scheduling can delay the next attempt beyond the nominal interval.
 	connected := false
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 60; i++ {
 		time.Sleep(100 * time.Millisecond)
 		if drv.Status().State == core.StateConnected {
 			connected = true
