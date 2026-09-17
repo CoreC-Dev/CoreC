@@ -5,9 +5,11 @@ import (
 	"net/http"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/CoreC-Dev/CoreC/core"
+	"github.com/CoreC-Dev/CoreC/log"
 )
 
 // promContentType is the Content-Type for the Prometheus text exposition
@@ -39,6 +41,9 @@ func promMetrics(w http.ResponseWriter, r *http.Request) {
 	writePromHeader(&b, "corec_dropped_total", "counter", "Total data points dropped")
 	fmt.Fprintf(&b, "corec_dropped_total %d\n", stats.TotalDropped)
 
+	writePromHeader(&b, "corec_log_dropped_total", "counter", "Total log events dropped due to slow consumers (full source channel or subscriber buffer)")
+	fmt.Fprintf(&b, "corec_log_dropped_total %d\n", log.Dropped())
+
 	// ─── Gauges (instantaneous values) ────────────────────────────────
 	// Note: gauges must NOT use the _total suffix — that is reserved for
 	// counters (monotonically increasing values) per Prometheus/OpenMetrics
@@ -63,6 +68,15 @@ func promMetrics(w http.ResponseWriter, r *http.Request) {
 
 	// ─── Per-transport metrics ────────────────────────────────────────
 	writeTransportMetrics(&b, stats.TransportStats)
+
+	// ─── Offline buffer metrics ───────────────────────────────────────
+	writeOfflineBufferMetrics(&b)
+
+	// ─── HTTP request metrics ──────────────────────────────────────────
+	writeHTTPMetrics(&b)
+
+	// ─── Latency histograms ───────────────────────────────────────────
+	writeLatencyMetrics(&b)
 
 	// ─── Go runtime / process metrics ─────────────────────────────────
 	writeRuntimeMetrics(&b)
@@ -93,6 +107,13 @@ func writeDriverMetrics(b *strings.Builder, driverStats map[string]core.DriverSt
 		d := driverStats[name]
 		fmt.Fprintf(b, "corec_driver_errors_total{driver=%q} %d\n",
 			promEscape(name), d.ErrorCount)
+	}
+
+	writePromHeader(b, "corec_driver_reconnect_total", "counter", "Total reconnect attempts made by this driver")
+	for _, name := range names {
+		d := driverStats[name]
+		fmt.Fprintf(b, "corec_driver_reconnect_total{driver=%q} %d\n",
+			promEscape(name), d.ReconnectCount)
 	}
 
 	writePromHeader(b, "corec_driver_tags", "gauge", "Number of tags configured for this driver")
@@ -160,6 +181,109 @@ func writeTransportMetrics(b *strings.Builder, transportStats map[string]core.Tr
 		fmt.Fprintf(b, "corec_transport_connected{transport=%q} %d\n",
 			promEscape(name), val)
 	}
+}
+
+// writeOfflineBufferMetrics emits offline-buffer depth and counters.
+// The engine optionally satisfies core.OfflineBufferStatsProvider; when it
+// does not (e.g. test mocks), no metrics are emitted.
+func writeOfflineBufferMetrics(b *strings.Builder) {
+	eng := getEngine()
+	provider, ok := eng.(core.OfflineBufferStatsProvider)
+	if !ok || provider == nil {
+		return
+	}
+	pending, drained, pushed := provider.OfflineBufferStats()
+
+	writePromHeader(b, "corec_offline_buffer_pending", "gauge", "Batches currently held in the offline buffer awaiting replay")
+	fmt.Fprintf(b, "corec_offline_buffer_pending %d\n", pending)
+
+	writePromHeader(b, "corec_offline_buffer_drained_total", "counter", "Total batches successfully replayed from the offline buffer")
+	fmt.Fprintf(b, "corec_offline_buffer_drained_total %d\n", drained)
+
+	writePromHeader(b, "corec_offline_buffer_pushed_total", "counter", "Total batches persisted to the offline buffer after retries exhausted")
+	fmt.Fprintf(b, "corec_offline_buffer_pushed_total %d\n", pushed)
+}
+
+// writeHTTPMetrics emits HTTP request counts and a request-duration
+// histogram from the package-level httpMetricsCollector populated by
+// httpMetricsMiddleware.
+func writeHTTPMetrics(b *strings.Builder) {
+	counts, durBuckets, durSum, durCount := httpMetricsCollector.snapshot()
+
+	// ── Request count by method + status ──
+	writePromHeader(b, "corec_http_requests_total", "counter", "Total HTTP requests served by the API gateway")
+	keys := make([]string, 0, len(counts))
+	for k := range counts {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		// key format: "METHOD:STATUS"
+		method, status, ok := splitMetricKey(k)
+		if !ok {
+			continue
+		}
+		fmt.Fprintf(b, "corec_http_requests_total{method=%q,status=%q} %d\n",
+			promEscape(method), promEscape(status), counts[k])
+	}
+
+	// ── Request duration histogram ──
+	// durBuckets are non-cumulative per-bucket counts; Prometheus expects
+	// cumulative buckets. We compute the running sum below.
+	writePromHeader(b, "corec_http_request_duration_seconds", "histogram", "HTTP request duration in seconds")
+	cumulative := uint64(0)
+	for i, ub := range defaultHTTPDurationBuckets {
+		cumulative += durBuckets[i]
+		fmt.Fprintf(b, "corec_http_request_duration_seconds_bucket{le=%q} %d\n",
+			strconv.FormatFloat(ub, 'f', -1, 64), cumulative)
+	}
+	// +Inf bucket = total count
+	cumulative += durBuckets[len(defaultHTTPDurationBuckets)] // overflow bucket
+	fmt.Fprintf(b, "corec_http_request_duration_seconds_bucket{le=\"+Inf\"} %d\n", cumulative)
+	fmt.Fprintf(b, "corec_http_request_duration_seconds_sum %g\n", durSum)
+	fmt.Fprintf(b, "corec_http_request_duration_seconds_count %d\n", durCount)
+}
+
+// writeLatencyMetrics emits read and publish latency histograms from the
+// engine's LatencyProvider role. When the engine does not satisfy
+// core.LatencyProvider (e.g. test mocks), no metrics are emitted.
+func writeLatencyMetrics(b *strings.Builder) {
+	eng := getEngine()
+	provider, ok := eng.(core.LatencyProvider)
+	if !ok || provider == nil {
+		return
+	}
+
+	writeLatencyHistogram(b, "corec_read_latency_seconds", "Driver read latency in seconds", provider.ReadLatencyHistogram())
+	writeLatencyHistogram(b, "corec_publish_latency_seconds", "Transport publish latency in seconds", provider.PublishLatencyHistogram())
+}
+
+// writeLatencyHistogram renders a single Prometheus histogram family from
+// a LatencySnapshot. Buckets and Counts are already cumulative (the
+// histogram implementation increments every bucket whose upper bound >=
+// the observed value), so we emit them directly.
+func writeLatencyHistogram(b *strings.Builder, name, help string, snap core.LatencySnapshot) {
+	writePromHeader(b, name, "histogram", help)
+	for i, ub := range snap.Buckets {
+		var le string
+		if i < len(snap.Counts) {
+			le = strconv.FormatFloat(ub, 'f', -1, 64)
+			fmt.Fprintf(b, "%s_bucket{le=%q} %d\n", name, le, snap.Counts[i])
+		}
+	}
+	// +Inf bucket = total count
+	fmt.Fprintf(b, "%s_bucket{le=\"+Inf\"} %d\n", name, snap.Count)
+	fmt.Fprintf(b, "%s_sum %g\n", name, snap.Sum)
+	fmt.Fprintf(b, "%s_count %d\n", name, snap.Count)
+}
+
+// splitMetricKey splits "METHOD:STATUS" into its parts.
+func splitMetricKey(k string) (method, status string, ok bool) {
+	idx := strings.Index(k, ":")
+	if idx < 0 {
+		return "", "", false
+	}
+	return k[:idx], k[idx+1:], true
 }
 
 // writeRuntimeMetrics emits Go runtime and process-level metrics as

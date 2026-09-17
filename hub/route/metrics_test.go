@@ -199,3 +199,78 @@ func TestPromEscape(t *testing.T) {
 		}
 	}
 }
+
+// TestPromMetricsNewFamilies verifies that the observability enhancement
+// metric families are present in the /metrics output: log dropped counter,
+// driver reconnect counter, offline buffer metrics, HTTP request metrics,
+// and latency histograms. The mockEngineV2 does not satisfy
+// LatencyProvider or OfflineBufferStatsProvider, so those families are
+// gracefully omitted — this test verifies the families that ARE emitted
+// even without the optional role interfaces.
+func TestPromMetricsNewFamilies(t *testing.T) {
+	eng := &mockEngineV2{
+		stats: core.EngineStats{
+			TotalRead:    100,
+			TotalPublish: 90,
+			TotalErrors:  1,
+			TotalDropped: 2,
+			DriverStats: map[string]core.DriverStatus{
+				"plc1": {Name: "plc1", Type: "modbus-tcp", ReadCount: 50, ErrorCount: 1, ReconnectCount: 3},
+				"plc2": {Name: "plc2", Type: "s7", ReadCount: 50, ErrorCount: 0, ReconnectCount: 0},
+			},
+		},
+	}
+	ts := newTestServer("", eng)
+	defer ts.Close()
+
+	resp := authedGet(t, ts, "/metrics", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	output := string(body)
+
+	checks := []string{
+		// Log dropped counter
+		"# HELP corec_log_dropped_total",
+		"# TYPE corec_log_dropped_total counter",
+		"corec_log_dropped_total",
+
+		// Driver reconnect counter
+		"# HELP corec_driver_reconnect_total",
+		"# TYPE corec_driver_reconnect_total counter",
+		`corec_driver_reconnect_total{driver="plc1"} 3`,
+		`corec_driver_reconnect_total{driver="plc2"} 0`,
+
+		// HTTP request metrics (the /metrics request itself is counted
+		// by httpMetricsMiddleware, so at least one request exists)
+		"# HELP corec_http_requests_total",
+		"# TYPE corec_http_requests_total counter",
+		"# HELP corec_http_request_duration_seconds",
+		"# TYPE corec_http_request_duration_seconds histogram",
+		"corec_http_request_duration_seconds_bucket",
+		"corec_http_request_duration_seconds_sum",
+		"corec_http_request_duration_seconds_count",
+	}
+	for _, s := range checks {
+		if !strings.Contains(output, s) {
+			t.Errorf("metrics output missing %q\n", s)
+		}
+	}
+
+	// Verify that latency and offline buffer metrics are gracefully
+	// absent when the engine does not implement the optional interfaces.
+	mustNotExist := []string{
+		"corec_read_latency_seconds",
+		"corec_publish_latency_seconds",
+		"corec_offline_buffer_pending",
+		"corec_offline_buffer_drained_total",
+		"corec_offline_buffer_pushed_total",
+	}
+	for _, s := range mustNotExist {
+		if strings.Contains(output, s) {
+			t.Errorf("metrics output should NOT contain %q (mock does not implement the provider interface)\n", s)
+		}
+	}
+}

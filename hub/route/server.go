@@ -288,6 +288,13 @@ func router(secret string, allowedOrigins []string, rateLimitPerSec int, pprofEn
 	r.Use(safeRequestLogger)
 	r.Use(middleware.Recoverer)
 	r.Use(corsMiddleware(allowedOrigins))
+	// httpMetricsMiddleware records method, status, and duration for every
+	// request (including unauthenticated /healthz probes) into the
+	// package-level httpMetricsCollector, which the /metrics handler exposes
+	// to Prometheus. Placed after CORS (so CORS preflight 204s are counted
+	// accurately) and before rate limiting so rate-limited (429) and
+	// successful requests are both tracked.
+	r.Use(httpMetricsMiddleware)
 	if rateLimitPerSec > 0 {
 		r.Use(rateLimitMiddleware(rateLimitPerSec))
 	}
