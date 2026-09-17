@@ -19,6 +19,9 @@ func TestGetIntSetting(t *testing.T) {
 		want     int
 	}{
 		{"int value", map[string]any{"port": 502}, "port", 0, 502},
+		{"uint64 value (goccy/go-yaml parses non-negative ints as uint64)", map[string]any{"port": uint64(502)}, "port", 0, 502},
+		{"uint64 custom port 802", map[string]any{"port": uint64(802)}, "port", 0, 802},
+		{"int64 value (goccy/go-yaml parses negative ints as int64)", map[string]any{"x": int64(-1)}, "x", 0, -1},
 		{"float64 value (YAML unquoted)", map[string]any{"port": float64(502)}, "port", 0, 502},
 		{"missing key returns default", map[string]any{}, "port", 502, 502},
 		{"nil map returns default", nil, "port", 502, 502},

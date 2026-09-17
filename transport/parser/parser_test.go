@@ -100,7 +100,7 @@ func TestRawParser(t *testing.T) {
 		"parser": map[string]any{
 			"type":           "raw",
 			"driver":         "factory",
-			"tag-from-topic": 2,
+			"tag-from-topic": uint64(2),
 			"data-type":      "float32",
 		},
 	}

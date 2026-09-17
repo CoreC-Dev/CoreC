@@ -564,7 +564,7 @@ func TestOPCUASubscriptionConfig(t *testing.T) {
 
 	t.Run("custom subscription buffer size", func(t *testing.T) {
 		cfg := validConfig("x")
-		cfg.Settings["subscription-buffer"] = 4096
+		cfg.Settings["subscription-buffer"] = uint64(4096)
 		drv, err := NewOPCUADriver(cfg)
 		if err != nil {
 			t.Fatalf("NewOPCUADriver: %v", err)

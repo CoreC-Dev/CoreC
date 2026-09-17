@@ -12,14 +12,19 @@ import (
 )
 
 // GetIntSetting extracts an int from a settings map, falling back to
-// defaultVal if the key is missing or the value is not an int/float64.
-// YAML unmarshalling produces float64 for unquoted numbers, so both
-// int and float64 are accepted.
+// defaultVal if the key is missing or the value is not numeric.
+// YAML unmarshalling may produce int, uint64, int64, or float64
+// depending on the parser and value magnitude, so all numeric kinds
+// are accepted.
 func GetIntSetting(settings map[string]any, key string, defaultVal int) int {
-	if v, ok := settings[key].(int); ok {
+	switch v := settings[key].(type) {
+	case int:
 		return v
-	}
-	if v, ok := settings[key].(float64); ok {
+	case int64:
+		return int(v)
+	case uint64:
+		return int(v)
+	case float64:
 		return int(v)
 	}
 	return defaultVal

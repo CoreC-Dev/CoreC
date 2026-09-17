@@ -70,13 +70,9 @@ type OPCUADriver struct {
 
 // NewOPCUADriver creates a new OPC UA driver instance.
 func NewOPCUADriver(config core.DriverConfig) (core.Driver, error) {
-	subBufSize := config.Settings["subscription-buffer"]
-	bufSize := 1024
-	if v, ok := subBufSize.(int); ok && v > 0 {
-		bufSize = v
-	}
-	if v, ok := subBufSize.(float64); ok && v > 0 {
-		bufSize = int(v)
+	bufSize := util.GetIntSetting(config.Settings, "subscription-buffer", 1024)
+	if bufSize <= 0 {
+		bufSize = 1024
 	}
 	d := &OPCUADriver{
 		name:          config.Name,

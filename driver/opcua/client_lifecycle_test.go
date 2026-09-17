@@ -105,9 +105,11 @@ func TestNewOPCUADriverSubBufferSize(t *testing.T) {
 	}{
 		{"key missing", nil, 1024},
 		{"int positive", 2048, 2048},
+		{"uint64 positive (goccy/go-yaml style)", uint64(2048), 2048},
 		{"int zero falls back to default", 0, 1024},
+		{"uint64 zero falls back to default", uint64(0), 1024},
 		{"int negative falls back to default", -100, 1024},
-		{"float64 positive (yaml style)", 4096.0, 4096},
+		{"float64 positive (yaml.v3 style)", 4096.0, 4096},
 		{"float64 zero falls back to default", 0.0, 1024},
 		{"float64 negative falls back to default", -1.0, 1024},
 		{"string ignored", "512", 1024},
@@ -155,7 +157,7 @@ func TestInitConfigParsing(t *testing.T) { //nolint:gocyclo // exhaustive config
 			"timeout":                "3s",
 			"reconnect-interval":     "1s",
 			"reconnect-max-interval": "10s",
-			"max-batch-size":         500,
+			"max-batch-size":         uint64(500),
 		},
 		Tags: []core.TagConfig{
 			{Name: "speed", Address: "ns=2;s=Conveyor.Speed", Type: "float64"},
@@ -260,15 +262,27 @@ func TestInitDefaults(t *testing.T) {
 	}
 }
 
-// TestInitYAMLNumberBatchSize verifies that max-batch-size supplied as a
-// float64 (the way YAML unmarshals unquoted numbers) is coerced to int.
+// TestInitYAMLNumberBatchSize verifies that max-batch-size supplied as
+// numeric types produced by YAML unmarshalling is coerced to int.
+// goccy/go-yaml parses non-negative integers as uint64 and floats as
+// float64; both must be handled correctly.
 func TestInitYAMLNumberBatchSize(t *testing.T) {
-	cfg := validConfig("x")
-	cfg.Settings["max-batch-size"] = 250.0
-	d := mustInit(t, cfg)
-	if d.maxBatchSize != 250 {
-		t.Errorf("maxBatchSize from float64 = %d, want 250", d.maxBatchSize)
-	}
+	t.Run("uint64 (goccy/go-yaml non-negative int)", func(t *testing.T) {
+		cfg := validConfig("x")
+		cfg.Settings["max-batch-size"] = uint64(250)
+		d := mustInit(t, cfg)
+		if d.maxBatchSize != 250 {
+			t.Errorf("maxBatchSize from uint64 = %d, want 250", d.maxBatchSize)
+		}
+	})
+	t.Run("float64 (yaml.v3 / goccy float)", func(t *testing.T) {
+		cfg := validConfig("x")
+		cfg.Settings["max-batch-size"] = 250.0
+		d := mustInit(t, cfg)
+		if d.maxBatchSize != 250 {
+			t.Errorf("maxBatchSize from float64 = %d, want 250", d.maxBatchSize)
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -445,7 +459,7 @@ func TestCapabilities(t *testing.T) {
 
 	t.Run("custom max batch size after init", func(t *testing.T) {
 		cfg := validConfig("x")
-		cfg.Settings["max-batch-size"] = 250
+		cfg.Settings["max-batch-size"] = uint64(250)
 		d := mustInit(t, cfg)
 		if caps := d.Capabilities(); caps.MaxBatchSize != 250 {
 			t.Errorf("MaxBatchSize = %d, want 250", caps.MaxBatchSize)

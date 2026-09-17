@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CoreC-Dev/CoreC/common/util"
 	"github.com/CoreC-Dev/CoreC/core"
 	"github.com/tidwall/gjson"
 )
@@ -223,7 +224,7 @@ func newRawParser(s map[string]any) (*rawParser, error) {
 		device:       getStringSetting(s, "device", ""),
 		typeStr:      getStringSetting(s, "data-type", "float64"),
 		tag:          getStringSetting(s, "tag", ""),
-		tagFromTopic: getIntSetting(s, "tag-from-topic", 0),
+		tagFromTopic: util.GetIntSetting(s, "tag-from-topic", 0),
 		timestampFmt: getStringSetting(s, "timestamp-format", "rfc3339"),
 	}, nil
 }
@@ -273,19 +274,6 @@ func getStringSetting(s map[string]any, key, def string) string {
 	}
 	if v, ok := s[key].(string); ok {
 		return v
-	}
-	return def
-}
-
-func getIntSetting(s map[string]any, key string, def int) int {
-	if s == nil {
-		return def
-	}
-	if v, ok := s[key].(int); ok {
-		return v
-	}
-	if v, ok := s[key].(float64); ok {
-		return int(v)
 	}
 	return def
 }

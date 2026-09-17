@@ -686,9 +686,7 @@ func encodeS7Value(v any, addr s7Address, dt core.DataType, h *gos7.Helper) ([]b
 	case core.TypeFloat32:
 		h.SetRealAt(buf, 0, util.ToFloat32(v))
 	case core.TypeFloat64:
-		if f, ok := v.(float64); ok {
-			h.SetLRealAt(buf, 0, f)
-		}
+		h.SetLRealAt(buf, 0, util.ToFloat64(v))
 	case core.TypeBytes:
 		b, ok := v.([]byte)
 		if !ok {
