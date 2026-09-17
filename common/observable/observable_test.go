@@ -114,5 +114,11 @@ func TestObservableNoDropsWhenConsuming(t *testing.T) {
 	close(src)
 	<-done
 
+	// With a 1ms yield between sends and a 128-slot subscriber buffer,
+	// the consumer should keep up and receive all (or nearly all) items.
+	// A small tolerance accounts for rare scheduler jitter on CI.
+	if received < 195 {
+		t.Errorf("expected at least 195/200 received, got %d (dropped=%d)", received, obs.Dropped())
+	}
 	t.Logf("received=%d, dropped=%d", received, obs.Dropped())
 }
