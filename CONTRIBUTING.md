@@ -80,7 +80,7 @@ golangci-lint run --timeout 5m                  # v2，配置见 .golangci.yml�
 <type>(<scope>): <subject>
 ```
 
-- **type** 必须是其一：`feat` `fix` `docs` `style` `refactor` `test` `perf` `chore` `ci` `build`（`revert` 亦合规，但 `.github/scripts/changelog.sh` 不自动归类，需在 CHANGELOG.md 手动补记）
+- **type** 必须是其一：`feat` `fix` `docs` `style` `refactor` `test` `perf` `chore` `ci` `build`（`revert` 亦合规，但 `.github/scripts/changelog.sh` 不自动归类）
 - **scope**（可选但推荐）用包/模块名：`modbus` `s7` `opcua` `mqtt` `http` `engine` `rule` `route` `config` `demo` `ci` `docs` `api` …
 - **subject** 用祈使句、句末不加句号。
 - 破坏性变更：在 footer 加 `BREAKING CHANGE: <说明>`。
