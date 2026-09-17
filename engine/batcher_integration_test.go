@@ -342,3 +342,207 @@ func TestBatcherFlushFinalPublishesRemaining(t *testing.T) {
 		t.Errorf("expected value 99.0, got %v", pub[0].Value)
 	}
 }
+
+// TestBatcherOfflineBufferPendingNil verifies the nil-buffer contract: a
+// batcher with no offline buffer reports zero for all offline-buffer stats.
+func TestBatcherOfflineBufferPendingNil(t *testing.T) {
+	tr := &flakyTransport{}
+	cfg := core.TransportConfig{
+		Name:          "test",
+		BatchSize:     10,
+		FlushInterval: "10s",
+	}
+	b := newTransportBatcher(tr, cfg, nil)
+	if b == nil {
+		t.Fatal("expected non-nil batcher")
+	}
+
+	if got := b.OfflineBufferPending(); got != 0 {
+		t.Fatalf("OfflineBufferPending = %d, want 0 (nil buffer)", got)
+	}
+	if got := b.OfflineBufferDrained(); got != 0 {
+		t.Fatalf("OfflineBufferDrained = %d, want 0 (nil buffer)", got)
+	}
+	if got := b.OfflineBufferPushed(); got != 0 {
+		t.Fatalf("OfflineBufferPushed = %d, want 0 (nil buffer)", got)
+	}
+}
+
+// TestBatcherOfflineBufferPendingWithBuffer verifies that
+// OfflineBufferPending reflects the buffer's on-disk count and stays in sync
+// as batches are pushed and drained.
+func TestBatcherOfflineBufferPendingWithBuffer(t *testing.T) {
+	dir := t.TempDir()
+	ob, err := NewOfflineBuffer(dir, 100)
+	if err != nil {
+		t.Fatalf("NewOfflineBuffer: %v", err)
+	}
+	defer ob.Close()
+
+	tr := &flakyTransport{}
+	cfg := core.TransportConfig{
+		Name:          "test",
+		BatchSize:     10,
+		FlushInterval: "10s",
+	}
+	b := newTransportBatcher(tr, cfg, ob)
+	if b == nil {
+		t.Fatal("expected non-nil batcher")
+	}
+
+	if got := b.OfflineBufferPending(); got != 0 {
+		t.Fatalf("OfflineBufferPending = %d, want 0 on empty buffer", got)
+	}
+
+	// Pre-populate the buffer outside the batcher.
+	points := []core.DataPoint{{Driver: "plc", Tag: "t", Value: 1.0, Timestamp: time.Now()}}
+	for i := 0; i < 3; i++ {
+		if err := ob.Push(points, "test"); err != nil {
+			t.Fatalf("Push %d: %v", i, err)
+		}
+	}
+	if got := b.OfflineBufferPending(); got != 3 {
+		t.Fatalf("OfflineBufferPending = %d, want 3", got)
+	}
+	if got := b.OfflineBufferPending(); got != ob.Len() {
+		t.Fatalf("OfflineBufferPending (%d) != ob.Len (%d)", got, ob.Len())
+	}
+
+	// drainOnce replays the batches; pending should drop to 0 and the
+	// drained counter should reflect the replayed batches.
+	b.drainOnce()
+	if got := b.OfflineBufferPending(); got != 0 {
+		t.Fatalf("OfflineBufferPending = %d, want 0 after drain", got)
+	}
+	if got := b.OfflineBufferDrained(); got != 3 {
+		t.Fatalf("OfflineBufferDrained = %d, want 3 after drain", got)
+	}
+}
+
+// TestBatcherOfflineBufferPushedIncremented verifies that
+// offlineBufferPushes is incremented exactly once per batch persisted to the
+// offline buffer after retries are exhausted.
+func TestBatcherOfflineBufferPushedIncremented(t *testing.T) {
+	dir := t.TempDir()
+	ob, err := NewOfflineBuffer(dir, 100)
+	if err != nil {
+		t.Fatalf("NewOfflineBuffer: %v", err)
+	}
+	defer ob.Close()
+
+	tr := &flakyTransport{}
+	tr.alwaysFail.Store(true) // all publish calls fail → batches are buffered
+
+	cfg := core.TransportConfig{
+		Name:          "test",
+		BatchSize:     1, // immediate flush per point
+		FlushInterval: "10s",
+		RetryCount:    1,
+	}
+	b := newTransportBatcher(tr, cfg, ob)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	b.start(ctx)
+	defer b.stop()
+
+	// Publish 2 points; each fills the size-1 batch, fails all retries,
+	// and is pushed to the offline buffer.
+	for i := 0; i < 2; i++ {
+		_ = b.publish(ctx, core.DataPoint{
+			Driver: "plc", Tag: "t", Value: float64(i), Timestamp: time.Now(),
+		})
+	}
+
+	waitFor := func(timeout time.Duration, check func() bool) bool {
+		deadline := time.Now().Add(timeout)
+		for time.Now().Before(deadline) {
+			if check() {
+				return true
+			}
+			time.Sleep(time.Millisecond)
+		}
+		return false
+	}
+	if !waitFor(10*time.Second, func() bool { return b.OfflineBufferPushed() == 2 }) {
+		t.Fatalf("OfflineBufferPushed = %d, want 2", b.OfflineBufferPushed())
+	}
+	if got := b.OfflineBufferPending(); got != 2 {
+		t.Fatalf("OfflineBufferPending = %d, want 2", got)
+	}
+}
+
+// TestEngineOfflineBufferStats verifies the engine-level aggregation:
+//   - pushed is summed across batchers (per-batcher counter).
+//   - pending and drained are read once from the shared buffer, NOT
+//     multiplied by the number of batchers sharing it.
+func TestEngineOfflineBufferStats(t *testing.T) {
+	dir := t.TempDir()
+	ob, err := NewOfflineBuffer(dir, 100)
+	if err != nil {
+		t.Fatalf("NewOfflineBuffer: %v", err)
+	}
+	defer ob.Close()
+
+	// Two batchers share the SAME offline buffer (mirroring production,
+	// where e.offlineBuffer is passed to every newTransportBatcher). Each
+	// has pushed a distinct number of batches.
+	b1 := &transportBatcher{offlineBuffer: ob}
+	b1.offlineBufferPushes.Add(3)
+	b2 := &transportBatcher{offlineBuffer: ob}
+	b2.offlineBufferPushes.Add(5)
+
+	// Put 2 batches on disk so pending is non-zero.
+	points := []core.DataPoint{{Driver: "plc", Tag: "t", Value: 1.0, Timestamp: time.Now()}}
+	for i := 0; i < 2; i++ {
+		if err := ob.Push(points, "test"); err != nil {
+			t.Fatalf("Push %d: %v", i, err)
+		}
+	}
+
+	eng := New().(*CoreCEngine)
+	eng.offlineBuffer = ob
+	eng.batchers = map[string]*transportBatcher{"t1": b1, "t2": b2}
+
+	pending, drained, pushed := eng.OfflineBufferStats()
+	if pushed != 8 {
+		t.Errorf("pushed = %d, want 8 (3+5 summed across batchers)", pushed)
+	}
+	if pending != 2 {
+		t.Errorf("pending = %d, want 2 (shared buffer Len, not 2*2)", pending)
+	}
+	if drained != 0 {
+		t.Errorf("drained = %d, want 0 before any drain", drained)
+	}
+
+	// Drain the shared buffer once; drained must reflect the replayed
+	// batches exactly (not doubled by the two batchers).
+	drainedN, err := ob.Drain(func([]core.DataPoint) error { return nil })
+	if err != nil {
+		t.Fatalf("Drain: %v", err)
+	}
+	if drainedN != 2 {
+		t.Fatalf("drainedN = %d, want 2", drainedN)
+	}
+
+	pending2, drained2, pushed2 := eng.OfflineBufferStats()
+	if pushed2 != 8 {
+		t.Errorf("pushed = %d, want 8 (unchanged by drain)", pushed2)
+	}
+	if pending2 != 0 {
+		t.Errorf("pending = %d, want 0 after drain", pending2)
+	}
+	if drained2 != 2 {
+		t.Errorf("drained = %d, want 2 (not doubled across batchers)", drained2)
+	}
+}
+
+// TestEngineOfflineBufferStatsNoBuffer verifies the engine reports zeros
+// when no offline buffer and no batchers are configured.
+func TestEngineOfflineBufferStatsNoBuffer(t *testing.T) {
+	eng := New().(*CoreCEngine)
+	pending, drained, pushed := eng.OfflineBufferStats()
+	if pending != 0 || drained != 0 || pushed != 0 {
+		t.Fatalf("OfflineBufferStats = (%d, %d, %d), want (0, 0, 0) with no buffer", pending, drained, pushed)
+	}
+}

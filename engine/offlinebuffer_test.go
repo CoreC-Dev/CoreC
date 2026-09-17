@@ -219,3 +219,127 @@ func TestOfflineBufferAtomicWrite(t *testing.T) {
 		}
 	}
 }
+
+// TestOfflineBufferPendingCount verifies that PendingCount mirrors Len
+// (the public alias contract) and is thread-safe to call concurrently.
+func TestOfflineBufferPendingCount(t *testing.T) {
+	dir := t.TempDir()
+	ob, err := NewOfflineBuffer(dir, 100)
+	if err != nil {
+		t.Fatalf("NewOfflineBuffer: %v", err)
+	}
+	defer ob.Close()
+
+	if got := ob.PendingCount(); got != 0 {
+		t.Fatalf("PendingCount = %d, want 0 on empty buffer", got)
+	}
+	if got := ob.PendingCount(); got != ob.Len() {
+		t.Fatalf("PendingCount (%d) != Len (%d); alias contract broken", got, ob.Len())
+	}
+
+	points := []core.DataPoint{{Driver: "plc1", Tag: "temp", Value: 1.0, Timestamp: time.Now()}}
+	for i := 0; i < 4; i++ {
+		if err := ob.Push(points, "mqtt"); err != nil {
+			t.Fatalf("Push %d: %v", i, err)
+		}
+	}
+	if got := ob.PendingCount(); got != 4 {
+		t.Fatalf("PendingCount = %d, want 4", got)
+	}
+	if got := ob.PendingCount(); got != ob.Len() {
+		t.Fatalf("PendingCount (%d) != Len (%d) after pushes", got, ob.Len())
+	}
+
+	// Concurrent reads must not race or panic. -race in CI exercises this.
+	done := make(chan struct{})
+	for i := 0; i < 8; i++ {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			for j := 0; j < 50; j++ {
+				_ = ob.PendingCount()
+			}
+		}()
+	}
+	for i := 0; i < 8; i++ {
+		<-done
+	}
+}
+
+// TestOfflineBufferDrainCount verifies that DrainCount tracks the total
+// number of batches successfully replayed, including across multiple Drain
+// calls and the transport-down pause path (partial drain).
+func TestOfflineBufferDrainCount(t *testing.T) {
+	dir := t.TempDir()
+	ob, err := NewOfflineBuffer(dir, 100)
+	if err != nil {
+		t.Fatalf("NewOfflineBuffer: %v", err)
+	}
+	defer ob.Close()
+
+	if got := ob.DrainCount(); got != 0 {
+		t.Fatalf("DrainCount = %d, want 0 on fresh buffer", got)
+	}
+
+	points := []core.DataPoint{{Driver: "plc1", Tag: "temp", Value: 1.0, Timestamp: time.Now()}}
+
+	// Push 3 batches and drain them all successfully.
+	for i := 0; i < 3; i++ {
+		if err := ob.Push(points, "mqtt"); err != nil {
+			t.Fatalf("Push %d: %v", i, err)
+		}
+	}
+	drained, err := ob.Drain(func([]core.DataPoint) error { return nil })
+	if err != nil {
+		t.Fatalf("Drain: %v", err)
+	}
+	if drained != 3 {
+		t.Fatalf("drained = %d, want 3", drained)
+	}
+	if got := ob.DrainCount(); got != 3 {
+		t.Fatalf("DrainCount = %d, want 3 after full drain", got)
+	}
+	if got := ob.Len(); got != 0 {
+		t.Fatalf("Len = %d, want 0 after drain", got)
+	}
+
+	// Push 3 more; this time the publish callback fails on the 2nd batch,
+	// so Drain stops after 1 success (transport-down pause path). DrainCount
+	// must still reflect the 1 batch that was replayed.
+	for i := 0; i < 3; i++ {
+		if err := ob.Push(points, "mqtt"); err != nil {
+			t.Fatalf("Push %d: %v", i, err)
+		}
+	}
+	callCount := 0
+	drained, err = ob.Drain(func([]core.DataPoint) error {
+		callCount++
+		if callCount == 2 {
+			return errMockPublish
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Drain: %v", err)
+	}
+	if drained != 1 {
+		t.Fatalf("drained = %d, want 1 (paused on 2nd)", drained)
+	}
+	if got := ob.DrainCount(); got != 4 { // 3 + 1
+		t.Fatalf("DrainCount = %d, want 4 after partial drain", got)
+	}
+	if got := ob.Len(); got != 2 {
+		t.Fatalf("Len = %d, want 2 after partial drain", got)
+	}
+
+	// Drain the remaining 2 — DrainCount reaches 6.
+	drained, err = ob.Drain(func([]core.DataPoint) error { return nil })
+	if err != nil {
+		t.Fatalf("Drain: %v", err)
+	}
+	if drained != 2 {
+		t.Fatalf("drained = %d, want 2", drained)
+	}
+	if got := ob.DrainCount(); got != 6 {
+		t.Fatalf("DrainCount = %d, want 6 after final drain", got)
+	}
+}

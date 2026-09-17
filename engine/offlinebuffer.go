@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/CoreC-Dev/CoreC/core"
@@ -33,6 +34,12 @@ type OfflineBuffer struct {
 	// by scanning the directory on startup so that sequence numbers
 	// remain monotonic across restarts.
 	nextSeq uint64
+
+	// drainCount tracks the total number of batches successfully
+	// replayed by Drain. It is incremented atomically inside Drain on
+	// success so it can be read lock-free by DrainCount() for
+	// observability (Prometheus counter) without contending on mu.
+	drainCount atomic.Uint64
 }
 
 // offlineEntry is the on-disk JSON representation of a buffered batch.
@@ -231,6 +238,16 @@ func (ob *OfflineBuffer) Drain(tryPublish func([]core.DataPoint) error) (int, er
 	sort.Slice(seqs, func(i, j int) bool { return seqs[i] < seqs[j] })
 
 	drained := 0
+	// Tally successfully replayed batches into drainCount for metrics
+	// exposure. The closure captures `drained` by reference, so it
+	// observes the final value regardless of which return path is
+	// taken (full drain, transport-down pause, or read error mid-loop).
+	defer func() {
+		if drained > 0 {
+			ob.drainCount.Add(uint64(drained))
+		}
+	}()
+
 	for _, seq := range seqs {
 		path := filepath.Join(ob.dir, seqFileName(seq))
 
@@ -285,6 +302,22 @@ func (ob *OfflineBuffer) Len() int {
 		}
 	}
 	return count
+}
+
+// PendingCount returns the number of buffered batches currently awaiting
+// replay. It is a thread-safe alias for Len, exposed under a name that
+// describes its role for observability metrics (a Prometheus gauge of
+// "pending offline batches"). It is safe for concurrent use.
+func (ob *OfflineBuffer) PendingCount() int {
+	return ob.Len()
+}
+
+// DrainCount returns the total number of batches successfully replayed by
+// Drain since the buffer was created. It is a monotonically increasing
+// counter, read atomically and lock-free, suitable for exposure as a
+// Prometheus counter (e.g. corec_offline_buffer_drained_total).
+func (ob *OfflineBuffer) DrainCount() uint64 {
+	return ob.drainCount.Load()
 }
 
 // Close is a no-op for the file-based buffer; files remain on disk

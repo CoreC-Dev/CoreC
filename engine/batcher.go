@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/CoreC-Dev/CoreC/core"
@@ -35,6 +36,13 @@ type transportBatcher struct {
 
 	// offlineBuffer stores failed batches for later replay. nil = disabled.
 	offlineBuffer *OfflineBuffer
+
+	// offlineBufferPushes counts the number of batches this batcher has
+	// persisted to the offline buffer (after retries were exhausted). It
+	// is per-batcher because each transport's publish path pushes
+	// independently; the engine aggregates the per-batcher values via
+	// OfflineBufferStats. Atomic so it can be read lock-free.
+	offlineBufferPushes atomic.Uint64
 
 	mu     sync.Mutex
 	buffer []core.DataPoint
@@ -260,6 +268,10 @@ exhausted:
 				"buffer_error", bufErr,
 			)
 		} else {
+			// Count the persisted batch for observability (Prometheus
+			// counter corec_offline_buffer_pushed_total). Only successful
+			// pushes are counted — a failed Push left nothing on disk.
+			b.offlineBufferPushes.Add(1)
 			slog.Warn("batch publish failed, buffered to offline storage",
 				"transport", b.transport.Name(),
 				"batch_size", len(batch),
@@ -274,4 +286,36 @@ exhausted:
 		)
 	}
 	return false
+}
+
+// OfflineBufferPending returns the number of batches currently held in this
+// batcher's offline buffer awaiting replay. It returns 0 when no offline
+// buffer is configured. The value is a point-in-time gauge suitable for
+// Prometheus exposure (corec_offline_buffer_pending). It delegates to the
+// shared OfflineBuffer, which takes its own lock, so it is safe for
+// concurrent use.
+func (b *transportBatcher) OfflineBufferPending() int {
+	if b.offlineBuffer == nil {
+		return 0
+	}
+	return b.offlineBuffer.Len()
+}
+
+// OfflineBufferDrained returns the total number of batches this batcher's
+// offline buffer has successfully replayed since startup. It returns 0 when
+// no offline buffer is configured. The value is a monotonically increasing
+// counter suitable for Prometheus exposure (corec_offline_buffer_drained_total).
+func (b *transportBatcher) OfflineBufferDrained() uint64 {
+	if b.offlineBuffer == nil {
+		return 0
+	}
+	return b.offlineBuffer.DrainCount()
+}
+
+// OfflineBufferPushed returns the total number of batches this batcher has
+// persisted to the offline buffer after retries were exhausted. It is a
+// per-batcher counter; the engine sums these across batchers via
+// OfflineBufferStats for Prometheus exposure (corec_offline_buffer_pushed_total).
+func (b *transportBatcher) OfflineBufferPushed() uint64 {
+	return b.offlineBufferPushes.Load()
 }
