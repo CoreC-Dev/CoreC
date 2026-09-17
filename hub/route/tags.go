@@ -2,6 +2,7 @@ package route
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -45,6 +46,11 @@ func getAllTags(w http.ResponseWriter, r *http.Request) {
 func writeTag(w http.ResponseWriter, r *http.Request) {
 	var cmd core.WriteCommand
 	if err := json.NewDecoder(limitedBody(r).Body).Decode(&cmd); err != nil {
+		slog.Info("tag write rejected",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"remote", r.RemoteAddr,
+			"error", err)
 		renderError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -52,9 +58,27 @@ func writeTag(w http.ResponseWriter, r *http.Request) {
 	var da core.DataAccessor = getEngine()
 	res, err := da.WriteTag(r.Context(), cmd)
 	if err != nil {
+		slog.Error("tag write failed",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"driver", cmd.Driver,
+			"tag", cmd.Tag,
+			"remote", r.RemoteAddr,
+			"error", err)
 		renderInternalError(w, r, err)
 		return
 	}
+
+	// Audit the accepted write. The value is intentionally NOT logged —
+	// it may carry process-sensitive data. Driver/tag names are safe and
+	// let an operator trace which point was written.
+	slog.Info("tag written",
+		"method", r.Method,
+		"path", r.URL.Path,
+		"driver", cmd.Driver,
+		"tag", cmd.Tag,
+		"success", res.Success,
+		"remote", r.RemoteAddr)
 
 	render(w, r, http.StatusOK, res)
 }

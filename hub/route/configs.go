@@ -2,6 +2,7 @@ package route
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/CoreC-Dev/CoreC/core"
@@ -76,31 +77,64 @@ func buildConfigOverview(cfg *core.Config) configOverview {
 func updateConfigs(w http.ResponseWriter, r *http.Request) {
 	var req putConfigRequest
 	if err := json.NewDecoder(limitedBody(r).Body).Decode(&req); err != nil {
+		slog.Info("config update rejected",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"remote", r.RemoteAddr,
+			"error", err)
 		renderError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if ReloadFunc != nil {
 		if err := ReloadFunc(req.Path, req.Payload); err != nil {
+			slog.Error("config update failed",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"config_path", req.Path,
+				"remote", r.RemoteAddr,
+				"error", err)
 			renderInternalError(w, r, err)
 			return
 		}
 	}
+	slog.Info("config updated",
+		"method", r.Method,
+		"action", "reload",
+		"path", r.URL.Path,
+		"config_path", req.Path,
+		"remote", r.RemoteAddr)
 	renderNoContent(w)
 }
 
 func patchConfigs(w http.ResponseWriter, r *http.Request) {
 	var req map[string]any
 	if err := json.NewDecoder(limitedBody(r).Body).Decode(&req); err != nil {
+		slog.Info("config patch rejected",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"remote", r.RemoteAddr,
+			"error", err)
 		renderError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if PatchFunc != nil {
 		if err := PatchFunc(req); err != nil {
+			slog.Error("config patch failed",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"remote", r.RemoteAddr,
+				"error", err)
 			renderError(w, r, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
+	slog.Info("config patched",
+		"method", r.Method,
+		"action", "patch",
+		"path", r.URL.Path,
+		"remote", r.RemoteAddr,
+		"keys", len(req))
 	renderNoContent(w)
 }
