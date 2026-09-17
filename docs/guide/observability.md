@@ -20,7 +20,7 @@ CoreC 内置四套可观测性机制，无需任何外部依赖或第三方库�
 
 ## Prometheus 指标
 
-`GET /metrics` 端点以 Prometheus 文本格式（version 0.0.4）暴露 26 个指标族。该端点位于认证路由组内，抓取方需携带 API secret。
+`GET /metrics` 端点以 Prometheus 文本格式（version 0.0.4）暴露指标族。该端点位于认证路由组内，抓取方需携带 API secret。
 
 ### 全局指标
 
@@ -32,6 +32,7 @@ CoreC 内置四套可观测性机制，无需任何外部依赖或第三方库�
 | `corec_publishes_total` | 发布到传输的数据点总数 | `EngineStats.TotalPublish` |
 | `corec_errors_total` | 处理错误总数 | `EngineStats.TotalErrors` |
 | `corec_dropped_total` | 丢弃的数据点总数 | `EngineStats.TotalDropped` |
+| `corec_log_dropped_total` | 因消费者过慢而丢弃的日志事件数 | `log.Dropped()` |
 
 #### 仪表盘（Gauges）
 
@@ -51,6 +52,7 @@ CoreC 内置四套可观测性机制，无需任何外部依赖或第三方库�
 |:---|:---|:---|:---|
 | `corec_driver_read_total` | counter | `driver`, `type` | 该驱动执行的读取次数 |
 | `corec_driver_errors_total` | counter | `driver` | 该驱动报告的错误次数 |
+| `corec_driver_reconnect_total` | counter | `driver` | 该驱动的重连尝试次数 |
 | `corec_driver_tags` | gauge | `driver` | 该驱动配置的标签数量 |
 | `corec_driver_connected` | gauge | `driver` | 连接状态：`1`=已连接，`0`=未连接 |
 
@@ -78,6 +80,34 @@ corec_driver_connected{driver="plc2"} 0
 | `corec_transport_received_total` | counter | `transport` | 该传输接收的数据点数（链式核心入站） |
 | `corec_transport_queue_size` | gauge | `transport` | 当前出站队列长度 |
 | `corec_transport_connected` | gauge | `transport` | 连接状态：`1`=已连接，`0`=未连接 |
+
+### 离线缓冲指标
+
+当配置了离线缓冲（`buffer.enabled: true`）时，以下指标反映缓冲区的积压与重放状态：
+
+| 指标 | 类型 | 说明 |
+|:---|:---|:---|
+| `corec_offline_buffer_pending` | gauge | 当前等待重放的缓冲区批次数 |
+| `corec_offline_buffer_drained_total` | counter | 成功重放的批次总数 |
+| `corec_offline_buffer_pushed_total` | counter | 重试耗尽后写入缓冲区的批次总数 |
+
+### HTTP 请求指标
+
+`httpMetricsMiddleware` 中间件自动记录所有 HTTP 请求（包括 `/healthz` 探针）：
+
+| 指标 | 类型 | 标签 | 说明 |
+|:---|:---|:---|:---|
+| `corec_http_requests_total` | counter | `method`, `status` | 按方法和状态码分组的请求总数 |
+| `corec_http_request_duration_seconds` | histogram | — | HTTP 请求耗时分布（桶：1ms/5ms/10ms/50ms/100ms/500ms/1s/5s） |
+
+### 延迟直方图指标
+
+引擎自动测量驱动读取和传输发布的耗时，以 Prometheus 直方图格式暴露：
+
+| 指标 | 类型 | 说明 |
+|:---|:---|:---|
+| `corec_read_latency_seconds` | histogram | 驱动读取延迟分布（桶：1ms/5ms/10ms/50ms/100ms/500ms/1s/5s/10s） |
+| `corec_publish_latency_seconds` | histogram | 传输发布延迟分布（同上桶配置） |
 
 ### Go 运行时指标
 
@@ -129,6 +159,24 @@ corec_driver_connected == 0
 
 # goroutine 泄漏检测
 corec_goroutines > 500
+
+# 驱动重连频率（频繁重连说明连接不稳定）
+rate(corec_driver_reconnect_total[5m]) > 0.1
+
+# 读取延迟 P99
+histogram_quantile(0.99, rate(corec_read_latency_seconds_bucket[5m]))
+
+# 发布延迟 P95
+histogram_quantile(0.95, rate(corec_publish_latency_seconds_bucket[5m]))
+
+# 离线缓冲积压告警
+corec_offline_buffer_pending > 100
+
+# 日志丢弃告警（日志在静默丢失）
+rate(corec_log_dropped_total[5m]) > 0
+
+# HTTP 5xx 错误率
+sum(rate(corec_http_requests_total{status=~"5.."}[5m])) / sum(rate(corec_http_requests_total[5m])) > 0.01
 ```
 
 ## 健康检查
@@ -183,8 +231,22 @@ GET /healthz/ready
 **未就绪响应**（`503 Service Unavailable`）：
 
 ```json
-{"status":"not_ready"}
+{
+  "status": "not_ready",
+  "reason": "no connected drivers",
+  "components": {
+    "drivers": [
+      {"name": "plc1", "connected": false},
+      {"name": "plc2", "connected": true}
+    ],
+    "transports": [
+      {"name": "mqtt1", "connected": false}
+    ]
+  }
+}
 ```
+
+`components` 字段列出每个驱动和传输的连接状态，便于直接从探针响应定位故障组件，无需额外查询 `/stats`。
 
 引擎未初始化时：
 
@@ -335,3 +397,20 @@ RequestID → Trace → SafeRequestLogger → Recoverer → CORS → RateLimit �
 ```
 
 Trace 中间件位于第 2 步，紧接 RequestID 之后，确保所有后续中间件和处理器的日志都能关联到 trace ID。
+
+## 日志格式配置
+
+CoreC 使用 `log/slog` 结构化日志，支持两种输出格式：
+
+| 格式 | 配置值 | 适用场景 |
+|:---|:---|:---|
+| Text（默认） | `log-format: text` | 开发环境，人类可读 |
+| JSON | `log-format: json` | 生产环境，ELK/Loki 等日志聚合系统 |
+
+```yaml
+global:
+  log-level: info
+  log-format: json  # 切换为 JSON 格式以适配日志采集系统
+```
+
+日志同时通过 WebSocket 流（`GET /logs`）实时推送，便于 Dashboard 展示。当日志通道满或订阅者缓冲区溢出时，事件会被静默丢弃并计入 `corec_log_dropped_total` 指标。
