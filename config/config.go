@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -20,8 +21,44 @@ func Load(path string) (*core.Config, error) {
 	return Parse(data)
 }
 
+// envVarRe matches ${ENV_VAR} placeholders in YAML data. Variable names
+// must start with a letter or underscore and contain only alphanumeric
+// characters and underscores, matching the common environment variable
+// naming convention.
+var envVarRe = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
+
+// expandEnvVars replaces ${ENV_VAR} placeholders in raw YAML data with
+// environment variable values. Substitution happens at the byte level
+// before YAML parsing, so type inference (int, float, bool, string) is
+// handled naturally by the YAML parser — a value like ${PORT} with
+// PORT=502 becomes port: 502 (int), not port: "502" (string).
+//
+// Unset environment variables are left as-is so misconfiguration is
+// visible in validation errors (e.g. "api.secret is required").
+//
+// Values containing YAML-special characters (such as ':') should be
+// quoted in the config file, e.g.: secret: "${MY_SECRET}" — the same
+// convention as shell variable expansion.
+func expandEnvVars(data []byte) []byte {
+	// Fast path: skip if no placeholder pattern is present.
+	if !strings.Contains(string(data), "${") {
+		return data
+	}
+	return envVarRe.ReplaceAllFunc(data, func(match []byte) []byte {
+		// Extract variable name: ${VAR} → VAR (strip ${ and }).
+		varName := string(match[2 : len(match)-1])
+		if val, ok := os.LookupEnv(varName); ok {
+			return []byte(val)
+		}
+		return match // leave as-is if env var is not set
+	})
+}
+
 // Parse parses YAML bytes into a Config.
 func Parse(data []byte) (*core.Config, error) {
+	// Expand ${ENV_VAR} placeholders before YAML parsing.
+	data = expandEnvVars(data)
+
 	cfg := &core.Config{}
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
@@ -50,6 +87,8 @@ func loadTagsFiles(cfg *core.Config) error {
 		if err != nil {
 			return fmt.Errorf("driver %s: failed to read tags file %s: %w", dc.Name, dc.TagsFile, err)
 		}
+		// Expand ${ENV_VAR} placeholders in tags file.
+		data = expandEnvVars(data)
 		var fileTags []core.TagConfig
 		if err := yaml.Unmarshal(data, &fileTags); err != nil {
 			return fmt.Errorf("driver %s: failed to parse tags file %s: %w", dc.Name, dc.TagsFile, err)

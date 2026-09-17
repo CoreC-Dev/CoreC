@@ -3,6 +3,23 @@
 # IIoT Data Collection and Distribution Core
 # ============================================================
 
+# --- Environment Variable Substitution ---
+# Any ${ENV_VAR} placeholder in the YAML (including tags-file contents)
+# is replaced with the value of the matching environment variable before
+# YAML parsing. This keeps secrets out of config files:
+#
+#   secret: ${COREC_API_SECRET}
+#   password: ${MQTT_PASSWORD}
+#   host: ${PLC_HOST}
+#
+# Rules:
+#   - Variable names must match [A-Za-z_][A-Za-z0-9_]*.
+#   - Unset variables are left as-is (the literal ${...} string survives),
+#     making misconfigurations visible at startup.
+#   - Substitution is byte-level (pre-YAML-parse), so type inference is
+#     preserved: "port: ${PORT}" with PORT=502 parses as int, not string.
+#   - Works inside quoted strings: topic: "topo/${NODE_ID}/data".
+
 # --- Topology Auto-Discovery (optional) ---
 # When node.id is set, the engine enables auto-discovery:
 #   - topic-template, command-topic, parser auto-generated where omitted
@@ -22,7 +39,7 @@ global:
   # log-format: json
   api:
     listen: 0.0.0.0:9090
-    secret: "corec-secret-token"
+    secret: ${COREC_API_SECRET}    # use env var; or "corec-secret-token" for local dev
     ## TLS (optional): uncomment to enable HTTPS
     # tls-cert: /path/to/cert.pem
     # tls-key: /path/to/key.pem
@@ -277,7 +294,7 @@ transports:
       broker: tcp://broker.emqx.io:1883
       client-id: factory-edge-01
       # username: "your-username"     # broker 认证用户名（可选，公共 broker 不需要）
-      # password: "your-password"     # broker 认证密码（可选）
+      # password: ${MQTT_PASSWORD}     # broker 认证密码（可选，支持环境变量替换）
       ## --- TLS / mutual TLS (optional) ---
       ## Use a TLS scheme in the broker URL to enable encryption, e.g.:
       ##   broker: mqtts://broker.emqx.io:8883   # also: tls:// ssl:// mqtt+ssl:// tcps:// wss://
@@ -317,6 +334,16 @@ transports:
       ##     that predate timestamp enforcement.
       # command-max-skew: 5m
       # command-strict-replay: false
+      ## --- Chained Core Command Passthrough (relay nodes) ---
+      ## When a relay node receives a command via command-topic but has no
+      ## local driver for the target, it forwards the command to downstream
+      ## nodes via command-forward-topic. This enables multi-hop command
+      ## relay: cloud → gateway → edge.
+      ## When command-forward-secret is set, forwarded commands are signed
+      ## with HMAC-SHA256 and include a fresh timestamp so downstream nodes
+      ## can authenticate and replay-protect them. Empty = unsigned.
+      # command-forward-topic: "downstream/commands"
+      # command-forward-secret: ${COREC_FORWARD_SECRET}
       ## --- Chained Core Inbound ---
       ## Subscribe to data from upstream CoreC instances or third-party MQTT publishers.
       ## The parser converts each message body into a DataPoint.

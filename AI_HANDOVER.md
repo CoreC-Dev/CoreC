@@ -372,6 +372,17 @@ MQTT Command Topic ──> Transport.OnCommand() ──> Engine.startCommandList
      - **MQTT 反向指令 "replay protection"**：HMAC-SHA256 签名 + 时间戳偏移（anti-stale）校验（`command-max-skew`，默认 5m）+ **有界重放缓存**（10,000 条目，TTL = 2× skew 窗口，自动过期）记录已认证指令的 SHA256 哈希，实现真正防重放——同一指令在窗口内不可二次接受。`command-strict-replay=false`（默认）时无时间戳的认证指令仅告警放行；`=true` 时拒绝无时间戳指令。
      - **重连 jitter 覆盖范围**：`ReconnectLoopWithBreaker` 的 ±20% 随机抖动覆盖使用该工具的驱动（Modbus/S7/OPC UA）；MQTT（paho）在 Init 时对 `connect-retry-interval` 施加 ±20% 抖动（实例级，随机一次）以防止多传输同时重连的 thundering-herd。
      - **`LatestCache` 并发模型**：按驱动名 FNV 哈希分 64 分片，每分片 `sync.RWMutex` + `atomic.Pointer` 快照（非 seqlock）；读快照在数据未变时免 map 拷贝。
+ 17. **命令跨实例透传 (`core/transport.go`, `transport/mqtt/publisher.go`, `engine/engine.go`)**：
+     - 新增 `core.CommandForwarder` 可选接口（`ForwardCommand(ctx, cmd) error`），不修改 `core.Transport` 契约。
+     - MQTT transport 实现 `CommandForwarder`：通过 `command-forward-topic` 发布转发命令，配置 `command-forward-secret` 时使用 HMAC-SHA256 签名并附加时间戳。
+     - engine 的 `executeWriteWithRetry` 在本地无匹配驱动时，遍历所有实现 `CommandForwarder` 的 transport 转发命令；所有 forwarder 失败则进入死信队列。
+     - 支撑链式核心场景七（双向级联）：中继节点（`drivers: []`）收到云端命令后自动转发到边缘节点，实现多跳命令透传（cloud → gateway → edge）。
+ 18. **环境变量替换 (`config/config.go`)**：
+     - 配置文件及 tags-file 中的 `${ENV_VAR}` 占位符在 YAML 解析前被替换为环境变量值。
+     - 字节级替换（pre-YAML-parse），保留类型推断：`port: ${PORT}`（PORT=502）解析为 int 而非 string。
+     - 未设置的变量保持原样（`${...}` 字面量），使配置错误在启动时可见。
+     - 变量名匹配 `[A-Za-z_][A-Za-z0-9_]*`；支持引号内外替换。
+     - 适用于敏感字段（API secret、MQTT password、forward secret 等），实现 12-Factor 配置分离。
 
 ### 6.2 Phase 3 规划 (后续演进方向)
 1. **DataPoint Device 富化**：
