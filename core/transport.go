@@ -33,6 +33,19 @@ type Transport interface {
 	Status() TransportStatus
 }
 
+// CommandForwarder is an optional capability for transports that can
+// republish write commands to downstream nodes. This enables chained-core
+// command passthrough: when a relay node receives a command via
+// command-topic but has no local driver for the target, it forwards the
+// command to downstream nodes via the transport's forward topic.
+//
+// Transports implement this interface to opt in to command forwarding.
+// The engine type-asserts for this interface; transports that don't
+// implement it are simply skipped during forwarding.
+type CommandForwarder interface {
+	ForwardCommand(ctx context.Context, cmd WriteCommand) error
+}
+
 // TransportConfig holds configuration for a transport instance.
 type TransportConfig struct {
 	Name          string         `yaml:"name"`

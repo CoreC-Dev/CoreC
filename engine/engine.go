@@ -957,6 +957,14 @@ func (e *CoreCEngine) ReadTag(ctx context.Context, driver, tag string) (*core.Ta
 	return &values[0], nil
 }
 
+// hasDriver reports whether a driver with the given name is registered.
+func (e *CoreCEngine) hasDriver(name string) bool {
+	e.mu.RLock()
+	_, ok := e.drivers[name]
+	e.mu.RUnlock()
+	return ok
+}
+
 func (e *CoreCEngine) WriteTag(ctx context.Context, cmd core.WriteCommand) (*core.WriteResult, error) {
 	e.mu.RLock()
 	d, ok := e.drivers[cmd.Driver]
@@ -1325,10 +1333,62 @@ func (e *CoreCEngine) startCommandListener(t core.Transport, tCtx context.Contex
 	}(cmdCh)
 }
 
+// forwardCommand attempts to forward a write command to downstream nodes
+// via transports that implement the core.CommandForwarder interface. It
+// tries each forwarder-capable transport until one succeeds. Returns true
+// if the command was forwarded successfully.
+//
+// This enables chained-core command passthrough: relay nodes that have no
+// local driver for the command target forward commands to downstream
+// nodes that do have the driver.
+func (e *CoreCEngine) forwardCommand(ctx context.Context, cmd core.WriteCommand) bool {
+	e.mu.RLock()
+	transports := make([]core.Transport, 0, len(e.transports))
+	for _, t := range e.transports {
+		transports = append(transports, t)
+	}
+	e.mu.RUnlock()
+
+	for _, t := range transports {
+		forwarder, ok := t.(core.CommandForwarder)
+		if !ok {
+			continue
+		}
+		if err := forwarder.ForwardCommand(ctx, cmd); err != nil {
+			slog.Warn("command forward failed",
+				"transport", t.Name(), "driver", cmd.Driver, "tag", cmd.Tag, "error", err)
+			continue
+		}
+		return true
+	}
+	return false
+}
+
 // executeWriteWithRetry attempts a write command up to writeRetryCount+1
 // times with exponential backoff. On permanent failure, the command is
 // added to the dead letter queue.
 func (e *CoreCEngine) executeWriteWithRetry(cmd core.WriteCommand) {
+	// If no local driver matches the command target, attempt command
+	// forwarding (chained-core command passthrough). Relay nodes have
+	// drivers: [] and receive commands via command-topic; without
+	// forwarding, commands dead-end in the dead letter queue.
+	if !e.hasDriver(cmd.Driver) {
+		if e.forwardCommand(e.ctx, cmd) {
+			slog.Info("command forwarded to downstream node",
+				"driver", cmd.Driver, "tag", cmd.Tag)
+			return
+		}
+		slog.Error("command has no local driver and no forwarder available, added to dead letter queue",
+			"driver", cmd.Driver, "tag", cmd.Tag)
+		e.addDeadLetter(core.DeadLetterEntry{
+			Command:  cmd,
+			Error:    fmt.Sprintf("driver not found: %s (no forwarder configured)", cmd.Driver),
+			FailedAt: time.Now(),
+			Attempts: 1,
+		})
+		return
+	}
+
 	maxAttempts := e.writeRetryCount + 1
 	var lastErr string
 

@@ -333,18 +333,24 @@ transports:
       topic-template: "cloud/{{.Driver}}/{{.Tag}}"
       data-topic: "edgeA/#"                # 收 A 的数据
       command-topic: "cloud/commands/#"    # 收云端的命令
+      command-forward-topic: "edgeA/commands/#"  # 转发命令到 A
+      command-forward-secret: "${COREC_FORWARD_SECRET}"  # HMAC 签名
       parser: { type: default }
 ```
 
-::: warning 命令跨实例转发当前不支持
-上图为**目标拓扑**，但 CoreC **当前没有命令重发布机制**：当 B 通过 `command-topic` 收到云端命令时，它只会调用**自身本地驱动**的 `Write()`（而 B 是中继节点，`drivers: []`，没有本地驱动可写），**不会**把命令重新发布到 `edgeA/commands/#`。因此命令无法从 B 透传到 A。
+::: tip 命令跨实例透传已支持
+CoreC-B（中继节点）通过 `command-topic` 收到云端命令后，如果**本地没有匹配的驱动**（`drivers: []`），会自动通过 `command-forward-topic` 将命令**重新发布**到下游节点（CoreC-A），实现多跳命令透传：云 → 网关 → 边缘。
 
-目前可行的替代方案：
-- **方案一**：云端直接向 A 的 `command-topic`（`edgeA/commands/#`）下发命令，跳过中继 B。
-- **方案二**：在中继 B 上用外部脚本 / 规则引擎监听 `cloud/commands/#` 并转发到 `edgeA/commands/#`。
-- **方案三**：等待后续版本支持 command 透传 / 重发布能力。
+**工作原理**：
+1. 中继节点 B 收到写命令，检查本地是否有对应驱动
+2. 如果没有本地驱动，遍历所有实现了 `CommandForwarder` 接口的 transport，调用 `ForwardCommand()`
+3. 转发的命令会被重新签名（配置 `command-forward-secret` 时使用 HMAC-SHA256）并附加时间戳
+4. 下游节点 A 通过 `command-topic` 收到转发的命令，验证签名后执行写入
 
-每个 CoreC 实例的 `command-topic` 只触发**自身本地驱动**的写入，不会跨实例传递命令。
+**配置要点**：
+- `command-forward-topic`：转发命令的目标 topic（通常是下游节点的 `command-topic`）
+- `command-forward-secret`：签名密钥，建议使用环境变量 `${COREC_FORWARD_SECRET}`
+- 如果所有 forwarder 都失败（或未配置），命令进入死信队列
 :::
 
 ---
@@ -370,6 +376,8 @@ transports:
 | `broker` | MQTT broker 地址 | ✅ |
 | `topic-template` | 发数据的 topic 模板 | 有默认值 ² |
 | `command-topic` | 收写命令的 topic | 可选 ² |
+| `command-forward-topic` | 转发命令到下游的 topic（命令透传） | 可选 |
+| `command-forward-secret` | 转发命令的 HMAC 签名密钥 | 可选 |
 | `data-topic` | 收数据的 topic（开启链式核心） | 可选 ² |
 | `parser` | 数据解析器（配了 `data-topic` 就必须配） | 条件必填 ² |
 

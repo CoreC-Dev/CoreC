@@ -43,19 +43,21 @@ type MQTTTransport struct {
 	client pahomqtt.Client
 
 	// MQTT settings
-	broker              string
-	clientID            string
-	username            string
-	password            string
-	qos                 byte
-	retained            bool
-	topicTemplate       *template.Template
-	commandTopic        string        // MQTT topic to subscribe for write commands
-	commandSecret       string        // HMAC-SHA256 secret for authenticating command messages; empty = no auth
-	commandMaxSkew      time.Duration // max allowed timestamp drift for replay protection (default 5m); 0 = 5m
-	commandStrictReplay bool          // reject commands without a timestamp when true
-	dataTopic           string        // topic to subscribe for incoming data (chained-core inbound)
-	dataParser          parser.Parser
+	broker               string
+	clientID             string
+	username             string
+	password             string
+	qos                  byte
+	retained             bool
+	topicTemplate        *template.Template
+	commandTopic         string        // MQTT topic to subscribe for write commands
+	commandSecret        string        // HMAC-SHA256 secret for authenticating command messages; empty = no auth
+	commandForwardTopic  string        // MQTT topic to publish forwarded commands (chained-core passthrough)
+	commandForwardSecret string        // HMAC-SHA256 secret for signing forwarded commands; empty = unsigned
+	commandMaxSkew       time.Duration // max allowed timestamp drift for replay protection (default 5m); 0 = 5m
+	commandStrictReplay  bool          // reject commands without a timestamp when true
+	dataTopic            string        // topic to subscribe for incoming data (chained-core inbound)
+	dataParser           parser.Parser
 
 	// TLS settings (mqtts://, tls://, ssl://, ...).  Empty file paths with
 	// a plaintext broker = no TLS (backward compatible).  Built into
@@ -207,12 +209,8 @@ func (t *MQTTTransport) Init(ctx context.Context, config core.TransportConfig) e
 	}
 
 	// Parse credentials
-	if username, ok := settings["username"].(string); ok {
-		t.username = username
-	}
-	if password, ok := settings["password"].(string); ok {
-		t.password = password
-	}
+	t.username = getStringSetting(settings, "username")
+	t.password = getStringSetting(settings, "password")
 
 	// Parse QoS
 	t.qos = byte(util.GetIntSetting(settings, "qos", 1))
@@ -258,29 +256,8 @@ func (t *MQTTTransport) Init(ctx context.Context, config core.TransportConfig) e
 		t.topicTemplate = tmpl
 	}
 
-	// Parse command topic (for receiving write commands)
-	if cmdTopic, ok := settings["command-topic"].(string); ok {
-		t.commandTopic = cmdTopic
-	}
-
-	// Parse command secret (HMAC-SHA256 shared secret for authenticating
-	// command messages). When set, every command message must carry a
-	// valid signature; when empty, commands are accepted unauthenticated
-	// (backward-compatible, but a warning is logged at Start() time).
-	if cmdSecret, ok := settings["command-secret"].(string); ok {
-		t.commandSecret = cmdSecret
-	}
-
-	// Replay-protection settings for authenticated command messages.
-	//   command-max-skew: how far a command's "timestamp" field (Unix
-	//     milliseconds) may drift from the current time before the
-	//     command is rejected as a replay/stale message (default 5m).
-	//   command-strict-replay: when true, authenticated commands that do
-	//     not include a timestamp are rejected outright; when false
-	//     (default), they are accepted with a warning for backward
-	//     compatibility with senders that predate replay protection.
-	t.commandMaxSkew = util.GetDurationSetting(settings, "command-max-skew", 5*time.Minute)
-	t.commandStrictReplay = util.GetBoolSetting(settings, "command-strict-replay", false)
+	// Parse command and forward settings
+	t.parseCommandSettings(settings)
 
 	// Initialize the replay-detection cache. When a command secret is
 	// configured, each authenticated command's hash is recorded so that
@@ -308,15 +285,9 @@ func (t *MQTTTransport) Init(ctx context.Context, config core.TransportConfig) e
 	// certificate/key pair, with server verification against a custom CA.
 	// When none of those conditions hold, no TLS config is built and the
 	// connection stays plaintext (backward compatible).
-	if v, ok := settings["tls-cert-file"].(string); ok {
-		t.tlsCertFile = v
-	}
-	if v, ok := settings["tls-key-file"].(string); ok {
-		t.tlsKeyFile = v
-	}
-	if v, ok := settings["tls-ca-file"].(string); ok {
-		t.tlsCAFile = v
-	}
+	t.tlsCertFile = getStringSetting(settings, "tls-cert-file")
+	t.tlsKeyFile = getStringSetting(settings, "tls-key-file")
+	t.tlsCAFile = getStringSetting(settings, "tls-ca-file")
 	tlsCfg, err := t.buildTLSConfig()
 	if err != nil {
 		return err
@@ -331,6 +302,36 @@ func (t *MQTTTransport) Init(ctx context.Context, config core.TransportConfig) e
 	)
 
 	return nil
+}
+
+// parseCommandSettings extracts command-related settings from the MQTT
+// transport's settings map. This is split out from Init to keep that
+// function's cyclomatic complexity manageable.
+func (t *MQTTTransport) parseCommandSettings(settings map[string]any) {
+	t.commandTopic = getStringSetting(settings, "command-topic")
+	t.commandSecret = getStringSetting(settings, "command-secret")
+	t.commandForwardTopic = getStringSetting(settings, "command-forward-topic")
+	t.commandForwardSecret = getStringSetting(settings, "command-forward-secret")
+
+	// Replay-protection settings for authenticated command messages.
+	//   command-max-skew: how far a command's "timestamp" field (Unix
+	//     milliseconds) may drift from the current time before the
+	//     command is rejected as a replay/stale message (default 5m).
+	//   command-strict-replay: when true, authenticated commands that do
+	//     not include a timestamp are rejected outright; when false
+	//     (default), they are accepted with a warning for backward
+	//     compatibility with senders that predate replay protection.
+	t.commandMaxSkew = util.GetDurationSetting(settings, "command-max-skew", 5*time.Minute)
+	t.commandStrictReplay = util.GetBoolSetting(settings, "command-strict-replay", false)
+}
+
+// getStringSetting reads a string from a settings map, returning "" if
+// the key is missing or the value is not a string.
+func getStringSetting(settings map[string]any, key string) string {
+	if v, ok := settings[key].(string); ok {
+		return v
+	}
+	return ""
 }
 
 // tlsSchemes are the broker URL schemes that the paho MQTT client routes
@@ -885,6 +886,85 @@ func (t *MQTTTransport) Publish(ctx context.Context, point core.DataPoint) error
 		"driver", point.Driver,
 		"tag", point.Tag,
 		"value", point.Value,
+	)
+
+	return nil
+}
+
+// ForwardCommand publishes a write command to the command-forward-topic,
+// enabling chained-core command passthrough. Relay nodes that have no
+// local driver for the command target use this to forward commands to
+// downstream nodes.
+//
+// When command-forward-secret is configured, the forwarded command is
+// signed with HMAC-SHA256 and includes a fresh timestamp so the
+// downstream node can authenticate it and enforce replay protection.
+// When no secret is configured, the command is forwarded unsigned
+// (backward compatible with unauthenticated command setups).
+func (t *MQTTTransport) ForwardCommand(ctx context.Context, cmd core.WriteCommand) error {
+	if t.commandForwardTopic == "" {
+		return fmt.Errorf("no command-forward-topic configured on transport %s", t.name)
+	}
+	if t.client == nil || !t.client.IsConnected() {
+		return fmt.Errorf("mqtt transport %s is not connected", t.name)
+	}
+
+	// Marshal the command to JSON
+	payload, err := json.Marshal(cmd)
+	if err != nil {
+		return fmt.Errorf("failed to marshal forwarded command: %w", err)
+	}
+
+	// When a forward secret is configured, sign the command with
+	// HMAC-SHA256 and add a timestamp for downstream replay protection.
+	if t.commandForwardSecret != "" {
+		// Parse into a map to add timestamp and signature fields
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal(payload, &m); err != nil {
+			return fmt.Errorf("failed to enrich forwarded command: %w", err)
+		}
+		// Add fresh timestamp (Unix milliseconds)
+		tsBytes, _ := json.Marshal(time.Now().UnixMilli())
+		m["timestamp"] = tsBytes
+		// Re-marshal to get the canonical bytes (without signature)
+		signedPayload, err := json.Marshal(m)
+		if err != nil {
+			return fmt.Errorf("failed to re-marshal signed forwarded command: %w", err)
+		}
+		// Compute signature over canonical signing bytes
+		sig := computeHMACSignature(t.commandForwardSecret, commandSigningBytes(signedPayload))
+		// Add signature to the payload
+		var finalM map[string]json.RawMessage
+		if err := json.Unmarshal(signedPayload, &finalM); err != nil {
+			return fmt.Errorf("failed to add signature to forwarded command: %w", err)
+		}
+		sigBytes, _ := json.Marshal(sig)
+		finalM["X-Signature"] = sigBytes
+		payload, err = json.Marshal(finalM)
+		if err != nil {
+			return fmt.Errorf("failed to finalize signed forwarded command: %w", err)
+		}
+	}
+
+	// Publish with timeout
+	token := t.client.Publish(t.commandForwardTopic, t.qos, false, payload)
+	if ok := token.WaitTimeout(t.publishTimeout); !ok {
+		return fmt.Errorf("mqtt forward publish timed out for topic %s", t.commandForwardTopic)
+	}
+	if err := token.Error(); err != nil {
+		return fmt.Errorf("mqtt forward publish failed: %w", err)
+	}
+
+	t.published.Add(1)
+	t.mu.Lock()
+	t.lastPublish = time.Now()
+	t.mu.Unlock()
+
+	slog.Info("mqtt command forwarded",
+		"topic", t.commandForwardTopic,
+		"driver", cmd.Driver,
+		"tag", cmd.Tag,
+		"signed", t.commandForwardSecret != "",
 	)
 
 	return nil

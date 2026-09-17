@@ -17,10 +17,14 @@ import (
 )
 
 func main() {
+	port := os.Getenv("MOCKPLC_PORT")
+	if port == "" {
+		port = "502"
+	}
 	h := &handler{}
 
 	server, err := modbus.NewServer(&modbus.ServerConfiguration{
-		URL:        "tcp://0.0.0.0:502",
+		URL:        "tcp://0.0.0.0:" + port,
 		Timeout:    30 * time.Second,
 		MaxClients: 10,
 	}, h)
@@ -32,7 +36,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "failed to start: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Println("mock-plc: Modbus TCP server listening on :502 (slave-id 1)")
+	fmt.Println("mock-plc: Modbus TCP server listening on :" + port + " (slave-id 1)")
 
 	ticker := time.NewTicker(1 * time.Second)
 	t := 0.0
