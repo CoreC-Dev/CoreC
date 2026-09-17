@@ -121,7 +121,14 @@ func setupLogging(cfg *core.Config, override string) {
 		coreLevel = l
 	}
 
+	// Log format defaults to "text" when unset; "json" produces structured
+	// JSON lines on stdout (the Event bus payload format is unchanged).
+	format := cfg.Global.LogFormat
+	if format == "" {
+		format = "text"
+	}
+
 	// Init installs an ObservableHandler as the global slog logger,
 	// so ALL slog.Info/slog.Error calls are captured by the log bus.
-	log.Init(coreLevel)
+	log.Init(coreLevel, format)
 }

@@ -128,7 +128,7 @@ func startModbusServer(t *testing.T, handler *modbusHandler) (server *mb.ModbusS
 // ============================================================
 
 func TestE2E_ModbusToHTTPPush(t *testing.T) {
-	log.Init(0) // silence logs
+	log.Init(0, "text") // silence logs
 
 	// --- Start mock Modbus PLC ---
 	handler := &modbusHandler{
@@ -261,7 +261,7 @@ func TestE2E_ModbusToHTTPPush(t *testing.T) {
 // ============================================================
 
 func TestE2E_ModbusWithTransform(t *testing.T) {
-	log.Init(0)
+	log.Init(0, "text")
 
 	handler := &modbusHandler{
 		holding: map[uint16]uint16{0: 100, 1: 200},
@@ -372,7 +372,7 @@ func TestE2E_ModbusWithTransform(t *testing.T) {
 // ============================================================
 
 func TestE2E_ModbusWithAlert(t *testing.T) {
-	log.Init(0)
+	log.Init(0, "text")
 
 	handler := &modbusHandler{
 		holding: map[uint16]uint16{0: 999},
@@ -438,7 +438,7 @@ func TestE2E_ModbusWithAlert(t *testing.T) {
 // ============================================================
 
 func TestE2E_ModbusWithDropRule(t *testing.T) {
-	log.Init(0)
+	log.Init(0, "text")
 
 	handler := &modbusHandler{
 		holding: map[uint16]uint16{0: 42},
@@ -519,7 +519,7 @@ func TestE2E_ModbusWithDropRule(t *testing.T) {
 // ============================================================
 
 func TestE2E_WriteCommandToModbus(t *testing.T) {
-	log.Init(0)
+	log.Init(0, "text")
 
 	handler := &modbusHandler{
 		holding: map[uint16]uint16{0: 0},
@@ -597,7 +597,7 @@ func TestE2E_WriteCommandToModbus(t *testing.T) {
 // ============================================================
 
 func TestE2E_EngineReload(t *testing.T) {
-	log.Init(0)
+	log.Init(0, "text")
 
 	handler := &modbusHandler{
 		holding: map[uint16]uint16{0: 111, 1: 222},

@@ -52,7 +52,7 @@ func TestStreamTagsWebSocket(t *testing.T) {
 // accepts a connection and forwards log events.
 func TestGetLogsWebSocket(t *testing.T) {
 	// Initialize the log system so Subscribe works.
-	log.Init(slog.LevelInfo) // Initialize log system so Subscribe works
+	log.Init(slog.LevelInfo, "text") // Initialize log system so Subscribe works
 
 	eng := &mockEngineV2{}
 	ts := newTestServer("", eng)

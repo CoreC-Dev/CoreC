@@ -18,6 +18,8 @@ node:
 
 global:
   log-level: info
+  ## log-format: "text" (default, human-readable) or "json" (structured, for log aggregators like ELK/Loki)
+  # log-format: json
   api:
     listen: 0.0.0.0:9090
     secret: "corec-secret-token"

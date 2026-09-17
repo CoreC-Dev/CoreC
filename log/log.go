@@ -99,12 +99,17 @@ func SetLevel(l slog.Level) {
 // that writes to stdout and publishes events to all subscribers.
 // This ensures ALL slog.Info/slog.Error calls throughout the codebase
 // are captured by the log bus — no code changes needed.
-func Init(l slog.Level) {
+//
+// format selects the console output format: "json" produces structured
+// JSON lines via slog.NewJSONHandler; any other value (including the
+// default "") falls back to slog.NewTextHandler. The published Event
+// bus payload is unaffected by format — only the stdout rendering.
+func Init(l slog.Level, format string) {
 	mu.Lock()
 	level = l
 	mu.Unlock()
 
-	handler := NewObservableHandler(os.Stdout, l)
+	handler := NewObservableHandler(os.Stdout, l, format)
 	slog.SetDefault(slog.New(handler))
 }
 
@@ -114,9 +119,19 @@ type ObservableHandler struct {
 	inner slog.Handler
 }
 
-// NewObservableHandler creates a new ObservableHandler wrapping a text handler.
-func NewObservableHandler(w io.Writer, l slog.Level) *ObservableHandler {
-	inner := slog.NewTextHandler(w, &slog.HandlerOptions{Level: l})
+// NewObservableHandler creates a new ObservableHandler wrapping a handler
+// selected by format. When format is "json" (case-insensitive) the inner
+// handler is a slog.JSONHandler; otherwise a slog.TextHandler is used.
+// The returned handler publishes Event records to the log bus regardless
+// of the chosen console format.
+func NewObservableHandler(w io.Writer, l slog.Level, format string) *ObservableHandler {
+	opts := &slog.HandlerOptions{Level: l}
+	var inner slog.Handler
+	if strings.EqualFold(format, "json") {
+		inner = slog.NewJSONHandler(w, opts)
+	} else {
+		inner = slog.NewTextHandler(w, opts)
+	}
 	return &ObservableHandler{inner: inner}
 }
 
