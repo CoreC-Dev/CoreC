@@ -55,14 +55,15 @@ type DriverConfig struct {
 
 // DriverStatus reports the current status of a driver.
 type DriverStatus struct {
-	Name       string    `json:"name"`
-	Type       string    `json:"type"`
-	State      ConnState `json:"state"`
-	LastRead   time.Time `json:"last_read"`
-	LastError  string    `json:"last_error"`
-	TagCount   int       `json:"tag_count"`
-	ReadCount  uint64    `json:"read_count"`
-	ErrorCount uint64    `json:"error_count"`
+	Name           string    `json:"name"`
+	Type           string    `json:"type"`
+	State          ConnState `json:"state"`
+	LastRead       time.Time `json:"last_read"`
+	LastError      string    `json:"last_error"`
+	TagCount       int       `json:"tag_count"`
+	ReadCount      uint64    `json:"read_count"`
+	ErrorCount     uint64    `json:"error_count"`
+	ReconnectCount uint64    `json:"reconnect_count"`
 }
 
 // DriverCapabilities declares what a driver supports.

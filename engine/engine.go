@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/CoreC-Dev/CoreC/common/metrics"
 	"github.com/CoreC-Dev/CoreC/common/trace"
 	"github.com/CoreC-Dev/CoreC/core"
 	"github.com/CoreC-Dev/CoreC/engine/statistic"
@@ -63,6 +64,13 @@ type CoreCEngine struct {
 	totalPublish atomic.Uint64
 	totalErrors  atomic.Uint64
 	startTime    time.Time
+
+	// Latency histograms for Prometheus exposure. Initialized in New()
+	// and accumulated across the engine lifetime (mirroring the total*
+	// counters above, which are also not reset on Reload). Exposed via
+	// ReadLatency()/PublishLatency() for the route metrics handler.
+	readLatency    *metrics.LatencyHistogram
+	publishLatency *metrics.LatencyHistogram
 
 	// Processing parallelism
 	numWorkers int
@@ -153,6 +161,8 @@ func New() core.Engine {
 		deadLetterMaxLen:   1000,
 		tagFileWatchers:    make(map[string]*tagFileWatcher),
 		driverConfigs:      make(map[string]core.DriverConfig),
+		readLatency:        metrics.NewLatencyHistogram(metrics.DefaultReadLatencyBuckets),
+		publishLatency:     metrics.NewLatencyHistogram(metrics.DefaultPublishLatencyBuckets),
 	}
 }
 
@@ -1052,6 +1062,76 @@ func (e *CoreCEngine) Stats() core.EngineStats {
 	}
 }
 
+// OfflineBufferStats aggregates offline-buffer observability counters across
+// all transport batchers for Prometheus exposure:
+//   - pending: batches currently waiting on disk for replay (gauge).
+//   - drained: total batches successfully replayed since startup (counter).
+//   - pushed:  total batches persisted to the offline buffer since startup (counter).
+//
+// The offline buffer is a single shared instance (e.offlineBuffer) handed to
+// every batcher in newTransportBatcher, so pending and drained are read once
+// from it rather than summed per batcher — summing the per-batcher
+// OfflineBufferPending/OfflineBufferDrained values would multiply the real
+// count by the number of batchers, since they all delegate to the same
+// buffer. pushed, by contrast, is a genuine per-batcher counter
+// (offlineBufferPushes, incremented in publishWithRetryAndBuffer) and must be
+// summed across batchers.
+//
+// The batchers map is snapshotted under RLock and then released before
+// reading the counters, mirroring the Stop() pattern, so a slow Len() (disk
+// readdir) can never block management API calls that take the write lock.
+func (e *CoreCEngine) OfflineBufferStats() (pending int, drained, pushed uint64) {
+	e.mu.RLock()
+	batchers := make([]*transportBatcher, 0, len(e.batchers))
+	for _, b := range e.batchers {
+		batchers = append(batchers, b)
+	}
+	buf := e.offlineBuffer
+	e.mu.RUnlock()
+
+	// pushed is per-batcher: aggregate it.
+	for _, b := range batchers {
+		pushed += b.offlineBufferPushes.Load()
+	}
+
+	// pending and drained are properties of the shared buffer; read them
+	// once to avoid double-counting across batchers.
+	if buf != nil {
+		pending = buf.PendingCount()
+		drained = buf.DrainCount()
+	}
+	return pending, drained, pushed
+}
+
+// ReadLatency returns the histogram tracking driver read latency
+// (time spent in Driver.Read), for Prometheus histogram exposure. The
+// returned pointer is always non-nil for an engine created via New().
+func (e *CoreCEngine) ReadLatency() *metrics.LatencyHistogram {
+	return e.readLatency
+}
+
+// ReadLatencyHistogram returns a point-in-time snapshot of the read
+// latency histogram, satisfying the core.LatencyProvider interface.
+func (e *CoreCEngine) ReadLatencyHistogram() core.LatencySnapshot {
+	buckets, counts, sum, count := e.readLatency.Snapshot()
+	return core.LatencySnapshot{Buckets: buckets, Counts: counts, Sum: sum, Count: count}
+}
+
+// PublishLatency returns the histogram tracking transport publish
+// latency (time spent in Transport.Publish / batcher.publish, including
+// fallback attempts), for Prometheus histogram exposure. The returned
+// pointer is always non-nil for an engine created via New().
+func (e *CoreCEngine) PublishLatency() *metrics.LatencyHistogram {
+	return e.publishLatency
+}
+
+// PublishLatencyHistogram returns a point-in-time snapshot of the publish
+// latency histogram, satisfying the core.LatencyProvider interface.
+func (e *CoreCEngine) PublishLatencyHistogram() core.LatencySnapshot {
+	buckets, counts, sum, count := e.publishLatency.Snapshot()
+	return core.LatencySnapshot{Buckets: buckets, Counts: counts, Sum: sum, Count: count}
+}
+
 // --- Internal Methods ---
 
 func (e *CoreCEngine) readFromDriver(ctx context.Context, driver string, tags []string) ([]core.TagValue, error) {
@@ -1066,7 +1146,10 @@ func (e *CoreCEngine) readFromDriver(ctx context.Context, driver string, tags []
 	if !ok {
 		return nil, fmt.Errorf("driver not found: %s", driver)
 	}
-	return d.Read(ctx, tags)
+	start := time.Now()
+	values, err := d.Read(ctx, tags)
+	e.readLatency.Observe(time.Since(start))
+	return values, err
 }
 
 func (e *CoreCEngine) onDriverData(driver string, values []core.TagValue) {
@@ -1453,7 +1536,10 @@ func (e *CoreCEngine) publishToTargets(point core.DataPoint, targets []string) {
 	for _, entry := range snapshot {
 		// Use batcher if configured, otherwise publish directly
 		if entry.batcher != nil {
-			if err := entry.batcher.publish(e.ctx, point); err != nil {
+			start := time.Now()
+			err := entry.batcher.publish(e.ctx, point)
+			e.publishLatency.Observe(time.Since(start))
+			if err != nil {
 				slog.Error("batch publish failed", "target", entry.name, "error", err)
 				e.totalErrors.Add(1)
 				statistic.DefaultManager.PushError()
@@ -1465,7 +1551,10 @@ func (e *CoreCEngine) publishToTargets(point core.DataPoint, targets []string) {
 			continue
 		}
 
-		if err := entry.transport.Publish(e.ctx, point); err != nil {
+		start := time.Now()
+		err := entry.transport.Publish(e.ctx, point)
+		e.publishLatency.Observe(time.Since(start))
+		if err != nil {
 			slog.Error("publish failed", "target", entry.name, "error", err)
 			e.totalErrors.Add(1)
 			statistic.DefaultManager.PushError()
@@ -1488,7 +1577,10 @@ func (e *CoreCEngine) tryFallback(point core.DataPoint, primaryName string, fall
 	slog.Warn("transport failover to fallback", "primary", primaryName, "fallback", fb.name)
 
 	if fb.batcher != nil {
-		if err := fb.batcher.publish(e.ctx, point); err != nil {
+		start := time.Now()
+		err := fb.batcher.publish(e.ctx, point)
+		e.publishLatency.Observe(time.Since(start))
+		if err != nil {
 			slog.Error("fallback batch publish also failed", "fallback", fb.name, "error", err)
 			e.totalErrors.Add(1)
 			statistic.DefaultManager.PushError()
@@ -1499,7 +1591,10 @@ func (e *CoreCEngine) tryFallback(point core.DataPoint, primaryName string, fall
 		return
 	}
 
-	if err := fb.transport.Publish(e.ctx, point); err != nil {
+	start := time.Now()
+	err := fb.transport.Publish(e.ctx, point)
+	e.publishLatency.Observe(time.Since(start))
+	if err != nil {
 		slog.Error("fallback publish also failed", "fallback", fb.name, "error", err)
 		e.totalErrors.Add(1)
 		statistic.DefaultManager.PushError()

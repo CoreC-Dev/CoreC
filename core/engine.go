@@ -90,6 +90,34 @@ type StatsProvider interface {
 	DeadLetterEntries() []DeadLetterEntry
 }
 
+// LatencyProvider exposes latency histograms for Prometheus histogram
+// exposure. It is a separate role interface (not embedded in Engine) so
+// that the route layer can type-assert optionally without coupling to the
+// concrete engine type. *CoreCEngine satisfies this interface; test mocks
+// are free to omit it.
+type LatencyProvider interface {
+	ReadLatencyHistogram() LatencySnapshot
+	PublishLatencyHistogram() LatencySnapshot
+}
+
+// LatencySnapshot is a point-in-time copy of a latency histogram's state.
+// Buckets and Counts are aligned: Buckets[i] is the upper bound (in seconds)
+// and Counts[i] is the cumulative number of observations with duration <=
+// Buckets[i]. The final +Inf bucket is implied by Count (total observations).
+type LatencySnapshot struct {
+	Buckets []float64
+	Counts  []uint64
+	Sum     float64
+	Count   uint64
+}
+
+// OfflineBufferStatsProvider exposes offline-buffer observability counters
+// for Prometheus exposure. It is a separate role interface so the route
+// layer can type-assert optionally. *CoreCEngine satisfies this interface.
+type OfflineBufferStatsProvider interface {
+	OfflineBufferStats() (pending int, drained uint64, pushed uint64)
+}
+
 // Config is the top-level configuration structure.
 type Config struct {
 	Node          NodeConfig              `yaml:"node,omitempty"`
@@ -131,10 +159,11 @@ type NodeConfig struct {
 
 // GlobalConfig holds global settings.
 type GlobalConfig struct {
-	LogLevel string       `yaml:"log-level"`
-	API      APIConfig    `yaml:"api"`
-	Engine   EngineConfig `yaml:"engine"`
-	Buffer   BufferConfig `yaml:"buffer"`
+	LogLevel  string       `yaml:"log-level"`
+	LogFormat string       `yaml:"log-format"`
+	API       APIConfig    `yaml:"api"`
+	Engine    EngineConfig `yaml:"engine"`
+	Buffer    BufferConfig `yaml:"buffer"`
 }
 
 // EngineConfig holds engine-wide runtime tuning parameters.

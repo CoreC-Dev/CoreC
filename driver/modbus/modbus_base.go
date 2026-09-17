@@ -97,8 +97,9 @@ type modbusBase struct {
 	lastError string
 
 	// Counters
-	readCount  atomic.Uint64
-	errorCount atomic.Uint64
+	readCount      atomic.Uint64
+	errorCount     atomic.Uint64
+	reconnectCount atomic.Uint64
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -191,7 +192,7 @@ func (b *modbusBase) Start(ctx context.Context) error {
 }
 
 func (b *modbusBase) reconnectLoop() {
-	util.ReconnectLoopWithBreaker(b.ctx, b.name, b.connectFunc, b.retryBackoff, b.maxReconnectBackoff, b.maxReconnectFailures)
+	util.ReconnectLoopWithBreakerCounted(b.ctx, b.name, b.connectFunc, b.retryBackoff, b.maxReconnectBackoff, b.maxReconnectFailures, &b.reconnectCount)
 }
 
 // startReconnectLoop launches the reconnect goroutine tracked by the
@@ -827,14 +828,15 @@ func (b *modbusBase) Status() core.DriverStatus {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return core.DriverStatus{
-		Name:       b.name,
-		Type:       b.driverType,
-		State:      b.state,
-		LastRead:   b.lastRead,
-		LastError:  b.lastError,
-		TagCount:   len(b.tags),
-		ReadCount:  b.readCount.Load(),
-		ErrorCount: b.errorCount.Load(),
+		Name:           b.name,
+		Type:           b.driverType,
+		State:          b.state,
+		LastRead:       b.lastRead,
+		LastError:      b.lastError,
+		TagCount:       len(b.tags),
+		ReadCount:      b.readCount.Load(),
+		ErrorCount:     b.errorCount.Load(),
+		ReconnectCount: b.reconnectCount.Load(),
 	}
 }
 

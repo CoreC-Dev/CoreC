@@ -59,8 +59,9 @@ type OPCUADriver struct {
 	lastError string
 
 	// Counters
-	readCount  atomic.Uint64
-	errorCount atomic.Uint64
+	readCount      atomic.Uint64
+	errorCount     atomic.Uint64
+	reconnectCount atomic.Uint64
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -378,7 +379,7 @@ func (d *OPCUADriver) stopSubscription() {
 }
 
 func (d *OPCUADriver) reconnectLoop() {
-	util.ReconnectLoopWithBreaker(d.ctx, d.name, func() error { return d.connect(d.ctx) }, d.reconnectBackoff, d.maxReconnectBackoff, d.maxReconnectFailures)
+	util.ReconnectLoopWithBreakerCounted(d.ctx, d.name, func() error { return d.connect(d.ctx) }, d.reconnectBackoff, d.maxReconnectBackoff, d.maxReconnectFailures, &d.reconnectCount)
 }
 
 // startReconnectLoop launches the reconnect goroutine tracked by the WaitGroup
@@ -614,14 +615,15 @@ func (d *OPCUADriver) Status() core.DriverStatus {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return core.DriverStatus{
-		Name:       d.name,
-		Type:       "opcua",
-		State:      d.state,
-		LastRead:   d.lastRead,
-		LastError:  d.lastError,
-		TagCount:   len(d.tags),
-		ReadCount:  d.readCount.Load(),
-		ErrorCount: d.errorCount.Load(),
+		Name:           d.name,
+		Type:           "opcua",
+		State:          d.state,
+		LastRead:       d.lastRead,
+		LastError:      d.lastError,
+		TagCount:       len(d.tags),
+		ReadCount:      d.readCount.Load(),
+		ErrorCount:     d.errorCount.Load(),
+		ReconnectCount: d.reconnectCount.Load(),
 	}
 }
 

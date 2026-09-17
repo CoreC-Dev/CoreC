@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -252,7 +253,25 @@ func jitteredBackoff(d time.Duration) time.Duration {
 // (5 minutes) to avoid hammering a permanently offline device. The
 // breaker resets on the next successful connection. maxFailures <= 0
 // disables the breaker (pure exponential backoff).
+//
+// It is a thin wrapper around ReconnectLoopWithBreakerCounted that does
+// not track reconnect attempts. Use the counted variant when a driver
+// wants to expose a reconnect Prometheus metric.
 func ReconnectLoopWithBreaker(ctx context.Context, name string, connect func() error, initialBackoff, maxBackoff time.Duration, maxFailures int) {
+	ReconnectLoopWithBreakerCounted(ctx, name, connect, initialBackoff, maxBackoff, maxFailures, nil)
+}
+
+// ReconnectLoopWithBreakerCounted behaves like ReconnectLoopWithBreaker
+// and additionally increments counter (when non-nil) at the start of each
+// reconnect attempt — whether that attempt ultimately succeeds or fails.
+// Drivers pass an atomic.Uint64 held on the driver struct so the value
+// can be surfaced via Status() and exposed as a Prometheus counter.
+//
+// The counter is incremented before connect() is invoked, so even if the
+// caller cancels the context mid-attempt, every attempt that began is
+// reflected in the count. A nil counter disables counting and makes this
+// equivalent to ReconnectLoopWithBreaker.
+func ReconnectLoopWithBreakerCounted(ctx context.Context, name string, connect func() error, initialBackoff, maxBackoff time.Duration, maxFailures int, counter *atomic.Uint64) {
 	backoff := initialBackoff
 	if backoff <= 0 {
 		backoff = 2 * time.Second
@@ -276,6 +295,14 @@ func ReconnectLoopWithBreaker(ctx context.Context, name string, connect func() e
 		case <-ctx.Done():
 			return
 		case <-time.After(wait):
+		}
+
+		// Count this reconnect attempt (success or failure) so drivers
+		// can expose a reconnect Prometheus metric. Incrementing before
+		// connect() runs guarantees every started attempt is counted,
+		// even if the context is cancelled mid-connect.
+		if counter != nil {
+			counter.Add(1)
 		}
 
 		if err := connect(); err != nil {
