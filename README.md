@@ -2,11 +2,11 @@
   <img src="docs/public/logo-full-animated.svg" alt="CoreC" width="420">
 </p>
 
-# CoreC (Connect · Collect · Control)
-
-[![Go Version](https://img.shields.io/badge/Go-1.27.1-00ADD8?logo=go&logoColor=white)](https://go.dev/)
-[![golangci-lint](https://github.com/CoreC-Dev/CoreC/actions/workflows/ci.yml/badge.svg)](https://github.com/CoreC-Dev/CoreC/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+<p align="center">
+  <a href="https://go.dev/"><img src="https://img.shields.io/badge/Go-1.27.1-00ADD8?logo=go&logoColor=white" alt="Go Version"></a>
+  <a href="https://github.com/CoreC-Dev/CoreC/actions/workflows/ci.yml"><img src="https://github.com/CoreC-Dev/CoreC/actions/workflows/ci.yml/badge.svg" alt="golangci-lint"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+</p>
 
 **CoreC** 是一个面向工业物联网 (IIoT) 与边缘计算的**高性能、配置驱动、插件化数据采集与控制核心**。
 

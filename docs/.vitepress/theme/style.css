@@ -1,6 +1,12 @@
-/* 首页 hero 副标题：保留文本中的换行符，使“工业物联网”与“数据采集核心”分行显示 */
+/* 首页 hero 副标题：保留文本中的换行符，使"工业物联网"与"数据采集核心"分行显示 */
 .VPHero .text {
   white-space: pre-line;
+}
+
+/* 首页 hero 图片：VitePress 默认将图片居中于右半栏，但与左侧文字
+   搭配后整体视觉偏左。向右偏移以使图片在全屏范围内视觉居中。 */
+.VPHero .image-container {
+  transform: translateX(8%);
 }
 
 /* 主题品牌色：与 logo SVG 的绿色保持一致
