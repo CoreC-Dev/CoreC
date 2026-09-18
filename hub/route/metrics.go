@@ -363,8 +363,10 @@ func writeRuntimeMetrics(b *strings.Builder) {
 // bucket's count times its arithmetic midpoint. GC STW pauses are small and
 // tightly clustered in the histogram's narrow low-end buckets, so this
 // midpoint estimate tracks the true total to within ~2% in practice. The
-// histogram spans [-Inf, +Inf]; both edge buckets carry zero counts for GC
-// pauses and are guarded regardless (0*Inf would otherwise yield NaN).
+// histogram spans [-Inf, +Inf]; the first bucket [-Inf, 0) is skipped
+// because negative durations are impossible, and the last bucket
+// [finite, +Inf) uses the finite lower bound instead of a midpoint to
+// avoid producing +Inf.
 func pauseTotalSeconds(h *metrics.Float64Histogram) float64 {
 	var total float64
 	n := len(h.Counts)
@@ -374,13 +376,15 @@ func pauseTotalSeconds(h *metrics.Float64Histogram) float64 {
 		}
 		lo, hi := h.Buckets[i], h.Buckets[i+1]
 		if i == n-1 {
-			// [lo, +Inf): no finite midpoint; use lo as a lower-bound estimate.
+			// [lo, +Inf): no finite midpoint; use lo as a lower-bound estimate
+			// to avoid count * +Inf = +Inf.
 			total += float64(count) * lo
 		} else if lo >= 0 {
 			total += float64(count) * (lo + hi) / 2
 		}
-		// Bucket 0 spans [-Inf, 0); negative durations are impossible, so any
-		// count there is ignored.
+		// Bucket 0 spans [-Inf, 0); lo is -Inf, so the lo >= 0 guard above
+		// is false and any count there is ignored (negative durations are
+		// impossible).
 	}
 	return total
 }

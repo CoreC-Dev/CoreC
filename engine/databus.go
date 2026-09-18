@@ -178,6 +178,13 @@ func (b *DataBus) Close() {
 		for _, sub := range b.subscribers {
 			close(sub.ch)
 		}
+		// Clear the subscriber list and reset subCount so that a
+		// Broadcast racing with Close (or called after Close) cannot
+		// reach the send select on a closed channel. Without this,
+		// subCount would remain > 0 and Broadcast would enter the loop
+		// and panic on `select { case sub.ch <- point: default: }`.
+		b.subscribers = nil
+		b.subCount.Store(0)
 		b.closed = true
 	}
 }
