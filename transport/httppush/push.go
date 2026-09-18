@@ -22,6 +22,11 @@ import (
 	"github.com/CoreC-Dev/CoreC/transport/parser"
 )
 
+// TypeName identifies this transport's protocol. It is returned by Type()
+// and embedded in Status() so the transport kind is reported consistently
+// from a single source of truth rather than a scattered string literal.
+const TypeName = "http"
+
 // HTTPTransport implements core.Transport for pushing collected data to HTTP endpoints.
 type HTTPTransport struct {
 	mu sync.RWMutex
@@ -119,7 +124,7 @@ func (t *HTTPTransport) Init(ctx context.Context, config core.TransportConfig) e
 		}
 	}
 	if t.timeout == 0 {
-		t.timeout = 5 * time.Second
+		t.timeout = core.DefaultTransportTimeout
 	}
 
 	// Custom HTTP client with configurable connection pool
@@ -145,7 +150,7 @@ func (t *HTTPTransport) Init(ctx context.Context, config core.TransportConfig) e
 	// Parse webhook config (chained-core inbound)
 	if addr, ok := settings["webhook-addr"].(string); ok && addr != "" {
 		t.webhookAddr = addr
-		t.webhookPath = getStringSetting(settings, "webhook-path", "/data")
+		t.webhookPath = util.GetStringSetting(settings, "webhook-path", "/data")
 		// Optional shared secret for authenticating webhook POSTs.
 		// When set, requests must carry it in either an
 		// "Authorization: Bearer <secret>" header or an
@@ -457,14 +462,14 @@ func (t *HTTPTransport) handleWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 func (t *HTTPTransport) Name() string { return t.name }
-func (t *HTTPTransport) Type() string { return "http" }
+func (t *HTTPTransport) Type() string { return TypeName }
 
 func (t *HTTPTransport) Status() core.TransportStatus {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return core.TransportStatus{
 		Name:        t.name,
-		Type:        "http",
+		Type:        TypeName,
 		State:       t.state,
 		Published:   t.published.Load(),
 		Failed:      t.failed.Load(),
@@ -472,12 +477,4 @@ func (t *HTTPTransport) Status() core.TransportStatus {
 		LastPublish: t.lastPublish,
 		QueueSize:   0,
 	}
-}
-
-// getStringSetting reads a string from a settings map with a default.
-func getStringSetting(s map[string]any, key, def string) string {
-	if v, ok := s[key].(string); ok {
-		return v
-	}
-	return def
 }

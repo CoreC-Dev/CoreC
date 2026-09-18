@@ -17,6 +17,17 @@ import (
 const (
 	discoveryTopicPrefix = "corec/_discovery"
 	defaultHeartbeatSecs = 5
+
+	// MQTT/discovery operational timeouts and intervals. These are
+	// internal defaults; the discovery package does not currently
+	// expose them as configuration. They are named (rather than inline
+	// bare duration literals) so the values are discoverable in one
+	// place and easy to tune.
+	defaultMQTTConnectRetryInterval = 5 * time.Second
+	defaultMQTTConnectTimeout       = 10 * time.Second
+	defaultMQTTSubscribeTimeout     = 5 * time.Second
+	defaultMQTTPublishTimeout       = 3 * time.Second
+	defaultReconcileInterval        = 2 * time.Second
 )
 
 // nodeInfo is the heartbeat payload broadcast by each node on each broker.
@@ -103,7 +114,7 @@ func (d *Discovery) Start(ctx context.Context) error {
 		opts.SetAutoReconnect(true)
 		opts.SetCleanSession(true)
 		opts.SetConnectRetry(true)
-		opts.SetConnectRetryInterval(5 * time.Second)
+		opts.SetConnectRetryInterval(defaultMQTTConnectRetryInterval)
 		opts.SetOrderMatters(false)
 
 		broker := be.Broker
@@ -112,12 +123,12 @@ func (d *Discovery) Start(ctx context.Context) error {
 			// Subscribe to all node heartbeats on this broker.
 			topic := discoveryTopicPrefix + "/+"
 			token := c.Subscribe(topic, 0, d.onDiscoveryMessage)
-			token.WaitTimeout(5 * time.Second)
+			token.WaitTimeout(defaultMQTTSubscribeTimeout)
 		})
 
 		client := pahomqtt.NewClient(opts)
 		token := client.Connect()
-		if !token.WaitTimeout(10 * time.Second) {
+		if !token.WaitTimeout(defaultMQTTConnectTimeout) {
 			slog.Warn("discovery connect timed out, will retry",
 				"broker", be.Broker, "node", d.nodeID)
 		}
@@ -193,7 +204,7 @@ func (d *Discovery) sendHeartbeats() {
 
 		topic := fmt.Sprintf("%s/%s", discoveryTopicPrefix, d.nodeID)
 		token := client.Publish(topic, 0, true, payload) // retained so late joiners see it
-		token.WaitTimeout(3 * time.Second)
+		token.WaitTimeout(defaultMQTTPublishTimeout)
 	}
 }
 
@@ -225,7 +236,7 @@ func (d *Discovery) onDiscoveryMessage(client pahomqtt.Client, msg pahomqtt.Mess
 // list and auto-adds transports for newly discovered upstreams.
 func (d *Discovery) reconcileLoop() {
 	defer d.wg.Done()
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(defaultReconcileInterval)
 	defer ticker.Stop()
 
 	for {

@@ -32,6 +32,11 @@ import (
 // client IDs. Change here if the project is rebranded.
 const projectName = "corec"
 
+// TypeName identifies this transport's protocol. It is returned by Type()
+// and embedded in Status() so the transport kind is reported consistently
+// from a single source of truth rather than a scattered string literal.
+const TypeName = "mqtt"
+
 // MQTTTransport implements core.Transport for MQTT protocol.
 type MQTTTransport struct {
 	mu sync.RWMutex
@@ -209,8 +214,8 @@ func (t *MQTTTransport) Init(ctx context.Context, config core.TransportConfig) e
 	}
 
 	// Parse credentials
-	t.username = getStringSetting(settings, "username")
-	t.password = getStringSetting(settings, "password")
+	t.username = util.GetStringSetting(settings, "username", "")
+	t.password = util.GetStringSetting(settings, "password", "")
 
 	// Parse QoS
 	t.qos = byte(util.GetIntSetting(settings, "qos", 1))
@@ -221,11 +226,14 @@ func (t *MQTTTransport) Init(ctx context.Context, config core.TransportConfig) e
 	}
 
 	// Connection settings
-	t.keepAlive = util.GetDurationSetting(settings, "keep-alive", 60*time.Second)
+	t.keepAlive = util.GetDurationSetting(settings, "keep-alive", core.DefaultKeepAlive)
 	t.connectTimeout = util.GetDurationSetting(settings, "connect-timeout", 10*time.Second)
 	t.autoReconnect = util.GetBoolSetting(settings, "auto-reconnect", true)
 	t.cleanSession = util.GetBoolSetting(settings, "clean-session", true)
 	t.connectRetry = util.GetBoolSetting(settings, "connect-retry", true)
+	// connect-retry-interval is paho's fixed reconnect interval, not the
+	// generic transport I/O timeout, so it keeps its own literal rather than
+	// reusing core.DefaultTransportTimeout.
 	t.connectRetryInterval = util.GetDurationSetting(settings, "connect-retry-interval", 5*time.Second)
 
 	// Apply ±20% jitter to the reconnect interval to prevent thundering-herd
@@ -239,7 +247,10 @@ func (t *MQTTTransport) Init(ctx context.Context, config core.TransportConfig) e
 		t.connectRetryInterval = time.Duration(float64(t.connectRetryInterval) * jitter)
 	}
 
-	// Operation timeouts
+	// Operation timeouts. These are per-operation MQTT timeouts (waiting
+	// for a Subscribe/Publish token to complete), not the generic transport
+	// I/O timeout, so they keep their own literals rather than reusing
+	// core.DefaultTransportTimeout.
 	t.subscribeTimeout = util.GetDurationSetting(settings, "subscribe-timeout", 5*time.Second)
 	t.publishTimeout = util.GetDurationSetting(settings, "publish-timeout", 5*time.Second)
 	t.disconnectQuiesce = util.GetDurationSetting(settings, "disconnect-quiesce", time.Second)
@@ -285,9 +296,9 @@ func (t *MQTTTransport) Init(ctx context.Context, config core.TransportConfig) e
 	// certificate/key pair, with server verification against a custom CA.
 	// When none of those conditions hold, no TLS config is built and the
 	// connection stays plaintext (backward compatible).
-	t.tlsCertFile = getStringSetting(settings, "tls-cert-file")
-	t.tlsKeyFile = getStringSetting(settings, "tls-key-file")
-	t.tlsCAFile = getStringSetting(settings, "tls-ca-file")
+	t.tlsCertFile = util.GetStringSetting(settings, "tls-cert-file", "")
+	t.tlsKeyFile = util.GetStringSetting(settings, "tls-key-file", "")
+	t.tlsCAFile = util.GetStringSetting(settings, "tls-ca-file", "")
 	tlsCfg, err := t.buildTLSConfig()
 	if err != nil {
 		return err
@@ -308,10 +319,10 @@ func (t *MQTTTransport) Init(ctx context.Context, config core.TransportConfig) e
 // transport's settings map. This is split out from Init to keep that
 // function's cyclomatic complexity manageable.
 func (t *MQTTTransport) parseCommandSettings(settings map[string]any) {
-	t.commandTopic = getStringSetting(settings, "command-topic")
-	t.commandSecret = getStringSetting(settings, "command-secret")
-	t.commandForwardTopic = getStringSetting(settings, "command-forward-topic")
-	t.commandForwardSecret = getStringSetting(settings, "command-forward-secret")
+	t.commandTopic = util.GetStringSetting(settings, "command-topic", "")
+	t.commandSecret = util.GetStringSetting(settings, "command-secret", "")
+	t.commandForwardTopic = util.GetStringSetting(settings, "command-forward-topic", "")
+	t.commandForwardSecret = util.GetStringSetting(settings, "command-forward-secret", "")
 
 	// Replay-protection settings for authenticated command messages.
 	//   command-max-skew: how far a command's "timestamp" field (Unix
@@ -323,15 +334,6 @@ func (t *MQTTTransport) parseCommandSettings(settings map[string]any) {
 	//     compatibility with senders that predate replay protection.
 	t.commandMaxSkew = util.GetDurationSetting(settings, "command-max-skew", 5*time.Minute)
 	t.commandStrictReplay = util.GetBoolSetting(settings, "command-strict-replay", false)
-}
-
-// getStringSetting reads a string from a settings map, returning "" if
-// the key is missing or the value is not a string.
-func getStringSetting(settings map[string]any, key string) string {
-	if v, ok := settings[key].(string); ok {
-		return v
-	}
-	return ""
 }
 
 // tlsSchemes are the broker URL schemes that the paho MQTT client routes
@@ -997,7 +999,7 @@ func (t *MQTTTransport) OnData() <-chan core.DataPoint {
 }
 
 func (t *MQTTTransport) Name() string { return t.name }
-func (t *MQTTTransport) Type() string { return "mqtt" }
+func (t *MQTTTransport) Type() string { return TypeName }
 
 func (t *MQTTTransport) Status() core.TransportStatus {
 	t.mu.RLock()
@@ -1011,7 +1013,7 @@ func (t *MQTTTransport) Status() core.TransportStatus {
 
 	return core.TransportStatus{
 		Name:        t.name,
-		Type:        "mqtt",
+		Type:        TypeName,
 		State:       t.state,
 		Published:   t.published.Load(),
 		Failed:      t.failed.Load(),

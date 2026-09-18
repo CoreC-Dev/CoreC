@@ -40,8 +40,11 @@ const (
 	// WebSocket streams. Overridable via the ?interval= query parameter.
 	wsPushInterval = 1 * time.Second
 
-	// corsMaxAge is the CORS preflight cache duration in seconds (24h).
-	corsMaxAge = "86400"
+	// corsMaxAgeSeconds is the CORS preflight cache duration in seconds
+	// (24h). Stored as an int and stringified with strconv.Itoa where
+	// needed, so the numeric value is not expressed as a fragile string
+	// literal.
+	corsMaxAgeSeconds = 86400
 
 	// rateLimitBucketTTL is how long a rate-limit bucket is kept after its
 	// last access before being eligible for eviction. Buckets that go idle
@@ -379,12 +382,12 @@ func corsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
 				w.Header().Set("Access-Control-Allow-Origin", "*")
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-				w.Header().Set("Access-Control-Max-Age", corsMaxAge)
+				w.Header().Set("Access-Control-Max-Age", strconv.Itoa(corsMaxAgeSeconds))
 			} else if origin != "" && allowed[origin] {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-				w.Header().Set("Access-Control-Max-Age", corsMaxAge)
+				w.Header().Set("Access-Control-Max-Age", strconv.Itoa(corsMaxAgeSeconds))
 			}
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)

@@ -33,6 +33,9 @@ const (
 // matching the PDU limit advertised via Capabilities().MaxBatchSize.
 const s7MaxBatchSize = 220
 
+// TypeName is the protocol type identifier for the S7 driver.
+const TypeName = "s7"
+
 // s7Address holds the parsed S7 address
 type s7Address struct {
 	area     s7Area
@@ -126,12 +129,12 @@ func (d *S7Driver) Init(ctx context.Context, config core.DriverConfig) error {
 		}
 	}
 	if d.timeout == 0 {
-		d.timeout = 5 * time.Second
+		d.timeout = core.DefaultDriverTimeout
 	}
-	d.idleTimeout = util.GetDurationSetting(settings, "idle-timeout", 60*time.Second)
+	d.idleTimeout = util.GetDurationSetting(settings, "idle-timeout", core.DefaultIdleTimeout)
 	d.reconnectBackoff = util.GetDurationSetting(settings, "reconnect-interval", core.DefaultReconnectBackoff)
 	d.maxReconnectBackoff = util.GetDurationSetting(settings, "reconnect-max-interval", core.DefaultMaxReconnectBackoff)
-	d.maxReconnectFailures = util.GetIntSetting(settings, "max-reconnect-failures", 20)
+	d.maxReconnectFailures = util.GetIntSetting(settings, "max-reconnect-failures", core.DefaultMaxReconnectFailures)
 
 	// Parse tags and addresses
 	for _, tag := range config.Tags {
@@ -445,14 +448,14 @@ func (d *S7Driver) Subscribe(ctx context.Context, tags []string) (<-chan core.Da
 }
 
 func (d *S7Driver) Name() string { return d.name }
-func (d *S7Driver) Type() string { return "s7" }
+func (d *S7Driver) Type() string { return TypeName }
 
 func (d *S7Driver) Status() core.DriverStatus {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return core.DriverStatus{
 		Name:           d.name,
-		Type:           "s7",
+		Type:           TypeName,
 		State:          d.state,
 		LastRead:       d.lastRead,
 		LastError:      d.lastError,

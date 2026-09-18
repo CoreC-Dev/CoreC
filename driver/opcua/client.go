@@ -15,6 +15,9 @@ import (
 	"github.com/gopcua/opcua/ua"
 )
 
+// TypeName is the protocol type identifier for the OPC UA driver.
+const TypeName = "opcua"
+
 // OPCUADriver implements core.Driver for OPC UA protocol.
 type OPCUADriver struct {
 	mu sync.RWMutex
@@ -126,12 +129,12 @@ func (d *OPCUADriver) Init(ctx context.Context, config core.DriverConfig) error 
 	d.subInterval = util.GetDurationSetting(settings, "subscription-interval", 500*time.Millisecond)
 
 	// Timeout
-	d.timeout = util.GetDurationSetting(settings, "timeout", 5*time.Second)
+	d.timeout = util.GetDurationSetting(settings, "timeout", core.DefaultDriverTimeout)
 
 	// Reconnect and batch settings
 	d.reconnectBackoff = util.GetDurationSetting(settings, "reconnect-interval", core.DefaultReconnectBackoff)
 	d.maxReconnectBackoff = util.GetDurationSetting(settings, "reconnect-max-interval", core.DefaultMaxReconnectBackoff)
-	d.maxReconnectFailures = util.GetIntSetting(settings, "max-reconnect-failures", 20)
+	d.maxReconnectFailures = util.GetIntSetting(settings, "max-reconnect-failures", core.DefaultMaxReconnectFailures)
 	d.maxBatchSize = util.GetIntSetting(settings, "max-batch-size", 1000)
 
 	// Parse tags and node IDs
@@ -605,14 +608,14 @@ func (d *OPCUADriver) Subscribe(ctx context.Context, tags []string) (<-chan core
 }
 
 func (d *OPCUADriver) Name() string { return d.name }
-func (d *OPCUADriver) Type() string { return "opcua" }
+func (d *OPCUADriver) Type() string { return TypeName }
 
 func (d *OPCUADriver) Status() core.DriverStatus {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return core.DriverStatus{
 		Name:           d.name,
-		Type:           "opcua",
+		Type:           TypeName,
 		State:          d.state,
 		LastRead:       d.lastRead,
 		LastError:      d.lastError,

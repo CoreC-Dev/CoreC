@@ -220,4 +220,37 @@ const (
 	// DefaultBatchSize is the default batch size for transport batchers
 	// when TransportConfig.BatchSize is not set.
 	DefaultBatchSize = 100
+
+	// DefaultMaxReconnectFailures is the circuit-breaker threshold: the
+	// number of consecutive reconnect failures before the driver enters
+	// a long cool-down period.
+	DefaultMaxReconnectFailures = 20
+
+	// DefaultDriverTimeout is the default I/O timeout for driver
+	// connections (read/write operations).
+	DefaultDriverTimeout = 5 * time.Second
+
+	// DefaultIdleTimeout is the default connection idle timeout for
+	// drivers that support keep-alive or idle detection.
+	DefaultIdleTimeout = 60 * time.Second
+
+	// DefaultTransportTimeout is the default I/O timeout for transport
+	// publish/subscribe operations.
+	DefaultTransportTimeout = 5 * time.Second
+
+	// DefaultKeepAlive is the default keep-alive interval for transport
+	// connections (e.g. MQTT ping interval).
+	DefaultKeepAlive = 60 * time.Second
+
+	// DefaultCircuitBreakerBackoff is the cool-down period after the
+	// maximum number of reconnect failures is exceeded, before retrying.
+	DefaultCircuitBreakerBackoff = 5 * time.Minute
+
+	// DefaultOfflineBufferMaxEntries is the maximum number of data points
+	// retained in the offline buffer when transport backends are unavailable.
+	DefaultOfflineBufferMaxEntries = 10000
+
+	// DefaultDeadLetterMaxLen is the maximum number of entries in the
+	// engine's dead-letter queue for data points that could not be processed.
+	DefaultDeadLetterMaxLen = 1000
 )

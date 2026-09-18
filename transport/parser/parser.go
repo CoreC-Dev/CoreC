@@ -49,7 +49,7 @@ type Parser interface {
 //	"static-string"          →  literal value
 func New(settings map[string]any) (Parser, error) {
 	parserSettings := getMapSetting(settings, "parser")
-	ptype := getStringSetting(parserSettings, "type", "default")
+	ptype := util.GetStringSetting(parserSettings, "type", "default")
 
 	switch strings.ToLower(ptype) {
 	case "default", "":
@@ -160,14 +160,14 @@ type jsonPathParser struct {
 
 func newJSONPathParser(s map[string]any) (*jsonPathParser, error) {
 	p := &jsonPathParser{
-		driver:         getStringSetting(s, "driver", ""),
-		typeStr:        getStringSetting(s, "data-type", ""),
-		group:          getStringSetting(s, "group", ""),
-		device:         getStringSetting(s, "device", ""),
-		timestampFmt:   getStringSetting(s, "timestamp-format", "rfc3339"),
-		tagField:       parseField(getStringSetting(s, "tag", "")),
-		valueField:     parseField(getStringSetting(s, "value", "")),
-		timestampField: parseField(getStringSetting(s, "timestamp", "")),
+		driver:         util.GetStringSetting(s, "driver", ""),
+		typeStr:        util.GetStringSetting(s, "data-type", ""),
+		group:          util.GetStringSetting(s, "group", ""),
+		device:         util.GetStringSetting(s, "device", ""),
+		timestampFmt:   util.GetStringSetting(s, "timestamp-format", "rfc3339"),
+		tagField:       parseField(util.GetStringSetting(s, "tag", "")),
+		valueField:     parseField(util.GetStringSetting(s, "value", "")),
+		timestampField: parseField(util.GetStringSetting(s, "timestamp", "")),
 	}
 	return p, nil
 }
@@ -219,13 +219,13 @@ type rawParser struct {
 
 func newRawParser(s map[string]any) (*rawParser, error) {
 	return &rawParser{
-		driver:       getStringSetting(s, "driver", ""),
-		group:        getStringSetting(s, "group", ""),
-		device:       getStringSetting(s, "device", ""),
-		typeStr:      getStringSetting(s, "data-type", "float64"),
-		tag:          getStringSetting(s, "tag", ""),
+		driver:       util.GetStringSetting(s, "driver", ""),
+		group:        util.GetStringSetting(s, "group", ""),
+		device:       util.GetStringSetting(s, "device", ""),
+		typeStr:      util.GetStringSetting(s, "data-type", "float64"),
+		tag:          util.GetStringSetting(s, "tag", ""),
 		tagFromTopic: util.GetIntSetting(s, "tag-from-topic", 0),
-		timestampFmt: getStringSetting(s, "timestamp-format", "rfc3339"),
+		timestampFmt: util.GetStringSetting(s, "timestamp-format", "rfc3339"),
 	}, nil
 }
 
@@ -266,16 +266,6 @@ func getMapSetting(settings map[string]any, key string) map[string]any {
 		return v
 	}
 	return nil
-}
-
-func getStringSetting(s map[string]any, key, def string) string {
-	if s == nil {
-		return def
-	}
-	if v, ok := s[key].(string); ok {
-		return v
-	}
-	return def
 }
 
 // parseTplValueString tries to preserve the original JSON type from a

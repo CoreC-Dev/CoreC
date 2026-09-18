@@ -11,6 +11,18 @@ import (
 	"time"
 )
 
+// Fallback values used by ReconnectLoopWithBreakerCounted when the caller
+// passes non-positive backoff values. These mirror core.DefaultReconnectBackoff,
+// core.DefaultMaxReconnectBackoff, and core.DefaultCircuitBreakerBackoff but
+// are duplicated here because common/util cannot import core (that would
+// create a circular dependency: core is imported by the transports that use
+// these helpers). Keep these in sync with the core constants if they change.
+const (
+	defaultBackoffFallback       = 2 * time.Second
+	defaultMaxBackoffFallback    = 30 * time.Second
+	defaultCircuitBreakerBackoff = 5 * time.Minute
+)
+
 // GetIntSetting extracts an int from a settings map, falling back to
 // defaultVal if the key is missing or the value is not numeric.
 // YAML unmarshalling may produce int, uint64, int64, or float64
@@ -45,6 +57,17 @@ func GetDurationSetting(settings map[string]any, key string, defaultVal time.Dur
 // defaultVal if the key is missing or the value is not a bool.
 func GetBoolSetting(settings map[string]any, key string, defaultVal bool) bool {
 	if v, ok := settings[key].(bool); ok {
+		return v
+	}
+	return defaultVal
+}
+
+// GetStringSetting extracts a string from a settings map, falling back to
+// defaultVal if the key is missing or the value is not a string. YAML
+// unmarshalling produces a string for quoted scalar values, so only the
+// string kind is accepted; other types fall back to defaultVal.
+func GetStringSetting(settings map[string]any, key, defaultVal string) string {
+	if v, ok := settings[key].(string); ok {
 		return v
 	}
 	return defaultVal
@@ -279,14 +302,14 @@ func ReconnectLoopWithBreaker(ctx context.Context, name string, connect func() e
 func ReconnectLoopWithBreakerCounted(ctx context.Context, name string, connect func() error, initialBackoff, maxBackoff time.Duration, maxFailures int, counter *atomic.Uint64) {
 	backoff := initialBackoff
 	if backoff <= 0 {
-		backoff = 2 * time.Second
+		backoff = defaultBackoffFallback
 	}
 	if maxBackoff <= 0 {
-		maxBackoff = 30 * time.Second
+		maxBackoff = defaultMaxBackoffFallback
 	}
 
 	// Circuit breaker state.
-	const circuitBreakerBackoff = 5 * time.Minute
+	const circuitBreakerBackoff = defaultCircuitBreakerBackoff
 	failures := 0
 	breakerTripped := false
 

@@ -51,13 +51,14 @@ type offlineEntry struct {
 }
 
 // NewOfflineBuffer creates an OfflineBuffer rooted at dir.
-// If dir does not exist it is created. maxEntries <= 0 defaults to 10000.
+// If dir does not exist it is created. maxEntries <= 0 defaults to
+// core.DefaultOfflineBufferMaxEntries.
 func NewOfflineBuffer(dir string, maxEntries int) (*OfflineBuffer, error) {
 	if dir == "" {
 		return nil, fmt.Errorf("offline buffer: path is required")
 	}
 	if maxEntries <= 0 {
-		maxEntries = 10000
+		maxEntries = core.DefaultOfflineBufferMaxEntries
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("offline buffer: cannot create dir %q: %w", dir, err)

@@ -158,7 +158,7 @@ func New() core.Engine {
 		defaultTagInterval: core.DefaultTagInterval,
 		badQualityPolicy:   badQualityPublish,
 		writeRetryCount:    3,
-		deadLetterMaxLen:   1000,
+		deadLetterMaxLen:   core.DefaultDeadLetterMaxLen,
 		tagFileWatchers:    make(map[string]*tagFileWatcher),
 		driverConfigs:      make(map[string]core.DriverConfig),
 		readLatency:        metrics.NewLatencyHistogram(metrics.DefaultReadLatencyBuckets),
@@ -1405,9 +1405,9 @@ func (e *CoreCEngine) executeWriteWithRetry(cmd core.WriteCommand) {
 		}
 
 		if attempt < maxAttempts-1 {
-			delay := time.Duration(100*(1<<attempt)) * time.Millisecond // 100ms, 200ms, 400ms...
-			if delay > 2*time.Second {
-				delay = 2 * time.Second
+			delay := defaultRetryBaseDelay * time.Duration(1<<attempt) // 100ms, 200ms, 400ms...
+			if delay > defaultCommandRetryMaxDelay {
+				delay = defaultCommandRetryMaxDelay
 			}
 			slog.Warn("command write retry",
 				"driver", cmd.Driver, "tag", cmd.Tag,

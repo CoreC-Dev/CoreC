@@ -11,8 +11,9 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// Batcher retry defaults. These are internal constants; the retry count
-// itself is configurable via TransportConfig.RetryCount.
+// Internal retry/backoff and flush/drain timing defaults. The retry
+// counts themselves are configurable via TransportConfig.RetryCount
+// (batch publish) and CoreCEngine.writeRetryCount (command write).
 const (
 	defaultRetryBaseDelay = 100 * time.Millisecond
 	defaultRetryMaxDelay  = 5 * time.Second
@@ -21,6 +22,19 @@ const (
 	// defaultDrainInterval is how often the offline-buffer drain loop
 	// attempts to replay buffered batches.
 	defaultDrainInterval = 30 * time.Second
+
+	// defaultFlushInterval is the periodic flush interval used when an
+	// offline buffer is configured but no explicit FlushInterval is set,
+	// so buffered points are actually sent rather than accumulating
+	// indefinitely.
+	defaultFlushInterval = 5 * time.Second
+
+	// defaultCommandRetryMaxDelay caps the exponential backoff for
+	// command-write retries (CoreCEngine.executeWriteWithRetry). It is
+	// intentionally tighter than defaultRetryMaxDelay (used for batch
+	// publish) because command writes are user-initiated and should fail
+	// fast to the dead letter queue instead of blocking the command loop.
+	defaultCommandRetryMaxDelay = 2 * time.Second
 )
 
 // transportBatcher wraps a Transport to provide batch buffering,
@@ -80,7 +94,7 @@ func newTransportBatcher(t core.Transport, cfg core.TransportConfig, offlineBuff
 	// default to a periodic flush so buffered points are actually sent.
 	// Without this, points would accumulate in the buffer indefinitely.
 	if b.offlineBuffer != nil && b.flushInterval <= 0 {
-		b.flushInterval = 5 * time.Second
+		b.flushInterval = defaultFlushInterval
 	}
 
 	return b

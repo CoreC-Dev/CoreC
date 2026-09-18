@@ -34,6 +34,24 @@ const (
 	areaHoldingRegister                 // 4xxxx
 )
 
+// Modbus address range boundaries per the traditional 5-digit addressing
+// convention: 0xxxx coils, 1xxxx discrete inputs, 3xxxx input registers,
+// 4xxxx holding registers.
+const (
+	modbusCoilStart          = 1
+	modbusCoilEnd            = 9999
+	modbusDiscreteInputStart = 10001
+	modbusDiscreteInputEnd   = 19999
+	modbusInputRegisterStart = 30001
+	modbusInputRegisterEnd   = 39999
+	modbusHoldingRegStart    = 40001
+	modbusHoldingRegEnd      = 49999
+)
+
+// modbusMaxBatchSize is the Modbus protocol limit of 125 registers per
+// FC03/FC04 read request.
+const modbusMaxBatchSize = 125
+
 type addrInfo struct {
 	area areaType
 	addr uint16
@@ -128,7 +146,7 @@ func (b *modbusBase) initCommon(settings map[string]any, config core.DriverConfi
 	}
 	b.retryBackoff = util.GetDurationSetting(settings, "reconnect-interval", core.DefaultReconnectBackoff)
 	b.maxReconnectBackoff = util.GetDurationSetting(settings, "reconnect-max-interval", core.DefaultMaxReconnectBackoff)
-	b.maxReconnectFailures = util.GetIntSetting(settings, "max-reconnect-failures", 20)
+	b.maxReconnectFailures = util.GetIntSetting(settings, "max-reconnect-failures", core.DefaultMaxReconnectFailures)
 
 	// Register tags and parse addresses
 	for _, tag := range config.Tags {
@@ -544,7 +562,7 @@ func (b *modbusBase) performBatchReads(client *mb.ModbusClient, reqs []batchTagR
 
 	maxBatch := uint16(b.Capabilities().MaxBatchSize)
 	if maxBatch == 0 {
-		maxBatch = 125
+		maxBatch = modbusMaxBatchSize
 	}
 
 	// Group batchable tag indices by area.
@@ -846,7 +864,7 @@ func (b *modbusBase) Capabilities() core.DriverCapabilities {
 		CanWrite:     true,
 		CanSubscribe: false,
 		BatchRead:    true,
-		MaxBatchSize: 125, // Modbus FC03 max 125 registers per request (protocol limit)
+		MaxBatchSize: modbusMaxBatchSize, // Modbus FC03 max 125 registers per request (protocol limit)
 	}
 }
 
@@ -880,14 +898,14 @@ func parseModbusAddress(addr string) (addrInfo, error) {
 	}
 
 	switch {
-	case num >= 40001 && num <= 49999:
-		return addrInfo{area: areaHoldingRegister, addr: uint16(num - 40001)}, nil
-	case num >= 30001 && num <= 39999:
-		return addrInfo{area: areaInputRegister, addr: uint16(num - 30001)}, nil
-	case num >= 10001 && num <= 19999:
-		return addrInfo{area: areaDiscreteInput, addr: uint16(num - 10001)}, nil
-	case num >= 1 && num <= 9999:
-		return addrInfo{area: areaCoil, addr: uint16(num - 1)}, nil
+	case num >= modbusHoldingRegStart && num <= modbusHoldingRegEnd:
+		return addrInfo{area: areaHoldingRegister, addr: uint16(num - modbusHoldingRegStart)}, nil
+	case num >= modbusInputRegisterStart && num <= modbusInputRegisterEnd:
+		return addrInfo{area: areaInputRegister, addr: uint16(num - modbusInputRegisterStart)}, nil
+	case num >= modbusDiscreteInputStart && num <= modbusDiscreteInputEnd:
+		return addrInfo{area: areaDiscreteInput, addr: uint16(num - modbusDiscreteInputStart)}, nil
+	case num >= modbusCoilStart && num <= modbusCoilEnd:
+		return addrInfo{area: areaCoil, addr: uint16(num - modbusCoilStart)}, nil
 	default:
 		// Also support raw register addresses (0-based)
 		return addrInfo{area: areaHoldingRegister, addr: uint16(num)}, nil
