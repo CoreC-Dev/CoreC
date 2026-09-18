@@ -14,8 +14,6 @@ var DefaultManager = NewManager()
 
 // Manager collects read/publish/error counters.
 type Manager struct {
-	readTemp     atomic.Int64
-	publishTemp  atomic.Int64
 	readTotal    atomic.Int64
 	publishTotal atomic.Int64
 	errorTotal   atomic.Int64
@@ -28,13 +26,11 @@ func NewManager() *Manager {
 
 // PushRead increments the read counter.
 func (m *Manager) PushRead(count int64) {
-	m.readTemp.Add(count)
 	m.readTotal.Add(count)
 }
 
 // PushPublish increments the publish counter.
 func (m *Manager) PushPublish(count int64) {
-	m.publishTemp.Add(count)
 	m.publishTotal.Add(count)
 }
 

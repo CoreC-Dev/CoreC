@@ -2,12 +2,35 @@ package trace
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 )
+
+// withDebugLogger replaces slog's default logger with one that enables
+// debug-level records, restoring the previous logger when the test ends.
+// Start only allocates a real Span when debug logging is enabled, so tests
+// that exercise Span fields must opt in.
+func withDebugLogger(t *testing.T) {
+	t.Helper()
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+}
+
+// withInfoLogger replaces slog's default logger with one that disables
+// debug-level records (the project default), restoring the previous logger
+// when the test ends.
+func withInfoLogger(t *testing.T) {
+	t.Helper()
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+}
 
 func TestNewTraceID(t *testing.T) {
 	id1 := NewTraceID()
@@ -34,10 +57,14 @@ func TestTraceIDContext(t *testing.T) {
 }
 
 func TestSpanStartEnd(t *testing.T) {
+	withDebugLogger(t)
 	ctx := context.Background()
 	ctx, span := Start(ctx, "test.operation")
 	if span == nil {
 		t.Fatal("span should not be nil")
+	}
+	if span == noopSpan {
+		t.Fatal("Start should allocate a real span when debug logging is enabled")
 	}
 	if TraceIDFromContext(ctx) == "" {
 		t.Error("context should have a trace ID after Start")
@@ -53,6 +80,7 @@ func TestSpanStartEnd(t *testing.T) {
 }
 
 func TestSpanWithExistingTraceID(t *testing.T) {
+	withDebugLogger(t)
 	ctx := context.Background()
 	traceID := "existing-trace-id"
 	ctx = WithTraceID(ctx, traceID)
@@ -63,32 +91,61 @@ func TestSpanWithExistingTraceID(t *testing.T) {
 	span.End()
 }
 
-func TestContextWithTrace(t *testing.T) {
-	ctx := context.Background()
-	ctx, traceID := ContextWithTrace(ctx)
-	if traceID == "" {
-		t.Error("trace ID should not be empty")
-	}
-	if TraceIDFromContext(ctx) != traceID {
-		t.Error("context should carry the trace ID")
-	}
-
-	// Second call should reuse existing trace ID
-	ctx2, traceID2 := ContextWithTrace(ctx)
-	if traceID2 != traceID {
-		t.Error("ContextWithTrace should reuse existing trace ID")
-	}
-	_ = ctx2
-}
-
 func TestSpanDuration(t *testing.T) {
+	withDebugLogger(t)
 	ctx := context.Background()
 	_, span := Start(ctx, "timed.operation")
+	if span == noopSpan {
+		t.Fatal("Start should allocate a real span when debug logging is enabled")
+	}
 	time.Sleep(2 * time.Millisecond)
 	span.End()
 	if !span.ended.Load() {
 		t.Error("span should be marked as ended")
 	}
+}
+
+// TestStartNoopWhenDebugDisabled verifies that when debug logging is disabled
+// (the project default), Start returns the shared no-op Span without modifying
+// the context, so the hot readFromDriver path pays no allocation cost.
+func TestStartNoopWhenDebugDisabled(t *testing.T) {
+	withInfoLogger(t)
+	ctx := context.Background()
+	out, span := Start(ctx, "noop.operation")
+	if span != noopSpan {
+		t.Fatal("expected shared noopSpan when debug logging is disabled")
+	}
+	if out != ctx {
+		t.Error("context should be unchanged when debug logging is disabled")
+	}
+	if TraceIDFromContext(out) != "" {
+		t.Error("no trace ID should be propagated when debug logging is disabled")
+	}
+	if SpanNameFromContext(out) != "" {
+		t.Error("no span name should be propagated when debug logging is disabled")
+	}
+	// SetAttr and End must be safe no-ops on the shared pre-ended span.
+	span.SetAttr("key", "value")
+	span.End()
+	span.End()
+	if !span.ended.Load() {
+		t.Error("noopSpan should remain ended")
+	}
+}
+
+// TestSetAttrNoopOnEndedSpan verifies SetAttr is a no-op once a span has ended.
+func TestSetAttrNoopOnEndedSpan(t *testing.T) {
+	withDebugLogger(t)
+	ctx := context.Background()
+	_, span := Start(ctx, "ended.operation")
+	span.End()
+	// After End, SetAttr must not append (span is ended).
+	span.SetAttr("late", "attr")
+	span.mu.Lock()
+	if len(span.attrs) != 0 {
+		t.Errorf("expected no attrs after End, got %d", len(span.attrs))
+	}
+	span.mu.Unlock()
 }
 
 func TestParseTraceparent(t *testing.T) {

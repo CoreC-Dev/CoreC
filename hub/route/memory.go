@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"runtime"
+	"runtime/metrics"
 	"time"
 
 	"github.com/coder/websocket"
@@ -33,14 +34,27 @@ func getMemory(w http.ResponseWriter, r *http.Request) {
 			c.Close(websocket.StatusNormalClosure, "")
 			return
 		case <-ticker.C:
-			var mem runtime.MemStats
-			runtime.ReadMemStats(&mem)
+			// runtime/metrics.Read collects runtime statistics without
+			// triggering a Stop-The-World pause. The previous
+			// runtime.ReadMemStats call forced a STW on every push (default
+			// once per second) per connected client, producing latency
+			// spikes proportional to the client count. Each metric below is
+			// the exact runtime.ReadMemStats analog: heap objects bytes ==
+			// HeapAlloc, total allocs == TotalAlloc, total memory class ==
+			// Sys, completed GC cycles == NumGC.
+			samples := []metrics.Sample{
+				{Name: "/memory/classes/heap/objects:bytes"},
+				{Name: "/gc/heap/allocs:bytes"},
+				{Name: "/memory/classes/total:bytes"},
+				{Name: "/gc/cycles/total:gc-cycles"},
+			}
+			metrics.Read(samples)
 			wctx, cancel := context.WithTimeout(ctx, wsWriteTimeout)
 			if err := wsjson.Write(wctx, c, map[string]any{
-				"alloc":       mem.Alloc,
-				"total_alloc": mem.TotalAlloc,
-				"sys":         mem.Sys,
-				"num_gc":      mem.NumGC,
+				"alloc":       samples[0].Value.Uint64(),
+				"total_alloc": samples[1].Value.Uint64(),
+				"sys":         samples[2].Value.Uint64(),
+				"num_gc":      samples[3].Value.Uint64(),
 				"goroutines":  runtime.NumGoroutine(),
 			}); err != nil {
 				cancel()

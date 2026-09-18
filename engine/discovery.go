@@ -27,6 +27,10 @@ type nodeInfo struct {
 	Publish   *endpoint `json:"publish,omitempty"` // how others receive data FROM this node
 	Receive   *endpoint `json:"receive,omitempty"` // how others send data TO this node
 	Timestamp int64     `json:"ts"`
+
+	// lastSeen is the receiver-local time of the most recent heartbeat
+	// from this node. Used for TTL-based eviction of stale entries.
+	lastSeen time.Time `json:"-"`
 }
 
 // endpoint describes a data channel.
@@ -207,6 +211,7 @@ func (d *Discovery) onDiscoveryMessage(client pahomqtt.Client, msg pahomqtt.Mess
 	}
 
 	d.regMu.Lock()
+	info.lastSeen = time.Now()
 	d.registry[info.ID] = &info
 	d.regMu.Unlock()
 
@@ -236,6 +241,32 @@ func (d *Discovery) reconcileLoop() {
 // reconcile checks each subscribed upstream and auto-adds a transport
 // if the upstream is discovered on a broker we're connected to.
 func (d *Discovery) reconcile() {
+	d.regMu.Lock()
+	// Evict stale nodes: remove entries not seen in 3 heartbeat intervals.
+	// 3 missed heartbeats indicates the node is gone (restarted with a new
+	// ID, crashed, or lost connectivity).
+	evictThreshold := time.Now().Add(-time.Duration(defaultHeartbeatSecs*3) * time.Second)
+	for id, info := range d.registry {
+		if !info.lastSeen.Before(evictThreshold) {
+			continue
+		}
+		delete(d.registry, id)
+		slog.Debug("discovery: evicted stale node", "node_id", id)
+
+		// Clean up any autoAdded entries for this node's upstream IDs.
+		// The autoAdded key format is "broker|upstreamID". The node may
+		// be an upstream to us, so scan for keys ending in "|<id>".
+		d.addedMu.Lock()
+		suffix := "|" + id
+		for key := range d.autoAdded {
+			if strings.HasSuffix(key, suffix) {
+				delete(d.autoAdded, key)
+			}
+		}
+		d.addedMu.Unlock()
+	}
+	d.regMu.Unlock()
+
 	d.regMu.RLock()
 	// Snapshot registry to avoid holding the lock while adding transports.
 	snapshot := make(map[string]*nodeInfo, len(d.registry))

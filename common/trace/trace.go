@@ -70,10 +70,29 @@ type Span struct {
 	ended     atomic.Bool
 }
 
+// noopSpan is a shared, pre-ended Span returned by Start when debug-level
+// logging is disabled. Because it is already ended, End and SetAttr are
+// no-ops, so the hot readFromDriver path avoids allocating a *Span and the
+// spanKey valueCtx on every driver read.
+var noopSpan = func() *Span {
+	s := &Span{}
+	s.ended.Store(true)
+	return s
+}()
+
 // Start creates a new span within the trace identified by the context.
 // If no trace ID is in the context, a new one is generated.
 // The returned context carries both the trace ID and span name.
+//
+// When slog's debug level is disabled (the default), Start short-circuits: it
+// returns the original context unchanged together with the shared no-op Span,
+// avoiding the *Span and spanKey valueCtx allocations. The trace ID is only
+// consumed by the debug log emitted on End, so propagating it when debug
+// logging is off would be wasted work on the readFromDriver hot path.
 func Start(ctx context.Context, name string) (context.Context, *Span) {
+	if !slog.Default().Enabled(context.Background(), slog.LevelDebug) {
+		return ctx, noopSpan
+	}
 	traceID := TraceIDFromContext(ctx)
 	if traceID == "" {
 		traceID = NewTraceID()
@@ -89,7 +108,12 @@ func Start(ctx context.Context, name string) (context.Context, *Span) {
 }
 
 // SetAttr adds a key-value attribute to the span.
+// It is a no-op on an ended span, including the shared no-op Span returned by
+// Start when debug logging is disabled.
 func (s *Span) SetAttr(key string, value any) {
+	if s.ended.Load() {
+		return
+	}
 	s.mu.Lock()
 	s.attrs = append(s.attrs, slog.Any(key, value))
 	s.mu.Unlock()
@@ -99,6 +123,12 @@ func (s *Span) SetAttr(key string, value any) {
 // Calling End more than once is a no-op.
 func (s *Span) End() {
 	if !s.ended.CompareAndSwap(false, true) {
+		return
+	}
+	// Defense-in-depth: Start() already short-circuits when debug logging is
+	// disabled, but a Span created via another path (or a default logger
+	// reconfigured after Start) should still avoid building the args slice.
+	if !slog.Default().Enabled(context.Background(), slog.LevelDebug) {
 		return
 	}
 	duration := time.Since(s.startTime)
@@ -125,16 +155,4 @@ func SpanNameFromContext(ctx context.Context) string {
 		return ""
 	}
 	return v
-}
-
-// ContextWithTrace returns a context that has a trace ID, generating
-// one if the parent context doesn't already have one. This is useful
-// at pipeline entry points (e.g., when a driver reads data).
-func ContextWithTrace(ctx context.Context) (outCtx context.Context, traceID string) {
-	traceID = TraceIDFromContext(ctx)
-	if traceID == "" {
-		traceID = NewTraceID()
-		ctx = WithTraceID(ctx, traceID)
-	}
-	return ctx, traceID
 }

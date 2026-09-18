@@ -16,6 +16,11 @@ type DataBus struct {
 	mu          sync.RWMutex
 	closed      bool
 
+	// subCount tracks the number of active subscribers so Broadcast can
+	// take a fast path (no lock) when there is nobody to deliver to. It is
+	// maintained atomically alongside the subscribers slice under b.mu.
+	subCount atomic.Int64
+
 	// dropped counts messages silently dropped because a subscriber's
 	// buffer was full (slow subscriber). Read via Dropped().
 	dropped atomic.Int64
@@ -106,6 +111,7 @@ func (b *DataBus) SubscribeWithBuffer(filter string, size int) (events <-chan co
 	ch := make(chan core.DataPoint, size)
 	b.mu.Lock()
 	b.subscribers = append(b.subscribers, subscriber{filter: filter, ch: ch})
+	b.subCount.Add(1)
 	b.mu.Unlock()
 
 	unsub = func() {
@@ -117,6 +123,7 @@ func (b *DataBus) SubscribeWithBuffer(filter string, size int) (events <-chan co
 					close(sub.ch)
 				}
 				b.subscribers = append(b.subscribers[:i], b.subscribers[i+1:]...)
+				b.subCount.Add(-1)
 				break
 			}
 		}
@@ -128,6 +135,13 @@ func (b *DataBus) SubscribeWithBuffer(filter string, size int) (events <-chan co
 // Subscribers with a non-empty filter only receive points whose Driver
 // matches the filter; an empty filter receives all points.
 func (b *DataBus) Broadcast(point core.DataPoint) {
+	// Fast path: no subscribers, skip the lock entirely. This runs on
+	// every DataPoint, so avoiding the RLock when nobody is listening is
+	// a meaningful win. subCount is maintained atomically alongside the
+	// subscribers slice under b.mu.
+	if b.subCount.Load() == 0 {
+		return
+	}
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	for _, sub := range b.subscribers {
