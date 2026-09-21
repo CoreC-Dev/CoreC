@@ -18,3 +18,36 @@
   --vp-c-brand-3: #7fd0b8;
   --vp-c-brand-soft: rgba(84, 184, 156, 0.16);
 }
+
+/* 侧边栏左下角装饰动图：左下顶点溢出 sidebar 边界，其余显示在侧边栏内。
+   .VPSidebar 的 transform 使其成为 fixed 的 containing block，
+   故 fixed 锚定的是 sidebar 而非视口；overflow: visible 让溢出可见。 */
+.VPSidebar {
+  overflow: visible !important;
+}
+
+.VPSidebar::after {
+  content: '';
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  width: 640px;
+  height: 640px;
+  background: url('/logo-animated.svg') no-repeat left bottom / contain;
+  transform: translate(-22%, 24%);
+  opacity: 0.22;
+  pointer-events: none;
+  user-select: none;
+  z-index: 0;
+}
+
+.dark .VPSidebar::after {
+  opacity: 0.27;
+}
+
+@media (max-width: 960px) {
+  .VPSidebar::after {
+    width: 340px;
+    height: 340px;
+  }
+}
