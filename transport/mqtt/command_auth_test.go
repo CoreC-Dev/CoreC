@@ -3,6 +3,7 @@ package mqtt
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/CoreC-Dev/CoreC/core"
 )
@@ -224,5 +225,89 @@ func TestMQTTCommandSecretConfigParsing(t *testing.T) {
 	})
 	if mtr.commandSecret != "shh" {
 		t.Errorf("commandSecret: got %q, want shh", mtr.commandSecret)
+	}
+}
+
+// TestMQTTCommandChannelFullDivertsToDeadLetter verifies that when the
+// command channel is full, an incoming command is NOT silently dropped:
+// the dropped-commands counter increments and the command is recorded in
+// the transport-local dead-letter store (bounded, inspectable). The paho
+// message callback stays non-blocking throughout.
+func TestMQTTCommandChannelFullDivertsToDeadLetter(t *testing.T) {
+	// Build a transport with a 1-slot command channel so we can fill it
+	// with a single message. BufferSize maps to commandCh capacity.
+	mtr := newInitdTransport(t, "dlq-test", map[string]any{
+		"broker":         "tcp://127.0.0.1:1883",
+		"command-topic":  "commands/+/set",
+		"command-secret": "secret",
+	})
+	// Force a tiny channel by replacing commandCh after construction.
+	mtr.commandCh = make(chan core.WriteCommand, 1)
+
+	// Each command uses a distinct timestamp so the replay cache does not
+	// reject them as duplicates (only the ingress overflow path is under
+	// test here, not replay protection).
+	base := time.Now().UnixMilli()
+	payload1 := buildSignedCommand("secret", base, true)
+	payload2 := buildSignedCommand("secret", base+1, true)
+
+	// First message fills the single slot (not drained).
+	mtr.handleCommandMessage("commands/opc/set", payload1)
+	// Second message overflows the full channel.
+	mtr.handleCommandMessage("commands/opc/set", payload2)
+
+	// The dropped counter must reflect exactly one diversion.
+	if got := mtr.Status().DroppedCommands; got != 1 {
+		t.Fatalf("DroppedCommands = %d, want 1", got)
+	}
+
+	// The dead-letter store must hold one entry whose Error describes the
+	// ingress overflow and whose Command is the signed WriteCommand.
+	entries := mtr.CommandDeadLetterEntries()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 dead-letter entry, got %d", len(entries))
+	}
+	if entries[0].Error != "command channel full at ingress" {
+		t.Errorf("dead-letter error = %q, want ingress overflow message", entries[0].Error)
+	}
+	if entries[0].Command.Tag != "setpoint" {
+		t.Errorf("dead-letter command tag = %q, want setpoint", entries[0].Command.Tag)
+	}
+	if entries[0].Attempts != 0 {
+		t.Errorf("dead-letter attempts = %d, want 0 (not yet retried)", entries[0].Attempts)
+	}
+
+	// The original queued command is still deliverable (not lost).
+	if got := drainCommand(mtr); got == nil {
+		t.Fatal("expected the queued command to still be deliverable")
+	}
+}
+
+// TestMQTTCommandDeadLetterBound verifies that the transport-local
+// dead-letter store evicts the oldest entry when it exceeds its bound, so
+// memory stays bounded under sustained ingress overflow.
+func TestMQTTCommandDeadLetterBound(t *testing.T) {
+	mtr := newInitdTransport(t, "dlq-bound", map[string]any{
+		"broker":         "tcp://127.0.0.1:1883",
+		"command-topic":  "commands/+/set",
+		"command-secret": "secret",
+	})
+	mtr.commandCh = make(chan core.WriteCommand, 1)
+	mtr.commandDeadLetterMax = 3 // small bound for a fast test
+
+	base := time.Now().UnixMilli()
+	// Fill the slot, then overflow 5 times with distinct timestamps so
+	// replay protection does not short-circuit before the ingress overflow.
+	mtr.handleCommandMessage("commands/opc/set", buildSignedCommand("secret", base, true))
+	for i := 0; i < 5; i++ {
+		mtr.handleCommandMessage("commands/opc/set", buildSignedCommand("secret", base+int64(i+1), true))
+	}
+
+	entries := mtr.CommandDeadLetterEntries()
+	if len(entries) != 3 {
+		t.Fatalf("dead-letter store len = %d, want 3 (bounded)", len(entries))
+	}
+	if got := mtr.Status().DroppedCommands; got != 5 {
+		t.Fatalf("DroppedCommands = %d, want 5", got)
 	}
 }

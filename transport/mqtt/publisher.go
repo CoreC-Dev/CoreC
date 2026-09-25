@@ -93,9 +93,22 @@ type MQTTTransport struct {
 	failed      atomic.Uint64
 	received    atomic.Uint64
 	lastPublish time.Time
+	// droppedCommands counts write commands dropped because commandCh was
+	// full at ingress. Exposed via Status() for observability.
+	droppedCommands atomic.Uint64
 
 	// Command channel (for receiving write commands via MQTT subscriptions)
 	commandCh chan core.WriteCommand
+
+	// commandDeadLetter holds commands that could not be enqueued because
+	// commandCh was full. Bounded by commandDeadLetterMax; oldest entries
+	// are evicted when full. This is a transport-local last-resort store —
+	// the paho message callback MUST stay non-blocking (see
+	// handleCommandMessage), so this store is a mutex-guarded slice, not a
+	// blocking channel. Entries are inspectable for operator replay.
+	commandDeadLetterMu  sync.Mutex
+	commandDeadLetter    []core.DeadLetterEntry
+	commandDeadLetterMax int
 
 	// Data channel (for receiving data points via MQTT subscriptions — chained core)
 	dataCh chan core.DataPoint
@@ -184,11 +197,12 @@ func NewMQTTTransport(config core.TransportConfig) (core.Transport, error) {
 		bufSize = core.DefaultCommandBufferSize
 	}
 	t := &MQTTTransport{
-		name:      config.Name,
-		config:    config,
-		state:     core.StateDisconnected,
-		commandCh: make(chan core.WriteCommand, bufSize),
-		dataCh:    make(chan core.DataPoint, bufSize),
+		name:                 config.Name,
+		config:               config,
+		state:                core.StateDisconnected,
+		commandCh:            make(chan core.WriteCommand, bufSize),
+		dataCh:               make(chan core.DataPoint, bufSize),
+		commandDeadLetterMax: core.DefaultDeadLetterMaxLen,
 	}
 	return t, nil
 }
@@ -664,9 +678,46 @@ func (t *MQTTTransport) handleCommandMessage(topic string, payload []byte) {
 	select {
 	case t.commandCh <- cmd:
 	default:
-		slog.Warn("mqtt command channel full, dropping command",
+		// commandCh is full. The paho message callback MUST stay
+		// non-blocking (Order=true dispatches callbacks serially on a
+		// single goroutine; blocking would stall the inbound pipeline and
+		// risk a broker disconnect via keepalive timeout). So instead of
+		// blocking for backpressure, we record the command in a
+		// transport-local bounded dead-letter store for operator
+		// inspection and bump a dropped-commands counter.
+		t.droppedCommands.Add(1)
+		t.addCommandDeadLetter(core.DeadLetterEntry{
+			Command:  cmd,
+			Error:    "command channel full at ingress",
+			FailedAt: time.Now(),
+		})
+		slog.Warn("mqtt command channel full, command diverted to dead-letter store",
 			"driver", cmd.Driver, "tag", cmd.Tag)
 	}
+}
+
+// addCommandDeadLetter appends a dead-letter entry for a command that could
+// not be enqueued, evicting the oldest entry when the store is full. It is
+// mutex-guarded and never blocks (bounded slice, no I/O).
+func (t *MQTTTransport) addCommandDeadLetter(entry core.DeadLetterEntry) {
+	t.commandDeadLetterMu.Lock()
+	defer t.commandDeadLetterMu.Unlock()
+	t.commandDeadLetter = append(t.commandDeadLetter, entry)
+	if len(t.commandDeadLetter) > t.commandDeadLetterMax {
+		t.commandDeadLetter = t.commandDeadLetter[len(t.commandDeadLetter)-t.commandDeadLetterMax:]
+	}
+}
+
+// CommandDeadLetterEntries returns a copy of the transport-local dead-letter
+// entries for commands dropped at ingress (command channel full). It is
+// intended for operator inspection / replay tooling and is not part of the
+// core.Transport interface (callers type-assert to *MQTTTransport).
+func (t *MQTTTransport) CommandDeadLetterEntries() []core.DeadLetterEntry {
+	t.commandDeadLetterMu.Lock()
+	defer t.commandDeadLetterMu.Unlock()
+	cp := make([]core.DeadLetterEntry, len(t.commandDeadLetter))
+	copy(cp, t.commandDeadLetter)
+	return cp
 }
 
 // extractCommandSignature pulls the signature from a command JSON
@@ -1012,14 +1063,15 @@ func (t *MQTTTransport) Status() core.TransportStatus {
 	}
 
 	return core.TransportStatus{
-		Name:        t.name,
-		Type:        TypeName,
-		State:       t.state,
-		Published:   t.published.Load(),
-		Failed:      t.failed.Load(),
-		Received:    t.received.Load(),
-		LastPublish: t.lastPublish,
-		QueueSize:   queueSize,
+		Name:            t.name,
+		Type:            TypeName,
+		State:           t.state,
+		Published:       t.published.Load(),
+		Failed:          t.failed.Load(),
+		Received:        t.received.Load(),
+		LastPublish:     t.lastPublish,
+		QueueSize:       queueSize,
+		DroppedCommands: t.droppedCommands.Load(),
 	}
 }
 
