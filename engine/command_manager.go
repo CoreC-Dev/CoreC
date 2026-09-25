@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"time"
 
 	"github.com/CoreC-Dev/CoreC/core"
@@ -118,6 +119,13 @@ func (e *CoreCEngine) forwardCommand(ctx context.Context, cmd core.WriteCommand)
 		transports = append(transports, t)
 	}
 	e.mu.RUnlock()
+
+	// Sort by transport name for deterministic forwarding order. Without this,
+	// map iteration randomization makes the forwarder chain order non-deterministic,
+	// which causes flaky tests and makes operational behavior unpredictable.
+	sort.Slice(transports, func(i, j int) bool {
+		return transports[i].Name() < transports[j].Name()
+	})
 
 	for _, t := range transports {
 		forwarder, ok := t.(core.CommandForwarder)

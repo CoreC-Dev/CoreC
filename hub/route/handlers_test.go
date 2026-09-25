@@ -63,6 +63,18 @@ func (m *mockEngineV2) SetRuleDisabled(index int, disabled bool) error {
 	return nil
 }
 
+// Subscribe satisfies core.EventSubscriber. Returns a closed channel and a
+// no-op unsubscribe so WebSocket stream tests don't panic on the nil embedded
+// core.Engine interface.
+func (m *mockEngineV2) Subscribe(filter string) (ch <-chan core.DataPoint, unsub func()) {
+	bidir := make(chan core.DataPoint)
+	close(bidir)
+	return bidir, func() {}
+}
+
+// OnAlert satisfies core.EventSubscriber.
+func (m *mockEngineV2) OnAlert(handler func(point core.DataPoint, rule core.Rule)) {}
+
 func newTestServer(secret string, eng core.Engine) *httptest.Server {
 	SetEngine(eng)
 	return httptest.NewServer(router(secret, nil, 0, true))
