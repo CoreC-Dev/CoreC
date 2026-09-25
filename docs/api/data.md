@@ -34,7 +34,7 @@ GET /tags
       "group": "g1",
       "tag": "temperature",
       "value": 42.5,
-      "type": 10,
+      "type": "float64",
       "quality": 0,
       "timestamp": "2024-09-08T10:30:00.123456789Z"
     },
@@ -44,7 +44,7 @@ GET /tags
       "group": "g1",
       "tag": "motor_speed",
       "value": 1500,
-      "type": 3,
+      "type": "int32",
       "quality": 0,
       "timestamp": "2024-09-08T10:30:00.987654321Z"
     }
@@ -65,7 +65,7 @@ GET /tags
 | `group` | string | 采集分组名称 |
 | `tag` | string | 标签名称 |
 | `value` | any | 标签值 |
-| `type` | int | 数据类型枚举（`DataType` 为 `int`，无自定义 `MarshalJSON`，按整数序列化）：`0=bool, 1=int8, 2=int16, 3=int32, 4=int64, 5=uint8, 6=uint16, 7=uint32, 8=uint64, 9=float32, 10=float64, 11=string, 12=bytes` |
+| `type` | string | 数据类型枚举（`DataType` 实现了自定义 `MarshalJSON`/`UnmarshalJSON`）：序列化为可读字符串 `bool, int8, int16, int32, int64, uint8, uint16, uint32, uint64, float32, float64, string, bytes`。反序列化同时接受字符串（如 `"float32"`）和历史整数形式（`9` = float32） |
 | `quality` | int | 数据质量枚举（`Quality` 为 `int`，按整数序列化）：`0=good, 1=bad, 2=uncertain` |
 | `timestamp` | string (RFC 3339) | 采集时间戳 |
 | `is_stale` | bool | 数据是否陈旧（超过引擎 `stale-threshold` 未更新），仅在启用陈旧检测时出现 |
@@ -99,7 +99,7 @@ Content-Type: application/json
   "device": "192.168.1.10",
   "tag": "setpoint",
   "value": 50.0,
-  "type": 10
+  "type": "float64"
 }
 ```
 
@@ -109,7 +109,7 @@ Content-Type: application/json
 | `device` | string | 否 | 目标设备标识（当前未使用，保留字段） |
 | `tag` | string | 是 | 目标标签名称 |
 | `value` | any | 是 | 待写入的值 |
-| `type` | int | 是 | 值的数据类型枚举（`DataType` 为 `int`，同 `DataPoint.type`）：`0=bool, …, 10=float64, 11=string, 12=bytes` |
+| `type` | string \| int | 是 | 值的数据类型。接受可读字符串（如 `"float32"`，推荐）或历史整数形式（`10` = float64）。完整映射：`bool=0, int8=1, int16=2, int32=3, int64=4, uint8=5, uint16=6, uint32=7, uint64=8, float32=9, float64=10, string=11, bytes=12` |
 
 ::: warning 请求体限制
 请求体最大 1 MiB。超出限制时，JSON 解码将失败并返回 `400 Bad Request`。
@@ -163,7 +163,7 @@ curl -X POST http://localhost:9090/write \
     "device": "192.168.1.10",
     "tag": "setpoint",
     "value": 50.0,
-    "type": 10
+    "type": "float64"
   }'
 ```
 
@@ -176,7 +176,7 @@ curl -X POST http://localhost:9090/write \
     "device": "192.168.1.10",
     "tag": "motor_enable",
     "value": true,
-    "type": 0
+    "type": "bool"
   }'
 ```
 
@@ -189,7 +189,7 @@ curl -X POST http://localhost:9090/write \
     "device": "192.168.1.20",
     "tag": "target_speed",
     "value": 3000,
-    "type": 3
+    "type": "int32"
   }'
 ```
 
@@ -230,7 +230,7 @@ GET /write/failed
         "device": "192.168.1.10",
         "tag": "setpoint",
         "value": 50.0,
-        "type": 10
+        "type": "float64"
       },
       "error": "modbus: connection refused",
       "failed_at": "2024-09-08T10:30:05.123456789Z",

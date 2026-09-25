@@ -29,7 +29,8 @@
 # See docs/guide/chained-core.md → "拓扑自动发现" for details.
 node:
   id: edge-A                    # unique node identifier
-  role: collector               # collector | relay | aggregator | sink
+  role: collector               # informational only: collector | relay | aggregator | sink
+                                # included in heartbeat/discovery metadata; not enforced by the engine
   # subscribe: [upstream-1]     # upstream node IDs to receive from (relay/sink only)
   # topic-prefix: topo          # default "topo"; auto topics use {prefix}/{node-id}/data/...
 
@@ -70,16 +71,18 @@ global:
     ## engine's readFromDriver step and logged at debug level via slog.
     ## No OTLP export backend is configured; spans are log-based only.
 
-  ## Engine tuning (optional, defaults shown)
+  ## Engine tuning (optional — all fields have built-in defaults; uncomment to override)
   engine:
-    data-bus-size: 8192          # internal data bus channel capacity
-    workers: 4                   # worker goroutines for processing
-    shutdown-timeout: 30s        # graceful shutdown deadline
-    error-throttle-window: 10s   # suppress repeated error logs within this window
-    default-tag-interval: 1s     # fallback interval for tags without explicit interval
-    # on-bad-quality: mark-and-publish  # bad quality policy: publish|drop|mark-and-publish|alert
-    # stale-threshold: 30s              # mark cached values as is_stale if not updated within this duration
-    # write-retry-count: 3              # write command retry count before entering dead letter queue
+    data-bus-size: 8192          # internal data bus channel capacity (default 8192)
+    # workers: 0                 # worker goroutines for processing (default: 0 = runtime.NumCPU())
+    shutdown-timeout: 30s        # graceful shutdown deadline (default 30s)
+    error-throttle-window: 10s   # suppress repeated error logs within this window (default 10s)
+    default-tag-interval: 1s     # fallback interval for tags without explicit interval (default 1s)
+    # on-bad-quality: mark-and-publish  # bad quality policy: publish|drop|mark-and-publish|alert (default: publish)
+    # stale-threshold: 30s              # mark cached values as is_stale if not updated within this duration (default: disabled)
+    # write-retry-count: 3              # write command retry count before entering dead letter queue (default 3)
+    # command-concurrency: 16           # max parallel write commands; excess applies backpressure→dead-letter (default 16; set 1 for serial)
+    # high-priority-workers: 2          # dedicated workers for fast-interval tags (interval≤1s); isolated from bulk-read workers (default 2)
 
   ## Offline buffer (optional): persists failed publish batches to disk
   ## for replay after transport recovery. Enabled per-engine, applies to all
@@ -257,7 +260,10 @@ drivers:
       # security-mode: None      # None | Sign | SignAndEncrypt (可选)
       # username: "opc-user"     # 用户名认证（可选，未设置时匿名连接）
       # password: "opc-pass"     # 密码认证（可选）
+      # cert-file: /etc/corec/opcua/client.crt   # client certificate PEM (enables mTLS/SignAndEncrypt)
+      # key-file: /etc/corec/opcua/client.key    # client private key PEM (must pair with cert-file)
       # timeout: 5s
+      # subscription-interval: 500ms    # subscription publish interval (default 500ms, mode=subscription only)
       # subscription-buffer: 1024  # subscriber channel buffer (default 1024)
       # max-batch-size: 1000       # max nodes per read request (default 1000)
       # reconnect-interval: 2s
@@ -278,6 +284,14 @@ drivers:
 # ============================================================
 # Northbound Transports
 # Supports: mqtt, http
+#
+# IMPORTANT — field placement: batch-size, flush-interval, retry-count,
+# buffer-size, and fallback are TOP-LEVEL transport fields (siblings of
+# `settings`), NOT entries inside the `settings` map. Writing them inside
+# `settings` is a silent misconfiguration: they are ignored and the transport
+# falls back to synchronous single-point publishing with no error. Config
+# validation now fails fast on this mistake — see the correct indentation
+# in the examples below.
 #
 # Chained Core: transports can also act as data *consumers* (inbound).
 # Set "data-topic" (MQTT) or "webhook-addr" (HTTP) to receive data from
@@ -347,21 +361,33 @@ transports:
       ## --- Chained Core Inbound ---
       ## Subscribe to data from upstream CoreC instances or third-party MQTT publishers.
       ## The parser converts each message body into a DataPoint.
+      ## Three parser types are available — uncomment ONE block:
       # data-topic: "upstream/factory/#"
+
+      ## Parser type 1: "default" — json.Unmarshal(DataPoint), for CoreC→CoreC
       # parser:
-        # type: default          # "default" = json.Unmarshal(DataPoint), for CoreC→CoreC
-        # type: jsonpath       # for third-party JSON with different field names
-        # driver: "lora-gateway"
-        # tag: "{{ .payload.dev_id }}"
-        # value: "{{ .payload.temp }}"
-        # data-type: "float32"
-        # group: "sensors"
-        # timestamp: "{{ .payload.ts }}"
-        # timestamp-format: "unix"
-        # type: raw            # payload is the scalar value, tag from topic
-        # driver: "factory"
-        # tag-from-topic: 2    # use 2nd segment of MQTT topic as tag
-        # data-type: "float32"
+      #   type: default
+
+      ## Parser type 2: "jsonpath" — for third-party JSON with different field names
+      # parser:
+      #   type: jsonpath
+      #   driver: "lora-gateway"
+      #   tag: "{{ .payload.dev_id }}"
+      #   value: "{{ .payload.temp }}"
+      #   data-type: "float32"
+      #   group: "sensors"
+      #   timestamp: "{{ .payload.ts }}"
+      #   timestamp-format: "unix"
+
+      ## Parser type 3: "raw" — payload is the scalar value, tag derived from topic
+      # parser:
+      #   type: raw
+      #   driver: "factory"
+      #   tag-from-topic: 2    # use 2nd segment of MQTT topic as tag
+      #   data-type: "float32"
+      ## MQTT session and publish options (optional, defaults shown)
+      # clean-session: true       # MQTT clean session flag (default true)
+      # retained: false           # publish messages with MQTT retain flag (default false)
       ## MQTT operation timeouts (optional, defaults shown)
       # keep-alive: 60s
       # connect-timeout: 10s
@@ -369,15 +395,18 @@ transports:
       # subscribe-timeout: 5s
       # disconnect-quiesce: 1s
       # connect-retry-interval: 5s   ## ±20% jitter applied at init to prevent thundering-herd
-      ## Reconnect note: MQTT uses the paho client's built-in auto-reconnect
-      ## (auto-reconnect + connect-retry, exponential backoff handled by paho).
+      ## Reconnect: paho's built-in auto-reconnect is enabled by default.
+      ## These control paho's reconnect behavior (settable in settings):
+      # auto-reconnect: true         # enable automatic reconnect (default true)
+      # connect-retry: true          # retry connection on failure (default true)
       ## A ±20% jitter is applied to connect-retry-interval at init time to
       ## prevent thundering-herd when multiple transports reconnect after a
       ## broker outage. The circuit breaker that applies to DRIVERS does NOT apply
       ## to the MQTT transport.
-    # buffer-size: 100           # command/data channel capacity (default 100)
-    # batch-size: 50
-    # flush-interval: 1s
+    # buffer-size: 100           # command/data channel capacity (default 100) — TOP-LEVEL field, not inside settings
+    # batch-size: 50             # TOP-LEVEL field — must be a sibling of `settings`, not nested inside it
+    # flush-interval: 1s         # TOP-LEVEL field
+    # retry-count: 3             # TOP-LEVEL field — publish retry count before offline-buffer/drop (default 0 = no retry)
     # fallback: mes-http-push     # fallback transport name (optional, used when this transport fails)
 
   ## 2. HTTP Webhook / REST Push (MES / Data Lake API + Chained Inbound)
@@ -388,13 +417,13 @@ transports:
       method: POST
       # headers:
         # Authorization: "Bearer mes-secret-key"
-      timeout: 3s
+      timeout: 3s                                      # HTTP request timeout (default 5s)
       ## --- Chained Core Inbound ---
       ## Start a webhook server to receive data from upstream CoreC instances
       ## or third-party HTTP POST sources.  Each POST body is parsed into
       ## DataPoint(s) and fed into the engine's DataBus.
       # webhook-addr: "0.0.0.0:9091"
-      # webhook-path: "/ingest"
+      # webhook-path: "/ingest"                        # URL path for webhook (default "/data")
       ## Webhook authentication (recommended for production): when set, requests
       ## must carry "Authorization: Bearer <secret>" or "X-Webhook-Secret: <secret>".
       ## Empty = accept all requests (insecure, backward-compatible).
@@ -413,9 +442,10 @@ transports:
       # max-idle-conns: 100
       # max-idle-conns-per-host: 20
       # idle-conn-timeout: 90s
-    # buffer-size: 100           # command/data channel capacity (default 100)
-    # batch-size: 100
-    # flush-interval: 5s
+    # buffer-size: 100           # TOP-LEVEL field — sibling of `settings`, not inside it
+    # batch-size: 100            # TOP-LEVEL field
+    # flush-interval: 5s         # TOP-LEVEL field
+    # retry-count: 3             # TOP-LEVEL field — publish retry count before offline-buffer/drop (default 0 = no retry)
 
 # ============================================================
 # Rules
@@ -507,6 +537,19 @@ rules:
     # action: forward
     # target: mes-http-push
     # priority: 50
+
+  ## Transform rule: apply arithmetic expression + rename tag before forwarding.
+  ## `expression` supports +, -, *, /, parentheses, and the variable `value`
+  ## (the tag's numeric value). Non-numeric values are passed through unchanged.
+  ## `tag-rename` (optional) replaces the tag name with a literal string.
+  # - name: celsius-to-fahrenheit
+    # match: "tag suffix '_c'"
+    # action: transform
+    # target: cloud-mqtt
+    # priority: 30
+    # transform:
+      # expression: "value * 9 / 5 + 32"
+      # tag-rename: temperature_f     # optional: literal new tag name (not a template)
 
   ## Default rule: Forward all remaining points to MES HTTP Push
   - name: default-catch-all

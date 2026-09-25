@@ -224,6 +224,19 @@ func validate(cfg *core.Config) error { //nolint:gocyclo // central config valid
 		if len(registeredTransports) > 0 && !registeredTransports[t.Type] {
 			return fmt.Errorf("transport %s: unknown type %q (registered: %s)", t.Name, t.Type, strings.Join(core.RegisteredTransports(), ", "))
 		}
+		// Detect batch/retry fields misplaced inside the settings map.
+		// These fields (batch-size, flush-interval, retry-count, buffer-size,
+		// fallback) are top-level TransportConfig fields, siblings of
+		// `settings`, not entries inside it. When written inside `settings`
+		// they are silently ignored (stored as opaque map keys) and the
+		// transport falls back to synchronous single-point publishing with
+		// no error — a silent misconfiguration that is very hard to debug.
+		// Fail fast so the user fixes the YAML indentation.
+		for _, miskey := range []string{"batch-size", "batch_size", "flush-interval", "flush_interval", "retry-count", "retry_count", "buffer-size", "buffer_size", "fallback"} {
+			if _, exists := t.Settings[miskey]; exists {
+				return fmt.Errorf("transport %s: field %q must be a top-level transport field (sibling of `settings`), not an entry inside `settings`; move it out one indentation level", t.Name, miskey)
+			}
+		}
 	}
 
 	// Valid rule actions for fail-fast validation (M8)

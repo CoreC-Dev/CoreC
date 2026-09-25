@@ -184,6 +184,7 @@ corec/
   }
   ```
 - **`WriteCommand`**：反向控制下发结构：包含目标 `Driver`、`Device`、`Tag`、写入 `Value` 及期望 `DataType`。
+- **`DataType` JSON 序列化**：`DataType`（`type DataType int`）实现了自定义 `MarshalJSON`/`UnmarshalJSON`——序列化为可读字符串（`"float32"`），反序列化同时接受字符串（`"float32"`）和历史整数形式（`9`）。这统一了 YAML 配置（`type: float32`）与 JSON API 的数据类型表达，消除了"配置用字符串、API 用数字"的易用性陷阱。
 
 ### 3.2 南向驱动契约 (`core/driver.go`)
 所有驱动必须实现 `core.Driver` 接口：
@@ -349,6 +350,7 @@ MQTT Command Topic ──> Transport.OnCommand() ──> Engine.startCommandList
    - 每个 task runner 维护 `lastValues` 映射记录上次上报值。
 8. **传输批量聚合与重试 (`engine/batcher.go`)**：
    - `transportBatcher` 包装层实现 `batch-size`/`flush-interval`/`retry-count` 配置。
+   - **字段位置**：`batch-size`/`flush-interval`/`retry-count`/`buffer-size`/`fallback` 是 `TransportConfig` 的顶层字段（与 `settings` map 平级），不是 `settings` 内部的 key。写进 `settings` 会被静默忽略。`config/config.go` 的 `validate()` 对此**快速失败**（检测到 `settings` 内存在这些 key 即返回 error）。
    - 数据点先进入内存缓冲，达到 batch-size 或 flush-interval 触发时一次性调用 `PublishBatch`。
    - 发送失败按指数退避重试。
     - **异步 flush**（IMPROVEMENTS #1）：buffer 满时将整批数据移入 `flushBatches` 队列（非阻塞，满时弃最旧），由独立 `flushLoop` goroutine 异步消费。`publish()` 不再同步阻塞 worker。shutdown 时 `drainFlushBatches` 排空剩余批次。`publishLatency`/`dataAge` 直方图在 `publishWithRetryAndBuffer`（真实 `PublishBatch` 调用处）观察，不在入队处观察。`flushBatchesDropped` 通过 `corec_flush_batches_dropped_total` 暴露。`totalPublish`/`PushPublish` 计数通过 `onPublish func(int)` 回调在 `publishWithRetryAndBuffer`/`drainOnce` 成功时触发（不在入队处计数）。`publish()` 在 flush 队列满且批次被丢弃时返回 error（激活 fallback 分支，Finding 4 修复）。

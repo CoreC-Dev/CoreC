@@ -85,16 +85,32 @@ type WriteCommand struct {
 
 ## 传输配置（TransportConfig）
 
+> ⚠️ **字段位置极易写错**：`batch-size`、`flush-interval`、`retry-count`、`buffer-size`、`fallback`
+> 是传输的**顶层字段**（与 `settings` 平级），**不能**写进 `settings` 内部。
+> 写进 `settings` 会被当成普通 key 静默忽略，传输退化为同步逐点发布且**不报错**。
+> 配置校验现在对此**快速失败**——如果你的配置能通过校验，说明字段位置正确。
+
 ```yaml
 transports:
   - name: cloud-mqtt          # 传输名（规则 target 引用此名）
     type: mqtt                # 类型
-    settings: { ... }         # 协议特定设置
-    batch-size: 50            # 批量大小（可选）
-    flush-interval: 1s        # 刷新间隔（可选）
-    retry-count: 3            # 重试次数（可选）
-    buffer-size: 1000         # 内部缓冲（可选）
-    fallback: backup-http     # 备用传输（可选）
+    settings: { ... }         # 协议特定设置（broker、topic-template 等）
+    batch-size: 50            # ← 顶层字段，与 settings 平级（可选）
+    flush-interval: 1s        # ← 顶层字段（可选）
+    retry-count: 3            # ← 顶层字段（可选）
+    buffer-size: 1000         # ← 顶层字段（可选）
+    fallback: backup-http     # ← 顶层字段（可选）
+```
+
+**错误写法（校验会拒绝）：**
+```yaml
+transports:
+  - name: cloud-mqtt
+    type: mqtt
+    settings:
+      broker: tcp://...
+      batch-size: 50          # ❌ 写在 settings 内部，会被忽略
+      flush-interval: 1s      # ❌ 同上
 ```
 
 | 字段 | 必填 | 说明 |
@@ -102,11 +118,11 @@ transports:
 | `name` | ✅ | 传输名，全局唯一，规则 `target` / `targets` 引用 |
 | `type` | ✅ | 类型：`mqtt` 或 `http` |
 | `settings` | ✅ | 协议特定配置，见各传输说明 |
-| `batch-size` | ❌ | 批量聚合的消息数 |
-| `flush-interval` | ❌ | 批量刷新周期，到时无论是否凑满都发送 |
-| `retry-count` | ❌ | 发布失败重试次数 |
-| `buffer-size` | ❌ | 内部发送缓冲容量 |
-| `fallback` | ❌ | 备用传输名，本传输发布失败时自动切换 |
+| `batch-size` | ❌ | 批量聚合的消息数。**顶层字段**（与 `settings` 平级） |
+| `flush-interval` | ❌ | 批量刷新周期，到时无论是否凑满都发送。**顶层字段** |
+| `retry-count` | ❌ | 发布失败重试次数。**顶层字段** |
+| `buffer-size` | ❌ | 内部发送缓冲容量。**顶层字段** |
+| `fallback` | ❌ | 备用传输名，本传输发布失败时自动切换。**顶层字段** |
 
 ## 内置传输详解
 
@@ -167,7 +183,7 @@ DataPoint{Driver:"plc-modbus", Group:"sensors", Tag:"temperature"}
 ```bash
 # 云端下发：将 plc-modbus 的 pump_status 置为 true
 mosquitto_pub -h broker.emqx.io -t "factory/commands/pump" \
-  -m '{"driver":"plc-modbus","tag":"pump_status","value":true,"type":0}'
+  -m '{"driver":"plc-modbus","tag":"pump_status","value":true,"type":"bool"}'
 ```
 
 CoreC 日志：
@@ -236,9 +252,9 @@ HTTP 传输的 `PublishBatch` 将多个 `DataPoint` 序列化为 JSON 数组，�
 ```json
 // 单次 POST body（batch-size=3）
 [
-  {"driver":"plc","tag":"temp","value":42.5,"type":9,"quality":0,"timestamp":"..."},
-  {"driver":"plc","tag":"press","value":1.2,"type":9,"quality":0,"timestamp":"..."},
-  {"driver":"plc","tag":"flow","value":88.0,"type":9,"quality":0,"timestamp":"..."}
+  {"driver":"plc","tag":"temp","value":42.5,"type":"float32","quality":0,"timestamp":"..."},
+  {"driver":"plc","tag":"press","value":1.2,"type":"float32","quality":0,"timestamp":"..."},
+  {"driver":"plc","tag":"flow","value":88.0,"type":"float32","quality":0,"timestamp":"..."}
 ]
 ```
 

@@ -51,7 +51,7 @@ global:
     secret: "corec-secret-token"     # 鉴权令牌（listen 设置时必填，至少 8 字符）
   engine:
     data-bus-size: 8192              # 内部数据通道容量
-    workers: 4                       # 处理协程数（0 = NumCPU）
+    # workers: 0                     # 处理协程数（0 = NumCPU，默认）
     shutdown-timeout: 30s            # 优雅关停超时
     error-throttle-window: 10s       # 错误日志抑制窗口
     default-tag-interval: 1s         # 标签未设 interval 时的回退周期
@@ -221,7 +221,7 @@ global:
     secret: "corec-secret-token"
   engine:
     data-bus-size: 8192
-    workers: 4
+    # workers: 0                     # 0 = NumCPU（默认）
     shutdown-timeout: 30s
     default-tag-interval: 1s
 ```

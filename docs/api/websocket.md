@@ -76,7 +76,7 @@ GET /tags/stream?driver={name}
   "group": "g1",
   "tag": "temperature",
   "value": 42.5,
-  "type": 10,
+  "type": "float64",
   "quality": 0,
   "timestamp": "2024-09-08T10:30:00.123456789Z",
   "metadata": {
@@ -94,7 +94,7 @@ GET /tags/stream?driver={name}
 | `group` | string | 采集分组 |
 | `tag` | string | 标签名称 |
 | `value` | any | 标签值 |
-| `type` | int | 数据类型枚举（`DataType` 为 `int`，按整数序列化）：`0=bool, 1=int8, …, 10=float64, 11=string, 12=bytes` |
+| `type` | string | 数据类型枚举（`DataType` 实现自定义 `MarshalJSON`，按字符串序列化）：`bool, int8, int16, …, float32, float64, string, bytes` |
 | `quality` | int | 数据质量枚举（`Quality` 为 `int`，按整数序列化）：`0=good, 1=bad, 2=uncertain` |
 | `timestamp` | string (RFC 3339) | 采集时间戳 |
 | `metadata` | object | 附加元数据（可选，存在时才出现） |

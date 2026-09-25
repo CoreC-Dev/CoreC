@@ -7,6 +7,10 @@ description: CoreC 北向传输配置参考，涵盖 MQTT、HTTP 两种传输、
 
 `transports` 段定义北向（northbound）传输通道。每个传输实例将采集到的数据点发布到云端或上游系统，并可选地接收反向写命令。
 
+::: warning 字段位置
+`batch-size`、`flush-interval`、`retry-count`、`buffer-size`、`fallback` 是传输的**顶层字段**（与 `settings` 平级），**不能**写进 `settings` 内部。写进 `settings` 会被静默忽略，传输退化为同步逐点发布且不报错。配置校验会对此快速失败。
+:::
+
 ```yaml
 transports:
   - name: cloud-mqtt
@@ -17,8 +21,8 @@ transports:
       qos: 1
       topic-template: "factory/{{.Driver}}/{{.Group}}/{{.Tag}}"
       command-topic: "factory/commands/#"
-    batch-size: 50
-    flush-interval: 1s
+    batch-size: 50            # ← 顶层字段，与 settings 平级
+    flush-interval: 1s        # ← 顶层字段
 ```
 
 ## 传输通用字段
@@ -30,11 +34,11 @@ transports:
 | `name` | string | **是** | — | 传输实例名称，全局唯一，用于规则 `target` 引用 |
 | `type` | string | **是** | — | 传输类型：`mqtt` 或 `http` |
 | `settings` | object | **是** | — | 协议专属连接参数 |
-| `batch-size` | int | 否 | `100` | 单次批量发送的最大数据点数 |
-| `flush-interval` | duration | 否 | — | 触发刷新的时间间隔，未设置则不启用定时刷新 |
-| `retry-count` | int | 否 | `0`（不重试） | 发送失败后的重试次数 |
-| `buffer-size` | int | 否 | `100` | 命令/数据通道容量，超出后丢弃 |
-| `fallback` | string | 否 | — | 备用传输名称，本传输发布失败时自动切换到该传输 |
+| `batch-size` | int | 否 | `100` | 单次批量发送的最大数据点数。**顶层字段**（与 `settings` 平级） |
+| `flush-interval` | duration | 否 | — | 触发刷新的时间间隔，未设置则不启用定时刷新。**顶层字段** |
+| `retry-count` | int | 否 | `0`（不重试） | 发送失败后的重试次数。**顶层字段** |
+| `buffer-size` | int | 否 | `100` | 命令/数据通道容量，超出后丢弃。**顶层字段** |
+| `fallback` | string | 否 | — | 备用传输名称，本传输发布失败时自动切换到该传输。**顶层字段** |
 
 支持的传输类型：
 
@@ -194,7 +198,7 @@ topic-template: "factory/{{.Driver}}/{{.Group}}/{{.Tag}}"
   "device": "plc-01",
   "tag": "pump_status",
   "value": true,
-  "type": 0
+  "type": "bool"
 }
 ```
 

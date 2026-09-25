@@ -110,6 +110,36 @@ func TestValidateConfigErrors(t *testing.T) {
 			},
 			wantErr: "api.secret is required when api.listen is set",
 		},
+		{
+			name: "batch-size misplaced inside settings map",
+			cfg: &core.Config{
+				Drivers: []core.DriverConfig{{Name: "d1", Type: "modbus-tcp", Tags: []core.TagConfig{validTag}}},
+				Transports: []core.TransportConfig{
+					{Name: "t1", Type: "mqtt", Settings: map[string]any{"batch-size": 50}},
+				},
+			},
+			wantErr: `transport t1: field "batch-size" must be a top-level transport field (sibling of ` + "`settings`" + `), not an entry inside ` + "`settings`" + `; move it out one indentation level`,
+		},
+		{
+			name: "flush-interval misplaced inside settings map",
+			cfg: &core.Config{
+				Drivers: []core.DriverConfig{{Name: "d1", Type: "modbus-tcp", Tags: []core.TagConfig{validTag}}},
+				Transports: []core.TransportConfig{
+					{Name: "t1", Type: "http", Settings: map[string]any{"flush-interval": "1s"}},
+				},
+			},
+			wantErr: `transport t1: field "flush-interval" must be a top-level transport field (sibling of ` + "`settings`" + `), not an entry inside ` + "`settings`" + `; move it out one indentation level`,
+		},
+		{
+			name: "retry-count snake_case variant misplaced inside settings map",
+			cfg: &core.Config{
+				Drivers: []core.DriverConfig{{Name: "d1", Type: "modbus-tcp", Tags: []core.TagConfig{validTag}}},
+				Transports: []core.TransportConfig{
+					{Name: "t1", Type: "http", Settings: map[string]any{"retry_count": 3}},
+				},
+			},
+			wantErr: `transport t1: field "retry_count" must be a top-level transport field (sibling of ` + "`settings`" + `), not an entry inside ` + "`settings`" + `; move it out one indentation level`,
+		},
 	}
 
 	for _, tt := range tests {

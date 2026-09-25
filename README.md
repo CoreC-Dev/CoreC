@@ -199,7 +199,7 @@ curl -H "Authorization: Bearer your-secret-token" http://localhost:9090/drivers
 | GET | `/transports` | 列出所有北向传输及状态 |
 | GET | `/transports/{name}` | 查看单个传输 |
 | GET | `/tags` | 所有测点最新缓存值 |
-| POST | `/write` | 下发控制指令 `{"driver":"plc1","tag":"temp","value":50}` |
+| POST | `/write` | 下发控制指令 `{"driver":"plc1","tag":"temp","value":50,"type":"float32"}` |
 | GET | `/write/failed` | 查询死信队列中重试耗尽的失败写入指令 |
 | GET | `/rules` | 列出规则 + **命中/未命中统计** |
 | PATCH | `/rules/disable` | 运行时启用/禁用规则 `{"index":0,"disabled":true}` |

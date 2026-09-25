@@ -15,7 +15,7 @@ global:
     secret: "corec-secret-token"
   engine:
     data-bus-size: 8192
-    workers: 4
+    # workers: 0                 # 0 = runtime.NumCPU()（默认）
     shutdown-timeout: 30s
 ```
 
@@ -185,18 +185,22 @@ wscat -c "ws://localhost:9090/tags/stream?token=corec-secret-token"
 | `engine.on-bad-quality` | string | 否 | `publish` | 坏质量数据处理策略，取值见下文 |
 | `engine.stale-threshold` | duration | 否 | `0`（禁用） | 数据陈旧判定阈值，超过此时长未更新的缓存值标记为 `is_stale` |
 | `engine.write-retry-count` | int | 否 | `3` | 写入指令失败重试次数，重试耗尽后进入死信队列 |
+| `engine.command-concurrency` | int | 否 | `16` | 写入指令最大并行数，超限施加背压并溢入死信队列；设 `1` 恢复串行 |
+| `engine.high-priority-workers` | int | 否 | `2` | 快间隔标签（`interval` ≤ 1s）专用处理协程数，与批量读取协程隔离 |
 
 ```yaml
 global:
   engine:
     data-bus-size: 8192
-    workers: 4
+    # workers: 0                 # 0 = runtime.NumCPU()（默认）
     shutdown-timeout: 30s
     error-throttle-window: 10s
     default-tag-interval: 1s
     on-bad-quality: mark-and-publish
     stale-threshold: 30s
     write-retry-count: 3
+    # command-concurrency: 16
+    # high-priority-workers: 2
 ```
 
 ### data-bus-size
@@ -256,6 +260,26 @@ global:
     write-retry-count: 5
 ```
 
+### command-concurrency
+
+写入指令（`POST /write`、MQTT command topic）的最大并行执行数。超出此限额的指令施加背压（传输的 command channel 填满后溢入死信队列），防止单个慢写入串行化所有后续控制指令。未设置或设为 `0` 时使用默认值 16。设为 `1` 可恢复完全串行行为。
+
+```yaml
+global:
+  engine:
+    command-concurrency: 32
+```
+
+### high-priority-workers
+
+快间隔标签（`interval` ≤ 1s）的专用处理协程数。这些协程仅从 DataBus 高优先级通道读取，与批量读取协程隔离，避免低频批量读取突发时饿死高频采集。未设置或设为 `0` 时使用默认值 2。
+
+```yaml
+global:
+  engine:
+    high-priority-workers: 4
+```
+
 ---
 
 ## buffer
@@ -299,7 +323,7 @@ global:
     rate-limit-per-sec: 100
   engine:
     data-bus-size: 8192
-    workers: 4
+    # workers: 0                 # 0 = runtime.NumCPU()（默认）
     shutdown-timeout: 30s
     default-tag-interval: 1s
 ```

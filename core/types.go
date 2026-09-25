@@ -1,6 +1,8 @@
 package core
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -42,6 +44,52 @@ func (d DataType) String() string {
 		return s
 	}
 	return "unknown"
+}
+
+// MarshalJSON serializes DataType as a human-readable string (e.g. "float32")
+// rather than a raw integer. This makes JSON payloads in published data points
+// and the /tags API self-describing, and matches the string form used in YAML
+// tag configurations (type: float32).
+func (d DataType) MarshalJSON() ([]byte, error) {
+	return json.Marshal(d.String())
+}
+
+// UnmarshalJSON accepts both the string form ("float32") and the legacy integer
+// form (9). The string form is preferred for new integrations because it is
+// self-documenting; the integer form is accepted for backward compatibility
+// with existing clients and persisted payloads.
+//
+// This dual acceptance resolves a common usability trap: tag configurations in
+// YAML use string types (type: float32), but prior to this change, the JSON API
+// and MQTT command payloads required the raw iota integer (type: 9). Now both
+// forms work in every JSON context.
+func (d *DataType) UnmarshalJSON(data []byte) error {
+	// Try string form first: "float32".
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		parsed, ok := ParseDataType(s)
+		if !ok {
+			return fmt.Errorf("invalid data type %q: expected one of %s", s, validDataTypeNames())
+		}
+		*d = parsed
+		return nil
+	}
+	// Fall back to legacy integer form: 9.
+	var n int
+	if err := json.Unmarshal(data, &n); err != nil {
+		return fmt.Errorf("data type must be a string (e.g. \"float32\") or integer, got %s", string(data))
+	}
+	parsed := DataType(n)
+	if _, ok := dataTypeNames[parsed]; !ok {
+		return fmt.Errorf("invalid data type integer %d: expected 0-%d", n, int(TypeBytes))
+	}
+	*d = parsed
+	return nil
+}
+
+// validDataTypeNames returns the accepted string names for use in error messages.
+func validDataTypeNames() string {
+	return "bool, int8, int16, int32, int64, uint8, uint16, uint32, uint64, float32, float64, string, bytes"
 }
 
 // ParseDataType parses a string into a DataType.

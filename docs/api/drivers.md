@@ -170,7 +170,7 @@ GET /drivers/{name}/tags
       "group": "g1",
       "tag": "temperature",
       "value": 42.5,
-      "type": 10,
+      "type": "float64",
       "quality": 0,
       "timestamp": "2024-09-08T10:30:00.123456789Z"
     },
@@ -180,7 +180,7 @@ GET /drivers/{name}/tags
       "group": "g1",
       "tag": "pressure",
       "value": 101.3,
-      "type": 10,
+      "type": "float64",
       "quality": 0,
       "timestamp": "2024-09-08T10:30:00.123456789Z"
     }
@@ -197,7 +197,7 @@ GET /drivers/{name}/tags
 | `group` | string | 采集分组名称 |
 | `tag` | string | 标签名称 |
 | `value` | any | 标签值（类型由 `type` 决定） |
-| `type` | int | 数据类型枚举（`DataType` 为 `int`，按整数序列化），见下表 |
+| `type` | string | 数据类型枚举（`DataType` 实现自定义 `MarshalJSON`，按字符串序列化），见下表 |
 | `quality` | int | 数据质量枚举（`Quality` 为 `int`，按整数序列化），见下表 |
 | `timestamp` | string (RFC 3339) | 采集时间戳 |
 | `is_stale` | bool | 数据是否陈旧（超过引擎 `stale-threshold` 未更新），仅在启用陈旧检测时出现 |
@@ -205,16 +205,18 @@ GET /drivers/{name}/tags
 
 ### 数据类型（type）
 
-`type` 为 `DataType`（`int`）枚举，按整数序列化：
+`type` 为 `DataType` 枚举，实现了自定义 `MarshalJSON`/`UnmarshalJSON`：序列化为可读字符串，反序列化同时接受字符串和历史整数形式。
 
-| 值 | Go 类型 | 说明 |
-|:---|:---|:---|
-| `0` | bool | 布尔值 |
-| `1` / `2` / `3` / `4` | int8 / int16 / int32 / int64 | 有符号整数 |
-| `5` / `6` / `7` / `8` | uint8 / uint16 / uint32 / uint64 | 无符号整数 |
-| `9` / `10` | float32 / float64 | 浮点数 |
-| `11` | string | 字符串 |
-| `12` | []byte | 字节序列 |
+| 序列化值 | 整数 | Go 类型 | 说明 |
+|:---|:---|:---|:---|
+| `"bool"` | `0` | bool | 布尔值 |
+| `"int8"` / `"int16"` / `"int32"` / `"int64"` | `1` / `2` / `3` / `4` | int8 / int16 / int32 / int64 | 有符号整数 |
+| `"uint8"` / `"uint16"` / `"uint32"` / `"uint64"` | `5` / `6` / `7` / `8` | uint8 / uint16 / uint32 / uint64 | 无符号整数 |
+| `"float32"` / `"float64"` | `9` / `10` | float32 / float64 | 浮点数 |
+| `"string"` | `11` | string | 字符串 |
+| `"bytes"` | `12` | []byte | 字节序列 |
+
+> 写命令（`/write`）的 `type` 字段同时接受上表的字符串值和整数形式（向后兼容）。
 
 ### 数据质量（quality）
 
