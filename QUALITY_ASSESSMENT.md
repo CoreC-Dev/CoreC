@@ -3,7 +3,7 @@
 > 由 6 个独立 AI Agent 并行多维度评估生成，后续多 Agent 实施改进  
 > 评估日期: 2025-09-15 · 改进日期: 2026-09-15 · 订正日期: 2026-09-15  
 > 项目: CoreC (Connect · Collect · Control) — 工业物联网数据采集与控制核心  
-> 规模: 137 Go 文件, 66 测试文件, ~32,900 LOC
+> 规模: 137 Go 文件, 78 测试文件, ~32,900 LOC
 
 > ⚠️ **订正说明**: 本报告曾给出 A+ (94/100) 的总评，经逐条对照源码复核，发现多处高估与
 > 不实 "✅" 标记（最严重者为 "W3C 分布式追踪" 实为空壳、"重放保护" 实为时间戳新鲜度、
@@ -32,8 +32,12 @@ opcua 依赖违规、offlinebuffer fsync）、Prometheus /metrics 端点（含�
 分离 + nil 防御、MQTT/Webhook TLS + 常量时间认证、驱动重连抖动、W3C traceparent 解析/注入与引擎管线 span、
 MQTT 真重放缓存、MQTT 重连抖动 (±20%)、pprof 可配置、CI lint 增强。
 **仍被高估或未真正完成的部分**: "W3C 分布式追踪" 已解析/注入 traceparent 并在引擎管线内创建 span，
-但仍无采样、无 OTLP 导出后端；`core.Metrics`/`core.Logger` 端口已定义但未注入；指标仍缺延迟直方图
-(histogram/summary)；RBAC、控制面 fail-closed、英文文档、state 示例修复均未完成。
+但仍无采样、无 OTLP 导出后端；`core.Metrics`/`core.Logger` 端口已定义但未注入（ADR-008 延迟）；**分段延迟直方图已实现**
+(`corec_read_latency_seconds`/`corec_publish_latency_seconds`，见 `common/metrics/latency.go` + `hub/route/metrics.go:258-259`)；
+**数据新鲜度分布直方图已实现** (`corec_data_age_seconds`，见 `core.DataAgeProvider` + `engine/batcher.go`/`engine/publish.go`：batcher 路径在 `publishWithRetryAndBuffer` 的真实 `PublishBatch` 调用处观察，direct 路径在 `publish.go` 观察)；
+端到端管线延迟 = `corec_data_age_seconds`（Publish 时刻与 `DataPoint.Timestamp` 差值，即采集到发布的全链路延迟）；
+`statistic.DefaultManager` 全局单例已消除（改为 `CoreCEngine.statManager` 实例字段，ADR-003 已更新）；
+RBAC、控制面 fail-closed、英文文档、state 示例修复均未完成。
 
 ---
 
@@ -54,13 +58,13 @@ MQTT 真重放缓存、MQTT 重连抖动 (±20%)、pprof 可配置、CI lint 增
 | 🔴 严重 | **依赖方向违规**: `driver/opcua` 导入 `engine/statistic`，适配器反向依赖应用层 | `driver/opcua/client.go` (import removed) | ✅ **已修复** (opcua 不再 import statistic) |
 | 🟡 中等 | **God Interface**: `core.Engine` 25 方法接口违反接口隔离原则 (ISP) | `core/engine.go` | ✅ **已改善** (拆为 7 角色接口；复合接口仍保留向后兼容) |
 | 🟡 中等 | **引擎硬编码 rule 包**: `ruleEngine` 字段已改为 `core.RuleEngine` 接口，但 `engine/engine.go` 仍 import 具体 `rule` 包用于构造 (`rule.NewEngine()`/`rule.NewFileProvider`) | `engine/engine.go:17,144,295` | 🟡 **部分修复** (字段已接口化，构造仍耦合) |
-| 🟡 中等 | **全局单例**: `statistic.DefaultManager` 仍被 scheduler/engine 多处直接引用 | `engine/statistic/manager.go:13` | ⏳ 待改进 |
-| 🟡 中等 | **`core.Metrics`/`core.Logger` 端口未注入**: 端口与 Noop 实现已定义，但驱动/组件并未实际持有或调用（源码注释自述 "defined but NOT yet injected"） | `core/metrics.go`, `core/logger.go` | ⏳ 待改进 (端口已立，未接线) |
+| 🟡 中等 | **全局单例**: `statistic.DefaultManager` ~~仍被 scheduler/engine 多处直接引用~~ | `engine/statistic/manager.go:13` | ✅ **已修复** (改为 `CoreCEngine.statManager` 实例字段，注入 scheduler；ADR-003 已更新) |
+| 🟡 中等 | **`core.Metrics`/`core.Logger` 端口未注入**: 端口与 Noop 实现已定义，但驱动/组件并未实际持有或调用（源码注释自述 "defined but NOT yet injected"） | `core/metrics.go`, `core/logger.go` | ⏳ 待改进 (端口已立，未接线；ADR-008 记录延迟原因) |
 
 ### 改进建议
-1. 将 `core.Metrics`/`core.Logger` 真正注入驱动构造，移除 opcua→statistic 直接依赖的残余路径
+1. 将 `core.Metrics`/`core.Logger` 真正注入驱动构造（ADR-008 延迟，涉及 94 处 slog 调用 + 5+ 构造器签名）
 2. 将 rule 构造移至 `cmd/corec` 组合根，使 `engine` 包不再 import 具体 `rule`
-3. 消除 `statistic.DefaultManager` 全局单例，改为引擎实例持有
+3. ~~消除 `statistic.DefaultManager` 全局单例，改为引擎实例持有~~ ✅ 已完成
 4. (角色接口已拆分，可进一步按消费者窄化依赖)
 
 ---
@@ -165,12 +169,12 @@ cmd/corec           22.7%  ████
 | 🟡 中等 | **健康端点不反映真实健康**: 始终返回 ok | `server.go` | ✅ **已修复** (readiness/liveness 分离 + 引擎 nil 返回 503) |
 | 🟡 中等 | **无重连抖动 (jitter)**: 网络恢复后 thundering herd | `util.go` | ✅ **已修复** (±20% 抖动已加于驱动 `ReconnectLoopWithBreaker`；MQTT 传输 `connect-retry-interval` 在 Init 时施加 ±20% 实例级抖动，防多传输同步重连) |
 | 🟡 中等 | **pprof 无法关闭且与主端口共用**: `/debug/pprof/*` 始终注册于主 API 端口认证组内，无配置开关；生产环境暴露 profiling 端面于业务端口 | `hub/route/server.go:346-350` | ✅ **已修复** (`api.pprof-disabled: true` 可关闭；`api.pprof-addr` 可指定独立免认证端口；为空时回退主 API 端口，向后兼容) |
-| 🟡 中等 | **指标缺直方图**: 已补 goroutine/heap (alloc/sys)/stack/GC (count+pause)/CPU 等运行时指标 (Prometheus gauges)，但仍无延迟/耗时直方图 (histogram/summary) | `hub/route/metrics.go` | 🟡 **部分修复** (运行时指标已加；直方图仍缺) |
+| 🟡 中等 | **指标直方图部分到位**: 已补 goroutine/heap (alloc/sys)/stack/GC (count+pause)/CPU 等运行时指标 (Prometheus gauges)；**分段延迟直方图已实现** (`corec_read/publish_latency_seconds`)；**数据新鲜度分布直方图已实现** (`corec_data_age_seconds`，`core.DataAgeProvider` 角色接口，4 个发布站点 Observe) | `hub/route/metrics.go` | ✅ **已修复** (运行时+分段延迟+数据新鲜度直方图均已实现) |
 
 ### 改进建议
-1. (W3C traceparent 解析/注入与引擎管线 span 已落地；剩余: 接入采样与 OTLP 导出后端，或将文档表述降级为 "trace-ID 关联日志")
+1. (W3C traceparent 解析/注入与引擎管线 span 已落地；数据新鲜度直方图已实现 (`corec_data_age_seconds` = 采集到发布端到端延迟)；剩余: OTLP 导出后端 + DataPoint trace context 贯穿采集→发布，ADR-009 记录)
 2. (pprof 已可配置: `pprof-disabled` 开关 + `pprof-addr` 独立免认证端口；为空回退主端口)
-3. (运行时指标 go_*/process_* 已补；仍缺 latency histogram/summary)
+3. (运行时指标 go_*/process_* 已补；分段 latency histogram 已实现 read/publish；数据新鲜度 data_age 直方图已实现)
 4. (MQTT 重连抖动已加: Init 时对 `connect-retry-interval` 施加 ±20% 实例级抖动)
 5. DLQ 持久化 + 可重放 API
 
@@ -253,7 +257,7 @@ cmd/corec           22.7%  ████
 
 | 优先级 | 任务 | 维度 | 影响 | 状态 |
 |--------|------|------|------|------|
-| P1 | 添加 Prometheus /metrics + pprof 端点 | 生产就绪 | 可监控可分析 | ✅ /metrics (含运行时指标) + pprof (可配置关闭/独立端口)；仍缺延迟直方图 |
+| P1 | 添加 Prometheus /metrics + pprof 端点 | 生产就绪 | 可监控可分析 | ✅ /metrics (含运行时指标 + 分段延迟直方图 + 数据新鲜度直方图) + pprof (可配置关闭/独立端口) |
 | P1 | 分布式追踪 (W3C trace context + middleware) | 生产就绪 | 可追溯 | 🟡 **部分** (traceparent 解析/注入 + 引擎管线 span 已落地；缺采样与 OTLP 导出) |
 | P1 | MQTT TLS/mTLS + Webhook HTTPS | 安全 | 传输加密 | ✅ (MQTT + Webhook 均已实现，TLS1.2 下限) |
 | P1 | Webhook auth 常量时间 | 安全 | 防时序攻击 | ✅ (SHA256 + hmac.Equal) |
@@ -269,11 +273,11 @@ cmd/corec           22.7%  ████
 
 | 优先级 | 任务 | 维度 | 影响 |
 |--------|------|------|------|
-| P2 | 将 `core.Metrics`/`core.Logger` 端口真正注入驱动 (当前仅定义未接线) | 架构 | 完成六边形 |
+| P2 | 将 `core.Metrics`/`core.Logger` 端口真正注入驱动 (当前仅定义未接线；ADR-008 延迟) | 架构 | 完成六边形 |
 | P2 | rule 构造移至组合根，`engine` 不再 import 具体 `rule` | 架构 | 真正可插拔 |
-| P2 | 消除 `statistic.DefaultManager` 全局单例 | 架构 | 实例隔离 |
-| P2 | 分布式追踪补全采样与 OTLP 导出 (traceparent 解析/注入与管线 span 已落地) | 生产就绪 | 可追溯 |
-| P2 | pprof 可配置与运行时指标已落地；指标仍缺延迟直方图 (histogram/summary) | 生产就绪 | 运维完整 |
+| ~~P2~~ | ~~消除 `statistic.DefaultManager` 全局单例~~ | ~~架构~~ | ✅ 已完成 (改为引擎实例字段) |
+| P2 | 分布式追踪补全采样与 OTLP 导出 (traceparent 解析/注入与管线 span 已落地；数据新鲜度直方图已实现；ADR-009 记录剩余项) | 生产就绪 | 可追溯 |
+| P2 | pprof 可配置与运行时指标已落地；分段延迟直方图已实现 (read/publish)；数据新鲜度直方图已实现 (data_age) | 生产就绪 | 运维完整 |
 | P2 | anti-replay 已实现 (有界重放缓存)；RBAC + 控制面 fail-closed 仍待补 | 安全 | 最小权限 |
 | P2 | readiness/liveness 已分离；DLQ 持久化+重放待补 | 生产就绪 | 运维完整 |
 | P2 | 英文文档 + 修复 state 示例 + 全量核对追踪/重放/指标表述 | 文档 | 全球可用 |
@@ -299,7 +303,7 @@ CoreC 是一个**架构设计尤为出色的工业 IoT 数据采集核心**。�
 **第二轮 (A- → B+ 上限，未达 A+)**:
 6. ✅ 架构 1a: 分解 core.Engine 25 方法 God Interface → 7 个角色接口 (复合接口向后兼容)
 7. 🟡 架构 1b: 定义 core.RuleEngine 端口，engine 字段已接口化，但 engine 仍 import 具体 rule 包用于构造 (部分修复)
-8. 🟡 架构 1c: 定义 core.Metrics + core.Logger 端口 (含 Noop 实现)，**但未注入驱动/组件** (源码自述 "defined but NOT yet injected")
+8. 🟡 架构 1c: 定义 core.Metrics + core.Logger 端口 (含 Noop 实现)，**但未注入驱动/组件** (源码自述 "defined but NOT yet injected"；ADR-008 记录延迟原因)；**statistic.DefaultManager 全局单例已消除**（改为引擎实例字段，ADR-003 已更新）
 9. ✅ 安全 2a: Webhook HTTPS (ListenAndServeTLS + TLS1.2 下限)
 10. ✅ 安全 2b: Webhook auth 常量时间 (SHA256 定长 + hmac.Equal)
 11. ✅ 安全 2c: MQTT "重放保护" (HMAC + timestamp ±5min + strict + 有界重放缓存 10,000 条/2×skew TTL/SHA256 去重) — 真正 anti-replay
@@ -315,15 +319,15 @@ CoreC 是一个**架构设计尤为出色的工业 IoT 数据采集核心**。�
 - 🟡 "core.Metrics/core.Logger 端口完成六边形" → 已定义未注入 (未变)
 - ✅ "重连抖动 ±20%" → 原仅驱动；**现已扩展到 MQTT Init 时实例级抖动**
 - ✅ (原误标 ⏳) Webhook TLS、Webhook 常量时间 auth、健康端点真实健康 — 实际均已修复
-- ✅ pprof 可配置 (pprof-disabled/pprof-addr)；运行时指标已补 (仍缺直方图)
+- ✅ pprof 可配置 (pprof-disabled/pprof-addr)；运行时指标已补；分段延迟直方图已实现 (read/publish)；数据新鲜度直方图已实现 (data_age)；statistic.DefaultManager 全局单例已消除
 
 **剩余改进 (可选/待办)**:
-1. 分布式追踪补全采样与 OTLP 导出 (traceparent/管线 span 已落地)
+1. 分布式追踪补全采样与 OTLP 导出 (traceparent/管线 span 已落地；数据新鲜度直方图已实现；ADR-009 记录剩余项)
 2. RBAC + 控制面 fail-closed (anti-replay 已实现)
-3. 将 core.Metrics/core.Logger 注入驱动；rule 构造移至组合根；消除全局单例
-4. 指标补延迟直方图 (运行时指标与 pprof 可配置已落地)
+3. 将 core.Metrics/core.Logger 注入驱动 (ADR-008 延迟)；rule 构造移至组合根；~~消除全局单例~~ ✅已完成
+4. ~~指标补端到端管线延迟与数据新鲜度直方图~~ ✅ 数据新鲜度直方图已实现 (data_age = 采集到发布端到端延迟)
 5. DLQ 持久化 + 重放 API (MQTT 重连抖动已落地)
 6. 英文文档；修复 state 示例；全量核对文档中追踪/重放/指标表述
 7. CI 启用 -race (需 CGO_ENABLED=1)；golangci-lint v2 实跑确认 0 issues
 
-**总改进: B+ (84) → B+ (~86), 覆盖率 70.4% → ~77%, 20/20 含测试包通过, `go build`/`go vet`/`gofmt -l` 通过 (golangci-lint v2 实跑 0 issues 待 CI 确认)**
+**总改进: B+ (84) → B+ (~86), 覆盖率 70.4% → ~77%, 20/20 含测试包通过, `go build`/`go vet`/`gofmt -l` 通过 (golangci-lint v2.14.0/go1.27.1 本地实跑 0 issues)**

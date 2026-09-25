@@ -93,13 +93,19 @@ corec/
 │   ├── engine_test.go   # 规则匹配、统计与禁用单元测试
 │   └── p1p2_test.go     # 表达式解析 P1/P2 回归测试
 ├── engine/                      # 引擎核心实现
-│   ├── engine.go                # Engine 编排器（流水线、驱动/传输生命周期、Suspend/Resume、autoFillNodeConfig、startDiscovery、tagFileWatchers）
+│   ├── engine.go                # Engine 编排器（struct/New/Start/Stop/Reload/Suspend/Resume/Stats/Latency histograms/autoFillNodeConfig/startDiscovery/规则管理）— 已从 1923 行拆为 823 行
+│   ├── driver_manager.go        # 驱动管理（AddDriver/RemoveDriver/GetDriver/ListDrivers/tag-file watcher/readFromDriver/onDriverData/scheduleDriverTags）
+│   ├── transport_manager.go     # 传输管理（AddTransport/RemoveTransport/GetTransport/ListTransports/startDataListener）
+│   ├── command_manager.go       # 命令执行（ReadTag/WriteTag/startCommandListener/forwardCommand/executeWriteWithRetry/dead-letter）
+│   ├── processing.go            # 数据处理（processingLoop/processingLoopHighPriority/processPoint）
+│   ├── publish.go               # 发布管线（publishToTargets/tryFallback/applyTransform/fireAlert）
+│   ├── query.go                 # 查询与订阅（LatestValues/StaleThreshold/Subscribe/SubscribeWithBuffer/OnAlert）
 │   ├── tagfile.go               # 标签文件热重载 watcher（SHA-256 变更检测 + ticker 轮询）
 │   ├── discovery.go             # 拓扑自动发现（MQTT 心跳、节点注册表、auto-subscribe）
-│   ├── scheduler.go             # Ticker 并发采集调度器（含错误抑制机制、Pause/Resume）
-│   ├── databus.go               # 高并发无锁 Go Channel 内部数据总线
+│   ├── scheduler.go             # Ticker 并发采集调度器（含错误抑制机制、Pause/Resume、优先级路由、statManager 注入）
+│   ├── databus.go               # 高并发 Go Channel 内部数据总线（主通道 + 高优先级通道，弃最旧背压）
 │   ├── cache.go                 # 最新测点值并发安全实时缓存 (LatestCache)
-│   ├── batcher.go               # 传输批量聚合与重试
+│   ├── batcher.go               # 传输批量聚合与重试（异步 flush + onPublish 回调 + 丢弃时返回 error）
 │   ├── offlinebuffer.go         # 离线持久化缓冲（传输中断时数据写磁盘，恢复后自动补传）
 │   ├── engine_test.go           # 引擎生命周期集成测试
 │   ├── chained_core_test.go       # 链式核心（relay）集成测试
@@ -107,8 +113,11 @@ corec/
 │   ├── chained_core_bug_test.go  # 链式核心回归/边界测试
 │   ├── chained_core_bench_test.go # 链式核心性能基准
 │   ├── bench_test.go            # 引擎性能基准
+│   ├── databus_priority_test.go # 高优先级通道与 worker 隔离测试
+│   ├── command_forward_test.go  # 命令并发分发测试
+│   ├── batcher_integration_test.go # batcher 异步发布测试
 │   └── statistic/
-│       ├── manager.go           # 吞吐量统计管理器（原子计数 + Snapshot）
+│       ├── manager.go           # 吞吐量统计管理器（原子计数 + Snapshot；已改为引擎实例字段注入）
 │       └── manager_test.go      # 统计管理器单元测试
 ├── common/
 │   ├── observable/
@@ -327,6 +336,7 @@ MQTT Command Topic ──> Transport.OnCommand() ──> Engine.startCommandList
    - **`ObservableHandler` 包装 `slog.Handler`**：自动捕获全代码库所有 `slog.Info`/`slog.Error` 调用，无需改动现有代码即可实现日志流。
 4. **吞吐量与性能统计 (`engine/statistic/`)**：
    - 原子计数器模式 (`PushRead`, `PushPublish`, `PushError`, `Snapshot`)，无后台 goroutine，调用方按需读取快照。
+   - **`statistic.Manager` 已从包级全局单例改为引擎实例字段**（`CoreCEngine.statManager`），通过 `NewScheduler` 注入 scheduler，多实例嵌入不再共享计数器（ADR-003）。
 5. **规则命中统计与运行时禁用 (`rule/engine.go`)**：
    - `RuleWrapper` 的 `HitCount`/`MissCount`/`HitAt`/`MissAt` 原子计数。
    - `PATCH /rules/disable` 支持运行时启用/禁用规则，无需重载配置。
@@ -341,6 +351,8 @@ MQTT Command Topic ──> Transport.OnCommand() ──> Engine.startCommandList
    - `transportBatcher` 包装层实现 `batch-size`/`flush-interval`/`retry-count` 配置。
    - 数据点先进入内存缓冲，达到 batch-size 或 flush-interval 触发时一次性调用 `PublishBatch`。
    - 发送失败按指数退避重试。
+    - **异步 flush**（IMPROVEMENTS #1）：buffer 满时将整批数据移入 `flushBatches` 队列（非阻塞，满时弃最旧），由独立 `flushLoop` goroutine 异步消费。`publish()` 不再同步阻塞 worker。shutdown 时 `drainFlushBatches` 排空剩余批次。`publishLatency`/`dataAge` 直方图在 `publishWithRetryAndBuffer`（真实 `PublishBatch` 调用处）观察，不在入队处观察。`flushBatchesDropped` 通过 `corec_flush_batches_dropped_total` 暴露。`totalPublish`/`PushPublish` 计数通过 `onPublish func(int)` 回调在 `publishWithRetryAndBuffer`/`drainOnce` 成功时触发（不在入队处计数）。`publish()` 在 flush 队列满且批次被丢弃时返回 error（激活 fallback 分支，Finding 4 修复）。
+    - **诚实声明**：仅 batcher 路径已异步化。未配置 batcher 的传输直接 `transport.Publish` 仍同步。
 9. **驱动运行期断线重连与断路器 (所有驱动)**：
    - 所有驱动在读取失败时检测连接错误，自动触发 `handleConnectionLost` → `ReconnectLoopWithBreaker`（指数退避，上限 `reconnect-max-interval`）。
    - 连续失败达到 `max-reconnect-failures`（默认 20）后触发断路器，将重连间隔提升至 5 分钟低频重试（重连不会停止，设备恢复后仍可自动接入）。
@@ -367,12 +379,12 @@ MQTT Command Topic ──> Transport.OnCommand() ──> Engine.startCommandList
      - `tags` 与 `tags-file` 可同时使用，文件标签在前、内联标签追加在后。
      - 配置解析在 `config.Parse` 中统一处理，全量配置重载（`PUT /configs`）也会重新读取标签文件。
  16. **已定义但尚未接入的契约（实现状态诚实说明）**：
-     - **`core.Logger` / `core.Metrics` 端口**：接口与 `NoopLogger`/`NoopMetrics` 默认实现已定义，但**尚未注入驱动**；驱动当前仍直接调用 `log/slog`，且无驱动级指标后端（Prometheus `/metrics` 端点取自 `engine.Stats()` 聚合计数，非逐驱动埋点）。接入需经 `Driver.Init`/构造器改造，列为后续重构。
-     - **`common/trace` 分布式追踪**：W3C Trace Context 实现——HTTP 中间件解析入站 `traceparent` 头（`version-trace_id-parent_id-trace_flags` 格式），提取 trace ID 并注入 context；无 traceparent 时回退至 chi RequestID 或生成新 W3C trace ID。`InjectTraceparent()` 向出站 HTTP push 请求注入 `traceparent` 头实现跨服务传播。`engine.readFromDriver` 调用 `trace.Start()` 创建管线 span（含属性与计时，`End()` 以 `slog.Debug` 记录）。**无 OpenTelemetry/OTLP 导出后端、无采样、无父子 span 树**——如需完整可观测追踪需后续接入 OTel。
+     - **`core.Logger` / `core.Metrics` 端口**：接口与 `NoopLogger`/`NoopMetrics` 默认实现已定义，但**尚未注入驱动**（ADR-008 记录延迟原因）；驱动当前仍直接调用 `log/slog`，且无驱动级指标后端（Prometheus `/metrics` 端点取自 `engine.Stats()` 聚合计数，非逐驱动埋点）。接入需经 `Driver.Init`/构造器改造，列为后续重构。
+     - **`common/trace` 分布式追踪**：W3C Trace Context 实现——HTTP 中间件解析入站 `traceparent` 头（`version-trace_id-parent_id-trace_flags` 格式），提取 trace ID 并注入 context；无 traceparent 时回退至 chi RequestID 或生成新 W3C trace ID。`InjectTraceparent()` 向出站 HTTP push 请求注入 `traceparent` 头实现跨服务传播。`engine.readFromDriver` 调用 `trace.Start()` 创建管线 span（含属性与计时，`End()` 以 `slog.Debug` 记录）。**无 OpenTelemetry/OTLP 导出后端、无采样、无父子 span 树**——如需完整可观测追踪需后续接入 OTel（ADR-009 记录）。**数据新鲜度直方图已实现**（`corec_data_age_seconds` = Publish时刻与DataPoint.Timestamp差值，即采集到发布端到端延迟）。
      - **MQTT 反向指令 "replay protection"**：HMAC-SHA256 签名 + 时间戳偏移（anti-stale）校验（`command-max-skew`，默认 5m）+ **有界重放缓存**（10,000 条目，TTL = 2× skew 窗口，自动过期）记录已认证指令的 SHA256 哈希，实现真正防重放——同一指令在窗口内不可二次接受。`command-strict-replay=false`（默认）时无时间戳的认证指令仅告警放行；`=true` 时拒绝无时间戳指令。
      - **重连 jitter 覆盖范围**：`ReconnectLoopWithBreaker` 的 ±20% 随机抖动覆盖使用该工具的驱动（Modbus/S7/OPC UA）；MQTT（paho）在 Init 时对 `connect-retry-interval` 施加 ±20% 抖动（实例级，随机一次）以防止多传输同时重连的 thundering-herd。
      - **`LatestCache` 并发模型**：按驱动名 FNV 哈希分 64 分片，每分片 `sync.RWMutex` + `atomic.Pointer` 快照（非 seqlock）；读快照在数据未变时免 map 拷贝。
- 17. **命令跨实例透传 (`core/transport.go`, `transport/mqtt/publisher.go`, `engine/engine.go`)**：
+ 17. **命令跨实例透传 (`core/transport.go`, `transport/mqtt/publisher.go`, `engine/command_manager.go`)**：
      - 新增 `core.CommandForwarder` 可选接口（`ForwardCommand(ctx, cmd) error`），不修改 `core.Transport` 契约。
      - MQTT transport 实现 `CommandForwarder`：通过 `command-forward-topic` 发布转发命令，配置 `command-forward-secret` 时使用 HMAC-SHA256 签名并附加时间戳。
      - engine 的 `executeWriteWithRetry` 在本地无匹配驱动时，遍历所有实现 `CommandForwarder` 的 transport 转发命令；所有 forwarder 失败则进入死信队列。
@@ -390,8 +402,31 @@ MQTT Command Topic ──> Transport.OnCommand() ──> Engine.startCommandList
 2. **扩展更多协议**：
    - **南向**：EtherNet/IP (CIP), IEC 60870-5-104 (电力), BACnet (楼宇), Omron FINS, Mitsubishi MC Protocol。
    - **北向**：Kafka, Webhook Stream, InfluxDB / TDengine 时序库直连。
+3. **`core.Logger`/`core.Metrics` 端口注入**（ADR-008 延迟）：
+   - 涉及 94 处 `slog.X` 调用 + 10 个文件 + 5+ 构造器签名。端口已定义，注入时不需改 core 契约。
+4. **OTLP 导出 + DataPoint trace context 贯穿**（ADR-009 延迟）：
+   - 部署 Jaeger/Tempo + 配置 OTLP endpoint。在 `core.DataPoint` 增加 trace 字段（core 契约评估）。pipeline 延迟直方图已由 `corec_data_age_seconds` 覆盖。
 
 > 注：断线持久化缓存（Offline Buffer）已重新启用并实现——`global.buffer` 配置段支持 `enabled`/`path`/`max-size` 字段，`engine/offlinebuffer.go` 提供基于文件的离线缓冲，传输中断时数据写入磁盘待恢复后自动补传。
+
+### 6.3 IMPROVEMENTS.md 实施记录（2025-09-25）
+
+> 依据 `IMPROVEMENTS.md` 逐项实施，通过 CONTRIBUTING §0 全部 5 项 gate。详见 `IMPROVEMENTS.md` 末尾"实施记录"章节。
+
+| # | 改进项 | 状态 | 关键文件 |
+|:---:|:---|:---:|:---|
+| 1 | Publish 异步化 | ✅ | `engine/batcher.go`（flushBatches 队列 + flushLoop） |
+| 2 | 命令执行并发化 | ✅ | `engine/command_manager.go`（commandSem 有界信号量） |
+| 3 | 规则索引预筛 | ⏸ 不实施 | ADR-002（线性扫描保优先级+统计完整性） |
+| 4 | 控制命令不丢 | ✅ | `transport/mqtt/publisher.go`（死信存储） |
+| 5 | Worker 优先级隔离 | ✅ | `engine/databus.go` + `engine/processing.go`（高优通道+专用worker） |
+| 6 | Logger/Metrics 注入 | ⏸ 延迟 | ADR-008（94处slog调用+5+构造器） |
+| 7 | 拆分 engine.go | ✅ | 1923→823行，拆为7个职责文件 |
+| 8 | Manager 实例化 | ✅ | `engine/engine.go`（statManager 实例字段） |
+| 9 | 端到端延迟追踪 | ⚠ 部分 | ADR-009（pipeline=data_age已实现；OTLP+trace贯穿延迟） |
+| 10 | 数据新鲜度直方图 | ✅ | `core.DataAgeProvider` + `hub/route/metrics.go` |
+| 11 | 修正过时文档 | ✅ | `QUALITY_ASSESSMENT.md` |
+| 12 | ADR 记录 | ✅ | `docs/architecture/decisions.md`（ADR-001~009） |
 
 ---
 

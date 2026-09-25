@@ -53,6 +53,7 @@ export default defineConfig({
             { text: '数据流图', link: '/architecture/dataflow' },
             { text: '高性能设计', link: '/architecture/performance' },
             { text: '核心输入输出', link: '/architecture/io' },
+            { text: '架构决策记录', link: '/architecture/decisions' },
           ],
         },
       ],
