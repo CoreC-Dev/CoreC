@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/CoreC-Dev/CoreC/core"
+	"github.com/CoreC-Dev/CoreC/engine/statistic"
 )
 
 // waitFor polls check until it returns true or timeout expires.
@@ -99,10 +100,11 @@ func TestScheduler(t *testing.T) {
 				{Tag: tags[0], Value: 42, Timestamp: time.Now()},
 			}, nil
 		},
-		func(driver string, values []core.TagValue) {
+		func(driver string, values []core.TagValue, _ int) {
 			received <- values
 		},
-		0, // default error-throttle window
+		0,                      // default error-throttle window
+		statistic.NewManager(), // isolated stat manager
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())

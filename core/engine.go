@@ -118,6 +118,26 @@ type OfflineBufferStatsProvider interface {
 	OfflineBufferStats() (pending int, drained uint64, pushed uint64)
 }
 
+// DataAgeProvider exposes the data-age (freshness) histogram for
+// Prometheus exposure: the elapsed time between a data point's collection
+// timestamp (DataPoint.Timestamp) and the moment the engine attempts to
+// publish it. It is a separate role interface (mirroring
+// OfflineBufferStatsProvider) so the route layer type-asserts optionally
+// without coupling to the concrete engine type. *CoreCEngine satisfies
+// this interface; test mocks are free to omit it.
+type DataAgeProvider interface {
+	DataAgeHistogram() LatencySnapshot
+}
+
+// FlushBatchesDroppedProvider exposes the total number of full batches
+// evicted or dropped from batcher flush queues due to sustained
+// backpressure (IMPROVEMENTS #1: async batcher). It is a separate role
+// interface so the route layer type-asserts optionally. *CoreCEngine
+// satisfies this interface.
+type FlushBatchesDroppedProvider interface {
+	FlushBatchesDropped() uint64
+}
+
 // Config is the top-level configuration structure.
 type Config struct {
 	Node          NodeConfig              `yaml:"node,omitempty"`
@@ -216,6 +236,22 @@ type EngineConfig struct {
 	// Unset or 0 uses the default (3 retries). Set to a positive value
 	// to override. The total attempt count is WriteRetryCount + 1.
 	WriteRetryCount int `yaml:"write-retry-count,omitempty"`
+
+	// CommandConcurrency is the maximum number of write commands the
+	// engine executes in parallel. Commands in excess of this limit
+	// apply backpressure (the transport's command channel fills, and
+	// overflow is diverted to the dead-letter store). This prevents a
+	// single slow write from serializing all subsequent control commands.
+	// Unset or 0 uses the default (16). Set to 1 to restore the original
+	// fully-serial behavior.
+	CommandConcurrency int `yaml:"command-concurrency,omitempty"`
+
+	// HighPriorityWorkers is the number of dedicated processing workers
+	// for high-priority (fast-interval) data. These workers read only
+	// from the DataBus high-priority channel, so a burst of low-frequency
+	// bulk reads cannot starve high-frequency collection. Unset or 0 uses
+	// the default (2).
+	HighPriorityWorkers int `yaml:"high-priority-workers,omitempty"`
 }
 
 // APIConfig holds API server settings.

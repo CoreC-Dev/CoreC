@@ -23,6 +23,14 @@ var DefaultReadLatencyBuckets = []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1,
 // read latency since both are short-lived network I/O operations.
 var DefaultPublishLatencyBuckets = []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10}
 
+// DefaultDataAgeBuckets are the histogram bucket upper bounds (in seconds)
+// used for data age (freshness): the elapsed time between a data point's
+// collection timestamp (DataPoint.Timestamp) and the moment the engine
+// attempts to publish it. The scale is larger than I/O latency buckets
+// because data age includes scheduler queuing, batching, and — during
+// transport outages — offline-buffer replay, so values can reach minutes.
+var DefaultDataAgeBuckets = []float64{0.1, 0.5, 1, 5, 10, 30, 60, 300, 600}
+
 // LatencyHistogram is a lightweight, mutex-guarded histogram for tracking
 // operation latencies without a full metrics client dependency.
 //

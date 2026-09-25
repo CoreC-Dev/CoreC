@@ -73,4 +73,8 @@ type TransportStatus struct {
 	Received    uint64    `json:"received"` // data points ingested via OnData (chained-core inbound)
 	LastPublish time.Time `json:"last_publish"`
 	QueueSize   int       `json:"queue_size"`
+	// DroppedCommands counts write commands dropped at ingress because the
+	// command channel was full. Non-zero indicates sustained command
+	// backpressure; investigate buffer-size tuning or consumer throughput.
+	DroppedCommands uint64 `json:"dropped_commands"`
 }

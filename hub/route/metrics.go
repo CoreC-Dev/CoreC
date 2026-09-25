@@ -73,6 +73,9 @@ func promMetrics(w http.ResponseWriter, r *http.Request) {
 	// ─── Offline buffer metrics ───────────────────────────────────────
 	writeOfflineBufferMetrics(&b)
 
+	// ─── Batcher flush-queue drop counter ──────────────────────────────
+	writeFlushBatchesDropped(&b)
+
 	// ─── HTTP request metrics ──────────────────────────────────────────
 	writeHTTPMetrics(&b)
 
@@ -182,6 +185,15 @@ func writeTransportMetrics(b *strings.Builder, transportStats map[string]core.Tr
 		fmt.Fprintf(b, "corec_transport_connected{transport=%q} %d\n",
 			promEscape(name), val)
 	}
+
+	writePromHeader(b, "corec_transport_dropped_commands_total", "counter", "Write commands dropped at ingress because the command channel was full")
+	for _, name := range names {
+		t := transportStats[name]
+		if t.DroppedCommands > 0 {
+			fmt.Fprintf(b, "corec_transport_dropped_commands_total{transport=%q} %d\n",
+				promEscape(name), t.DroppedCommands)
+		}
+	}
 }
 
 // writeOfflineBufferMetrics emits offline-buffer depth and counters.
@@ -203,6 +215,21 @@ func writeOfflineBufferMetrics(b *strings.Builder) {
 
 	writePromHeader(b, "corec_offline_buffer_pushed_total", "counter", "Total batches persisted to the offline buffer after retries exhausted")
 	fmt.Fprintf(b, "corec_offline_buffer_pushed_total %d\n", pushed)
+}
+
+// writeFlushBatchesDropped emits the total number of full batches evicted
+// or dropped from batcher flush queues because the async flush consumer
+// fell behind a sustained burst (IMPROVEMENTS #1: async batcher
+// backpressure observability).
+func writeFlushBatchesDropped(b *strings.Builder) {
+	eng := getEngine()
+	provider, ok := eng.(core.FlushBatchesDroppedProvider)
+	if !ok || provider == nil {
+		return
+	}
+	dropped := provider.FlushBatchesDropped()
+	writePromHeader(b, "corec_flush_batches_dropped_total", "counter", "Full batches evicted or dropped from batcher flush queues due to sustained backpressure")
+	fmt.Fprintf(b, "corec_flush_batches_dropped_total %d\n", dropped)
 }
 
 // writeHTTPMetrics emits HTTP request counts and a request-duration
@@ -250,13 +277,20 @@ func writeHTTPMetrics(b *strings.Builder) {
 // core.LatencyProvider (e.g. test mocks), no metrics are emitted.
 func writeLatencyMetrics(b *strings.Builder) {
 	eng := getEngine()
-	provider, ok := eng.(core.LatencyProvider)
-	if !ok || provider == nil {
-		return
+
+	// Latency histograms (read/publish) are exposed via the LatencyProvider
+	// role interface. When the engine does not satisfy it (e.g. test
+	// mocks), no latency metrics are emitted.
+	if provider, ok := eng.(core.LatencyProvider); ok && provider != nil {
+		writeLatencyHistogram(b, "corec_read_latency_seconds", "Driver read latency in seconds", provider.ReadLatencyHistogram())
+		writeLatencyHistogram(b, "corec_publish_latency_seconds", "Transport publish latency in seconds", provider.PublishLatencyHistogram())
 	}
 
-	writeLatencyHistogram(b, "corec_read_latency_seconds", "Driver read latency in seconds", provider.ReadLatencyHistogram())
-	writeLatencyHistogram(b, "corec_publish_latency_seconds", "Transport publish latency in seconds", provider.PublishLatencyHistogram())
+	// Data-age (freshness) histogram is exposed via a separate role
+	// interface so it is emitted independently of LatencyProvider.
+	if ap, ok := eng.(core.DataAgeProvider); ok && ap != nil {
+		writeLatencyHistogram(b, "corec_data_age_seconds", "Data age (publish time minus collection timestamp) in seconds", ap.DataAgeHistogram())
+	}
 }
 
 // writeLatencyHistogram renders a single Prometheus histogram family from

@@ -78,7 +78,7 @@ func TestBatcherPublishFlush(t *testing.T) {
 		BatchSize:     3,
 		FlushInterval: "10s", // long interval; we trigger flush via batch size
 	}
-	b := newTransportBatcher(tr, cfg, nil)
+	b := newTransportBatcher(tr, cfg, nil, nil, nil, nil)
 	if b == nil {
 		t.Fatal("expected non-nil batcher")
 	}
@@ -130,7 +130,7 @@ func TestBatcherFlushInterval(t *testing.T) {
 		BatchSize:     100, // large; won't fill
 		FlushInterval: "50ms",
 	}
-	b := newTransportBatcher(tr, cfg, nil)
+	b := newTransportBatcher(tr, cfg, nil, nil, nil, nil)
 	if b == nil {
 		t.Fatal("expected non-nil batcher")
 	}
@@ -172,7 +172,7 @@ func TestBatcherRetryThenSucceed(t *testing.T) {
 		FlushInterval: "10s",
 		RetryCount:    2,
 	}
-	b := newTransportBatcher(tr, cfg, nil)
+	b := newTransportBatcher(tr, cfg, nil, nil, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -222,7 +222,7 @@ func TestBatcherRetryExhaustedBuffersToOffline(t *testing.T) {
 		FlushInterval: "10s",
 		RetryCount:    1, // 1 retry = 2 total attempts
 	}
-	b := newTransportBatcher(tr, cfg, ob)
+	b := newTransportBatcher(tr, cfg, ob, nil, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -285,7 +285,7 @@ func TestBatcherDrainReplaysOfflineBuffer(t *testing.T) {
 		BatchSize:     10,
 		FlushInterval: "10s",
 	}
-	b := newTransportBatcher(tr, cfg, ob)
+	b := newTransportBatcher(tr, cfg, ob, nil, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -319,7 +319,7 @@ func TestBatcherFlushFinalPublishesRemaining(t *testing.T) {
 		BatchSize:     100,   // large; won't fill
 		FlushInterval: "10s", // long; won't tick
 	}
-	b := newTransportBatcher(tr, cfg, nil)
+	b := newTransportBatcher(tr, cfg, nil, nil, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -352,7 +352,7 @@ func TestBatcherOfflineBufferPendingNil(t *testing.T) {
 		BatchSize:     10,
 		FlushInterval: "10s",
 	}
-	b := newTransportBatcher(tr, cfg, nil)
+	b := newTransportBatcher(tr, cfg, nil, nil, nil, nil)
 	if b == nil {
 		t.Fatal("expected non-nil batcher")
 	}
@@ -385,7 +385,7 @@ func TestBatcherOfflineBufferPendingWithBuffer(t *testing.T) {
 		BatchSize:     10,
 		FlushInterval: "10s",
 	}
-	b := newTransportBatcher(tr, cfg, ob)
+	b := newTransportBatcher(tr, cfg, ob, nil, nil, nil)
 	if b == nil {
 		t.Fatal("expected non-nil batcher")
 	}
@@ -439,7 +439,7 @@ func TestBatcherOfflineBufferPushedIncremented(t *testing.T) {
 		FlushInterval: "10s",
 		RetryCount:    1,
 	}
-	b := newTransportBatcher(tr, cfg, ob)
+	b := newTransportBatcher(tr, cfg, ob, nil, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -545,4 +545,269 @@ func TestEngineOfflineBufferStatsNoBuffer(t *testing.T) {
 	if pending != 0 || drained != 0 || pushed != 0 {
 		t.Fatalf("OfflineBufferStats = (%d, %d, %d), want (0, 0, 0) with no buffer", pending, drained, pushed)
 	}
+}
+
+// slowTransport is a mock Transport whose PublishBatch sleeps for a fixed
+// duration to simulate a slow network target. It is used to verify that
+// publish() returns without waiting for PublishBatch (IMPROVEMENTS #1:
+// the buffer-full flush now runs asynchronously on flushLoop).
+type slowTransport struct {
+	name        string
+	publishSlow time.Duration
+	mu          sync.Mutex
+	published   []core.DataPoint
+}
+
+func (t *slowTransport) Init(_ context.Context, cfg core.TransportConfig) error {
+	t.name = cfg.Name
+	return nil
+}
+func (t *slowTransport) Start(_ context.Context) error { return nil }
+func (t *slowTransport) Stop() error                   { return nil }
+func (t *slowTransport) Publish(ctx context.Context, point core.DataPoint) error {
+	return t.PublishBatch(ctx, []core.DataPoint{point})
+}
+func (t *slowTransport) PublishBatch(ctx context.Context, points []core.DataPoint) error {
+	select {
+	case <-time.After(t.publishSlow):
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	t.mu.Lock()
+	t.published = append(t.published, points...)
+	t.mu.Unlock()
+	return nil
+}
+func (t *slowTransport) OnCommand() <-chan core.WriteCommand { return nil }
+func (t *slowTransport) OnData() <-chan core.DataPoint       { return nil }
+func (t *slowTransport) Name() string                        { return t.name }
+func (t *slowTransport) Type() string                        { return "slow" }
+func (t *slowTransport) Status() core.TransportStatus {
+	return core.TransportStatus{Name: t.name, Type: "slow", State: core.StateConnected}
+}
+func (t *slowTransport) getPublished() []core.DataPoint {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	cp := make([]core.DataPoint, len(t.published))
+	copy(cp, t.published)
+	return cp
+}
+
+// TestBatcherPublishAsyncNonBlocking verifies that publish() does NOT block
+// the caller even when PublishBatch is slow. With BatchSize=1 every publish
+// fills the batch and triggers a flush; if the flush were synchronous (the
+// pre-#1 behavior), two publishes would take ~2x publishSlow. Instead both
+// return promptly and the slow PublishBatch runs on flushLoop.
+func TestBatcherPublishAsyncNonBlocking(t *testing.T) {
+	tr := &slowTransport{publishSlow: 150 * time.Millisecond}
+	cfg := core.TransportConfig{
+		Name:      "slow",
+		BatchSize: 1, // every point triggers a flush
+	}
+	b := newTransportBatcher(tr, cfg, nil, nil, nil, nil)
+	if b == nil {
+		t.Fatal("expected non-nil batcher")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	b.start(ctx)
+	defer b.stop()
+
+	// Two publishes with a slow PublishBatch. Each fills the size-1 batch.
+	// If publish() blocked on PublishBatch this loop would take >= 300ms.
+	start := time.Now()
+	for i := 0; i < 2; i++ {
+		_ = b.publish(ctx, core.DataPoint{
+			Driver: "plc", Tag: "t", Value: float64(i), Timestamp: time.Now(),
+		})
+	}
+	elapsed := time.Since(start)
+	// The caller must return well before a single slow PublishBatch
+	// completes (150ms). Allow generous headroom for scheduling.
+	if elapsed > 100*time.Millisecond {
+		t.Fatalf("publish() blocked the caller for %v; expected non-blocking (PublishBatch takes %v)", elapsed, tr.publishSlow)
+	}
+
+	// Both points must eventually be published by the async flushLoop.
+	waitFor := func(timeout time.Duration, check func() bool) bool {
+		deadline := time.Now().Add(timeout)
+		for time.Now().Before(deadline) {
+			if check() {
+				return true
+			}
+			time.Sleep(time.Millisecond)
+		}
+		return false
+	}
+	if !waitFor(2*time.Second, func() bool { return len(tr.getPublished()) == 2 }) {
+		t.Fatalf("expected 2 published points, got %d", len(tr.getPublished()))
+	}
+}
+
+// TestBatcherOnPublishCallback verifies that the onPublish callback is
+// called with the correct point count when a batch is actually published
+// (not just enqueued). This is the Finding 4 fix: publish counting moved
+// from the synchronous enqueue path to the async flush path.
+func TestBatcherOnPublishCallback(t *testing.T) {
+	tr := &flakyTransport{}
+	cfg := core.TransportConfig{
+		Name:      "test",
+		BatchSize: 3,
+	}
+	var publishedCount atomic.Int64
+	b := newTransportBatcher(tr, cfg, nil, nil, nil, func(n int) {
+		publishedCount.Add(int64(n))
+	})
+	if b == nil {
+		t.Fatal("expected non-nil batcher")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	b.start(ctx)
+	defer b.stop()
+
+	// Send 3 points — should trigger a flush of a 3-point batch.
+	for i := 0; i < 3; i++ {
+		_ = b.publish(ctx, core.DataPoint{
+			Driver: "plc", Tag: "t", Value: float64(i), Timestamp: time.Now(),
+		})
+	}
+
+	waitFor := func(timeout time.Duration, check func() bool) bool {
+		deadline := time.Now().Add(timeout)
+		for time.Now().Before(deadline) {
+			if check() {
+				return true
+			}
+			time.Sleep(time.Millisecond)
+		}
+		return false
+	}
+	// The callback should have been called with n=3.
+	if !waitFor(2*time.Second, func() bool { return publishedCount.Load() == 3 }) {
+		t.Fatalf("expected onPublish callback count=3, got %d", publishedCount.Load())
+	}
+}
+
+// TestBatcherOnPublishCallbackDrain verifies that the onPublish callback is
+// also called when a batch is replayed from the offline buffer via
+// drainOnce, so totalPublish reflects all successful publishes including
+// replays.
+func TestBatcherOnPublishCallbackDrain(t *testing.T) {
+	dir := t.TempDir()
+	ob, err := NewOfflineBuffer(dir, 100)
+	if err != nil {
+		t.Fatalf("NewOfflineBuffer: %v", err)
+	}
+	defer ob.Close()
+
+	// Pre-populate the offline buffer with a 2-point batch.
+	points := []core.DataPoint{
+		{Driver: "plc", Tag: "t1", Value: 10.0, Timestamp: time.Now()},
+		{Driver: "plc", Tag: "t2", Value: 20.0, Timestamp: time.Now()},
+	}
+	if err := ob.Push(points, "test"); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+
+	tr := &flakyTransport{}
+	var publishedCount atomic.Int64
+	cfg := core.TransportConfig{
+		Name:      "test",
+		BatchSize: 10,
+	}
+	b := newTransportBatcher(tr, cfg, ob, nil, nil, func(n int) {
+		publishedCount.Add(int64(n))
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	b.start(ctx)
+	defer b.stop()
+
+	// drainOnce replays the buffered batch; the callback should fire with n=2.
+	b.drainOnce()
+	if publishedCount.Load() != 2 {
+		t.Fatalf("expected onPublish callback count=2 after drain, got %d", publishedCount.Load())
+	}
+}
+
+// TestBatcherPublishDropsWhenFlushQueueFull verifies that when the flush
+// queue overflows (flushLoop can't keep up), batches are evicted and
+// counted in flushBatchesDropped. publish() returns an error when the
+// caller's own batch cannot be enqueued even after eviction (a rare race
+// when multiple workers contend); the primary signal is flushBatchesDropped.
+// This test verifies the eviction + counting path (Finding 4 fix).
+func TestBatcherPublishDropsWhenFlushQueueFull(t *testing.T) {
+	// blockTransport never completes a PublishBatch, so flushBatches
+	// fills up and subsequent publishes must evict/drop.
+	tr := &blockTransport{delay: 30 * time.Second}
+	cfg := core.TransportConfig{
+		Name:      "test",
+		BatchSize: 1, // every point fills a batch and goes to flushBatches
+	}
+	b := newTransportBatcher(tr, cfg, nil, nil, nil, nil)
+	if b == nil {
+		t.Fatal("expected non-nil batcher")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	b.start(ctx)
+	defer b.stop()
+
+	// defaultFlushBatchQueueSize is 64. The first batch is consumed by
+	// flushLoop (which blocks on it). The next 64 enqueues fill the queue.
+	// The 65th+ trigger eviction (flushBatchesDropped increments).
+	for i := 0; i < defaultFlushBatchQueueSize+10; i++ {
+		_ = b.publish(ctx, core.DataPoint{
+			Driver: "plc", Tag: "t", Value: float64(i), Timestamp: time.Now(),
+		})
+	}
+
+	// flushBatchesDropped must be > 0: at least 9 evictions occurred
+	// (10 extra batches beyond the 64-slot queue + 1 being processed).
+	if b.flushBatchesDropped.Load() == 0 {
+		t.Fatalf("expected flushBatchesDropped > 0, got %d", b.flushBatchesDropped.Load())
+	}
+}
+
+// blockTransport is a mock Transport whose PublishBatch blocks until the
+// context is cancelled, simulating a transport that hangs. Used to fill
+// the flush queue without consuming batches.
+type blockTransport struct {
+	name   string
+	delay  time.Duration
+	mu     sync.Mutex
+	points []core.DataPoint
+}
+
+func (t *blockTransport) Init(_ context.Context, cfg core.TransportConfig) error {
+	t.name = cfg.Name
+	return nil
+}
+func (t *blockTransport) Start(_ context.Context) error { return nil }
+func (t *blockTransport) Stop() error                   { return nil }
+func (t *blockTransport) Publish(ctx context.Context, point core.DataPoint) error {
+	return t.PublishBatch(ctx, []core.DataPoint{point})
+}
+func (t *blockTransport) PublishBatch(ctx context.Context, points []core.DataPoint) error {
+	select {
+	case <-time.After(t.delay):
+		t.mu.Lock()
+		t.points = append(t.points, points...)
+		t.mu.Unlock()
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+func (t *blockTransport) OnCommand() <-chan core.WriteCommand { return nil }
+func (t *blockTransport) OnData() <-chan core.DataPoint       { return nil }
+func (t *blockTransport) Name() string                        { return t.name }
+func (t *blockTransport) Type() string                        { return "block" }
+func (t *blockTransport) Status() core.TransportStatus {
+	return core.TransportStatus{Name: t.name, Type: "block", State: core.StateConnected}
 }

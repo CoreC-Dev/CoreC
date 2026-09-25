@@ -10,8 +10,14 @@ import (
 
 // DataBus is the internal data channel that connects drivers to the processing pipeline.
 // It uses Go channels for high-performance, lock-free data flow.
+//
+// DataBus supports two priority tiers (IMPROVEMENTS #5): a main channel for
+// normal-priority data and a dedicated high-priority channel for fast-interval
+// tasks. The engine runs separate worker goroutines for each tier so a burst
+// of low-frequency bulk reads cannot starve high-frequency collection.
 type DataBus struct {
 	ch          chan core.DataPoint
+	highPriCh   chan core.DataPoint
 	subscribers []subscriber
 	mu          sync.RWMutex
 	closed      bool
@@ -28,6 +34,11 @@ type DataBus struct {
 	// pushDropped counts messages dropped from the main channel because
 	// the bus was full and Push had to evict the oldest entry.
 	pushDropped atomic.Int64
+
+	// highPriPushDropped counts messages dropped from the high-priority
+	// channel because its buffer was full. Tracked separately so operators
+	// can distinguish backpressure on the priority path.
+	highPriPushDropped atomic.Int64
 }
 
 type subscriber struct {
@@ -36,12 +47,22 @@ type subscriber struct {
 }
 
 // NewDataBus creates a new DataBus with the given buffer size.
+// The high-priority channel uses a smaller buffer (1/4 of the main, capped
+// at 1024) because high-frequency data is less voluminous per tick.
 func NewDataBus(bufferSize int) *DataBus {
 	if bufferSize <= 0 {
 		bufferSize = 4096
 	}
+	highPriSize := bufferSize / 4
+	if highPriSize > 1024 {
+		highPriSize = 1024
+	}
+	if highPriSize < 64 {
+		highPriSize = 64
+	}
 	return &DataBus{
-		ch: make(chan core.DataPoint, bufferSize),
+		ch:        make(chan core.DataPoint, bufferSize),
+		highPriCh: make(chan core.DataPoint, highPriSize),
 	}
 }
 
@@ -92,6 +113,50 @@ func (b *DataBus) Push(point core.DataPoint) {
 // Channel returns the main data channel for consumption.
 func (b *DataBus) Channel() <-chan core.DataPoint {
 	return b.ch
+}
+
+// PushHighPriority sends a DataPoint into the high-priority channel.
+// It uses the same drop-oldest semantics as Push so the newest
+// high-frequency data is always retained. Safe to call concurrently with
+// Close (IMPROVEMENTS #5: priority-tiered data routing).
+func (b *DataBus) PushHighPriority(point core.DataPoint) {
+	b.mu.RLock()
+	if b.closed {
+		b.mu.RUnlock()
+		return
+	}
+	b.mu.RUnlock()
+
+	defer func() {
+		if r := recover(); r != nil {
+			b.mu.RLock()
+			closed := b.closed
+			b.mu.RUnlock()
+			if !closed {
+				panic(r)
+			}
+		}
+	}()
+	select {
+	case b.highPriCh <- point:
+	default:
+		select {
+		case <-b.highPriCh:
+			b.highPriPushDropped.Add(1)
+		default:
+		}
+		select {
+		case b.highPriCh <- point:
+		default:
+			b.highPriPushDropped.Add(1)
+		}
+	}
+}
+
+// HighPriorityChannel returns the high-priority data channel for consumption
+// by dedicated high-priority workers.
+func (b *DataBus) HighPriorityChannel() <-chan core.DataPoint {
+	return b.highPriCh
 }
 
 // DefaultSubscriberBuffer is the default buffer size for DataBus subscriber channels.
@@ -169,12 +234,19 @@ func (b *DataBus) PushDropped() int64 {
 	return b.pushDropped.Load()
 }
 
+// HighPriorityPushDropped returns the number of messages evicted from the
+// high-priority channel because its buffer was full.
+func (b *DataBus) HighPriorityPushDropped() int64 {
+	return b.highPriPushDropped.Load()
+}
+
 // Close closes the data bus.
 func (b *DataBus) Close() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if !b.closed {
 		close(b.ch)
+		close(b.highPriCh)
 		for _, sub := range b.subscribers {
 			close(sub.ch)
 		}

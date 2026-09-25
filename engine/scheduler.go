@@ -23,7 +23,11 @@ type scheduler struct {
 	paused       map[string]bool
 	globalPaused atomic.Bool
 	readFunc     func(ctx context.Context, driver string, tags []string) ([]core.TagValue, error)
-	onData       func(driver string, values []core.TagValue)
+	onData       func(driver string, values []core.TagValue, priority int)
+
+	// statManager collects throughput counters. Injected from the engine
+	// so multiple Engine instances don't share a global (IMPROVEMENTS #8).
+	statManager *statistic.Manager
 
 	// errorThrottleWindow is the time window for suppressing repeated
 	// error/overrun log messages. Defaults to core.DefaultErrorThrottleWindow.
@@ -63,22 +67,30 @@ type taskRunner struct {
 
 // NewScheduler creates a new scheduler.
 // readFunc is called to read tags from a driver.
-// onData is called when data is received.
+// onData is called when data is received, with the task's priority so the
+// engine can route fast-interval data to a dedicated high-priority channel.
 // errorThrottleWindow is the time window for suppressing repeated error
 // logs; <=0 falls back to core.DefaultErrorThrottleWindow.
+// statManager collects throughput counters; if nil, a new Manager is
+// created (but callers should pass the engine's instance for isolation).
 func NewScheduler(
 	readFunc func(ctx context.Context, driver string, tags []string) ([]core.TagValue, error),
-	onData func(driver string, values []core.TagValue),
+	onData func(driver string, values []core.TagValue, priority int),
 	errorThrottleWindow time.Duration,
+	statManager *statistic.Manager,
 ) *scheduler {
 	if errorThrottleWindow <= 0 {
 		errorThrottleWindow = core.DefaultErrorThrottleWindow
+	}
+	if statManager == nil {
+		statManager = statistic.NewManager()
 	}
 	return &scheduler{
 		tasks:               make(map[string]*taskRunner),
 		paused:              make(map[string]bool),
 		readFunc:            readFunc,
 		onData:              onData,
+		statManager:         statManager,
 		errorThrottleWindow: errorThrottleWindow,
 	}
 }
@@ -243,7 +255,7 @@ func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) { //nolint:
 			}
 
 			if err != nil {
-				statistic.DefaultManager.PushError()
+				s.statManager.PushError()
 				errMsg := err.Error()
 				runner.errCount++
 				now := time.Now()
@@ -304,7 +316,7 @@ func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) { //nolint:
 			}
 
 			if len(values) > 0 {
-				statistic.DefaultManager.PushRead(int64(len(values)))
+				s.statManager.PushRead(int64(len(values)))
 
 				// Apply deadband filtering: skip values that haven't changed
 				// beyond the configured threshold since last report.
@@ -330,7 +342,7 @@ func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) { //nolint:
 				}
 
 				if len(values) > 0 {
-					s.onData(task.Driver, values)
+					s.onData(task.Driver, values, task.Priority)
 				}
 			}
 		}

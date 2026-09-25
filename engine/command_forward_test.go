@@ -403,3 +403,168 @@ func TestForwarderTransportSatisfiesCommandForwarder(t *testing.T) {
 		t.Fatal("plainTransport must NOT satisfy core.CommandForwarder")
 	}
 }
+
+// ─── Command concurrency (#2) ──────────────────────────────────────
+
+// slowDriver is a core.Driver whose Write sleeps for a fixed duration to
+// simulate a slow device (e.g. Modbus write timeout). It records the
+// maximum number of concurrently in-flight Write calls so tests can assert
+// that commands are dispatched in parallel (IMPROVEMENTS #2).
+type slowDriver struct {
+	mockDriver
+	writeDelay  time.Duration
+	mu          sync.Mutex
+	written     int
+	inFlight    int
+	maxInFlight int
+}
+
+func (d *slowDriver) Write(ctx context.Context, commands []core.WriteCommand) ([]core.WriteResult, error) {
+	d.mu.Lock()
+	d.inFlight++
+	if d.inFlight > d.maxInFlight {
+		d.maxInFlight = d.inFlight
+	}
+	d.mu.Unlock()
+
+	defer func() {
+		d.mu.Lock()
+		d.inFlight--
+		d.written += len(commands)
+		d.mu.Unlock()
+	}()
+
+	select {
+	case <-time.After(d.writeDelay):
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	results := make([]core.WriteResult, len(commands))
+	for i := range results {
+		results[i] = core.WriteResult{Success: true}
+	}
+	return results, nil
+}
+
+func (d *slowDriver) writes() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.written
+}
+
+func (d *slowDriver) peakConcurrency() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.maxInFlight
+}
+
+// TestCommandListenerDispatchesConcurrently verifies that
+// startCommandListener dispatches write commands to a bounded worker pool
+// instead of processing them serially. With a 100 ms-per-write driver and
+// 4 commands, serial execution would take ~400 ms; concurrent dispatch
+// (concurrency ≥ 4) completes in ~100 ms and shows peak concurrency ≥ 2.
+func TestCommandListenerDispatchesConcurrently(t *testing.T) {
+	e := newTestEngine(t)
+	e.writeRetryCount = 0 // single attempt — keeps the test fast
+	e.commandSem = make(chan struct{}, 8)
+
+	d := &slowDriver{
+		writeDelay: 100 * time.Millisecond,
+	}
+	d.name = "plc"
+	d.status = core.DriverStatus{Name: "plc", State: core.StateConnected}
+	e.drivers["plc"] = d
+
+	tr := &mockTransport{name: "cmd-tr"}
+	tr.cmdCh = make(chan core.WriteCommand, 10)
+	tr.status = core.TransportStatus{Name: "cmd-tr", State: core.StateConnected}
+
+	// Start the command listener bound to the engine context.
+	e.startCommandListener(tr, e.ctx)
+	// Ensure the listener + any in-flight command goroutines exit on cleanup.
+	t.Cleanup(func() {
+		e.cancel()
+		e.wg.Wait()
+	})
+
+	start := time.Now()
+	for i := 0; i < 4; i++ {
+		tr.cmdCh <- core.WriteCommand{Driver: "plc", Tag: "setpoint", Value: float64(i)}
+	}
+
+	// Wait for all 4 writes to complete.
+	waitFor := func(timeout time.Duration, check func() bool) bool {
+		deadline := time.Now().Add(timeout)
+		for time.Now().Before(deadline) {
+			if check() {
+				return true
+			}
+			time.Sleep(time.Millisecond)
+		}
+		return false
+	}
+	if !waitFor(2*time.Second, func() bool { return d.writes() == 4 }) {
+		t.Fatalf("expected 4 writes, got %d", d.writes())
+	}
+	elapsed := time.Since(start)
+
+	// Serial execution would take ≥ 400 ms (4 × 100 ms). Concurrent
+	// dispatch should finish well under that. Allow generous headroom.
+	if elapsed > 250*time.Millisecond {
+		t.Fatalf("commands took %v; expected concurrent (< 250ms), serial would be ~400ms", elapsed)
+	}
+
+	// Peak concurrency must be ≥ 2, proving commands ran in parallel.
+	if pc := d.peakConcurrency(); pc < 2 {
+		t.Fatalf("peak write concurrency = %d, want ≥ 2 (commands ran serially)", pc)
+	}
+}
+
+// TestCommandListenerSerialWhenConcurrencyOne verifies that setting
+// command-concurrency to 1 restores the original fully-serial behavior,
+// which is important for drivers that are not safe for concurrent writes.
+func TestCommandListenerSerialWhenConcurrencyOne(t *testing.T) {
+	e := newTestEngine(t)
+	e.writeRetryCount = 0
+	e.commandSem = make(chan struct{}, 1) // serial
+
+	d := &slowDriver{
+		writeDelay: 50 * time.Millisecond,
+	}
+	d.name = "plc"
+	d.status = core.DriverStatus{Name: "plc", State: core.StateConnected}
+	e.drivers["plc"] = d
+
+	tr := &mockTransport{name: "cmd-tr-serial"}
+	tr.cmdCh = make(chan core.WriteCommand, 10)
+	tr.status = core.TransportStatus{Name: "cmd-tr-serial", State: core.StateConnected}
+
+	e.startCommandListener(tr, e.ctx)
+	t.Cleanup(func() {
+		e.cancel()
+		e.wg.Wait()
+	})
+
+	for i := 0; i < 3; i++ {
+		tr.cmdCh <- core.WriteCommand{Driver: "plc", Tag: "setpoint", Value: float64(i)}
+	}
+
+	waitFor := func(timeout time.Duration, check func() bool) bool {
+		deadline := time.Now().Add(timeout)
+		for time.Now().Before(deadline) {
+			if check() {
+				return true
+			}
+			time.Sleep(time.Millisecond)
+		}
+		return false
+	}
+	if !waitFor(2*time.Second, func() bool { return d.writes() == 3 }) {
+		t.Fatalf("expected 3 writes, got %d", d.writes())
+	}
+
+	// With concurrency=1, peak must be exactly 1 (fully serial).
+	if pc := d.peakConcurrency(); pc != 1 {
+		t.Fatalf("peak write concurrency = %d, want 1 (serial mode)", pc)
+	}
+}

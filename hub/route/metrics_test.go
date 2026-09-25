@@ -264,6 +264,7 @@ func TestPromMetricsNewFamilies(t *testing.T) {
 	mustNotExist := []string{
 		"corec_read_latency_seconds",
 		"corec_publish_latency_seconds",
+		"corec_data_age_seconds",
 		"corec_offline_buffer_pending",
 		"corec_offline_buffer_drained_total",
 		"corec_offline_buffer_pushed_total",
@@ -271,6 +272,81 @@ func TestPromMetricsNewFamilies(t *testing.T) {
 	for _, s := range mustNotExist {
 		if strings.Contains(output, s) {
 			t.Errorf("metrics output should NOT contain %q (mock does not implement the provider interface)\n", s)
+		}
+	}
+}
+
+// mockLatencyEngine implements core.LatencyProvider and core.DataAgeProvider
+// (but not the full core.Engine) to verify the histogram families are
+// emitted when the optional role interfaces are satisfied.
+type mockLatencyEngine struct {
+	mockEngineV2
+	readSnap    core.LatencySnapshot
+	publishSnap core.LatencySnapshot
+	dataAgeSnap core.LatencySnapshot
+}
+
+func (m *mockLatencyEngine) ReadLatencyHistogram() core.LatencySnapshot    { return m.readSnap }
+func (m *mockLatencyEngine) PublishLatencyHistogram() core.LatencySnapshot { return m.publishSnap }
+func (m *mockLatencyEngine) DataAgeHistogram() core.LatencySnapshot        { return m.dataAgeSnap }
+
+// TestPromMetricsLatencyAndDataAge verifies that the read/publish latency
+// and data-age histogram families are emitted when the engine satisfies the
+// corresponding optional role interfaces, including HELP/TYPE headers and
+// the +Inf bucket / sum / count lines.
+func TestPromMetricsLatencyAndDataAge(t *testing.T) {
+	eng := &mockLatencyEngine{
+		mockEngineV2: mockEngineV2{},
+		readSnap: core.LatencySnapshot{
+			Buckets: []float64{0.1, 1},
+			Counts:  []uint64{2, 5},
+			Sum:     3.5,
+			Count:   5,
+		},
+		publishSnap: core.LatencySnapshot{
+			Buckets: []float64{0.1, 1},
+			Counts:  []uint64{4, 5},
+			Sum:     2.0,
+			Count:   5,
+		},
+		dataAgeSnap: core.LatencySnapshot{
+			Buckets: []float64{1, 60},
+			Counts:  []uint64{3, 5},
+			Sum:     120.0,
+			Count:   5,
+		},
+	}
+	ts := newTestServer("", eng)
+	defer ts.Close()
+
+	resp := authedGet(t, ts, "/metrics", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	output := string(body)
+
+	// data-age histogram family must be fully present.
+	dataAgeChecks := []string{
+		"# HELP corec_data_age_seconds",
+		"# TYPE corec_data_age_seconds histogram",
+		`corec_data_age_seconds_bucket{le="1"} 3`,
+		`corec_data_age_seconds_bucket{le="60"} 5`,
+		`corec_data_age_seconds_bucket{le="+Inf"} 5`,
+		"corec_data_age_seconds_sum 120",
+		"corec_data_age_seconds_count 5",
+	}
+	for _, s := range dataAgeChecks {
+		if !strings.Contains(output, s) {
+			t.Errorf("metrics output missing %q\n", s)
+		}
+	}
+
+	// read/publish latency must also be present (sanity).
+	for _, s := range []string{"corec_read_latency_seconds_count 5", "corec_publish_latency_seconds_count 5"} {
+		if !strings.Contains(output, s) {
+			t.Errorf("metrics output missing %q\n", s)
 		}
 	}
 }

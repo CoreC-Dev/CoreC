@@ -217,6 +217,27 @@ const (
 	// command channels when TransportConfig.BufferSize is not set.
 	DefaultCommandBufferSize = 100
 
+	// DefaultCommandConcurrency is the default maximum number of write
+	// commands executed in parallel by the engine. Commands exceeding this
+	// limit apply backpressure to the transport's command channel (and
+	// ultimately to the dead-letter store per #4). This prevents a single
+	// slow write from serializing all subsequent control commands
+	// (IMPROVEMENTS #2).
+	DefaultCommandConcurrency = 16
+
+	// DefaultHighPriorityWorkers is the default number of dedicated
+	// processing workers for high-priority (fast-interval) data. These
+	// workers read only from the DataBus high-priority channel, so a burst
+	// of low-frequency bulk reads cannot starve high-frequency collection
+	// (IMPROVEMENTS #5).
+	DefaultHighPriorityWorkers = 2
+
+	// DefaultHighPriorityInterval is the collection interval threshold at
+	// or below which a task is classified as high-priority. Tasks with
+	// interval ≤ this value are routed to the dedicated high-priority
+	// worker pool (IMPROVEMENTS #5).
+	DefaultHighPriorityInterval = time.Second
+
 	// DefaultBatchSize is the default batch size for transport batchers
 	// when TransportConfig.BatchSize is not set.
 	DefaultBatchSize = 100
