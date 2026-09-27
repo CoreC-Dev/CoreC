@@ -284,6 +284,12 @@ func CloseServer() error {
 }
 
 func router(secret string, allowedOrigins []string, rateLimitPerSec int, pprofEnabled bool) *chi.Mux {
+	// Populate the package-level origin allowlist so that WebSocket Accept
+	// calls (which do their own Origin check, independent of CORS) honor the
+	// same allowed-origins config. Without this, cross-origin WS upgrades
+	// are 403'd by coder/websocket's strict default.
+	wsAllowedOrigins = allowedOrigins
+
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)

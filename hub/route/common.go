@@ -4,12 +4,39 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+
+	"github.com/coder/websocket"
 )
 
 // maxRequestBody limits JSON body size to prevent OOM from oversized requests.
 // 1 MiB is sufficient for typical config payloads; if large rule sets exceed
 // this, consider making it configurable via APIConfig.
 const maxRequestBody = 1 << 20 // 1 MiB
+
+// wsAllowedOrigins is the set of origins permitted to upgrade to a WebSocket
+// connection. It is populated by router() from the configured AllowedOrigins.
+// When empty, cross-origin upgrades are allowed (matching the permissive
+// default of corsMiddleware for local/dev deployments).
+//
+// This is required because coder/websocket's Accept performs its own Origin
+// check independent of the chi CORS middleware. Without feeding OriginPatterns,
+// any cross-origin WS upgrade (e.g. dashboard at :3080 → CoreC at :9090) is
+// rejected with HTTP 403, silently breaking all realtime pages.
+var wsAllowedOrigins []string
+
+// acceptWS accepts a WebSocket connection with OriginPatterns derived from the
+// configured allowed origins. When no origins are configured (permissive mode),
+// it allows all origins — matching corsMiddleware's behavior.
+func acceptWS(w http.ResponseWriter, r *http.Request) (*websocket.Conn, error) {
+	opts := &websocket.AcceptOptions{}
+	if len(wsAllowedOrigins) == 0 {
+		// Permissive mode: allow any origin (local/dev default).
+		opts.InsecureSkipVerify = true
+	} else {
+		opts.OriginPatterns = wsAllowedOrigins
+	}
+	return websocket.Accept(w, r, opts)
+}
 
 func render(w http.ResponseWriter, r *http.Request, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")

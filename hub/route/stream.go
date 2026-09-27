@@ -11,7 +11,7 @@ import (
 
 // streamTags only depends on the EventSubscriber role of the engine.
 func streamTags(w http.ResponseWriter, r *http.Request) {
-	c, err := websocket.Accept(w, r, nil)
+	c, err := acceptWS(w, r)
 	if err != nil {
 		return
 	}

@@ -10,7 +10,7 @@ import (
 )
 
 func getLogs(w http.ResponseWriter, r *http.Request) {
-	c, err := websocket.Accept(w, r, nil)
+	c, err := acceptWS(w, r)
 	if err != nil {
 		return
 	}
