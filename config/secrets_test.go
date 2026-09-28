@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
@@ -27,17 +28,17 @@ func secretedConfig() *core.Config {
 				Name: "mqtt-out",
 				Type: "mqtt",
 				Settings: map[string]any{
-					"broker":               "ssl://broker.example:8883",
-					"client-id":            "edge-1-pub",
-					"topic-template":       "topo/edge-1/data/{driver}/{tag}",
-					"username":             "mqtt-user",
-					"password":             "mqtt-p@ssw0rd-2026",
-					"command-secret":       "cmd-shared-secret",
+					"broker":                 "ssl://broker.example:8883",
+					"client-id":              "edge-1-pub",
+					"topic-template":         "topo/edge-1/data/{driver}/{tag}",
+					"username":               "mqtt-user",
+					"password":               "mqtt-p@ssw0rd-2026",
+					"command-secret":         "cmd-shared-secret",
 					"command-forward-secret": "fwd-shared-secret",
-					"tls-ca-file":          "/etc/corec/ca.pem",
-					"tls-cert-file":        "/etc/corec/cert.pem",
-					"tls-key-file":         "/etc/corec/key.pem",
-					"retained":             true,
+					"tls-ca-file":            "/etc/corec/ca.pem",
+					"tls-cert-file":          "/etc/corec/cert.pem",
+					"tls-key-file":           "/etc/corec/key.pem",
+					"retained":               true,
 				},
 			},
 			{
@@ -123,9 +124,9 @@ func TestRedact_SentinelAppearsForPresentSecrets(t *testing.T) {
 
 	// Each secret FIELD must show the sentinel, proving presence is visible.
 	wantSentinels := []string{
-		"secret: \"***\"",        // api.secret
-		"username: \"***\"",      // mqtt username (also driver)
-		"password: \"***\"",      // mqtt password
+		"secret: \"***\"",   // api.secret
+		"username: \"***\"", // mqtt username (also driver)
+		"password: \"***\"", // mqtt password
 		"command-secret: \"***\"", "command-forward-secret: \"***\"",
 		"webhook-secret: \"***\"",
 	}
@@ -303,7 +304,7 @@ func TestMergeSentinels_RoundTripRestoresExactOriginal(t *testing.T) {
 	// a "load → submit unchanged" cycle must NOT alter any credential.
 	curYaml, _ := yaml.Marshal(current)
 	inYaml, _ := yaml.Marshal(incoming)
-	if string(curYaml) != string(inYaml) {
+	if !bytes.Equal(curYaml, inYaml) {
 		t.Errorf("round-trip altered config\n--- current ---\n%s\n--- merged ---\n%s", curYaml, inYaml)
 	}
 }

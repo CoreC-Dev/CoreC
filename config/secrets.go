@@ -18,6 +18,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/CoreC-Dev/CoreC/core"
@@ -29,6 +30,13 @@ import (
 // whose incoming value equals SentinelValue as "unchanged — backfill the
 // live value" during a config reload.
 const SentinelValue = "***"
+
+// ErrNilConfig is returned by Redact when the input config is nil. The
+// nilnil contract: a nil input has no representation to redact, so Redact
+// must not return a nil value with a nil error — that would let the caller
+// mistake "no config" for "redacted empty config". Callers that expect a
+// nil input (e.g. executor.RawConfigYAML) guard against it before calling.
+var ErrNilConfig = errors.New("config: cannot redact a nil config")
 
 // secretSettingKeys are keys within a driver/transport `settings` map whose
 // values are credentials and must be redacted. These cover the secrets found
@@ -89,7 +97,7 @@ func deepCopyConfig(cfg *core.Config) (*core.Config, error) {
 //  4. The `headers` nested map keeps its keys but every non-empty value → "***".
 func Redact(cfg *core.Config) (*core.Config, error) {
 	if cfg == nil {
-		return nil, nil
+		return nil, ErrNilConfig
 	}
 	cp, err := deepCopyConfig(cfg)
 	if err != nil {

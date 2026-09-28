@@ -95,17 +95,17 @@ type Config struct {
 }
 
 var (
-	httpServer    *http.Server
-	serverMu      sync.Mutex // protects httpServer in ReCreateServer/CloseServer
-	pprofServer   *http.Server
-	pprofMu       sync.Mutex // protects pprofServer
-	engine        core.Engine
-	engineMu      sync.RWMutex
-	ReloadFunc        func(path, payload string) error
-	PatchFunc         func(patch map[string]any) error
-	GetConfigFunc     func() *core.Config
-	GetRawConfigFunc  func() (string, error) // Path A: GET /configs/raw — full redacted YAML
-	ValidateFunc      func(payload string) error // Path A: POST /configs/validate — dry-run
+	httpServer       *http.Server
+	serverMu         sync.Mutex // protects httpServer in ReCreateServer/CloseServer
+	pprofServer      *http.Server
+	pprofMu          sync.Mutex // protects pprofServer
+	engine           core.Engine
+	engineMu         sync.RWMutex
+	ReloadFunc       func(path, payload string) error
+	PatchFunc        func(patch map[string]any) error
+	GetConfigFunc    func() *core.Config
+	GetRawConfigFunc func() (string, error)     // Path A: GET /configs/raw — full redacted YAML
+	ValidateFunc     func(payload string) error // Path A: POST /configs/validate — dry-run
 
 	// Version is the build version, injected via ldflags:
 	//   -ldflags "-X github.com/CoreC-Dev/CoreC/hub/route.Version=1.0.0"
