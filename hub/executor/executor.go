@@ -12,6 +12,7 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 	"github.com/CoreC-Dev/CoreC/hub/route"
 	"github.com/CoreC-Dev/CoreC/log"
+	"github.com/goccy/go-yaml"
 )
 
 var (
@@ -32,6 +33,11 @@ func Init(e core.Engine, initialCfg *core.Config, path string) {
 	route.ReloadFunc = Reload
 	route.PatchFunc = Patch
 	route.GetConfigFunc = CurrentConfig
+	// Path A: expose the raw-redacted config (GET /configs/raw) and the dry-run
+	// validator (POST /configs/validate) to the route layer without creating an
+	// import cycle (executor → route, never the reverse).
+	route.GetRawConfigFunc = RawConfigYAML
+	route.ValidateFunc = Validate
 }
 
 // CurrentConfig returns the current active configuration.
@@ -41,14 +47,78 @@ func CurrentConfig() *core.Config {
 	return currentCfg
 }
 
-// ParseWithPath parses configuration from a file path.
+// ParseWithPath parses configuration from a file path WITHOUT validating.
+// The executor's Reload path calls this so it can run the sentinel-merge
+// (config.MergeSentinels) before validation — validate rejects the "***"
+// sentinel for short secret fields, so the merge must restore real values first.
 func ParseWithPath(path string) (*core.Config, error) {
-	return config.Load(path)
+	return config.LoadNoValidate(path)
 }
 
-// ParseWithBytes parses configuration from YAML bytes.
+// ParseWithBytes parses configuration from YAML bytes WITHOUT validating.
+// See ParseWithPath for why validation is deferred.
 func ParseWithBytes(buf []byte) (*core.Config, error) {
-	return config.Parse(buf)
+	return config.ParseNoValidate(buf)
+}
+
+// Validate performs a dry-run validation of a config payload WITHOUT applying
+// it. It parses the payload, runs the sentinel-merge against the live config
+// (so "***" placeholders for unchanged secrets are restored to real values),
+// THEN validates — producing a faithful prediction of whether Reload would
+// accept the config. Used by POST /configs/validate so the Dashboard can
+// surface errors before the operator commits a PUT /configs.
+//
+// The merge is essential here: validate enforces api.secret minimum length and
+// would reject the 3-char "***" sentinel before the real value is restored.
+// Merging first makes the dry-run match the real Reload outcome (which also
+// merges before validating).
+func Validate(payload string) error {
+	if payload == "" {
+		return fmt.Errorf("empty config payload")
+	}
+	cfg, err := ParseWithBytes([]byte(payload))
+	if err != nil {
+		return err
+	}
+	// Merge "***" sentinels against the live config so validation sees the real
+	// secret values the operator did not change. This mirrors Reload's behavior.
+	mux.Lock()
+	liveCfg := currentCfg
+	mux.Unlock()
+	config.MergeSentinels(cfg, liveCfg)
+	if err := config.Validate(cfg); err != nil {
+		return fmt.Errorf("config validation failed: %w", err)
+	}
+	return nil
+}
+
+// RawConfigYAML returns the full active configuration as YAML text with every
+// secret value redacted to the SentinelValue ("***"). Used by GET /configs/raw
+// so the Dashboard's Config Center can populate its editor with the server's
+// real config without exposing credentials to the operator's browser.
+//
+// The redacted config is safe to round-trip: when submitted back via PUT
+// /configs, the executor's sentinel-merge (in Reload) restores the real secret
+// values before ApplyConfig persists the config.
+func RawConfigYAML() (string, error) {
+	mux.Lock()
+	cfg := currentCfg
+	mux.Unlock()
+	if cfg == nil {
+		return "", fmt.Errorf("no active configuration")
+	}
+	redacted, err := config.Redact(cfg)
+	if err != nil {
+		return "", fmt.Errorf("failed to redact config: %w", err)
+	}
+	if redacted == nil {
+		return "", fmt.Errorf("no active configuration")
+	}
+	data, err := yaml.Marshal(redacted)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal config: %w", err)
+	}
+	return string(data), nil
 }
 
 // resolveConfigPath validates and resolves a client-supplied config file path
@@ -132,6 +202,26 @@ func Reload(path, payload string) error {
 
 	if err != nil {
 		return fmt.Errorf("failed to parse config for reload: %w", err)
+	}
+
+	// Path A: sentinel-merge. A config submitted via PUT /configs may carry
+	// "***" placeholders for secrets the operator did not change (the natural
+	// result of editing a GET /configs/raw response). Before applying, backfill
+	// every "***" with the live value from currentCfg so the full reload does
+	// not persist placeholders and break credentials. Secrets the operator
+	// deliberately changed (any value other than "***") pass through untouched.
+	mux.Lock()
+	liveCfg := currentCfg
+	mux.Unlock()
+	config.MergeSentinels(cfg, liveCfg)
+
+	// Validate AFTER the merge: validate enforces api.secret minimum length and
+	// would reject the 3-char "***" sentinel before the merge restores the real
+	// value. Parsing was split from validation (ParseNoValidate) precisely so
+	// the merge can run in between. This makes Reload's validation outcome
+	// identical to the dry-run POST /configs/validate.
+	if err := config.Validate(cfg); err != nil {
+		return fmt.Errorf("config validation failed: %w", err)
 	}
 
 	return ApplyConfig(cfg, false)

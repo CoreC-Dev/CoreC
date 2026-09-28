@@ -12,13 +12,30 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
-// Load reads and parses a YAML configuration file.
+// Load reads, parses, and validates a YAML configuration file. Used at
+// startup (cmd/corec) where there is no current config and no sentinel
+// placeholders, so parse and validate can run inline.
 func Load(path string) (*core.Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file %s: %w", path, err)
 	}
 	return Parse(data)
+}
+
+// LoadNoValidate reads and parses a YAML configuration file WITHOUT running
+// validation. Used by the executor's Reload path, which must run the
+// sentinel-merge (config.MergeSentinels) BETWEEN parse and validate: a config
+// round-tripped from GET /configs/raw carries "***" for unchanged secrets, and
+// validate rejects short sentinels (e.g. api.secret < 8 chars). Merging first
+// restores the real secret values, then Validate runs against the faithful
+// config the operator is about to apply.
+func LoadNoValidate(path string) (*core.Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file %s: %w", path, err)
+	}
+	return ParseNoValidate(data)
 }
 
 // envVarRe matches ${ENV_VAR} placeholders in YAML data. Variable names
@@ -54,8 +71,30 @@ func expandEnvVars(data []byte) []byte {
 	})
 }
 
-// Parse parses YAML bytes into a Config.
+// Parse parses YAML bytes into a Config, running the full validation rules.
+// Used at startup and anywhere a freshly authored config (no sentinel
+// placeholders) is loaded.
 func Parse(data []byte) (*core.Config, error) {
+	cfg, err := ParseNoValidate(data)
+	if err != nil {
+		return nil, err
+	}
+	if err := Validate(cfg); err != nil {
+		return nil, fmt.Errorf("config validation failed: %w", err)
+	}
+	return cfg, nil
+}
+
+// ParseNoValidate parses YAML bytes into a Config WITHOUT running validation.
+// Callers that need to run the sentinel-merge before validating (the executor's
+// Reload and dry-run Validate paths) use this, then call Validate explicitly
+// after config.MergeSentinels restores real secret values.
+//
+// Splitting parse from validate is required because validate enforces
+// api.secret minimum length, which rejects the "***" sentinel (3 chars) before
+// the merge can restore the real value — see GET /configs/raw + PUT /configs
+// round-trip in hub/executor.
+func ParseNoValidate(data []byte) (*core.Config, error) {
 	// Expand ${ENV_VAR} placeholders before YAML parsing.
 	data = expandEnvVars(data)
 
@@ -67,10 +106,15 @@ func Parse(data []byte) (*core.Config, error) {
 	if err := loadTagsFiles(cfg); err != nil {
 		return nil, fmt.Errorf("failed to load tags files: %w", err)
 	}
-	if err := validate(cfg); err != nil {
-		return nil, fmt.Errorf("config validation failed: %w", err)
-	}
 	return cfg, nil
+}
+
+// Validate runs the config validation rules against an already-parsed Config.
+// Exported so the executor can validate AFTER the sentinel-merge restores real
+// secret values (the unexported validate rejects the "***" sentinel for
+// min-length secret fields).
+func Validate(cfg *core.Config) error {
+	return validate(cfg)
 }
 
 // loadTagsFiles reads external tag files referenced by drivers via the

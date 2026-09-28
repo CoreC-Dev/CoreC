@@ -334,3 +334,155 @@ func TestApplyConfigTransportDiff(t *testing.T) {
 	// t2 should be removed (RemoveTransport called).
 	// The mock doesn't track transport removals, but no error means success.
 }
+
+// --- Path A: Validate dry-run + sentinel-merge tests ---
+
+// liveConfigForValidate is a valid config with a real api.secret that the
+// sentinel-merge can backfill from when a redacted payload is validated.
+func liveConfigForValidate() *core.Config {
+	return &core.Config{
+		Global: core.GlobalConfig{
+			LogLevel: "info",
+			API:      core.APIConfig{Listen: "0.0.0.0:9090", Secret: "live-secret-2026-abc"},
+		},
+		Drivers: []core.DriverConfig{{
+			Name: "plc1", Type: "modbus-tcp",
+			Settings: map[string]any{"host": "10.0.0.5", "port": 502, "password": "live-driver-pwd"},
+			Tags:     []core.TagConfig{{Name: "temp", Address: "40001", Type: "float32"}},
+		}},
+		Transports: []core.TransportConfig{{
+			Name: "wh1", Type: "http",
+			Settings: map[string]any{"webhook-addr": "0.0.0.0:9091", "webhook-secret": "live-wh-secret"},
+		}},
+		Rules: []core.RuleConfig{{Name: "r1", Match: "ALL", Action: "forward"}},
+	}
+}
+
+// TestValidate_RedactedPayloadMergesAndValidates proves the executor's dry-run
+// Validate merges "***" sentinels against currentCfg BEFORE validating, so a
+// config round-tripped from GET /configs/raw validates successfully (the real
+// api.secret is restored, passing the min-length check that would reject "***").
+func TestValidate_RedactedPayloadMergesAndValidates(t *testing.T) {
+	Init(&mockEngineForExecutor{}, liveConfigForValidate(), "config.yaml")
+
+	// A redacted payload: api.secret and driver password are "***" (what the
+	// operator gets from GET /configs/raw and submits unchanged).
+	redactedYAML := `
+global:
+  log-level: info
+  api:
+    listen: 0.0.0.0:9090
+    secret: "***"
+drivers:
+  - name: plc1
+    type: modbus-tcp
+    settings:
+      host: 10.0.0.5
+      port: 502
+      password: "***"
+    tags:
+      - name: temp
+        address: "40001"
+        type: float32
+transports:
+  - name: wh1
+    type: http
+    settings:
+      webhook-addr: 0.0.0.0:9091
+      webhook-secret: "***"
+rules:
+  - name: r1
+    match: ALL
+    action: forward
+`
+	if err := Validate(redactedYAML); err != nil {
+		t.Fatalf("Validate should pass after merge restores real secrets, got: %v", err)
+	}
+}
+
+// TestValidate_RotatedSecretValidates proves an operator-changed secret (not
+// "***") passes through the merge untouched and validates on its own merits.
+func TestValidate_RotatedSecretValidates(t *testing.T) {
+	Init(&mockEngineForExecutor{}, liveConfigForValidate(), "config.yaml")
+
+	// Operator rotates the api.secret to a new 8+ char value; leaves the
+	// driver password as "***" (unchanged → backfilled).
+	rotatedYAML := `
+global:
+  log-level: info
+  api:
+    listen: 0.0.0.0:9090
+    secret: "new-rotated-secret-2027"
+drivers:
+  - name: plc1
+    type: modbus-tcp
+    settings:
+      host: 10.0.0.5
+      port: 502
+      password: "***"
+    tags:
+      - name: temp
+        address: "40001"
+        type: float32
+transports:
+  - name: wh1
+    type: http
+    settings:
+      webhook-addr: 0.0.0.0:9091
+      webhook-secret: "***"
+rules:
+  - name: r1
+    match: ALL
+    action: forward
+`
+	if err := Validate(rotatedYAML); err != nil {
+		t.Fatalf("Validate with rotated secret should pass, got: %v", err)
+	}
+}
+
+// TestValidate_TooShortRotatedSecretFails proves the dry-run catches a genuine
+// validation error: if the operator types a NEW secret that's too short (< 8),
+// the merge leaves it untouched and validate rejects it. This confirms the
+// dry-run is a faithful predictor, not a rubber-stamp.
+func TestValidate_TooShortRotatedSecretFails(t *testing.T) {
+	Init(&mockEngineForExecutor{}, liveConfigForValidate(), "config.yaml")
+
+	tooShortYAML := `
+global:
+  log-level: info
+  api:
+    listen: 0.0.0.0:9090
+    secret: "short"
+drivers:
+  - name: plc1
+    type: modbus-tcp
+    settings:
+      host: 10.0.0.5
+      port: 502
+    tags:
+      - name: temp
+        address: "40001"
+        type: float32
+transports:
+  - name: wh1
+    type: http
+    settings:
+      webhook-addr: 0.0.0.0:9091
+rules:
+  - name: r1
+    match: ALL
+    action: forward
+`
+	err := Validate(tooShortYAML)
+	if err == nil {
+		t.Fatal("expected validation error for too-short rotated secret, got nil")
+	}
+}
+
+// TestValidate_EmptyPayload proves the empty-payload guard.
+func TestValidate_EmptyPayload(t *testing.T) {
+	Init(&mockEngineForExecutor{}, liveConfigForValidate(), "config.yaml")
+	if err := Validate(""); err == nil {
+		t.Error("expected error for empty payload")
+	}
+}

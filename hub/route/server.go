@@ -101,9 +101,11 @@ var (
 	pprofMu       sync.Mutex // protects pprofServer
 	engine        core.Engine
 	engineMu      sync.RWMutex
-	ReloadFunc    func(path, payload string) error
-	PatchFunc     func(patch map[string]any) error
-	GetConfigFunc func() *core.Config
+	ReloadFunc        func(path, payload string) error
+	PatchFunc         func(patch map[string]any) error
+	GetConfigFunc     func() *core.Config
+	GetRawConfigFunc  func() (string, error) // Path A: GET /configs/raw — full redacted YAML
+	ValidateFunc      func(payload string) error // Path A: POST /configs/validate — dry-run
 
 	// Version is the build version, injected via ldflags:
 	//   -ldflags "-X github.com/CoreC-Dev/CoreC/hub/route.Version=1.0.0"
@@ -324,8 +326,10 @@ func router(secret string, allowedOrigins []string, rateLimitPerSec int, pprofEn
 		}
 
 		r.Get("/configs", getConfigs)
+		r.Get("/configs/raw", getConfigsRaw)
 		r.Put("/configs", updateConfigs)
 		r.Patch("/configs", patchConfigs)
+		r.Post("/configs/validate", validateConfigs)
 
 		r.Get("/drivers", getDrivers)
 		r.Get("/drivers/{name}", getDriver)

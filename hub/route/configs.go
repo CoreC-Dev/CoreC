@@ -2,6 +2,8 @@ package route
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 
@@ -50,6 +52,83 @@ func getConfigs(w http.ResponseWriter, r *http.Request) {
 	}
 	// Fallback: no config available
 	render(w, r, http.StatusOK, map[string]any{"error": "no active configuration"})
+}
+
+// getConfigsRaw handles GET /configs/raw. It returns the FULL active
+// configuration as YAML text with every secret value redacted to "***"
+// (api.secret, mqtt/http/driver passwords, webhook-secrets, auth headers).
+//
+// Unlike GET /configs (a names-only summary), this exposes the complete config
+// so the Dashboard's Config Center can populate its YAML editor with the
+// server's real configuration. Secrets are replaced with the sentinel "***"
+// so credentials never reach the operator's browser; the executor's
+// sentinel-merge restores them when the (possibly edited) config is submitted
+// back via PUT /configs.
+//
+// Content-Type is application/yaml because the payload is a YAML document the
+// frontend feeds directly into a Monaco YAML editor.
+func getConfigsRaw(w http.ResponseWriter, r *http.Request) {
+	if GetRawConfigFunc == nil {
+		renderInternalError(w, r, fmt.Errorf("raw config endpoint not wired"))
+		return
+	}
+	yamlText, err := GetRawConfigFunc()
+	if err != nil {
+		slog.Error("failed to produce raw config",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"remote", r.RemoteAddr,
+			"error", err)
+		renderInternalError(w, r, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	if _, err := io.WriteString(w, yamlText); err != nil {
+		slog.Error("failed to write raw config response", "error", err)
+	}
+}
+
+// validateConfigs handles POST /configs/validate. It performs a dry-run
+// validation of the submitted config payload WITHOUT applying it, so the
+// Dashboard can surface parse/validation errors before the operator commits a
+// PUT /configs.
+//
+// Request body: {"payload": "<yaml string>"} (same shape as PUT /configs).
+// Response: 200 {"valid": true} on success, or 400 {"valid": false, "error":
+// "<message>"} on validation failure.
+func validateConfigs(w http.ResponseWriter, r *http.Request) {
+	var req putConfigRequest
+	if err := json.NewDecoder(limitedBody(r).Body).Decode(&req); err != nil {
+		slog.Info("config validate rejected",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"remote", r.RemoteAddr,
+			"error", err)
+		renderError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	if ValidateFunc == nil {
+		renderInternalError(w, r, fmt.Errorf("validate endpoint not wired"))
+		return
+	}
+	if err := ValidateFunc(req.Payload); err != nil {
+		slog.Info("config validate failed",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"remote", r.RemoteAddr,
+			"error", err)
+		render(w, r, http.StatusBadRequest, map[string]any{
+			"valid": false,
+			"error": err.Error(),
+		})
+		return
+	}
+	slog.Info("config validate ok",
+		"method", r.Method,
+		"path", r.URL.Path,
+		"remote", r.RemoteAddr)
+	render(w, r, http.StatusOK, map[string]any{"valid": true})
 }
 
 func buildConfigOverview(cfg *core.Config) configOverview {
