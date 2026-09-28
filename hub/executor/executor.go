@@ -251,6 +251,18 @@ func Patch(patch map[string]any) error {
 	if lvl, ok := patch["log-level"].(string); ok && lvl != "" {
 		if l, found := log.ParseLevel(lvl); found {
 			log.SetLevel(l)
+			// Sync the in-memory active config so GET /configs/raw reflects the
+			// runtime-patched level. Without this, the Config Center editor
+			// would show the stale pre-PATCH value, and a subsequent Hot Reload
+			// (PUT /configs) that did not touch log-level would silently
+			// overwrite the patched level with the old value. currentCfg is the
+			// source of truth for the running state (ApplyConfig sets it on
+			// every successful reload); PATCH is a runtime state change, so it
+			// must update currentCfg too. The on-disk config is untouched - a
+			// CoreC restart still returns to the persisted level.
+			if currentCfg != nil {
+				currentCfg.Global.LogLevel = lvl
+			}
 			slog.Info("log level patched", "level", lvl)
 		} else {
 			return fmt.Errorf("invalid log-level %q", lvl)
