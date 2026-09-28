@@ -137,7 +137,15 @@ func NewObservableHandler(w io.Writer, l slog.Level, format string) *ObservableH
 
 // Enabled implements slog.Handler.
 func (h *ObservableHandler) Enabled(_ context.Context, lvl slog.Level) bool {
-	return h.inner.Enabled(context.Background(), lvl)
+	// Check the dynamic level (updated by SetLevel via PATCH /configs),
+	// NOT the inner handler's fixed level set at Init time. Otherwise
+	// DEBUG logs are filtered by the inner handler before reaching
+	// Handle/publishRecord, so PATCH log-level:debug has no effect on
+	// the event bus (though stdout also misses them).
+	mu.RLock()
+	currentLevel := level
+	mu.RUnlock()
+	return lvl >= currentLevel
 }
 
 // Handle implements slog.Handler. It writes to the inner handler and
