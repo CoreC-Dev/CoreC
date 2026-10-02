@@ -123,13 +123,13 @@ func TestS7ReconnectCountPopulatedInStatus(t *testing.T) {
 	// Wait for at least one counted reconnect attempt.
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		if d.reconnectCount.Load() > 0 {
+		if d.ReconnectCount() > 0 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	raw := d.reconnectCount.Load()
+	raw := d.ReconnectCount()
 	if raw == 0 {
 		t.Fatal("expected the raw reconnectCount to have advanced past zero")
 	}

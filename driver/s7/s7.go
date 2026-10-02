@@ -11,11 +11,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/CoreC-Dev/CoreC/common/util"
 	"github.com/CoreC-Dev/CoreC/core"
+	"github.com/CoreC-Dev/CoreC/driverbase"
 	"github.com/robinson/gos7"
 )
 
@@ -48,7 +48,7 @@ type s7Address struct {
 
 // S7Driver implements core.Driver for Siemens S7 PLC communication.
 type S7Driver struct {
-	mu sync.RWMutex
+	driverbase.BaseDriver
 
 	// writeMu serializes bit-write read-modify-write sequences. Writing a
 	// single bit requires reading the containing byte, modifying one bit, and
@@ -57,19 +57,13 @@ type S7Driver struct {
 	// config/state) so non-bit writes and reads are not blocked by it.
 	writeMu sync.Mutex
 
-	name   string
-	config core.DriverConfig
-
 	// Connection settings
-	host                 string
-	port                 int
-	rack                 int
-	slot                 int
-	timeout              time.Duration
-	idleTimeout          time.Duration
-	reconnectBackoff     time.Duration
-	maxReconnectBackoff  time.Duration
-	maxReconnectFailures int // circuit breaker threshold; 0 = disabled
+	host        string
+	port        int
+	rack        int
+	slot        int
+	timeout     time.Duration
+	idleTimeout time.Duration
 
 	// Connection instances
 	handler *gos7.TCPClientHandler
@@ -79,38 +73,33 @@ type S7Driver struct {
 	// Tag mappings
 	tags  map[string]core.TagConfig
 	addrs map[string]s7Address
-
-	// State
-	state     core.ConnState
-	lastRead  time.Time
-	lastError string
-
-	// Counters
-	readCount      atomic.Uint64
-	errorCount     atomic.Uint64
-	reconnectCount atomic.Uint64
-
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup // tracks the reconnectLoop goroutine
 }
 
 // NewS7Driver creates a new S7 driver from configuration.
 func NewS7Driver(config core.DriverConfig) (core.Driver, error) {
 	d := &S7Driver{
-		name:   config.Name,
-		config: config,
-		tags:   make(map[string]core.TagConfig),
-		addrs:  make(map[string]s7Address),
-		state:  core.StateDisconnected,
+		tags:  make(map[string]core.TagConfig),
+		addrs: make(map[string]s7Address),
 	}
+	d.SetMeta(config.Name, TypeName, config)
+	d.SetConnectFunc(d.connect)
+	d.SetInitFunc(d.Init)
+	d.SetCloseConnFunc(func() {
+		if d.handler != nil {
+			d.handler.Close()
+			d.handler = nil
+			d.client = nil
+		}
+	})
+	d.SetTagCountFunc(func() int { return len(d.tags) })
 	return d, nil
 }
 
 func (d *S7Driver) Init(ctx context.Context, config core.DriverConfig) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	d.Lock()
+	defer d.Unlock()
 
+	d.SetMeta(config.Name, TypeName, config)
 	settings := config.Settings
 
 	if host, ok := settings["host"].(string); ok {
@@ -132,9 +121,7 @@ func (d *S7Driver) Init(ctx context.Context, config core.DriverConfig) error {
 		d.timeout = core.DefaultDriverTimeout
 	}
 	d.idleTimeout = util.GetDurationSetting(settings, "idle-timeout", core.DefaultIdleTimeout)
-	d.reconnectBackoff = util.GetDurationSetting(settings, "reconnect-interval", core.DefaultReconnectBackoff)
-	d.maxReconnectBackoff = util.GetDurationSetting(settings, "reconnect-max-interval", core.DefaultMaxReconnectBackoff)
-	d.maxReconnectFailures = util.GetIntSetting(settings, "max-reconnect-failures", core.DefaultMaxReconnectFailures)
+	d.ParseReconnectSettings(settings)
 
 	// Parse tags and addresses
 	for _, tag := range config.Tags {
@@ -148,7 +135,7 @@ func (d *S7Driver) Init(ctx context.Context, config core.DriverConfig) error {
 	}
 
 	slog.Info("s7 driver initialized",
-		"name", d.name,
+		"name", d.Name(),
 		"host", d.host,
 		"rack", d.rack,
 		"slot", d.slot,
@@ -158,24 +145,8 @@ func (d *S7Driver) Init(ctx context.Context, config core.DriverConfig) error {
 	return nil
 }
 
-func (d *S7Driver) Start(ctx context.Context) error {
-	d.ctx, d.cancel = context.WithCancel(ctx)
-
-	if err := d.connect(); err != nil {
-		slog.Warn("s7 initial connect failed, will retry in background",
-			"name", d.name, "error", err)
-		d.mu.Lock()
-		d.state = core.StateConnecting
-		d.lastError = err.Error()
-		d.mu.Unlock()
-
-		d.startReconnectLoop()
-		return nil
-	}
-
-	slog.Info("s7 driver started", "name", d.name, "endpoint", fmt.Sprintf("%s:%d", d.host, d.port))
-	return nil
-}
+// Start, Stop, Restart, Status, Name, Type, reconnectLoop, startReconnectLoop,
+// and HandleConnectionLost are provided by the embedded driverbase.BaseDriver.
 
 func (d *S7Driver) connect() error {
 	addr := fmt.Sprintf("%s:%d", d.host, d.port)
@@ -189,73 +160,28 @@ func (d *S7Driver) connect() error {
 
 	client := gos7.NewClient(handler)
 
-	d.mu.Lock()
+	d.Lock()
 	d.handler = handler
 	d.client = client
-	d.state = core.StateConnected
-	d.lastError = ""
-	d.mu.Unlock()
+	d.SetStateLocked(core.StateConnected)
+	d.SetLastErrorLocked("")
+	d.Unlock()
 
-	slog.Info("s7 connected", "name", d.name, "address", addr)
+	slog.Info("s7 connected", "name", d.Name(), "address", addr)
 	return nil
 }
 
-func (d *S7Driver) reconnectLoop() {
-	util.ReconnectLoopWithBreakerCounted(d.ctx, d.name, d.connect, d.reconnectBackoff, d.maxReconnectBackoff, d.maxReconnectFailures, &d.reconnectCount)
-}
-
-// startReconnectLoop launches the reconnect goroutine tracked by the WaitGroup
-// so that Stop() can wait for any in-flight connect() to finish before closing
-// the handler. This prevents orphaned connections on shutdown.
-func (d *S7Driver) startReconnectLoop() {
-	d.wg.Add(1)
-	go func() {
-		defer d.wg.Done()
-		d.reconnectLoop()
-	}()
-}
-
-func (d *S7Driver) Stop() error {
-	if d.cancel != nil {
-		d.cancel()
-	}
-	// Wait for the reconnectLoop goroutine to exit so it cannot complete a
-	// connect() after we close the handler below (which would leak a connection).
-	d.wg.Wait()
-
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	if d.handler != nil {
-		d.handler.Close()
-		d.handler = nil
-		d.client = nil
-	}
-	d.state = core.StateDisconnected
-
-	slog.Info("s7 driver stopped", "name", d.name)
-	return nil
-}
-
-func (d *S7Driver) Restart(ctx context.Context, config core.DriverConfig) error {
-	if err := d.Stop(); err != nil {
-		return err
-	}
-	if err := d.Init(ctx, config); err != nil {
-		return err
-	}
-	return d.Start(ctx)
-}
+// reconnectLoop and startReconnectLoop are provided by BaseDriver.
 
 func (d *S7Driver) Read(ctx context.Context, tags []string) ([]core.TagValue, error) {
-	d.mu.RLock()
+	d.RLock()
 	client := d.client
-	state := d.state
-	d.mu.RUnlock()
+	state := d.GetStateLocked()
+	d.RUnlock()
 
 	if state != core.StateConnected || client == nil {
-		d.errorCount.Add(1)
-		return nil, fmt.Errorf("driver %s is not connected", d.name)
+		d.RecordError()
+		return nil, fmt.Errorf("driver %s is not connected", d.Name())
 	}
 
 	results := make([]core.TagValue, 0, len(tags))
@@ -273,10 +199,10 @@ func (d *S7Driver) Read(ctx context.Context, tags []string) ([]core.TagValue, er
 		batch := tags[start:end]
 
 		for _, tagName := range batch {
-			d.mu.RLock()
+			d.RLock()
 			tagCfg, tagOk := d.tags[tagName]
 			addr, addrOk := d.addrs[tagName]
-			d.mu.RUnlock()
+			d.RUnlock()
 
 			if !tagOk || !addrOk {
 				results = append(results, core.TagValue{
@@ -291,10 +217,10 @@ func (d *S7Driver) Read(ctx context.Context, tags []string) ([]core.TagValue, er
 			dt, _ := core.ParseDataType(tagCfg.Type)
 			val, err := d.readAddress(client, addr, dt)
 			if err != nil {
-				d.errorCount.Add(1)
-				d.mu.Lock()
-				d.lastError = err.Error()
-				d.mu.Unlock()
+				d.RecordError()
+				d.Lock()
+				d.SetLastErrorLocked(err.Error())
+				d.Unlock()
 
 				results = append(results, core.TagValue{
 					Tag:       tagName,
@@ -305,7 +231,7 @@ func (d *S7Driver) Read(ctx context.Context, tags []string) ([]core.TagValue, er
 
 				// Check if connection is lost and trigger reconnect
 				if util.IsConnectionError(err) {
-					d.handleConnectionLost()
+					d.HandleConnectionLost()
 				}
 				continue
 			}
@@ -321,12 +247,12 @@ func (d *S7Driver) Read(ctx context.Context, tags []string) ([]core.TagValue, er
 				Timestamp: now,
 			})
 		}
-		d.readCount.Add(uint64(len(batch)))
+		d.AddReadCount(uint64(len(batch)))
 	}
 
-	d.mu.Lock()
-	d.lastRead = now
-	d.mu.Unlock()
+	d.Lock()
+	d.SetLastRead(now)
+	d.Unlock()
 
 	return results, nil
 }
@@ -354,20 +280,20 @@ func (d *S7Driver) readAddress(client gos7.Client, addr s7Address, dt core.DataT
 }
 
 func (d *S7Driver) Write(ctx context.Context, commands []core.WriteCommand) ([]core.WriteResult, error) {
-	d.mu.RLock()
+	d.RLock()
 	client := d.client
-	state := d.state
-	d.mu.RUnlock()
+	state := d.GetStateLocked()
+	d.RUnlock()
 
 	if state != core.StateConnected || client == nil {
-		return nil, fmt.Errorf("driver %s is not connected", d.name)
+		return nil, fmt.Errorf("driver %s is not connected", d.Name())
 	}
 
 	results := make([]core.WriteResult, len(commands))
 	for i, cmd := range commands {
-		d.mu.RLock()
+		d.RLock()
 		addr, ok := d.addrs[cmd.Tag]
-		d.mu.RUnlock()
+		d.RUnlock()
 
 		if !ok {
 			results[i] = core.WriteResult{
@@ -379,7 +305,7 @@ func (d *S7Driver) Write(ctx context.Context, commands []core.WriteCommand) ([]c
 
 		err := d.writeAddress(client, addr, cmd)
 		if err != nil {
-			d.errorCount.Add(1)
+			d.RecordError()
 			results[i] = core.WriteResult{Success: false, Error: err.Error()}
 			slog.Error("s7 write failed", "tag", cmd.Tag, "error", err)
 		} else {
@@ -447,24 +373,7 @@ func (d *S7Driver) Subscribe(ctx context.Context, tags []string) (<-chan core.Da
 	return nil, core.ErrSubscribeNotSupported
 }
 
-func (d *S7Driver) Name() string { return d.name }
-func (d *S7Driver) Type() string { return TypeName }
-
-func (d *S7Driver) Status() core.DriverStatus {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	return core.DriverStatus{
-		Name:           d.name,
-		Type:           TypeName,
-		State:          d.state,
-		LastRead:       d.lastRead,
-		LastError:      d.lastError,
-		TagCount:       len(d.tags),
-		ReadCount:      d.readCount.Load(),
-		ErrorCount:     d.errorCount.Load(),
-		ReconnectCount: d.reconnectCount.Load(),
-	}
-}
+// Name, Type, and Status are provided by the embedded driverbase.BaseDriver.
 
 func (d *S7Driver) Capabilities() core.DriverCapabilities {
 	return core.DriverCapabilities{
@@ -707,21 +616,4 @@ func encodeS7Value(v any, addr s7Address, dt core.DataType, h *gos7.Helper) ([]b
 	return buf, nil
 }
 
-// handleConnectionLost marks the driver as disconnected and starts background reconnection.
-func (d *S7Driver) handleConnectionLost() {
-	d.mu.Lock()
-	if d.state == core.StateConnecting || d.state == core.StateError {
-		d.mu.Unlock()
-		return
-	}
-	d.state = core.StateError
-	if d.handler != nil {
-		d.handler.Close()
-		d.handler = nil
-		d.client = nil
-	}
-	d.mu.Unlock()
-
-	slog.Warn("s7 connection lost, starting reconnect", "name", d.name)
-	d.startReconnectLoop()
-}
+// HandleConnectionLost is provided by the embedded driverbase.BaseDriver.

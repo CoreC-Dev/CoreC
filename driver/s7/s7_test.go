@@ -232,10 +232,10 @@ func initConnectedMockDriver(t *testing.T, tags []core.TagConfig, mock *mockS7Cl
 	if err := d.Init(context.Background(), cfg); err != nil {
 		t.Fatalf("Init returned error: %v", err)
 	}
-	d.mu.Lock()
+	d.Lock()
 	d.client = mock
-	d.state = core.StateConnected
-	d.mu.Unlock()
+	d.SetStateLocked(core.StateConnected)
+	d.Unlock()
 	return d
 }
 
@@ -461,7 +461,7 @@ func TestS7ReadError(t *testing.T) {
 		{Name: "temp", Address: "DB1.DBD0", Type: "float32"},
 	}, mock)
 
-	beforeErr := d.errorCount.Load()
+	beforeErr := d.ErrorCount()
 	vals, err := d.Read(context.Background(), []string{"temp"})
 	if err != nil {
 		t.Fatalf("Read should not return a top-level error for a per-tag failure: %v", err)
@@ -481,8 +481,8 @@ func TestS7ReadError(t *testing.T) {
 	if !strings.Contains(vals[0].Error.Error(), "mock plc") {
 		t.Errorf("error = %q, want substring 'mock plc' (wrapped)", vals[0].Error.Error())
 	}
-	if d.errorCount.Load() != beforeErr+1 {
-		t.Errorf("errorCount = %d, want %d", d.errorCount.Load(), beforeErr+1)
+	if d.ErrorCount() != beforeErr+1 {
+		t.Errorf("errorCount = %d, want %d", d.ErrorCount(), beforeErr+1)
 	}
 
 	// The lastError field must record the failure.
@@ -500,7 +500,7 @@ func TestS7WriteError(t *testing.T) {
 		{Name: "a", Address: "MW0", Type: "uint16"},
 	}, mock)
 
-	beforeErr := d.errorCount.Load()
+	beforeErr := d.ErrorCount()
 	results, err := d.Write(context.Background(), []core.WriteCommand{
 		{Tag: "a", Value: uint16(1), Type: core.TypeUint16},
 	})
@@ -516,8 +516,8 @@ func TestS7WriteError(t *testing.T) {
 	if !strings.Contains(results[0].Error, "mock plc") {
 		t.Errorf("error = %q, want substring 'mock plc'", results[0].Error)
 	}
-	if d.errorCount.Load() != beforeErr+1 {
-		t.Errorf("errorCount = %d, want %d", d.errorCount.Load(), beforeErr+1)
+	if d.ErrorCount() != beforeErr+1 {
+		t.Errorf("errorCount = %d, want %d", d.ErrorCount(), beforeErr+1)
 	}
 }
 
@@ -601,7 +601,7 @@ func TestS7ReadBatchCounters(t *testing.T) {
 		{Name: "b", Address: "M0.1", Type: "bool"},
 	}, mock)
 
-	beforeRead := d.readCount.Load()
+	beforeRead := d.ReadCount()
 	vals, err := d.Read(context.Background(), []string{"a", "b"})
 	if err != nil {
 		t.Fatalf("Read error: %v", err)
@@ -609,8 +609,8 @@ func TestS7ReadBatchCounters(t *testing.T) {
 	if len(vals) != 2 {
 		t.Fatalf("expected 2 values, got %d", len(vals))
 	}
-	if d.readCount.Load() != beforeRead+2 {
-		t.Errorf("readCount = %d, want %d", d.readCount.Load(), beforeRead+2)
+	if d.ReadCount() != beforeRead+2 {
+		t.Errorf("readCount = %d, want %d", d.ReadCount(), beforeRead+2)
 	}
 	if d.Status().LastRead.IsZero() {
 		t.Error("LastRead should be set after a read")

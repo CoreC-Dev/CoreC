@@ -50,8 +50,8 @@ func TestNewS7Driver(t *testing.T) {
 	}
 
 	// A brand-new driver must start disconnected with empty, non-nil maps.
-	if d.state != core.StateDisconnected {
-		t.Errorf("initial state = %v, want StateDisconnected", d.state)
+	if d.GetState() != core.StateDisconnected {
+		t.Errorf("initial state = %v, want StateDisconnected", d.GetState())
 	}
 	if d.tags == nil || d.addrs == nil {
 		t.Errorf("tag/address maps must be initialized, got tags=%v addrs=%v", d.tags, d.addrs)
@@ -220,11 +220,11 @@ func TestInit_ConfigParsing(t *testing.T) {
 			if d.idleTimeout != tt.wantIdleTimeout {
 				t.Errorf("idleTimeout = %v, want %v", d.idleTimeout, tt.wantIdleTimeout)
 			}
-			if d.reconnectBackoff != tt.wantReconnect {
-				t.Errorf("reconnectBackoff = %v, want %v", d.reconnectBackoff, tt.wantReconnect)
+			if d.ReconnectBackoff() != tt.wantReconnect {
+				t.Errorf("reconnectBackoff = %v, want %v", d.ReconnectBackoff(), tt.wantReconnect)
 			}
-			if d.maxReconnectBackoff != tt.wantMaxReconnect {
-				t.Errorf("maxReconnectBackoff = %v, want %v", d.maxReconnectBackoff, tt.wantMaxReconnect)
+			if d.MaxReconnectBackoff() != tt.wantMaxReconnect {
+				t.Errorf("maxReconnectBackoff = %v, want %v", d.MaxReconnectBackoff(), tt.wantMaxReconnect)
 			}
 
 			// Every configured tag must land in both the config map and the
@@ -295,8 +295,8 @@ func TestInit_ErrorPaths(t *testing.T) {
 				t.Errorf("error = %q, want substring %q", err.Error(), tt.wantErr)
 			}
 			// A failed Init must not leave the driver in a connecting state.
-			if d.state == core.StateConnecting || d.state == core.StateConnected {
-				t.Errorf("state = %v after failed Init; must not be connecting/connected", d.state)
+			if d.GetState() == core.StateConnecting || d.GetState() == core.StateConnected {
+				t.Errorf("state = %v after failed Init; must not be connecting/connected", d.GetState())
 			}
 		})
 	}
@@ -391,8 +391,8 @@ func TestStop_NotConnected(t *testing.T) {
 	if err := d.Stop(); err != nil {
 		t.Fatalf("Stop on fresh driver returned error: %v", err)
 	}
-	if d.state != core.StateDisconnected {
-		t.Errorf("state after Stop = %v, want StateDisconnected", d.state)
+	if d.GetState() != core.StateDisconnected {
+		t.Errorf("state after Stop = %v, want StateDisconnected", d.GetState())
 	}
 	if d.handler != nil {
 		t.Error("handler should be nil after stopping a never-started driver")
@@ -406,8 +406,8 @@ func TestStop_NotConnected(t *testing.T) {
 	if err := d.Stop(); err != nil {
 		t.Fatalf("Stop after Init returned error: %v", err)
 	}
-	if d.state != core.StateDisconnected {
-		t.Errorf("state after Stop = %v, want StateDisconnected", d.state)
+	if d.GetState() != core.StateDisconnected {
+		t.Errorf("state after Stop = %v, want StateDisconnected", d.GetState())
 	}
 }
 
@@ -484,7 +484,7 @@ func TestRestart_InitError(t *testing.T) {
 	if !strings.Contains(err.Error(), "host is required") {
 		t.Errorf("error = %q, want substring %q", err.Error(), "host is required")
 	}
-	if d.state != core.StateDisconnected {
-		t.Errorf("state after failed Restart = %v, want StateDisconnected", d.state)
+	if d.GetState() != core.StateDisconnected {
+		t.Errorf("state after failed Restart = %v, want StateDisconnected", d.GetState())
 	}
 }
