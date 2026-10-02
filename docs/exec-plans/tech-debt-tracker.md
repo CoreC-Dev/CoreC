@@ -68,7 +68,7 @@
 | CPLX-006 | 超长文件: OPCUA client 662 行 | driver/opcua/client.go:1-662 | 复杂度 | P1 | 662 行(600-800) | 拆分 opcua_subscription.go / opcua_read.go / opcua_write.go / client.go | 无 | Phase 4 批次 5 | 文件 <400 行 | 已修复 |
 | CPLX-007 | 超长文件: rule engine 659 行 | rule/engine.go:1-659 | 复杂度 | P1 | 659 行(600-800) | 拆分 rule_engine.go / rule_build.go / rule_match.go | 无 | Phase 4 批次 9 | 文件 <400 行 | 待处理 |
 | CPLX-008 | 超长文件: batcher 512 行 | engine/batcher.go:1-512 | 复杂度 | P2 | 512 行(400-600) | 拆出 retry_buffer.go | 无 | Phase 4 批次 3 | 文件 <400 行 | 已修复 |
-| CPLX-009 | 超长文件: httppush 480 行 | transport/httppush/push.go:1-480 | 复杂度 | P2 | 480 行(400-600) | 拆出 webhook.go / push_config.go | 无 | Phase 4 批次 8 | 文件 <400 行 | 待处理 |
+| CPLX-009 | 超长文件: httppush 480 行 | transport/httppush/push.go:1-480 | 复杂度 | P2 | 480 行(400-600) | 拆出 webhook.go / push_config.go | 无 | Phase 4 批次 8 | 文件 <400 行 | 已修复 |
 | CPLX-010 | 超长文件: config 467 行 | config/config.go:1-467 | 复杂度 | P2 | 467 行(400-600) | 拆出 validate.go / env_expand.go | 无 | Phase 4 批次 2 | 文件 <400 行 | 已修复 |
 | CPLX-011 | 超长文件: route metrics 453 行 | hub/route/metrics.go:1-453 | 复杂度 | P2 | 453 行(400-600) | 按指标族拆分 metrics_driver.go / metrics_transport.go / metrics_runtime.go | 无 | Phase 4 批次 10 | 文件 <400 行 | 待处理 |
 | CPLX-012 | 超长文件: executor 450 行 | hub/executor/executor.go:1-450 | 复杂度 | P2 | 450 行(400-600) | 拆出 diff.go / apply.go | 无 | Phase 4 批次 11 | 文件 <400 行 | 待处理 |
