@@ -54,7 +54,7 @@
 | ID | 标题 | 位置 | 类别 | 严重度 | 证据 | 修复建议 | 业务行为影响 | 关联批次 | 验收方式 | 状态 |
 |---|---|---|---|---|---|---|---|---|---|---|
 | ARCH-001 | 无 depguard/结构测试，依赖方向无机械约束 | .golangci.yml（无 depguard）；无 *_test.go 做 import graph 断言 | 架构 | P1 | golangci-lint 配置无 depguard；全仓无结构测试验证分层。当前依赖方向实际正确（0 环/0 跨层/0 跨域），但无护栏防止退化 | Phase 3：加 depguard 规则 + 结构测试断言允许边表；允许边表：core←{config,driver,transport,engine,rule,hub,log,common}；engine←{driver,transport,rule,config,common}；driver/transport←{core,common}；hub←{engine,config,core,common} | 无 | Phase 3 | depguard 零报错 + 结构测试通过 | 待处理 |
-| ARCH-002 | config.validate 耦合全局 core.globalRegistry 单例 | config/config.go:240,244,313,391 | 架构 | P2 | validateDrivers/validateTransports 调 core.RegisteredDrivers()/core.RegisteredTransports()（全局单例），使 config 包对 core 有隐式运行时依赖，阻碍 config 独立测试 | 注入 DriverRegistry/TransportRegistry 接口到 config 校验路径，消除全局单例耦合 | 无 | Phase 4 批次 2 | config 包测试不依赖 core 全局状态 | 待处理 |
+| ARCH-002 | config.validate 耦合全局 core.globalRegistry 单例 | config/config.go:240,244,313,391 | 架构 | P2 | validateDrivers/validateTransports 调 core.RegisteredDrivers()/core.RegisteredTransports()（全局单例），使 config 包对 core 有隐式运行时依赖，阻碍 config 独立测试 | 注入 DriverRegistry/TransportRegistry 接口到 config 校验路径，消除全局单例耦合 | 无 | Phase 4 批次 2 | config 包测试不依赖 core 全局状态 | 已修复 |
 
 ### 复杂度（CPLX）
 
@@ -69,7 +69,7 @@
 | CPLX-007 | 超长文件: rule engine 659 行 | rule/engine.go:1-659 | 复杂度 | P1 | 659 行(600-800) | 拆分 rule_engine.go / rule_build.go / rule_match.go | 无 | Phase 4 批次 9 | 文件 <400 行 | 待处理 |
 | CPLX-008 | 超长文件: batcher 512 行 | engine/batcher.go:1-512 | 复杂度 | P2 | 512 行(400-600) | 拆出 retry_buffer.go | 无 | Phase 4 批次 3 | 文件 <400 行 | 待处理 |
 | CPLX-009 | 超长文件: httppush 480 行 | transport/httppush/push.go:1-480 | 复杂度 | P2 | 480 行(400-600) | 拆出 webhook.go / push_config.go | 无 | Phase 4 批次 8 | 文件 <400 行 | 待处理 |
-| CPLX-010 | 超长文件: config 467 行 | config/config.go:1-467 | 复杂度 | P2 | 467 行(400-600) | 拆出 validate.go / env_expand.go | 无 | Phase 4 批次 2 | 文件 <400 行 | 待处理 |
+| CPLX-010 | 超长文件: config 467 行 | config/config.go:1-467 | 复杂度 | P2 | 467 行(400-600) | 拆出 validate.go / env_expand.go | 无 | Phase 4 批次 2 | 文件 <400 行 | 已修复 |
 | CPLX-011 | 超长文件: route metrics 453 行 | hub/route/metrics.go:1-453 | 复杂度 | P2 | 453 行(400-600) | 按指标族拆分 metrics_driver.go / metrics_transport.go / metrics_runtime.go | 无 | Phase 4 批次 10 | 文件 <400 行 | 待处理 |
 | CPLX-012 | 超长文件: executor 450 行 | hub/executor/executor.go:1-450 | 复杂度 | P2 | 450 行(400-600) | 拆出 diff.go / apply.go | 无 | Phase 4 批次 11 | 文件 <400 行 | 待处理 |
 | CPLX-013 | 超长文件: driver_manager 422 行 | engine/driver_manager.go:1-422 | 复杂度 | P2 | 422 行(400-600) | 拆出 tagfile_watcher.go | 无 | Phase 4 批次 3 | 文件 <400 行 | 待处理 |

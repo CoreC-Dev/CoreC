@@ -6,7 +6,7 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 
 	// Import all drivers and transports so the registry is populated
-	// and validate() can perform fail-fast type checking (M10).
+	// and ValidateWithRegistries() can perform fail-fast type checking (M10).
 	_ "github.com/CoreC-Dev/CoreC/driver/all"
 	_ "github.com/CoreC-Dev/CoreC/transport/all"
 )
@@ -144,7 +144,7 @@ func TestValidateConfigErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validate(tt.cfg)
+			err := ValidateWithRegistries(tt.cfg, globalDriverRegistry{}, globalTransportRegistry{})
 			if err == nil {
 				t.Fatalf("expected error, got nil")
 			}
@@ -167,13 +167,13 @@ func TestValidateAPIConfig(t *testing.T) {
 	t.Run("listen and secret set is valid", func(t *testing.T) {
 		cfg := base()
 		cfg.Global.API = core.APIConfig{Listen: "0.0.0.0:9090", Secret: "s3cret-token"}
-		if err := validate(cfg); err != nil {
+		if err := ValidateWithRegistries(cfg, globalDriverRegistry{}, globalTransportRegistry{}); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 
 	t.Run("no api config is valid", func(t *testing.T) {
-		if err := validate(base()); err != nil {
+		if err := ValidateWithRegistries(base(), globalDriverRegistry{}, globalTransportRegistry{}); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 	})
@@ -181,7 +181,7 @@ func TestValidateAPIConfig(t *testing.T) {
 	t.Run("listen set without secret errors", func(t *testing.T) {
 		cfg := base()
 		cfg.Global.API = core.APIConfig{Listen: "0.0.0.0:9090"}
-		err := validate(cfg)
+		err := ValidateWithRegistries(cfg, globalDriverRegistry{}, globalTransportRegistry{})
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -198,7 +198,7 @@ func TestValidateRelayMode(t *testing.T) {
 				{Name: "relay", Type: "mqtt", Settings: map[string]any{"data-topic": "upstream/#"}},
 			},
 		}
-		if err := validate(cfg); err != nil {
+		if err := ValidateWithRegistries(cfg, globalDriverRegistry{}, globalTransportRegistry{}); err != nil {
 			t.Fatalf("expected no error for relay node, got %v", err)
 		}
 	})
@@ -209,7 +209,7 @@ func TestValidateRelayMode(t *testing.T) {
 				{Name: "relay", Type: "http", Settings: map[string]any{"webhook-addr": "0.0.0.0:9091"}},
 			},
 		}
-		if err := validate(cfg); err != nil {
+		if err := ValidateWithRegistries(cfg, globalDriverRegistry{}, globalTransportRegistry{}); err != nil {
 			t.Fatalf("expected no error for relay node, got %v", err)
 		}
 	})
@@ -221,7 +221,7 @@ func TestValidateRelayMode(t *testing.T) {
 				{Name: "mqtt", Type: "mqtt", Settings: map[string]any{"broker": "tcp://broker:1883"}},
 			},
 		}
-		if err := validate(cfg); err != nil {
+		if err := ValidateWithRegistries(cfg, globalDriverRegistry{}, globalTransportRegistry{}); err != nil {
 			t.Fatalf("expected no error for auto-discovery relay node, got %v", err)
 		}
 	})
@@ -233,7 +233,7 @@ func TestValidateRelayMode(t *testing.T) {
 				{Name: "mqtt", Type: "mqtt", Settings: map[string]any{"broker": "tcp://broker:1883"}},
 			},
 		}
-		err := validate(cfg)
+		err := ValidateWithRegistries(cfg, globalDriverRegistry{}, globalTransportRegistry{})
 		if err == nil {
 			t.Fatal("expected error for relay with no data source and no subscribe, got nil")
 		}
