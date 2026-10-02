@@ -1,7 +1,7 @@
 # Harness 工程化改造计划
 
 > 本计划依据《Harness 工程化规则》（`docs/HARNESS-RULES.md`）§5 五阶段流程制定，针对 **CoreC**（Go IIoT 数据采集核心）存量项目。
-> **当前处于阶段 4 进行中**：批次 1–3 已完成，批次 4–12 待执行。
+> **当前处于阶段 4 进行中**：批次 1–4 已完成，批次 5–12 待执行。
 
 ## 0. 元信息
 
@@ -9,7 +9,7 @@
 - 仓库路径：`/workspace/codespace/CoreC`
 - 分支：`harnessing`（由 `main` 创建，§7.1）
 - 计划版本 / 日期：v1.0 / 2026-10-02
-- 状态：**阶段 4 进行中**（批次 1–3 完成，批次 4–12 待执行）
+- 状态：**阶段 4 进行中**（批次 1–4 完成，批次 5–12 待执行）
 - 规则文档：`docs/HARNESS-RULES.md`（施工期常驻，竣工后按 §14 拆解归档）
 - 框架判定：其他类型（纯 Go 后端，非 Tauri）—— 详见 `docs/CI.md`
 
@@ -265,3 +265,8 @@
 | 2026-10-03 | 4 | DUP-008/009: 配置/统计逻辑随文件拆分集中 | — | engine_config.go/engine_stats.go 单一职责 |
 | 2026-10-03 | 4 | 修复预存 lint 问题（gofmt×7, nilerr×4, nilnil×1） | `ffab75c` | nolint 附原因 |
 | 2026-10-03 | 4 | 批次 3 验收通过 | — | 全量 vet+lint+build+test+archtest+tastetest 全绿；0 nolint:gocyclo；行为守恒（R2） |
+| 2026-10-03 | 4 | 批次 4（modbus）启动 | — | CPLX-002/016/023 + DUP-004/006 + PERF-002 |
+| 2026-10-03 | 4 | CPLX-002: 拆 modbus_base.go 830→4 文件 | `0f51dbd` | base(219)+read(504)+write(100)+address(33) |
+| 2026-10-03 | 4 | PERF-002: retry backoff 响应 ctx 取消 | `2f0ec49` | time.Sleep→select{ctx.Done,time.After}；行为变更（bug 修复） |
+| 2026-10-03 | 4 | CPLX-016: readTag gocyclo 26→<20 | `68edb25` | 提取 readBoolTag/readFloat64Tag |
+| 2026-10-03 | 4 | 批次 4 验收通过 | — | 全量 vet+lint+build+test 全绿；行为守恒（R2）+bug 修复标注 |
