@@ -310,3 +310,4 @@
 | 2026-10-03 | 5 | TEST-002/010: MQTT subscribe + offline metrics | — | subscribe 0→100%, Publish 8.3→88.9%, offline metrics 12.5→100% |
 | 2026-10-03 | 5 | TEST-005/006: rollback + cmd/corec | — | rollbackStart 0→95.8%, cmd/corec 24.6→95.1% |
 | 2026-10-03 | 5 | 验收: 故意破坏实现测试失败（3 样本） | — | discovery client map / parser parseScalar bool / log LevelMapping — 均 FAIL |
+| 2026-10-03 | 5 | TEST-003/004: OPC UA subscription + Modbus reconnect/read | — | opcua 52.7→70.7%, modbus 79.2→88.1%; readTag 100%, subscriptionLoop 100% |
