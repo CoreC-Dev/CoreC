@@ -7,6 +7,7 @@
 
 - Docker + Docker Compose v2+
 - 首次运行会自动构建镜像（corec、mock-plc、http-sink、lora-sim），约 1-2 分钟
+- API 密钥通过 `COREC_API_SECRET` 环境变量注入（compose 已为 demo 预置 `demo-token`）；**生产部署请务必设置自己的强密钥，切勿沿用 demo 值**。配置模板中不再硬编码密钥，直接拷贝到生产若未设置该变量将以空密钥启动（fail-closed）。
 
 ## 快速开始
 

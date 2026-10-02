@@ -18,6 +18,7 @@ services:
       dockerfile: demo/chained/corec.Dockerfile
     volumes: ["./corec-a.yaml:/config.yaml:ro"]
     command: ["-config", "/config.yaml"]
+    environment: ["COREC_API_SECRET=demo-token"]
     ports: ["9090:9090"]
     depends_on: [broker, mock-plc]
 
@@ -27,6 +28,7 @@ services:
       dockerfile: demo/chained/corec.Dockerfile
     volumes: ["./corec-b.yaml:/config.yaml:ro"]
     command: ["-config", "/config.yaml"]
+    environment: ["COREC_API_SECRET=demo-token"]
     ports: ["9091:9091"]
     depends_on: [broker, corec-c]
 
@@ -36,6 +38,7 @@ services:
       dockerfile: demo/chained/corec.Dockerfile
     volumes: ["./corec-c.yaml:/config.yaml:ro"]
     command: ["-config", "/config.yaml"]
+    environment: ["COREC_API_SECRET=demo-token"]
     ports: ["9092:9092"]
     depends_on: [broker]
 

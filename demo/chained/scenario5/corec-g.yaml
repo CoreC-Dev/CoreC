@@ -2,7 +2,7 @@
 # Subscribes edge/# to collect from all edge nodes, forwards to cloud/...
 global:
   log-level: info
-  api: { listen: "0.0.0.0:9090", secret: "demo-token" }
+  api: { listen: "0.0.0.0:9090", secret: "${COREC_API_SECRET}" }
 
 drivers: []
 

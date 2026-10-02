@@ -3,7 +3,7 @@ global:
   log-level: info
   api:
     listen: 0.0.0.0:9092
-    secret: "demo-token"
+    secret: "${COREC_API_SECRET}"
 
 drivers: []
 

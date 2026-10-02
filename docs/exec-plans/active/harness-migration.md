@@ -1,7 +1,7 @@
 # Harness 工程化改造计划
 
 > 本计划依据《Harness 工程化规则》（`docs/HARNESS-RULES.md`）§5 五阶段流程制定，针对 **CoreC**（Go IIoT 数据采集核心）存量项目。
-> **当前处于阶段 4 进行中**：批次 1–11 已完成，批次 12 待执行。
+> **当前处于阶段 4 已完成**：批次 1–12 全部完成，进入阶段 5（测试补全）。
 
 ## 0. 元信息
 
@@ -9,7 +9,7 @@
 - 仓库路径：`/workspace/codespace/CoreC`
 - 分支：`harnessing`（由 `main` 创建，§7.1）
 - 计划版本 / 日期：v1.0 / 2026-10-02
-- 状态：**阶段 4 进行中**（批次 1–11 完成，批次 12 待执行）
+- 状态：**阶段 4 已完成**（批次 1–12 全部完成），进入阶段 5（测试补全）
 - 规则文档：`docs/HARNESS-RULES.md`（施工期常驻，竣工后按 §14 拆解归档）
 - 框架判定：其他类型（纯 Go 后端，非 Tauri）—— 详见 `docs/CI.md`
 
@@ -298,3 +298,7 @@
 | 2026-10-03 | 4 | 批次 11（hub/executor）启动 | — | CPLX-012 + CPLX-017 |
 | 2026-10-03 | 4 | CPLX-012/017: 拆 executor.go 450→3 文件 + ApplyConfig gocyclo<20 | `ee0521b` | executor(271)+apply(113)+diff(95)；提取 warnRestartRequired 降圈复杂度；纯重构 |
 | 2026-10-03 | 4 | 批次 11 验收通过 | — | 全量 vet+lint+build+test+archtest+tastetest 全绿；行为守恒（R2） |
+| 2026-10-03 | 4 | 批次 12（demo）启动 | — | SEC-005 |
+| 2026-10-03 | 4 | SEC-005: demo 配置改用 ${COREC_API_SECRET} 环境变量 | — | 17 YAML: secret "demo-token"→"${COREC_API_SECRET}"；compose 注入 env；README 文档；无行为影响 |
+| 2026-10-03 | 4 | 批次 12 验收通过 | — | validate 工具 17/17 configs valid；全量 gates 全绿 |
+| 2026-10-03 | 4 | **阶段 4 完成** | — | 批次 1–12 全部完成；所有 CPLX/PERF/SEC 项已修复或已决策关闭 |

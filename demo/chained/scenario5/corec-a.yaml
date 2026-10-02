@@ -1,7 +1,7 @@
 # Scenario 5: CoreC-A (edge node A)
 global:
   log-level: info
-  api: { listen: "0.0.0.0:9091", secret: "demo-token" }
+  api: { listen: "0.0.0.0:9091", secret: "${COREC_API_SECRET}" }
 
 drivers:
   - name: plc

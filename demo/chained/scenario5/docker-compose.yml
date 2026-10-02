@@ -18,24 +18,28 @@ services:
     build: { context: ../../.., dockerfile: demo/chained/corec.Dockerfile }
     volumes: ["./corec-a.yaml:/config.yaml:ro"]
     command: ["-config", "/config.yaml"]
+    environment: ["COREC_API_SECRET=demo-token"]
     depends_on: [broker, mock-plc-a]
 
   corec-b:
     build: { context: ../../.., dockerfile: demo/chained/corec.Dockerfile }
     volumes: ["./corec-b.yaml:/config.yaml:ro"]
     command: ["-config", "/config.yaml"]
+    environment: ["COREC_API_SECRET=demo-token"]
     depends_on: [broker, mock-plc-b]
 
   corec-c:
     build: { context: ../../.., dockerfile: demo/chained/corec.Dockerfile }
     volumes: ["./corec-c.yaml:/config.yaml:ro"]
     command: ["-config", "/config.yaml"]
+    environment: ["COREC_API_SECRET=demo-token"]
     depends_on: [broker, mock-plc-c]
 
   corec-g:
     build: { context: ../../.., dockerfile: demo/chained/corec.Dockerfile }
     volumes: ["./corec-g.yaml:/config.yaml:ro"]
     command: ["-config", "/config.yaml"]
+    environment: ["COREC_API_SECRET=demo-token"]
     ports: ["9090:9090"]
     depends_on: [broker]
 
