@@ -64,6 +64,22 @@ func NewOPCUADriver(config core.DriverConfig) (core.Driver, error) {
 		subBufferSize: bufSize,
 	}
 	d.SetMeta(config.Name, TypeName, config)
+	d.SetConnectFunc(func() error { return d.connect(d.Context()) })
+	d.SetInitFunc(d.Init)
+	d.SetCloseConnFunc(func() {
+		if d.client != nil {
+			d.client.Close(context.Background())
+			d.client = nil
+		}
+	})
+	d.SetExtraShutdown(func() {
+		d.stopSubscription()
+		d.subWg.Wait()
+	})
+	d.SetOnConnLost(func() {
+		d.stopSubscription()
+	})
+	d.SetTagCountFunc(func() int { return len(d.tags) })
 	return d, nil
 }
 
@@ -123,24 +139,6 @@ func (d *OPCUADriver) Init(ctx context.Context, config core.DriverConfig) error 
 		}
 		d.nodeIDs[tag.Name] = nodeID
 	}
-
-	// Lifecycle hooks for BaseDriver.
-	d.SetConnectFunc(func() error { return d.connect(d.Context()) })
-	d.SetInitFunc(d.Init)
-	d.SetCloseConnFunc(func() {
-		if d.client != nil {
-			d.client.Close(context.Background())
-			d.client = nil
-		}
-	})
-	d.SetExtraShutdown(func() {
-		d.stopSubscription()
-		d.subWg.Wait()
-	})
-	d.SetOnConnLost(func() {
-		d.stopSubscription()
-	})
-	d.SetTagCountFunc(func() int { return len(d.tags) })
 
 	slog.Info("opcua driver initialized",
 		"name", d.Name(),
