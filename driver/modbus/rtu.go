@@ -27,7 +27,7 @@ type ModbusRTUDriver struct {
 func NewModbusRTUDriver(config core.DriverConfig) (core.Driver, error) {
 	d := &ModbusRTUDriver{
 		modbusBase: modbusBase{
-			tags: make(map[string]core.TagConfig),
+			tags:  make(map[string]core.TagConfig),
 			addrs: make(map[string]addrInfo),
 		},
 	}

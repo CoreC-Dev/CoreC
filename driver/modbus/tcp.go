@@ -21,7 +21,7 @@ type ModbusTCPDriver struct {
 func NewModbusTCPDriver(config core.DriverConfig) (core.Driver, error) {
 	d := &ModbusTCPDriver{
 		modbusBase: modbusBase{
-			tags: make(map[string]core.TagConfig),
+			tags:  make(map[string]core.TagConfig),
 			addrs: make(map[string]addrInfo),
 		},
 	}

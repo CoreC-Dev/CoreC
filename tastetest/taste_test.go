@@ -34,17 +34,17 @@ func findModuleRoot() string {
 // Each entry: file path → reason. These are technical debt items being tracked
 // in tech-debt-tracker.md and will be resolved in Phase 4.
 var exemptedFiles = map[string]string{
-	"transport/mqtt/publisher.go":    "CPLX-001: 1192 lines, Phase 4 batch 7 will split into replay_window/command_handler/tls_config/publisher",
-	"engine/engine.go":               "CPLX-003: 875 lines, Phase 4 batch 3 will split into lifecycle/stats/config",
-	"transport/httppush/push.go":     "CPLX-009: 759 lines, Phase 4 batch 8 will split into webhook/push_config",
-	"hub/route/server.go":            "CPLX-005: 730 lines, Phase 4 batch 10 will split into lifecycle/middleware/router",
-	"driver/opcua/client.go":         "CPLX-006: 716 lines, Phase 4 batch 5 will split into subscription/read/write/lifecycle",
-	"driver/modbus/modbus_base.go":   "CPLX-002: 694 lines, Phase 4 batch 4 will split into read/write/address/lifecycle",
-	"hub/route/metrics.go":           "CPLX-011: 679 lines, Phase 4 batch 10 will split by metric family",
-	"driver/s7/s7.go":                "CPLX-004: 645 lines, Phase 4 batch 6 will split into address/codec/lifecycle",
-	"hub/executor/executor.go":       "CPLX-012: 622 lines, Phase 4 batch 11 will split into diff/apply",
-	"engine/batcher.go":              "CPLX-014: 617 lines, Phase 4 batch 3 will split into retry_buffer",
-	"rule/engine.go":                 "CPLX-007: 660 lines, Phase 4 batch 9 will split into rule_engine/rule_build/rule_match",
+	"transport/mqtt/publisher.go":  "CPLX-001: 1192 lines, Phase 4 batch 7 will split into replay_window/command_handler/tls_config/publisher",
+	"engine/engine.go":             "CPLX-003: 875 lines, Phase 4 batch 3 will split into lifecycle/stats/config",
+	"transport/httppush/push.go":   "CPLX-009: 759 lines, Phase 4 batch 8 will split into webhook/push_config",
+	"hub/route/server.go":          "CPLX-005: 730 lines, Phase 4 batch 10 will split into lifecycle/middleware/router",
+	"driver/opcua/client.go":       "CPLX-006: 716 lines, Phase 4 batch 5 will split into subscription/read/write/lifecycle",
+	"driver/modbus/modbus_base.go": "CPLX-002: 694 lines, Phase 4 batch 4 will split into read/write/address/lifecycle",
+	"hub/route/metrics.go":         "CPLX-011: 679 lines, Phase 4 batch 10 will split by metric family",
+	"driver/s7/s7.go":              "CPLX-004: 645 lines, Phase 4 batch 6 will split into address/codec/lifecycle",
+	"hub/executor/executor.go":     "CPLX-012: 622 lines, Phase 4 batch 11 will split into diff/apply",
+	"engine/batcher.go":            "CPLX-014: 617 lines, Phase 4 batch 3 will split into retry_buffer",
+	"rule/engine.go":               "CPLX-007: 660 lines, Phase 4 batch 9 will split into rule_engine/rule_build/rule_match",
 }
 
 func TestFileSizeLimit(t *testing.T) {
@@ -52,7 +52,7 @@ func TestFileSizeLimit(t *testing.T) {
 	violations := 0
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
-			return nil
+			return nil //nolint:nilerr // WalkDir: skip unreadable entries, don't abort walk
 		}
 		// Make path relative to module root
 		relPath, _ := filepath.Rel(root, path)
@@ -72,7 +72,7 @@ func TestFileSizeLimit(t *testing.T) {
 
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return nil
+			return nil //nolint:nilerr // skip unreadable files, don't abort walk
 		}
 		lines := strings.Count(string(data), "\n") + 1
 		if lines <= maxLines {
@@ -107,7 +107,7 @@ func TestStructuredLogging(t *testing.T) {
 	violations := 0
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
-			return nil
+			return nil //nolint:nilerr // WalkDir: skip unreadable entries, don't abort walk
 		}
 		relPath, _ := filepath.Rel(root, path)
 		if !strings.HasSuffix(relPath, ".go") {
@@ -127,7 +127,7 @@ func TestStructuredLogging(t *testing.T) {
 
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return nil
+			return nil //nolint:nilerr // skip unreadable files, don't abort walk
 		}
 		lines := strings.Split(string(data), "\n")
 		for i, line := range lines {

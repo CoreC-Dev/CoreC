@@ -66,8 +66,11 @@ func allowedDeps(pkg string) []string {
 	case pkg == "config":
 		return []string{"core", "common/"}
 
-	case strings.HasPrefix(pkg, "driver/") && pkg != "driver/all":
+	case pkg == "driverbase":
 		return []string{"core", "common/"}
+
+	case strings.HasPrefix(pkg, "driver/") && pkg != "driver/all":
+		return []string{"core", "common/", "driverbase"}
 
 	case strings.HasPrefix(pkg, "transport/") && pkg != "transport/all":
 		return []string{"core", "common/", "transport/parser"}

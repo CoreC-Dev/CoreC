@@ -39,7 +39,6 @@ func (e *CoreCEngine) applyTransform(point core.DataPoint, tc *core.TransformCon
 	return out
 }
 
-
 // publishTargetEntry is a snapshot of a single transport and its optional
 // batcher, captured under the engine read lock so that Publish can be
 // called outside the lock (problem 8).

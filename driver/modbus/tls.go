@@ -33,7 +33,7 @@ type ModbusTLSDriver struct {
 func NewModbusTLSDriver(config core.DriverConfig) (core.Driver, error) {
 	d := &ModbusTLSDriver{
 		modbusBase: modbusBase{
-			tags: make(map[string]core.TagConfig),
+			tags:  make(map[string]core.TagConfig),
 			addrs: make(map[string]addrInfo),
 		},
 	}

@@ -52,7 +52,7 @@ type TLSOptions struct {
 func BuildTLSConfig(opts TLSOptions) (*tls.Config, error) {
 	anyFile := opts.CAFile != "" || opts.CertFile != "" || opts.KeyFile != ""
 	if !anyFile && opts.ServerName == "" {
-		return nil, nil
+		return nil, nil //nolint:nilnil // nil config = TLS not needed; callers check cfg != nil
 	}
 
 	cfg := &tls.Config{

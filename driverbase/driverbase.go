@@ -26,16 +26,16 @@ type BaseDriver struct {
 	config     core.DriverConfig
 	logger     core.Logger
 
-	state      core.ConnState
-	lastRead   time.Time
-	lastError  string
-	readCount  atomic.Uint64
-	errorCount atomic.Uint64
+	state          core.ConnState
+	lastRead       time.Time
+	lastError      string
+	readCount      atomic.Uint64
+	errorCount     atomic.Uint64
 	reconnectCount atomic.Uint64
 
 	ctx    context.Context
 	cancel context.CancelFunc
-	wg    sync.WaitGroup
+	wg     sync.WaitGroup
 
 	reconnectBackoff     time.Duration
 	maxReconnectBackoff  time.Duration
@@ -286,13 +286,13 @@ func (d *BaseDriver) Config() core.DriverConfig { return d.config }
 func (d *BaseDriver) Logger() core.Logger { return d.logger }
 
 // Lock acquires the write lock.
-func (d *BaseDriver) Lock()   { d.mu.Lock() }
+func (d *BaseDriver) Lock() { d.mu.Lock() }
 
 // Unlock releases the write lock.
 func (d *BaseDriver) Unlock() { d.mu.Unlock() }
 
 // RLock acquires the read lock.
-func (d *BaseDriver) RLock()   { d.mu.RLock() }
+func (d *BaseDriver) RLock() { d.mu.RLock() }
 
 // RUnlock releases the read lock.
 func (d *BaseDriver) RUnlock() { d.mu.RUnlock() }

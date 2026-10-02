@@ -23,7 +23,7 @@ type OPCUADriver struct {
 	driverbase.BaseDriver
 
 	// OPC UA settings
-	endpoint      string
+	endpoint       string
 	securityPolicy string
 	securityMode   string
 	username       string
