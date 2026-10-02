@@ -1,7 +1,7 @@
 # Harness 工程化改造计划
 
 > 本计划依据《Harness 工程化规则》（`docs/HARNESS-RULES.md`）§5 五阶段流程制定，针对 **CoreC**（Go IIoT 数据采集核心）存量项目。
-> **当前处于阶段 1**：全量扫描已完成，计划待人工确认。确认前不修改任何业务代码（契约 C1）。
+> **当前处于阶段 2**：阶段 1 全量扫描完成并经人工确认（D1–D11 全部决策），进入文档对齐。
 
 ## 0. 元信息
 
@@ -9,7 +9,7 @@
 - 仓库路径：`/workspace/codespace/CoreC`
 - 分支：`harnessing`（由 `main` 创建，§7.1）
 - 计划版本 / 日期：v1.0 / 2026-10-02
-- 状态：**待确认**（阶段 1 扫描完成，等待人工确认后进入阶段 2）
+- 状态：**阶段 2 进行中**（阶段 1 已确认，D1–D11 全部决策）
 - 规则文档：`docs/HARNESS-RULES.md`（施工期常驻，竣工后按 §14 拆解归档）
 - 框架判定：其他类型（纯 Go 后端，非 Tauri）—— 详见 `docs/CI.md`
 
@@ -136,17 +136,17 @@
 | **3** | engine（核心引擎） | CPLX-003,008,013,014,015,019,020,025 · DUP-008,009 · PERF-008 | 拆 `engine.go`→lifecycle/stats/config；拆 `batcher.go`→retry_buffer；拆 `driver_manager.go`→tagfile_watcher；CoreCEngine God Object 拆组合结构；`runTask`/`Start` 降复杂度+降嵌套；batcher.stop 加超时 | **高** — 核心路径，须先补 TEST-001/005 护栏 | revert 各子提交；engine 已有 e2e+goleak 兜底 |
 | **4** | driver/modbus | CPLX-002,016,023 · DUP-006 · PERF-002 | 拆 `modbus_base.go`→read/write/address/lifecycle；`readTag` 分派表降复杂度；modbusBase God Object 拆组合；`time.Sleep`→`select+ctx` | 中 — 驱动有 reconnect_count_test 兜底 | revert 拆分提交 |
 | **5** | driver/opcua | CPLX-006,022 · SEC-001 · PERF-001 | 拆 `client.go`→subscription/read/write/lifecycle；OPCUADriver God Object 拆组合；`Close/Cancel` 加 `WithTimeout`；空 security-policy/username 加 `slog.Warn` | 中 | revert 拆分提交；告警修复单独提交 |
-| **6** | driver/s7 | CPLX-004,024 · PERF-003(→D6) | 拆 `s7.go`→address/codec/lifecycle；S7Driver 字段收敛子结构体；N+1 合并待 D6 决策 | 中 | revert 拆分提交；N+1 若采纳则单独提交 |
-| **7** | transport/mqtt | CPLX-001,021 · SEC-002(→D7) · PERF-004(→D8) | 拆 `publisher.go`→replay_window/command_handler/tls_config/publisher；MQTTTransport God Object 拆组合；SEC-002/PERF-004 待决策 | 中高 — 最大文件，须先补 TEST-002 护栏 | revert 拆分提交 |
-| **8** | transport/httppush + parser | CPLX-009 · SEC-003(→D9) | 拆 `push.go`→webhook/push_config；SEC-003 待决策 | 低 | revert 拆分提交 |
+| **6** | driver/s7 | CPLX-004,024 · PERF-003 | 拆 `s7.go`→address/codec/lifecycle；S7Driver 字段收敛子结构体；**合并连续地址 tag 为单次 ABReadDB**（D6=变更行为，单独提交） | 中 | revert 拆分提交；N+1 合并单独提交 |
+| **7** | transport/mqtt | CPLX-001,021 · SEC-002 · PERF-004 | 拆 `publisher.go`→replay_window/command_handler/tls_config/publisher；MQTTTransport God Object 拆组合；**command-secret 空 fail-closed**（D7=变更行为）；**PublishBatch 改并发**（D8=变更行为） | 中高 — 最大文件，须先补 TEST-002 护栏 | revert 拆分提交；行为变更单独提交 |
+| **8** | transport/httppush + parser | CPLX-009 · SEC-003 | 拆 `push.go`→webhook/push_config；**webhook-secret 空 fail-closed**（D9=变更行为） | 低 | revert 拆分提交；行为变更单独提交 |
 | **9** | rule（规则引擎） | CPLX-007 · PERF-005,006 | 拆 `rule/engine.go`→engine/build/match；reloadLoop 加 SHA-256 hash 跳过未变更；Close 加 done channel 等待 | 低 | revert 拆分提交 |
-| **10** | hub/route（控制面 API） | CPLX-005,011 · SEC-004(→D10) · SEC-006(→D11) | 拆 `server.go`→lifecycle/middleware/router；拆 `metrics.go` 按指标族；SEC-004/006 待决策 | 中 | revert 拆分提交 |
+| **10** | hub/route（控制面 API） | CPLX-005,011 · SEC-004 · SEC-006 | 拆 `server.go`→lifecycle/middleware/router；拆 `metrics.go` 按指标族；WS 保持 permissive（D10）；**pprof PprofAddr 强制 loopback**（D11=变更行为） | 中 | revert 拆分提交；loopback 校验单独提交 |
 | **11** | hub/executor | CPLX-012,017 | 拆 `executor.go`→diff/apply；`ApplyConfig` 按子系统拆降复杂度 | 低 | revert 拆分提交 |
 | **12** | demo | SEC-005 | demo 配置改用 `${COREC_API_SECRET}` 环境变量替代明文 "demo-token" | 极低 | revert |
 
 > **跨域条目**：CPLX-018（候选带 8 函数）、CPLX-019（深嵌套 13 函数）在各域批次内处理本域函数，不单设批次。
 > **P0 处理**：TEST-001（discovery 运行时 0% 覆盖）在 Phase 5 最先补全，为批次 3 engine 重构提供护栏。
-> **变更行为条目**（SEC-002/003/004/006、PERF-003/004、SEC-001 改默认）均标记「待人工决策」，确认后归入对应批次，单独提交（R2）。
+> **变更行为条目**（D6 S7 N+1 合并、D7 MQTT fail-closed、D8 MQTT 并发、D9 webhook fail-closed、D11 pprof loopback）均已决策，归入对应批次，单独提交（R2）。D5（OPC UA 告警）= 修复bug。D10（WS permissive）= 维持现状不立项。
 
 ## 5. 五阶段任务拆解
 
@@ -185,21 +185,21 @@
 - **验收标准**：覆盖率达标且关键模块单独达标；新增测试在故意破坏实现时失败（抽样≥3）；P0 修复有回归测试；全量测试约定时长内跑完且连续 3 次无失败；覆盖率/结构测试接入门禁（实测拦截）；测试文件纳入版本管理。
 - **阶段 5 通过后**：执行 §14 收官拆解（归档施工图，长效契约迁移至 `AGENTS.md` / `core-beliefs.md` / `ARCHITECTURE.md`）。
 
-## 6. 待人工决策清单
+## 6. 人工决策清单（已全部决策）
 
-| 编号 | 问题 | 为什么需要人判断 | 影响范围 |
+| 编号 | 问题 | 决策结果 | 影响范围 |
 |---|---|---|---|
-| D1 | 阶段 1 改造计划是否确认，进入阶段 2 | 契约 C1：计划先行，确认前禁改业务代码 | 全局 |
-| D2 | 根级四份大分析文档（`AI_HANDOVER.md`/`IMPROVEMENTS.md`/`QUALITY_ASSESSMENT.md`/`REALTIME_EVALUATION.md`）的处置（归档至 `docs/exec-plans/completed/` 或 `docs/design-docs/`，不删除） | 属内容取舍，且可能含仍有效的决策记录；§9 R5 不静默删除 | 阶段 2 |
-| D3 | 是否为 `release.yml` 增加版本一致性 guard job（校验 tag == 代码版本声明） | 改动现有发布链路，需单独征求同意（§3.4/§10.1） | 阶段 3 |
-| D4 | hub/route API 认证现状确认：API 已 fail-closed（`api.secret` 空则拒绝启动），authenticated 组覆盖 configs/drivers/transports/tags/write/rules/stats 等。是否维持现状？ | 扫描确认 API 认证基线已强（fail-closed + HMAC 常量时间 + token 脱敏）。若需额外加固（如 RBAC、IP 白名单）属变更行为 | 阶段 4 批次 10 |
-| D5 | SEC-001：OPC UA 驱动空 `security-policy`/`username` 时仅加 `slog.Warn`（修复bug）还是改为默认安全策略（变更行为）？ | 加告警不破坏现有部署；改默认为安全策略会破坏当前无加密/匿名部署 | 阶段 4 批次 5 |
-| D6 | PERF-003：S7 驱动是否合并连续地址 tag 为单次 PLC 读（消除 N+1）？ | 合并改变时序/错误粒度（单次失败影响多 tag），属变更行为 | 阶段 4 批次 6 |
-| D7 | SEC-002：MQTT 命令转发在 `command-topic` 非空且 `command-secret` 空时是否 fail-closed 拒绝启动？ | 当前仅 Warn 不阻止；fail-closed 破坏现有无密部署（`command_auth_test.go:123` 固化此行为） | 阶段 4 批次 7 |
-| D8 | PERF-004：MQTT `PublishBatch` 是否改为并发发布（fire-all + 统一 Wait）？ | 并发改变消息顺序/背压语义，属变更行为 | 阶段 4 批次 7 |
-| D9 | SEC-003：HTTP webhook 在 `webhook-addr` 非空且 `webhook-secret` 空时是否 fail-closed 拒绝启动？ | 同 D7，破坏现有无密部署 | 阶段 4 批次 8 |
-| D10 | SEC-004：WebSocket permissive 模式（无 `allowed-origins`）是否改为默认仅允许 localhost？ | 改默认会破坏 dashboard `:3080→:9090` 跨域 | 阶段 4 批次 10 |
-| D11 | SEC-006：pprof 独立端口（`PprofAddr`）是否加认证或强制 loopback？ | 加 auth 可能破坏外部抓取；强制 loopback 限制运维灵活性 | 阶段 4 批次 10 |
+| D1 | 阶段 1 改造计划是否确认，进入阶段 2 | ✅ **确认，进入阶段 2** | 全局 |
+| D2 | 根级四份大分析文档处置 | ✅ **归档至 `docs/design-docs/`**（不删除，有效条目迁移到 tracker/QUALITY_SCORE.md） | 阶段 2 |
+| D3 | 是否增加版本一致性 guard job | ✅ **增加**（校验 tag == 代码版本声明） | 阶段 3 |
+| D4 | hub/route API 认证是否维持现状 | ✅ **维持现状**（已 fail-closed + HMAC + token 脱敏） | 阶段 4 批次 10 |
+| D5 | SEC-001 OPC UA 空安全策略处理 | ✅ **仅加告警**（slog.Warn，修复bug，不破坏现有部署） | 阶段 4 批次 5 |
+| D6 | PERF-003 S7 N+1 是否合并连续地址 | ✅ **合并连续地址**（变更行为，单次失败影响多 tag，需行为测试覆盖） | 阶段 4 批次 6 |
+| D7 | SEC-002 MQTT 命令转发是否 fail-closed | ✅ **fail-closed 拒绝启动**（command-topic 非空且 command-secret 空时拒绝启动，变更行为） | 阶段 4 批次 7 |
+| D8 | PERF-004 MQTT PublishBatch 是否并发 | ✅ **改为并发**（fire-all + 统一 WaitTimeout，变更行为，需 QoS/顺序测试） | 阶段 4 批次 7 |
+| D9 | SEC-003 HTTP webhook 是否 fail-closed | ✅ **fail-closed 拒绝启动**（webhook-addr 非空且 webhook-secret 空时拒绝启动，变更行为） | 阶段 4 批次 8 |
+| D10 | SEC-004 WS permissive 模式是否改默认 | ✅ **保持 permissive**（改默认破坏 dashboard 跨域；WS 已在 authentication 组内） | 阶段 4 批次 10 |
+| D11 | SEC-006 pprof 独立端口加固方式 | ✅ **强制 loopback**（校验 PprofAddr 为回环地址，拒绝非回环绑定） | 阶段 4 批次 10 |
 
 ## 7. 进度与决策日志
 
@@ -209,4 +209,6 @@
 | 2026-10-02 | 1 | 放置 `docs/HARNESS-RULES.md`（规则副本，sha256 与附件一致） | — | 施工期常驻（§14.1） |
 | 2026-10-02 | 1 | 框架判定 = 其他类型，写入 `docs/CI.md` | — | §3.2/§3.4 |
 | 2026-10-02 | 1 | 七路并行扫描（ARCH/CPLX/DUP/DOC/TEST/SEC/PERF）完成 | — | §5 阶段1 子任务 3–9；75 条问题（P0×1, P1×27, P2×47） |
-| 2026-10-02 | 1 | 综合扫描结果，填充本计划 §3/§4 与 `tech-debt-tracker.md`（75 条全量） | — | §5 阶段1 验收标准全勾；待人工确认 D1 |
+| 2026-10-02 | 1 | 综合扫描结果，填充本计划 §3/§4 与 `tech-debt-tracker.md`（75 条全量） | — | §5 阶段1 验收标准全勾 |
+| 2026-10-02 | 1 | 人工决策 D1–D11 全部确认 | — | D1=进入阶段2；D2=归档 design-docs；D3=加 guard job；D4=维持 API 现状；D5=OPC UA 仅告警；D6=S7 合并；D7=MQTT fail-closed；D8=MQTT 并发；D9=webhook fail-closed；D10=WS permissive；D11=pprof loopback |
+| 2026-10-02 | 2 | 阶段 2 文档对齐启动 | — | §5 阶段2 |
