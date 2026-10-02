@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/CoreC-Dev/CoreC/core"
 )
 
 // These tests exercise the offline-buffer and flush-batch-drop metric
@@ -19,13 +21,13 @@ import (
 // writeFlushBatchesDropped emit their families.
 type mockOfflineBufferEngine struct {
 	mockEngineV2
-	pending     int
-	drained     uint64
-	pushed      uint64
+	pending      int
+	drained      uint64
+	pushed       uint64
 	flushDropped uint64
 }
 
-func (m *mockOfflineBufferEngine) OfflineBufferStats() (int, uint64, uint64) {
+func (m *mockOfflineBufferEngine) OfflineBufferStats() (pending int, drained, pushed uint64) {
 	return m.pending, m.drained, m.pushed
 }
 

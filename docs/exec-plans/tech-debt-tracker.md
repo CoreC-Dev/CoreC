@@ -124,15 +124,15 @@
 | ID | 标题 | 位置 | 类别 | 严重度 | 证据 | 修复建议 | 业务行为影响 | 关联批次 | 验收方式 | 状态 |
 |---|---|---|---|---|---|---|---|---|---|---|
 | TEST-001 | engine/discovery.go 拓扑自动发现 11 函数全 0.0% 覆盖 | engine/discovery.go（全文件）; engine/discovery_test.go:342行 | 测试 | P0 | discovery_test.go 只测纯辅助函数，从未启动真实 Discovery 心跳/协调 goroutine。11 函数全 0.0% | Phase 5 最先补：启动真实 Discovery 实例，测试心跳/协调/拓扑变更/关停；用 mock 邻居节点 | 无 | Phase 5（最先） | discovery.go 覆盖率 ≥60% | 已修复 |
-| TEST-002 | MQTT Publish() 仅 8.3%、subscribeCommands/subscribeData 0% | transport/mqtt/publisher.go | 测试 | P1 | 需 broker；Publish 核心路径几乎未测 | 用 mock MQTT broker(eclipse-paho 兼容) 补 Publish/subscribe 路径测试 | 无 | Phase 5 | Publish 覆盖率 ≥70% | 待处理 |
+| TEST-002 | MQTT Publish() 仅 8.3%、subscribeCommands/subscribeData 0% | transport/mqtt/publisher.go | 测试 | P1 | 需 broker；Publish 核心路径几乎未测 | 用 mock MQTT broker(eclipse-paho 兼容) 补 Publish/subscribe 路径测试 | 无 | Phase 5 | subscribe 100%, Publish 88.9% | 已修复 |
 | TEST-003 | OPC UA startSubscription/subscriptionLoop/handleConnectionLost 全 0% | driver/opcua/client.go | 测试 | P1 | 订阅/重连路径无测试 | 用 mock OPC UA server 补订阅生命周期测试 | 无 | Phase 5 | 订阅路径覆盖率 ≥50% | 待处理 |
 | TEST-004 | Modbus handleConnectionLost 0%、readTag 10.5%、三种 connect 0% | driver/modbus/modbus_base.go | 测试 | P1 | 重连/读路径覆盖不足 | 用 mock Modbus slave 补重连+读路径测试 | 无 | Phase 5 | handleConnectionLost/readTag 覆盖率 ≥60% | 待处理 |
-| TEST-005 | engine rollbackStart（Start 半途失败回滚）0% | engine/engine.go | 测试 | P1 | 无测试注入中途失败验证回滚 | 注入中途失败的 driver/transport factory，断言回滚正确 | 无 | Phase 5 | rollbackStart 覆盖率 ≥80% | 待处理 |
-| TEST-006 | cmd/corec 24.6%（main 0%、run 18%） | cmd/corec/main.go | 测试 | P1 | main/run 路径几乎未测；信号测试忽略退出码 | 补 main/run 集成测试（os.Args 注入+信号模拟） | 无 | Phase 5 | cmd/corec 覆盖率 ≥50% | 待处理 |
+| TEST-005 | engine rollbackStart（Start 半途失败回滚）0% | engine/engine.go | 测试 | P1 | 无测试注入中途失败验证回滚 | 注入中途失败的 driver/transport factory，断言回滚正确 | 无 | Phase 5 | rollbackStart 95.8% | 已修复 |
+| TEST-006 | cmd/corec 24.6%（main 0%、run 18%） | cmd/corec/main.go | 测试 | P1 | main/run 路径几乎未测；信号测试忽略退出码 | 补 main/run 集成测试（os.Args 注入+信号模拟） | 无 | Phase 5 | cmd/corec 95.1% | 已修复 |
 | TEST-007 | transport/parser 66.2%（parseScalar 23.8%、parseTimestamp 33.3%） | transport/parser/ | 测试 | P1 | 边界值/错误路径覆盖不足 | 补边界值表驱动测试 | 无 | Phase 5 | parser 覆盖率 ≥85% | 已修复 |
 | TEST-008 | log ParseLevel/adapter 0% | log/ | 测试 | P2 | 日志级别解析/适配器未测 | 补 ParseLevel 表驱动测试 + adapter 行为测试 | 无 | Phase 5 | log 覆盖率 ≥80% | 已修复 |
 | TEST-009 | demo 0% 覆盖 | demo/chained/ | 测试 | P2 | demo 包无测试 | 补 demo 场景冒烟测试（或标注为 fixture 不计入覆盖） | 无 | Phase 5 | demo 冒烟测试通过 | 已修复 |
-| TEST-010 | hub/route 离线缓冲指标 12.5% | hub/route/ | 测试 | P2 | 离线缓冲指标路径覆盖不足 | 补离线缓冲指标测试 | 无 | Phase 5 | 离线缓冲指标覆盖率 ≥70% | 待处理 |
+| TEST-010 | hub/route 离线缓冲指标 12.5% | hub/route/ | 测试 | P2 | 离线缓冲指标路径覆盖不足 | 补离线缓冲指标测试 | 无 | Phase 5 | 100% | 已修复 |
 | TEST-011 | engine cache.GetAll 0% | engine/ | 测试 | P2 | cache GetAll 未测 | 补 GetAll 测试 | 无 | Phase 5 | GetAll 覆盖率 ≥80% | 已修复 |
 
 ### 安全（SEC）

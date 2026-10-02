@@ -307,3 +307,6 @@
 | 2026-10-03 | 5 | TEST-007/008/011: parser/log/cache 测试 | `8fe303e` | parser 66→93%, log→81%, GetAll→100% |
 | 2026-10-03 | 5 | TEST-009: demo 冒烟测试 + SEC-005 回归 | — | validate 包测试：17 configs valid + 无明文 demo-token |
 | 2026-10-03 | 5 | 覆盖率门禁接入 | — | scripts/check-coverage.sh：整体≥75% + 19 包阈值；make gates 加入 cover-gate |
+| 2026-10-03 | 5 | TEST-002/010: MQTT subscribe + offline metrics | — | subscribe 0→100%, Publish 8.3→88.9%, offline metrics 12.5→100% |
+| 2026-10-03 | 5 | TEST-005/006: rollback + cmd/corec | — | rollbackStart 0→95.8%, cmd/corec 24.6→95.1% |
+| 2026-10-03 | 5 | 验收: 故意破坏实现测试失败（3 样本） | — | discovery client map / parser parseScalar bool / log LevelMapping — 均 FAIL |

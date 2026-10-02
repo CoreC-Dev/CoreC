@@ -502,7 +502,7 @@ func TestOnConnectHandlerSubscribes(t *testing.T) {
 
 // Compile-time assertions that the mocks satisfy the paho interfaces.
 var (
-	_ pahomqtt.Client = (*mockPahoClient)(nil)
+	_ pahomqtt.Client  = (*mockPahoClient)(nil)
 	_ pahomqtt.Message = (*mockMessage)(nil)
 	_ pahomqtt.Token   = (*neverDoneToken)(nil)
 )
