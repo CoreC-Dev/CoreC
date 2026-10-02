@@ -53,7 +53,7 @@
 
 | ID | 标题 | 位置 | 类别 | 严重度 | 证据 | 修复建议 | 业务行为影响 | 关联批次 | 验收方式 | 状态 |
 |---|---|---|---|---|---|---|---|---|---|---|
-| ARCH-001 | 无 depguard/结构测试，依赖方向无机械约束 | .golangci.yml（无 depguard）；无 *_test.go 做 import graph 断言 | 架构 | P1 | golangci-lint 配置无 depguard；全仓无结构测试验证分层。当前依赖方向实际正确（0 环/0 跨层/0 跨域），但无护栏防止退化 | Phase 3：加 depguard 规则 + 结构测试断言允许边表；允许边表：core←{config,driver,transport,engine,rule,hub,log,common}；engine←{driver,transport,rule,config,common}；driver/transport←{core,common}；hub←{engine,config,core,common} | 无 | Phase 3 | depguard 零报错 + 结构测试通过 | 待处理 |
+| ARCH-001 | 无 depguard/结构测试，依赖方向无机械约束 | .golangci.yml（无 depguard）；无 *_test.go 做 import graph 断言 | 架构 | P1 | golangci-lint 配置无 depguard；全仓无结构测试验证分层。当前依赖方向实际正确（0 环/0 跨层/0 跨域），但无护栏防止退化 | Phase 3：加 depguard 规则 + 结构测试断言允许边表；允许边表：core←{config,driver,transport,engine,rule,hub,log,common}；engine←{driver,transport,rule,config,common}；driver/transport←{core,common}；hub←{engine,config,core,common} | 无 | Phase 3 | archtest 通过 + depguard 零报错 | 已修复 |
 | ARCH-002 | config.validate 耦合全局 core.globalRegistry 单例 | config/config.go:240,244,313,391 | 架构 | P2 | validateDrivers/validateTransports 调 core.RegisteredDrivers()/core.RegisteredTransports()（全局单例），使 config 包对 core 有隐式运行时依赖，阻碍 config 独立测试 | 注入 DriverRegistry/TransportRegistry 接口到 config 校验路径，消除全局单例耦合 | 无 | Phase 4 批次 2 | config 包测试不依赖 core 全局状态 | 已修复 |
 
 ### 复杂度（CPLX）
@@ -64,13 +64,13 @@
 | CPLX-002 | 超长文件: Modbus base 953 行 | driver/modbus/modbus_base.go:1-953 | 复杂度 | P1 | 953 行(>800) | 拆分 modbus_read.go / modbus_write.go / modbus_address.go / modbus_base.go | 无 | Phase 4 批次 4 | 文件 <400 行 | 已修复 |
 | CPLX-003 | 超长文件: engine.go 875 行 | engine/engine.go:1-875 | 复杂度 | P1 | 875 行(>800) | 拆分 engine_lifecycle.go / engine_stats.go / engine_config.go | 无 | Phase 4 批次 3 | 文件 <400 行 | 已修复 |
 | CPLX-004 | 超长文件: S7 driver 727 行 | driver/s7/s7.go:1-727 | 复杂度 | P1 | 727 行(600-800) | 拆分 s7_address.go / s7_codec.go / s7.go | 无 | Phase 4 批次 6 | 文件 <400 行 | 已修复 |
-| CPLX-005 | 超长文件: route server 701 行 | hub/route/server.go:1-701 | 复杂度 | P1 | 701 行(600-800) | 拆分 server_lifecycle.go / middleware.go / router.go | 无 | Phase 4 批次 10 | 文件 <400 行 | 待处理 |
+| CPLX-005 | 超长文件: route server 701 行 | hub/route/server.go:1-701 | 复杂度 | P1 | 701 行(600-800) | 拆分 server_lifecycle.go / middleware.go / router.go | 无 | Phase 4 批次 10 | server.go 171 行 | 已修复 |
 | CPLX-006 | 超长文件: OPCUA client 662 行 | driver/opcua/client.go:1-662 | 复杂度 | P1 | 662 行(600-800) | 拆分 opcua_subscription.go / opcua_read.go / opcua_write.go / client.go | 无 | Phase 4 批次 5 | 文件 <400 行 | 已修复 |
 | CPLX-007 | 超长文件: rule engine 659 行 | rule/engine.go:1-659 | 复杂度 | P1 | 659 行(600-800) | 拆分 rule_engine.go / rule_build.go / rule_match.go | 无 | Phase 4 批次 9 | 文件 <400 行 | 已修复 |
 | CPLX-008 | 超长文件: batcher 512 行 | engine/batcher.go:1-512 | 复杂度 | P2 | 512 行(400-600) | 拆出 retry_buffer.go | 无 | Phase 4 批次 3 | 文件 <400 行 | 已修复 |
 | CPLX-009 | 超长文件: httppush 480 行 | transport/httppush/push.go:1-480 | 复杂度 | P2 | 480 行(400-600) | 拆出 webhook.go / push_config.go | 无 | Phase 4 批次 8 | 文件 <400 行 | 已修复 |
 | CPLX-010 | 超长文件: config 467 行 | config/config.go:1-467 | 复杂度 | P2 | 467 行(400-600) | 拆出 validate.go / env_expand.go | 无 | Phase 4 批次 2 | 文件 <400 行 | 已修复 |
-| CPLX-011 | 超长文件: route metrics 453 行 | hub/route/metrics.go:1-453 | 复杂度 | P2 | 453 行(400-600) | 按指标族拆分 metrics_driver.go / metrics_transport.go / metrics_runtime.go | 无 | Phase 4 批次 10 | 文件 <400 行 | 待处理 |
+| CPLX-011 | 超长文件: route metrics 453 行 | hub/route/metrics.go:1-453 | 复杂度 | P2 | 453 行(400-600) | 按指标族拆分 metrics_driver.go / metrics_transport.go / metrics_runtime.go | 无 | Phase 4 批次 10 | metrics.go 117 行 | 已修复 |
 | CPLX-012 | 超长文件: executor 450 行 | hub/executor/executor.go:1-450 | 复杂度 | P2 | 450 行(400-600) | 拆出 diff.go / apply.go | 无 | Phase 4 批次 11 | 文件 <400 行 | 已修复 |
 | CPLX-013 | 超长文件: driver_manager 422 行 | engine/driver_manager.go:1-422 | 复杂度 | P2 | 422 行(400-600) | 拆出 tagfile_watcher.go | 无 | Phase 4 批次 3 | 文件 <400 行 | 已修复 |
 | CPLX-014 | 超高圈复杂度: scheduler.runTask gocyclo=27 | engine/scheduler.go:190-350(161行) | 复杂度 | P2 | gocyclo=27(>20), //nolint:gocyclo 抑制; 嵌套 7 层 | 抽取 deadband 过滤/错误降级/重连为独立函数；早返回降低嵌套 | 无 | Phase 4 批次 3 | gocyclo <20 且嵌套 ≤4 层 | 已修复 |
