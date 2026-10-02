@@ -131,6 +131,7 @@ type replayWindow struct {
 	seen    map[string]time.Time
 	ttl     time.Duration
 	maxSize int
+	stop    chan struct{}
 }
 
 func newReplayWindow(ttl time.Duration, maxSize int) *replayWindow {
@@ -138,6 +139,7 @@ func newReplayWindow(ttl time.Duration, maxSize int) *replayWindow {
 		seen:    make(map[string]time.Time),
 		ttl:     ttl,
 		maxSize: maxSize,
+		stop:    make(chan struct{}),
 	}
 	if ttl > 0 {
 		go rw.evictLoop()
@@ -145,11 +147,29 @@ func newReplayWindow(ttl time.Duration, maxSize int) *replayWindow {
 	return rw
 }
 
+// close stops the background eviction goroutine. It is safe to call
+// multiple times (subsequent calls are no-ops). The publisher calls
+// this in Stop to prevent the eviction goroutine from outliving the
+// transport.
+func (rw *replayWindow) close() {
+	select {
+	case <-rw.stop:
+		// already closed
+	default:
+		close(rw.stop)
+	}
+}
+
 func (rw *replayWindow) evictLoop() {
 	ticker := time.NewTicker(rw.ttl)
 	defer ticker.Stop()
-	for range ticker.C {
-		rw.evictExpired()
+	for {
+		select {
+		case <-rw.stop:
+			return
+		case <-ticker.C:
+			rw.evictExpired()
+		}
 	}
 }
 
@@ -444,8 +464,20 @@ func (t *MQTTTransport) buildTLSConfig() (*tls.Config, error) {
 	return cfg, nil
 }
 
-func (t *MQTTTransport) Start(ctx context.Context) error {
+func (t *MQTTTransport) Start(ctx context.Context) (err error) {
 	t.ctx, t.cancel = context.WithCancel(ctx)
+
+	// If Start returns an error, cancel the derived context to prevent
+	// resource leaks. When the transport is not registered to the engine
+	// (e.g. connection failed with autoReconnect=false), the caller may
+	// never call Stop(), so the derived context and its associated
+	// resources would leak. On success, the context stays active for the
+	// transport's lifetime and is cancelled by Stop().
+	defer func() {
+		if err != nil && t.cancel != nil {
+			t.cancel()
+		}
+	}()
 
 	// Warn if a command topic is configured without a command secret: in
 	// that mode command messages are accepted unauthenticated, which is
@@ -783,11 +815,56 @@ func commandSigningBytes(payload []byte) []byte {
 	}
 	delete(m, "X-Signature")
 	delete(m, "signature")
+	// Recursively canonicalize nested JSON values so that key ordering
+	// is deterministic at every level, not just the top level. This
+	// prevents signature verification failures when the sender and
+	// receiver use different JSON libraries that produce different
+	// key orders in nested objects.
+	for k, v := range m {
+		if canonical := canonicalRawJSON(v); canonical != nil {
+			m[k] = canonical
+		}
+	}
 	b, err := json.Marshal(m)
 	if err != nil {
 		return payload
 	}
 	return b
+}
+
+// canonicalRawJSON recursively canonicalizes a JSON value by sorting
+// object keys at every nesting level. Scalar values (numbers, strings,
+// bools, null) are preserved as raw bytes to avoid precision loss from
+// re-serialization (e.g. 1.0 → 1, 1e10 → 10000000000).
+func canonicalRawJSON(raw json.RawMessage) json.RawMessage {
+	// Try object: sort keys and recurse into values.
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err == nil {
+		for k, v := range obj {
+			if canonical := canonicalRawJSON(v); canonical != nil {
+				obj[k] = canonical
+			}
+		}
+		if b, err := json.Marshal(obj); err == nil {
+			return b
+		}
+		return raw
+	}
+	// Try array: recurse into elements (order is significant).
+	var arr []json.RawMessage
+	if err := json.Unmarshal(raw, &arr); err == nil {
+		for i, v := range arr {
+			if canonical := canonicalRawJSON(v); canonical != nil {
+				arr[i] = canonical
+			}
+		}
+		if b, err := json.Marshal(arr); err == nil {
+			return b
+		}
+		return raw
+	}
+	// Scalar — return as-is to preserve exact representation.
+	return raw
 }
 
 // extractCommandTimestamp pulls the "timestamp" field (Unix milliseconds)
@@ -873,6 +950,12 @@ func (t *MQTTTransport) subscribeData(c pahomqtt.Client) {
 func (t *MQTTTransport) Stop() error {
 	if t.cancel != nil {
 		t.cancel()
+	}
+
+	// Stop the replay-cache eviction goroutine to prevent a goroutine
+	// leak when the transport is shut down.
+	if t.replayCache != nil {
+		t.replayCache.close()
 	}
 
 	if t.client != nil && t.client.IsConnected() {

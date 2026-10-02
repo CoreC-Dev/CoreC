@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"log/slog"
 	"math"
 	"sort"
 	"strconv"
@@ -93,6 +92,14 @@ type modbusBase struct {
 	config     core.DriverConfig
 	driverType string // "modbus-tcp" or "modbus-rtu"
 
+	// Injected dependencies. Defaults to NoopLogger/NoopMetrics so
+	// the driver works without explicit injection; the engine wires
+	// real implementations via SetLogger/SetMetrics during AddDriver.
+	// This decouples the driver from slog, enabling independent testing
+	// and community reuse with custom logging/metrics backends.
+	logger  core.Logger
+	metrics core.Metrics
+
 	// Connection
 	client  *mb.ModbusClient
 	slaveID uint8
@@ -133,6 +140,15 @@ type modbusBase struct {
 // populates the corresponding base fields.  It is called from each
 // concrete driver's Init after transport-specific fields have been set.
 func (b *modbusBase) initCommon(settings map[string]any, config core.DriverConfig) error {
+	// Default to NoopLogger/NoopMetrics if not injected. The engine
+	// calls SetLogger/SetMetrics during AddDriver; tests and standalone
+	// use get the no-op defaults.
+	if b.logger == nil {
+		b.logger = core.NoopLogger{}
+	}
+	if b.metrics == nil {
+		b.metrics = core.NoopMetrics{}
+	}
 	b.slaveID = uint8(util.GetIntSetting(settings, "slave-id", 1))
 	b.maxRetry = util.GetIntSetting(settings, "retry", 3)
 
@@ -160,6 +176,30 @@ func (b *modbusBase) initCommon(settings map[string]any, config core.DriverConfi
 	return nil
 }
 
+// SetLogger injects a structured logger into the driver. Called by the
+// engine during AddDriver to wire the slog backend; tests can inject a
+// capture logger to assert on log output.
+func (b *modbusBase) SetLogger(l core.Logger) {
+	if l == nil {
+		l = core.NoopLogger{}
+	}
+	b.mu.Lock()
+	b.logger = l
+	b.mu.Unlock()
+}
+
+// SetMetrics injects a metrics backend into the driver. Called by the
+// engine during AddDriver to wire the Prometheus backend; tests can
+// inject a capture to assert on metric values.
+func (b *modbusBase) SetMetrics(m core.Metrics) {
+	if m == nil {
+		m = core.NoopMetrics{}
+	}
+	b.mu.Lock()
+	b.metrics = m
+	b.mu.Unlock()
+}
+
 // openClient creates, configures and opens a Modbus client from the given
 // library configuration, then stores it in the base.  The transport-specific
 // connect() methods build the ClientConfiguration and delegate to this
@@ -184,7 +224,7 @@ func (b *modbusBase) openClient(cfg *mb.ClientConfiguration) error {
 	b.lastError = ""
 	b.mu.Unlock()
 
-	slog.Info("modbus connected", "driver", b.driverType, "name", b.name, "url", cfg.URL)
+	b.logger.Info("modbus connected", "driver", b.driverType, "name", b.name, "url", cfg.URL)
 	return nil
 }
 
@@ -194,7 +234,7 @@ func (b *modbusBase) Start(ctx context.Context) error {
 
 	if err := b.connectFunc(); err != nil {
 		// Don't fail start — schedule reconnect in background
-		slog.Warn("modbus initial connect failed, will retry",
+		b.logger.Warn("modbus initial connect failed, will retry",
 			"driver", b.driverType, "name", b.name, "error", err)
 		b.mu.Lock()
 		b.state = core.StateConnecting
@@ -205,7 +245,7 @@ func (b *modbusBase) Start(ctx context.Context) error {
 		return nil
 	}
 
-	slog.Info("modbus driver started", "driver", b.driverType, "name", b.name)
+	b.logger.Info("modbus driver started", "driver", b.driverType, "name", b.name)
 	return nil
 }
 
@@ -241,7 +281,7 @@ func (b *modbusBase) Stop() error {
 	}
 	b.state = core.StateDisconnected
 
-	slog.Info("modbus driver stopped", "driver", b.driverType, "name", b.name)
+	b.logger.Info("modbus driver stopped", "driver", b.driverType, "name", b.name)
 	return nil
 }
 
@@ -782,10 +822,10 @@ func (b *modbusBase) Write(ctx context.Context, commands []core.WriteCommand) ([
 		if err != nil {
 			b.errorCount.Add(1)
 			results[i] = core.WriteResult{Success: false, Error: err.Error()}
-			slog.Error("modbus write failed", "tag", cmd.Tag, "error", err)
+			b.logger.Error("modbus write failed", "tag", cmd.Tag, "error", err)
 		} else {
 			results[i] = core.WriteResult{Success: true}
-			slog.Info("modbus write success", "tag", cmd.Tag, "value", cmd.Value)
+			b.logger.Info("modbus write success", "tag", cmd.Tag, "value", cmd.Value)
 		}
 	}
 	return results, nil
@@ -881,7 +921,7 @@ func (b *modbusBase) handleConnectionLost() {
 	}
 	b.mu.Unlock()
 
-	slog.Warn("modbus connection lost, starting reconnect", "driver", b.driverType, "name", b.name)
+	b.logger.Warn("modbus connection lost, starting reconnect", "driver", b.driverType, "name", b.name)
 	b.startReconnectLoop()
 }
 

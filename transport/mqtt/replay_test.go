@@ -97,6 +97,32 @@ func TestCommandSigningBytes(t *testing.T) {
 			t.Errorf("expected raw bytes for non-JSON, got %q", got)
 		}
 	})
+
+	t.Run("nested object keys are canonicalized", func(t *testing.T) {
+		// Nested objects with different key orders must produce the
+		// same canonical signing bytes.
+		payloadA := []byte(`{"cmd":{"z":"1","a":"2"},"tag":"t"}`)
+		payloadB := []byte(`{"cmd":{"a":"2","z":"1"},"tag":"t"}`)
+		gotA := commandSigningBytes(payloadA)
+		gotB := commandSigningBytes(payloadB)
+		if !bytes.Equal(gotA, gotB) {
+			t.Errorf("nested key order not canonicalized:\n A: %s\n B: %s", gotA, gotB)
+		}
+		// The nested object keys must be sorted (a before z).
+		if string(gotA) != `{"cmd":{"a":"2","z":"1"},"tag":"t"}` {
+			t.Errorf("unexpected canonical form: %s", gotA)
+		}
+	})
+
+	t.Run("scalar precision preserved", func(t *testing.T) {
+		// Floating-point representation must be preserved exactly,
+		// not normalized by re-serialization.
+		payload := []byte(`{"value":1.0,"tag":"t"}`)
+		got := commandSigningBytes(payload)
+		if !bytes.Contains(got, []byte("1.0")) {
+			t.Errorf("float precision lost: %s", got)
+		}
+	})
 }
 
 // TestCommandSigningBytesRoundTrip verifies the core invariant that makes

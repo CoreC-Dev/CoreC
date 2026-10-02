@@ -2,6 +2,7 @@ package route
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -55,7 +56,7 @@ func TestGetConfigsRaw(t *testing.T) {
 		return string(data), nil
 	}
 
-	ts := httptest.NewServer(router("secret-123", nil, 0, true))
+	ts := httptest.NewServer(router(context.Background(), "secret-123", nil, 0, true))
 	defer ts.Close()
 
 	// 1. Without auth → 401 (the raw config is in the authenticated group).
@@ -118,7 +119,7 @@ func TestValidateConfigs(t *testing.T) {
 		return err
 	}
 
-	ts := httptest.NewServer(router("secret-123", nil, 0, true))
+	ts := httptest.NewServer(router(context.Background(), "secret-123", nil, 0, true))
 	defer ts.Close()
 
 	// 1. Valid config → 200 {valid: true}. Includes a driver (data source) and
@@ -170,7 +171,7 @@ func TestValidateConfigs(t *testing.T) {
 func TestValidateConfigs_NoAuth(t *testing.T) {
 	ValidateFunc = func(string) error { return nil }
 	defer func() { ValidateFunc = nil }()
-	ts := httptest.NewServer(router("secret-123", nil, 0, true))
+	ts := httptest.NewServer(router(context.Background(), "secret-123", nil, 0, true))
 	defer ts.Close()
 	body, _ := json.Marshal(map[string]string{"payload": "x"})
 	resp, err := http.Post(ts.URL+"/configs/validate", "application/json", bytes.NewReader(body))

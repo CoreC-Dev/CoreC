@@ -242,3 +242,102 @@ func TestCELExpressions(t *testing.T) {
 		t.Errorf("paren failed: %v", res)
 	}
 }
+
+func TestDriverIndexMatch(t *testing.T) {
+	eng := NewEngine()
+
+	configs := []core.RuleConfig{
+		{Name: "plc-rule", Match: "driver == 'plc' && tag == 'temp'", Action: "forward", Target: "mqtt1", Priority: 10},
+		{Name: "modbus-rule", Match: "driver == 'modbus' && tag == 'humidity'", Action: "forward", Target: "mqtt2", Priority: 10},
+		{Name: "catchall", Match: "ALL", Action: "forward", Target: "mqtt3", Priority: 100},
+	}
+
+	if err := eng.SetRules(configs); err != nil {
+		t.Fatalf("SetRules failed: %v", err)
+	}
+
+	// Data point from plc driver → should match plc-rule (priority 10)
+	res := eng.Match(core.DataPoint{Driver: "plc", Tag: "temp", Value: 25.0})
+	if res == nil || res.Rule.Name() != "plc-rule" {
+		t.Errorf("expected plc-rule, got %v", res)
+	}
+
+	// Data point from modbus driver → should match modbus-rule (priority 10)
+	res = eng.Match(core.DataPoint{Driver: "modbus", Tag: "humidity", Value: 30.0})
+	if res == nil || res.Rule.Name() != "modbus-rule" {
+		t.Errorf("expected modbus-rule, got %v", res)
+	}
+
+	// Data point from unknown driver → should match catchall (priority 100)
+	res = eng.Match(core.DataPoint{Driver: "opcua", Tag: "x", Value: 1.0})
+	if res == nil || res.Rule.Name() != "catchall" {
+		t.Errorf("expected catchall, got %v", res)
+	}
+
+	// Verify miss statistics: plc-rule should have misses from the modbus
+	// and opcua data points (both have priority < 100, so they are
+	// evaluated before catchall matches). modbus-rule should have a miss
+	// from the opcua data point.
+	stats := eng.RuleStats()
+	statMap := make(map[string]core.RuleStat, len(stats))
+	for _, s := range stats {
+		statMap[s.Name] = s
+	}
+
+	// plc-rule: hit on plc/temp, miss on modbus/humidity (priority 10 < 10? no, equal)
+	// Actually, modbus-rule has priority 10 too. When modbus/humidity arrives,
+	// the merged list evaluates plc-rule (universal? no, it's driver-scoped to plc)
+	// and modbus-rule (driver-scoped to modbus). The merged list for modbus driver
+	// is: universalRules=[catchall] + driverRules=[modbus-rule]. modbus-rule matches.
+	// plc-rule is in driverIndex["plc"], so RecordMiss is called if priority < 10.
+	// plc-rule priority is 10, which is NOT < 10, so no miss recorded.
+	// For opcua/x: merged list is universalRules=[catchall]. catchall matches at priority 100.
+	// plc-rule priority 10 < 100 → RecordMiss. modbus-rule priority 10 < 100 → RecordMiss.
+	if statMap["plc-rule"].MissCount != 1 {
+		t.Errorf("plc-rule miss count: expected 1 (from opcua point), got %d", statMap["plc-rule"].MissCount)
+	}
+	if statMap["modbus-rule"].MissCount != 1 {
+		t.Errorf("modbus-rule miss count: expected 1 (from opcua point), got %d", statMap["modbus-rule"].MissCount)
+	}
+	if statMap["plc-rule"].HitCount != 1 {
+		t.Errorf("plc-rule hit count: expected 1, got %d", statMap["plc-rule"].HitCount)
+	}
+	if statMap["modbus-rule"].HitCount != 1 {
+		t.Errorf("modbus-rule hit count: expected 1, got %d", statMap["modbus-rule"].HitCount)
+	}
+}
+
+func TestDriverIndexNoMatchStats(t *testing.T) {
+	eng := NewEngine()
+
+	configs := []core.RuleConfig{
+		{Name: "plc-rule", Match: "driver == 'plc' && tag == 'temp'", Action: "forward", Target: "mqtt1", Priority: 10},
+		{Name: "modbus-rule", Match: "driver == 'modbus' && tag == 'humidity'", Action: "forward", Target: "mqtt2", Priority: 20},
+	}
+
+	if err := eng.SetRules(configs); err != nil {
+		t.Fatalf("SetRules failed: %v", err)
+	}
+
+	// No match for any driver — all rules should record misses.
+	res := eng.Match(core.DataPoint{Driver: "plc", Tag: "pressure", Value: 1.0})
+	if res != nil {
+		t.Errorf("expected no match, got %v", res)
+	}
+
+	stats := eng.RuleStats()
+	statMap := make(map[string]core.RuleStat, len(stats))
+	for _, s := range stats {
+		statMap[s.Name] = s
+	}
+
+	// plc-rule: evaluated and missed (driver matches, tag doesn't)
+	if statMap["plc-rule"].MissCount != 1 {
+		t.Errorf("plc-rule miss count: expected 1, got %d", statMap["plc-rule"].MissCount)
+	}
+	// modbus-rule: not evaluated (different driver), but no match found
+	// so all rules would have been evaluated → RecordMiss called
+	if statMap["modbus-rule"].MissCount != 1 {
+		t.Errorf("modbus-rule miss count: expected 1, got %d", statMap["modbus-rule"].MissCount)
+	}
+}

@@ -8,7 +8,22 @@ import (
 
 	"github.com/CoreC-Dev/CoreC/common/trace"
 	"github.com/CoreC-Dev/CoreC/core"
+	"github.com/CoreC-Dev/CoreC/log"
 )
+
+// loggerInjector is an optional interface that drivers implement to
+// receive a structured Logger. The engine calls SetLogger during
+// AddDriver if the driver supports it.
+type loggerInjector interface {
+	SetLogger(core.Logger)
+}
+
+// metricsInjector is an optional interface that drivers implement to
+// receive a Metrics backend. The engine calls SetMetrics during
+// AddDriver if the driver supports it.
+type metricsInjector interface {
+	SetMetrics(core.Metrics)
+}
 
 // --- Driver Management ---
 
@@ -16,6 +31,18 @@ func (e *CoreCEngine) AddDriver(config core.DriverConfig) error {
 	driver, err := core.CreateDriver(config)
 	if err != nil {
 		return fmt.Errorf("failed to create driver %s: %w", config.Name, err)
+	}
+
+	// Inject Logger and Metrics if the driver supports it. This decouples
+	// drivers from the global slog/Prometheus backends, enabling independent
+	// testing and community reuse with custom backends. Drivers that don't
+	// implement SetLogger/SetMetrics (e.g. future or third-party drivers)
+	// simply skip injection and use their internal defaults.
+	if li, ok := driver.(loggerInjector); ok {
+		li.SetLogger(log.DefaultLogger())
+	}
+	if mi, ok := driver.(metricsInjector); ok {
+		mi.SetMetrics(core.NoopMetrics{})
 	}
 
 	if err := driver.Init(e.ctx, config); err != nil {

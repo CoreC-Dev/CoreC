@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"net"
 	"net/http"
 	"net/http/pprof"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -96,7 +98,11 @@ type Config struct {
 
 var (
 	httpServer       *http.Server
-	serverMu         sync.Mutex // protects httpServer in ReCreateServer/CloseServer
+	serverMu         sync.Mutex                   // protects httpServer in ReCreateServer/CloseServer
+	serverCancel     context.CancelFunc           // cancels the active server's lifecycle context
+	serverListener   net.Listener                 // persistent listener for zero-downtime reload
+	serverAddr       string                       // current listening address
+	handlerPtr       atomic.Pointer[http.Handler] // swapped atomically on hot-reload
 	pprofServer      *http.Server
 	pprofMu          sync.Mutex // protects pprofServer
 	engine           core.Engine
@@ -141,14 +147,42 @@ func getEngine() core.Engine {
 	return engine
 }
 
+// atomicHandler delegates to the handler stored in handlerPtr, enabling
+// zero-downtime hot-reload: ReCreateServer swaps handlerPtr atomically
+// while the underlying net.Listener and http.Server stay alive. In-flight
+// requests continue on the old handler; new requests pick up the new one.
+type atomicHandler struct{}
+
+func (atomicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if h := handlerPtr.Load(); h != nil {
+		(*h).ServeHTTP(w, r)
+	} else {
+		http.Error(w, "server not ready", http.StatusServiceUnavailable)
+	}
+}
+
 func ReCreateServer(cfg *Config) {
 	serverMu.Lock()
-	if httpServer != nil {
-		_ = httpServer.Close()
-		httpServer = nil
+	// Cancel the previous server's lifecycle context to stop any
+	// background goroutines (e.g. rate-limiter eviction) and prevent
+	// accumulation on hot-reload.
+	if serverCancel != nil {
+		serverCancel()
+		serverCancel = nil
 	}
 
 	if cfg == nil || cfg.Addr == "" {
+		// Shut down the existing server if any.
+		if httpServer != nil {
+			_ = httpServer.Close()
+			httpServer = nil
+		}
+		if serverListener != nil {
+			_ = serverListener.Close()
+			serverListener = nil
+		}
+		serverAddr = ""
+		handlerPtr.Store(nil)
 		serverMu.Unlock()
 		return
 	}
@@ -169,10 +203,41 @@ func ReCreateServer(cfg *Config) {
 	now := time.Now()
 	startTime.Store(&now)
 
+	// Create a lifecycle context for this server instance. It is
+	// cancelled when ReCreateServer or CloseServer is called again,
+	// stopping background goroutines (e.g. rate-limiter eviction).
+	ctx, cancel := context.WithCancel(context.Background())
+	serverCancel = cancel
+
 	// Determine pprof configuration. PprofDisabled defaults to false
 	// (pprof enabled, backward compatible). When PprofAddr is set, pprof
 	// runs on a separate server and is NOT registered on the main router.
 	pprofOnMain := !cfg.PprofDisabled && cfg.PprofAddr == ""
+
+	// Build the new router and swap it atomically. If the server is
+	// already listening on the same address, this is the ONLY change —
+	// the listener and http.Server stay alive, achieving zero-downtime.
+	newHandler := router(ctx, cfg.Secret, cfg.AllowedOrigins, cfg.RateLimitPerSec, pprofOnMain)
+	h := http.Handler(newHandler)
+	handlerPtr.Store(&h)
+
+	// If the server is already running on the same address, the handler
+	// swap above is sufficient — no need to close/recreate the listener.
+	if httpServer != nil && serverListener != nil && serverAddr == cfg.Addr {
+		serverMu.Unlock()
+		log.Infoln("API server hot-reloaded at %s (zero-downtime handler swap)", cfg.Addr)
+		return
+	}
+
+	// Address changed or first startup: close the old listener if any.
+	if serverListener != nil {
+		_ = serverListener.Close()
+		serverListener = nil
+	}
+	if httpServer != nil {
+		_ = httpServer.Close()
+		httpServer = nil
+	}
 
 	// Apply configured timeouts, falling back to defaults.
 	rht := cfg.ReadHeaderTimeout
@@ -192,9 +257,22 @@ func ReCreateServer(cfg *Config) {
 		it = defaultIdleTimeout
 	}
 
+	// Create the listener upfront so a bind failure is reported
+	// synchronously rather than in the goroutine below.
+	ln, err := net.Listen("tcp", cfg.Addr)
+	if err != nil {
+		serverCancel = nil
+		handlerPtr.Store(nil)
+		serverAddr = ""
+		serverMu.Unlock()
+		log.Errorln("API server failed to bind %s: %v", cfg.Addr, err)
+		return
+	}
+	serverListener = ln
+	serverAddr = cfg.Addr
+
 	server := &http.Server{
-		Addr:              cfg.Addr,
-		Handler:           router(cfg.Secret, cfg.AllowedOrigins, cfg.RateLimitPerSec, pprofOnMain),
+		Handler:           atomicHandler{},
 		ReadHeaderTimeout: rht,
 		ReadTimeout:       rt,
 		WriteTimeout:      wt,
@@ -208,9 +286,9 @@ func ReCreateServer(cfg *Config) {
 		var err error
 		if cfg.TLSCert != "" && cfg.TLSKey != "" {
 			log.Infoln("TLS enabled — using HTTPS")
-			err = server.ListenAndServeTLS(cfg.TLSCert, cfg.TLSKey)
+			err = server.ServeTLS(ln, cfg.TLSCert, cfg.TLSKey)
 		} else {
-			err = server.ListenAndServe()
+			err = server.Serve(ln)
 		}
 		if err != nil && err != http.ErrServerClosed {
 			log.Errorln("RESTful API error: %v", err)
@@ -254,6 +332,12 @@ const serverShutdownTimeout = 10 * time.Second
 func CloseServer() error {
 	serverMu.Lock()
 	defer serverMu.Unlock()
+	// Cancel the server's lifecycle context to stop background goroutines
+	// (e.g. rate-limiter eviction loop).
+	if serverCancel != nil {
+		serverCancel()
+		serverCancel = nil
+	}
 	if httpServer == nil {
 		// Still close pprof server if it exists
 		pprofMu.Lock()
@@ -273,6 +357,12 @@ func CloseServer() error {
 	defer cancel()
 	err := httpServer.Shutdown(ctx)
 	httpServer = nil
+	if serverListener != nil {
+		_ = serverListener.Close()
+		serverListener = nil
+	}
+	serverAddr = ""
+	handlerPtr.Store(nil)
 
 	// Also close the pprof server if running.
 	pprofMu.Lock()
@@ -285,7 +375,7 @@ func CloseServer() error {
 	return err
 }
 
-func router(secret string, allowedOrigins []string, rateLimitPerSec int, pprofEnabled bool) *chi.Mux {
+func router(ctx context.Context, secret string, allowedOrigins []string, rateLimitPerSec int, pprofEnabled bool) *chi.Mux {
 	// Populate the package-level origin allowlist so that WebSocket Accept
 	// calls (which do their own Origin check, independent of CORS) honor the
 	// same allowed-origins config. Without this, cross-origin WS upgrades
@@ -307,7 +397,7 @@ func router(secret string, allowedOrigins []string, rateLimitPerSec int, pprofEn
 	// successful requests are both tracked.
 	r.Use(httpMetricsMiddleware)
 	if rateLimitPerSec > 0 {
-		r.Use(rateLimitMiddleware(rateLimitPerSec))
+		r.Use(rateLimitMiddleware(ctx, rateLimitPerSec))
 	}
 
 	r.Get("/", hello)
@@ -422,7 +512,7 @@ func corsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
 // To keep the buckets map from growing unbounded under a spoofed-IP flood,
 // a background goroutine periodically evicts buckets that have not been
 // accessed within rateLimitBucketTTL.
-func rateLimitMiddleware(perSec int) func(http.Handler) http.Handler {
+func rateLimitMiddleware(ctx context.Context, perSec int) func(http.Handler) http.Handler {
 	type bucket struct {
 		mu         sync.Mutex
 		tokens     int
@@ -435,21 +525,29 @@ func rateLimitMiddleware(perSec int) func(http.Handler) http.Handler {
 	)
 
 	// Evict stale buckets periodically so the map cannot grow unbounded.
+	// The goroutine exits when ctx is cancelled (server shutdown/reload),
+	// preventing the goroutine leak that occurred when ReCreateServer
+	// rebuilt the router without stopping the previous eviction loop.
 	go func() {
 		ticker := time.NewTicker(rateLimitEvictInterval)
 		defer ticker.Stop()
-		for now := range ticker.C {
-			cutoff := now.Add(-rateLimitBucketTTL)
-			bucketsMu.Lock()
-			for ip, b := range buckets {
-				b.mu.Lock()
-				stale := b.lastAccess.Before(cutoff)
-				b.mu.Unlock()
-				if stale {
-					delete(buckets, ip)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-ticker.C:
+				cutoff := now.Add(-rateLimitBucketTTL)
+				bucketsMu.Lock()
+				for ip, b := range buckets {
+					b.mu.Lock()
+					stale := b.lastAccess.Before(cutoff)
+					b.mu.Unlock()
+					if stale {
+						delete(buckets, ip)
+					}
 				}
+				bucketsMu.Unlock()
 			}
-			bucketsMu.Unlock()
 		}
 	}()
 
@@ -528,10 +626,20 @@ func authentication(secret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token := r.Header.Get("Authorization")
-			if token == "" {
-				token = r.URL.Query().Get("token")
-			} else if len(token) > 7 && token[:7] == "Bearer " {
-				token = token[7:]
+			if token != "" {
+				if len(token) > 7 && token[:7] == "Bearer " {
+					token = token[7:]
+				}
+			} else {
+				// Only allow query-parameter token for WebSocket upgrade
+				// requests, where the browser WebSocket API does not
+				// support custom Authorization headers. For regular HTTP
+				// requests, require the Authorization header to avoid
+				// token leakage via browser history, reverse-proxy access
+				// logs, and HTTP Referer headers.
+				if isWebSocketUpgrade(r) {
+					token = r.URL.Query().Get("token")
+				}
 			}
 
 			// Hash both values to fixed 32-byte length before comparison,
@@ -547,6 +655,14 @@ func authentication(secret string) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// isWebSocketUpgrade reports whether the request is a WebSocket upgrade
+// handshake. The browser WebSocket API cannot set custom Authorization
+// headers, so these requests are permitted to carry the token via a
+// query parameter as a narrowly-scoped exception.
+func isWebSocketUpgrade(r *http.Request) bool {
+	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
 }
 
 func hello(w http.ResponseWriter, r *http.Request) {

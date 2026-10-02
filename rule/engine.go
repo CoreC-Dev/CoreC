@@ -4,6 +4,7 @@ package rule
 import (
 	"fmt"
 	"log/slog"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -12,15 +13,33 @@ import (
 )
 
 // Engine is the rule matching engine.
-// It evaluates DataPoints against a priority-sorted list of rules
-// using a linear scan, so that every evaluated rule records its
-// hit/miss statistics and the priority order is preserved (see
-// the Match doc comment for the full rationale).
+// It evaluates DataPoints against a priority-sorted list of rules.
+// Rules with a detectable driver filter are indexed by driver name so
+// that a data point from driver X only evaluates rules scoped to X
+// (plus universal rules that can match any driver). Rules scoped to
+// other drivers have their miss statistics updated without evaluating
+// their match expressions. This preserves the priority-order and
+// statistics invariants documented in the Match method while reducing
+// the per-data-point cost from O(all rules) to O(relevant rules).
 type Engine struct {
-	mu         sync.RWMutex
-	rules      []core.Rule
-	providers  map[string]core.RuleProvider
-	subEngines map[string]*Engine // sub-rule groups
+	mu             sync.RWMutex
+	rules          []core.Rule
+	driverIndex    map[string][]core.Rule // driver → rules scoped to that driver (priority-sorted)
+	universalRules []core.Rule            // rules without a driver filter (priority-sorted)
+	providers      map[string]core.RuleProvider
+	subEngines     map[string]*Engine // sub-rule groups
+}
+
+// driverFilterer is an optional interface that rules implement to
+// declare they only match data points from a specific driver.
+type driverFilterer interface {
+	DriverFilter() string // driver name, or "" if no filter
+}
+
+// missRecorder is an optional interface that rule wrappers implement to
+// record a miss without evaluating the match expression.
+type missRecorder interface {
+	RecordMiss()
 }
 
 // Compile-time assertion that the concrete rule.Engine satisfies the
@@ -162,8 +181,30 @@ func (e *Engine) SetRules(configs []core.RuleConfig) error {
 		wrapped[i] = newRuleWrapper(r)
 	}
 
+	// Build driver index: rules with a detectable driver filter go into
+	// per-driver buckets; all others (ALL rules, complex expressions,
+	// rule-set/sub-rule refs) go into universalRules. Both lists inherit
+	// the priority sort from the rules slice.
+	driverIndex := make(map[string][]core.Rule)
+	var universalRules []core.Rule
+	for _, w := range wrapped {
+		df := ""
+		if f, ok := w.(core.RuleWrapper); ok {
+			if inner, ok2 := f.Unwrap().(driverFilterer); ok2 {
+				df = inner.DriverFilter()
+			}
+		}
+		if df != "" {
+			driverIndex[df] = append(driverIndex[df], w)
+		} else {
+			universalRules = append(universalRules, w)
+		}
+	}
+
 	e.mu.Lock()
 	e.rules = wrapped
+	e.driverIndex = driverIndex
+	e.universalRules = universalRules
 	e.mu.Unlock()
 
 	slog.Info("rules updated", "count", len(rules))
@@ -254,28 +295,104 @@ type MatchResult = core.RuleMatchResult
 // Rules are evaluated in priority order (lower priority = higher precedence).
 // Returns nil if no rule matches.
 //
-// Match intentionally uses a linear scan over e.rules rather than
-// tag/driver indexes. Using indexes would break two invariants that
-// existing tests rely on:
-//
-//  1. Priority order — candidates gathered from separate index buckets
-//     are each sorted by priority but are NOT globally sorted across
-//     buckets, so the first bucket hit could be a lower-priority rule
-//     than one in another bucket (see TestEngineMatch).
-//  2. Statistics — ruleWrapper.Match updates hit/miss counters on every
-//     evaluation. Indexed lookup skips rules whose indexed tag/driver
-//     differs from the point, so those rules would never record their
-//     misses even though they sit before the first match in priority
-//     order (see TestRuleStats / TestWrapperStats). Because matchInRules
-//     returns on the first match, only rules up to and including that
-//     match are evaluated — exactly the set the linear scan covers.
-//
-// Correctness is preserved over performance.
+// Match uses a driver index to reduce the per-data-point scan cost.
+// Rules with a detectable driver == 'X' filter are only evaluated for
+// data points from driver X; for data points from other drivers, their
+// miss statistics are updated directly without evaluating the match
+// expression. Universal rules (ALL, complex expressions, rule-set/sub-rule
+// refs) are always evaluated. Both groups are priority-sorted, and the
+// two sorted lists are merged on the fly to preserve global priority
+// order — the first match across both groups is returned, exactly as a
+// full linear scan would produce. Miss statistics for rules scoped to
+// other drivers are recorded via RecordMiss, preserving the invariant
+// that every non-matching, non-disabled rule records a miss.
 func (e *Engine) Match(point core.DataPoint) *MatchResult {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
-	return e.matchInRules(point, e.rules)
+	// Fast path: no driver index (e.g. sub-engines without SetRules
+	// rebuilding, or all rules are universal) → fall back to linear scan.
+	driverRules := e.driverIndex[point.Driver]
+	if len(e.driverIndex) == 0 {
+		return e.matchInRules(point, e.rules)
+	}
+
+	// Merge universalRules and driverRules (both priority-sorted) on the
+	// fly, evaluating in global priority order. Record misses for rules
+	// scoped to other drivers.
+	result := e.matchMerged(point, e.universalRules, driverRules)
+
+	// Record misses for rules scoped to other drivers. In the original
+	// linear scan, rules after the first match are NOT evaluated, so we
+	// only record misses for rules with strictly lower priority than the
+	// match. If no match, all rules would have been evaluated.
+	var matchPriority int
+	matched := result != nil
+	if matched {
+		matchPriority = result.Rule.Priority()
+	}
+	for driver, rules := range e.driverIndex {
+		if driver == point.Driver {
+			continue
+		}
+		for _, r := range rules {
+			if matched && r.Priority() >= matchPriority {
+				continue // would not have been reached in the linear scan
+			}
+			if mr, ok := r.(missRecorder); ok {
+				mr.RecordMiss()
+			}
+		}
+	}
+
+	return result
+}
+
+// matchMerged evaluates two priority-sorted rule lists in global priority
+// order and returns the first match. It uses a two-pointer merge so the
+// evaluation order is identical to a single sorted list.
+func (e *Engine) matchMerged(point core.DataPoint, listA, listB []core.Rule) *MatchResult {
+	i, j := 0, 0
+	for i < len(listA) && j < len(listB) {
+		var r core.Rule
+		if listA[i].Priority() <= listB[j].Priority() {
+			r = listA[i]
+			i++
+		} else {
+			r = listB[j]
+			j++
+		}
+		if result := e.tryMatch(point, r); result != nil {
+			return result
+		}
+	}
+	for ; i < len(listA); i++ {
+		if result := e.tryMatch(point, listA[i]); result != nil {
+			return result
+		}
+	}
+	for ; j < len(listB); j++ {
+		if result := e.tryMatch(point, listB[j]); result != nil {
+			return result
+		}
+	}
+	return nil
+}
+
+// tryMatch evaluates a single rule and returns a MatchResult if it matches.
+func (e *Engine) tryMatch(point core.DataPoint, r core.Rule) *MatchResult {
+	if r.Match(point) {
+		targets := r.Targets()
+		if len(targets) == 0 && r.Target() != "" {
+			targets = []string{r.Target()}
+		}
+		return &MatchResult{
+			Rule:      r,
+			Targets:   targets,
+			Transform: r.Transform(),
+		}
+	}
+	return nil
 }
 
 // matchInRules returns the first matching rule from the given slice.
@@ -328,15 +445,23 @@ func newRule(cfg core.RuleConfig, providers map[string]core.RuleProvider, subEng
 
 // simpleRule is a basic rule implementation using expression matching.
 type simpleRule struct {
-	name      string
-	matchExpr string
-	action    core.Action
-	target    string
-	targets   []string
-	priority  int
-	expr      exprNode
-	transform *core.TransformConfig
+	name         string
+	matchExpr    string
+	action       core.Action
+	target       string
+	targets      []string
+	priority     int
+	expr         exprNode
+	transform    *core.TransformConfig
+	driverFilter string // extracted driver name if match is driver-scoped; "" otherwise
 }
+
+// driverFilterRe detects a top-level driver equality constraint at the
+// start of a match expression, e.g. "driver == 'plc'" or
+// "driver == 'plc' && tag =~ 'temp.*'". Rules with such a constraint
+// can only match data points from that driver, so the engine can skip
+// them for data points from other drivers.
+var driverFilterRe = regexp.MustCompile(`(?i)^\s*driver\s*==\s*['"]([^'"]+)['"]\s*(?:&&|$)`)
 
 func newSimpleRule(cfg core.RuleConfig) (*simpleRule, error) {
 	action, err := parseAction(cfg.Action)
@@ -350,13 +475,14 @@ func newSimpleRule(cfg core.RuleConfig) (*simpleRule, error) {
 	}
 
 	r := &simpleRule{
-		name:      cfg.Name,
-		matchExpr: cfg.Match,
-		action:    action,
-		target:    cfg.Target,
-		targets:   targets,
-		priority:  cfg.Priority,
-		transform: cfg.Transform,
+		name:         cfg.Name,
+		matchExpr:    cfg.Match,
+		action:       action,
+		target:       cfg.Target,
+		targets:      targets,
+		priority:     cfg.Priority,
+		transform:    cfg.Transform,
+		driverFilter: extractDriverFilter(cfg.Match),
 	}
 
 	// Compile expression (ALL is handled separately at eval time)
@@ -370,6 +496,28 @@ func newSimpleRule(cfg core.RuleConfig) (*simpleRule, error) {
 
 	return r, nil
 }
+
+// extractDriverFilter returns the driver name if the match expression
+// has a top-level driver == 'name' constraint, or "" otherwise. This
+// is a conservative heuristic: only expressions where driver equality
+// appears at the start (optionally followed by &&) are recognized.
+// Complex expressions like "tag =~ 'x' && driver == 'y'" return "",
+// meaning the rule is treated as universal and evaluated for all drivers.
+func extractDriverFilter(matchExpr string) string {
+	if strings.EqualFold(matchExpr, "ALL") {
+		return ""
+	}
+	m := driverFilterRe.FindStringSubmatch(matchExpr)
+	if len(m) > 1 {
+		return m[1]
+	}
+	return ""
+}
+
+// DriverFilter returns the driver name this rule is scoped to, or "" if
+// the rule can match data points from any driver. Used by the engine to
+// build a driver index for faster matching.
+func (r *simpleRule) DriverFilter() string { return r.driverFilter }
 
 func (r *simpleRule) Match(point core.DataPoint) bool {
 	expr := r.matchExpr

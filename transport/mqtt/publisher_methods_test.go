@@ -32,6 +32,10 @@ func newInitdTransport(t *testing.T, name string, settings map[string]any) *MQTT
 	if err := mtr.Init(context.Background(), cfg); err != nil {
 		t.Fatalf("Init(%q) failed: %v", name, err)
 	}
+	// Ensure the transport (and its replay-cache eviction goroutine) is
+	// stopped when the test ends, preventing goroutine leaks detected
+	// by goleak.
+	t.Cleanup(func() { _ = mtr.Stop() })
 	return mtr
 }
 

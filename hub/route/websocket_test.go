@@ -181,7 +181,7 @@ func TestRateLimitMiddleware(t *testing.T) {
 
 	// Create a server with rate limiting at 5 req/s.
 	SetEngine(eng)
-	ts := httptest.NewServer(router("", nil, 5, true))
+	ts := httptest.NewServer(router(context.Background(), "", nil, 5, true))
 	defer ts.Close()
 
 	// Fire 10 rapid requests — some should be rate limited (429).
@@ -208,7 +208,7 @@ func TestRateLimitMiddleware(t *testing.T) {
 func TestCORSMiddleware(t *testing.T) {
 	eng := &mockEngineV2{}
 	SetEngine(eng)
-	ts := httptest.NewServer(router("", nil, 0, true))
+	ts := httptest.NewServer(router(context.Background(), "", nil, 0, true))
 	defer ts.Close()
 
 	// Test permissive CORS (no allowed origins configured).
@@ -228,7 +228,7 @@ func TestCORSMiddlewareRestricted(t *testing.T) {
 	eng := &mockEngineV2{}
 	SetEngine(eng)
 	allowedOrigins := []string{"http://localhost:3000", "https://dashboard.example.com"}
-	ts := httptest.NewServer(router("", allowedOrigins, 0, true))
+	ts := httptest.NewServer(router(context.Background(), "", allowedOrigins, 0, true))
 	defer ts.Close()
 
 	// Request with allowed origin.
@@ -332,14 +332,31 @@ func TestAuthQueryToken(t *testing.T) {
 	ts := newTestServer("my-secret", eng)
 	defer ts.Close()
 
-	// Auth via query parameter.
+	// Query-parameter token is only allowed for WebSocket upgrade requests.
+	// A regular HTTP GET with ?token= must be rejected (401).
 	resp, err := http.Get(ts.URL + "/drivers?token=my-secret")
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("expected 200 with query token, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401 for non-WebSocket query token, got %d", resp.StatusCode)
+	}
+
+	// WebSocket upgrade requests may use ?token=.
+	req, err := http.NewRequest("GET", ts.URL+"/drivers?token=my-secret", nil)
+	if err != nil {
+		t.Fatalf("NewRequest failed: %v", err)
+	}
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Connection", "Upgrade")
+	resp2, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 with WebSocket upgrade query token, got %d", resp2.StatusCode)
 	}
 }
 

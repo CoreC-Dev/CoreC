@@ -287,39 +287,7 @@ func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error { //
 		if started {
 			return
 		}
-		slog.Error("engine start failed, rolling back partially started components")
-		if e.cancel != nil {
-			e.cancel()
-		}
-		if e.scheduler != nil {
-			if err := e.scheduler.Stop(); err != nil {
-				slog.Error("rollback: failed to stop scheduler", "error", err)
-			}
-		}
-		e.mu.Lock()
-		for name, d := range e.drivers {
-			if err := d.Stop(); err != nil {
-				slog.Error("rollback: failed to stop driver", "name", name, "error", err)
-			}
-		}
-		for _, b := range e.batchers {
-			b.stop()
-		}
-		for name, t := range e.transports {
-			if err := t.Stop(); err != nil {
-				slog.Error("rollback: failed to stop transport", "name", name, "error", err)
-			}
-		}
-		e.drivers = make(map[string]core.Driver)
-		e.transports = make(map[string]core.Transport)
-		e.batchers = make(map[string]*transportBatcher)
-		e.mu.Unlock()
-		if e.dataBus != nil {
-			e.dataBus.Close()
-		}
-		e.mu.Lock()
-		e.status = core.EngineStatusStopped
-		e.mu.Unlock()
+		e.rollbackStart()
 	}()
 
 	// Create data bus and scheduler under the lock so concurrent
@@ -431,6 +399,91 @@ func (e *CoreCEngine) Stop() error {
 		}
 	}
 
+	// Stop all remaining components (drivers, batchers, transports,
+	// data bus, rule providers, tag-file watchers).
+	e.stopComponents()
+
+	e.wg.Wait()
+	e.mu.Lock()
+	e.status = core.EngineStatusStopped
+	e.mu.Unlock()
+	slog.Info("CoreC engine stopped")
+	return nil
+}
+
+func (e *CoreCEngine) Suspend() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.status = core.EngineStatusSuspended
+	if e.scheduler != nil {
+		if err := e.scheduler.Pause(); err != nil {
+			return err
+		}
+	}
+	slog.Info("CoreC engine suspended")
+	return nil
+}
+
+func (e *CoreCEngine) Resume() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.status = core.EngineStatusRunning
+	if e.scheduler != nil {
+		if err := e.scheduler.Resume(); err != nil {
+			return err
+		}
+	}
+	slog.Info("CoreC engine resumed")
+	return nil
+}
+
+// rollbackStart cleans up any partially-started components when Start
+// fails mid-way. This prevents leaking goroutines and leaving the engine
+// in a half-started state (M14). Extracted from Start's defer to keep
+// Start focused on orchestration.
+func (e *CoreCEngine) rollbackStart() {
+	slog.Error("engine start failed, rolling back partially started components")
+	if e.cancel != nil {
+		e.cancel()
+	}
+	if e.scheduler != nil {
+		if err := e.scheduler.Stop(); err != nil {
+			slog.Error("rollback: failed to stop scheduler", "error", err)
+		}
+	}
+	e.mu.Lock()
+	for name, d := range e.drivers {
+		if err := d.Stop(); err != nil {
+			slog.Error("rollback: failed to stop driver", "name", name, "error", err)
+		}
+	}
+	for _, b := range e.batchers {
+		b.stop()
+	}
+	for name, t := range e.transports {
+		if err := t.Stop(); err != nil {
+			slog.Error("rollback: failed to stop transport", "name", name, "error", err)
+		}
+	}
+	e.drivers = make(map[string]core.Driver)
+	e.transports = make(map[string]core.Transport)
+	e.batchers = make(map[string]*transportBatcher)
+	e.mu.Unlock()
+	if e.dataBus != nil {
+		e.dataBus.Close()
+	}
+	e.mu.Lock()
+	e.status = core.EngineStatusStopped
+	e.mu.Unlock()
+}
+
+// stopComponents stops all runtime components (drivers, batchers,
+// transports, data bus, rule providers, tag-file watchers) with
+// per-component timeouts. Extracted from Stop to keep Stop focused
+// on orchestration order. The caller is responsible for cancelling
+// the engine context and stopping the scheduler/discovery before
+// calling this, and for waiting on e.wg after.
+func (e *CoreCEngine) stopComponents() {
 	// Snapshot drivers, batchers, and transports under RLock, then release
 	// the lock before calling Stop() on each. This prevents blocking I/O
 	// from holding the lock and stalling all management API calls (M13).
@@ -455,7 +508,6 @@ func (e *CoreCEngine) Stop() error {
 	}
 	e.mu.RUnlock()
 
-	// Use a shutdown timeout so Stop() can't hang forever (M22).
 	stopTimeout := e.shutdownTimeout
 
 	// Stop all drivers with timeout
@@ -498,48 +550,12 @@ func (e *CoreCEngine) Stop() error {
 	}
 
 	// Close rule providers to stop their reload-loop goroutines.
-	// Without this, Reload()→Start() leaks the old providers' goroutines
-	// because Start() creates new providers without closing the old ones
-	// (problem 4).
 	if e.ruleEngine != nil {
 		e.ruleEngine.CloseProviders()
 	}
 
 	// Stop all tag-file watchers to prevent goroutine leaks on reload.
 	e.stopAllTagFileWatchers()
-
-	e.wg.Wait()
-	e.mu.Lock()
-	e.status = core.EngineStatusStopped
-	e.mu.Unlock()
-	slog.Info("CoreC engine stopped")
-	return nil
-}
-
-func (e *CoreCEngine) Suspend() error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.status = core.EngineStatusSuspended
-	if e.scheduler != nil {
-		if err := e.scheduler.Pause(); err != nil {
-			return err
-		}
-	}
-	slog.Info("CoreC engine suspended")
-	return nil
-}
-
-func (e *CoreCEngine) Resume() error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.status = core.EngineStatusRunning
-	if e.scheduler != nil {
-		if err := e.scheduler.Resume(); err != nil {
-			return err
-		}
-	}
-	slog.Info("CoreC engine resumed")
-	return nil
 }
 
 func (e *CoreCEngine) Status() core.EngineStatus {

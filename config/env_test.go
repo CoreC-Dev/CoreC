@@ -53,7 +53,10 @@ transports:
 rules:
   - { name: r1, match: ALL, action: forward, target: mqtt1 }
 `)
-	expanded := expandEnvVars(data)
+	expanded, err := expandEnvVars(data)
+	if err != nil {
+		t.Fatalf("expandEnvVars failed: %v", err)
+	}
 	cfg, err := Parse(expanded)
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
@@ -123,7 +126,10 @@ transports:
 rules:
   - { name: r1, match: ALL, action: forward, target: mqtt1 }
 `)
-	expanded := expandEnvVars(data)
+	expanded, err := expandEnvVars(data)
+	if err != nil {
+		t.Fatalf("expandEnvVars failed: %v", err)
+	}
 
 	// The placeholder should remain as-is in the raw data.
 	if !strings.Contains(string(expanded), "${COREC_DEFINITELY_UNSET_VAR}") {
@@ -218,7 +224,10 @@ transports:
 rules:
   - { name: r1, match: ALL, action: forward, target: mqtt1 }
 `)
-	expanded := expandEnvVars(data)
+	expanded, err := expandEnvVars(data)
+	if err != nil {
+		t.Fatalf("expandEnvVars failed: %v", err)
+	}
 	// Should return the original data unchanged (fast path).
 	if !bytes.Equal(expanded, data) {
 		t.Errorf("expected data unchanged when no placeholders present")
@@ -230,7 +239,10 @@ func TestExpandEnvVars_VarNameValidation(t *testing.T) {
 	t.Setenv("_UNDERSCORE_START", "underscore_val")
 
 	data := []byte("v1: ${COREC_TEST_VAR_123}\nv2: ${_UNDERSCORE_START}")
-	expanded := expandEnvVars(data)
+	expanded, err := expandEnvVars(data)
+	if err != nil {
+		t.Fatalf("expandEnvVars failed: %v", err)
+	}
 
 	if !strings.Contains(string(expanded), "value123") {
 		t.Errorf("expected 'value123' in expanded data, got: %s", expanded)
@@ -282,15 +294,20 @@ rules:
 }
 
 func TestExpandEnvVars_EmptyValue(t *testing.T) {
-	// An explicitly-set empty env var should be replaced with empty string.
+	// An explicitly-set empty env var should be replaced with an empty
+	// string, not left as the placeholder.
 	t.Setenv("COREC_TEST_EMPTY", "")
 
 	data := []byte("v: ${COREC_TEST_EMPTY}")
-	expanded := expandEnvVars(data)
+	expanded, err := expandEnvVars(data)
+	if err != nil {
+		t.Fatalf("expandEnvVars failed: %v", err)
+	}
 
-	// The result should be "v: " (empty value after colon-space).
-	if string(expanded) != "v: " {
-		t.Errorf("expected 'v: ', got %q", string(expanded))
+	// The placeholder must be replaced — the expanded data should not
+	// contain the literal ${COREC_TEST_EMPTY} anymore.
+	if strings.Contains(string(expanded), "${COREC_TEST_EMPTY}") {
+		t.Errorf("placeholder should have been replaced, got: %s", expanded)
 	}
 }
 
@@ -434,5 +451,92 @@ rules:
 	// Smoke-test the core types are correct.
 	if cfg.Drivers[0].Tags[0].Type != "float32" {
 		t.Errorf("expected float32, got %v", cfg.Drivers[0].Tags[0].Type)
+	}
+}
+
+// TestExpandEnvVars_InjectionPrevention verifies that env var values
+// containing YAML-structural characters (newlines, colons-space) cannot
+// inject arbitrary YAML configuration. This is the P0 security fix:
+// the previous byte-level replacement was vulnerable to YAML injection
+// via env var values like "safe\nmalicious: injected".
+func TestExpandEnvVars_InjectionPrevention(t *testing.T) {
+	// An env var value containing a newline and colon-space — the exact
+	// payload that would inject a new YAML key under byte-level replacement.
+	t.Setenv("COREC_TEST_INJECT", "safe-value\nmalicious: injected")
+
+	data := []byte(`
+global:
+  log-level: info
+  api:
+    listen: "0.0.0.0:9090"
+    secret: "legitimate-secret-123"
+drivers:
+  - name: plc
+    type: modbus-tcp
+    settings:
+      host: ${COREC_TEST_INJECT}
+      port: 502
+    tags:
+      - { name: temp, address: "40001", type: float32 }
+transports:
+  - name: mqtt1
+    type: mqtt
+rules:
+  - { name: r1, match: ALL, action: forward, target: mqtt1 }
+`)
+	cfg, err := Parse(data)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	// The legitimate API secret must not be overridden by the injected value.
+	if cfg.Global.API.Secret != "legitimate-secret-123" {
+		t.Errorf("env var injection overrode api.secret: got %q", cfg.Global.API.Secret)
+	}
+
+	// The host setting should contain the full env var value as a single
+	// string, not inject "malicious: injected" as a new YAML key.
+	host := cfg.Drivers[0].Settings["host"]
+	if host != "safe-value\nmalicious: injected" {
+		t.Errorf("expected full env var value as string, got %v", host)
+	}
+
+	// The injected "malicious" key must not appear in settings.
+	if _, ok := cfg.Drivers[0].Settings["malicious"]; ok {
+		t.Errorf("env var injection added a 'malicious' key to settings")
+	}
+}
+
+// TestExpandEnvVars_ColonInValue verifies that env var values containing
+// colons (e.g. connection strings) are handled safely without breaking
+// YAML parsing.
+func TestExpandEnvVars_ColonInValue(t *testing.T) {
+	t.Setenv("COREC_TEST_CONN", "user:pass@host:3306")
+
+	data := []byte(`
+global:
+  log-level: info
+drivers:
+  - name: plc
+    type: modbus-tcp
+    settings:
+      host: 192.168.1.100
+      port: 502
+      connection: ${COREC_TEST_CONN}
+    tags:
+      - { name: temp, address: "40001", type: float32 }
+transports:
+  - name: mqtt1
+    type: mqtt
+rules:
+  - { name: r1, match: ALL, action: forward, target: mqtt1 }
+`)
+	cfg, err := Parse(data)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	conn := cfg.Drivers[0].Settings["connection"]
+	if conn != "user:pass@host:3306" {
+		t.Errorf("expected 'user:pass@host:3306', got %v", conn)
 	}
 }

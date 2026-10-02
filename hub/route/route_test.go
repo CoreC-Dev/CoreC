@@ -88,7 +88,7 @@ func TestRoutes(t *testing.T) { //nolint:gocyclo // comprehensive routing table 
 	defer func() { GetConfigFunc = nil }()
 
 	secret := "secret-123"
-	handler := router(secret, nil, 0, true)
+	handler := router(context.Background(), secret, nil, 0, true)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -192,7 +192,7 @@ func TestCORS(t *testing.T) {
 	SetEngine(me)
 
 	// Only explicitly allowed origins should receive CORS headers (M3 fix).
-	handler := router("", []string{"http://localhost:3000"}, 0, true)
+	handler := router(context.Background(), "", []string{"http://localhost:3000"}, 0, true)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -228,7 +228,7 @@ func TestGetStats(t *testing.T) {
 	me := &mockEngine{}
 	SetEngine(me)
 
-	handler := router("", nil, 0, true)
+	handler := router(context.Background(), "", nil, 0, true)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -258,7 +258,7 @@ func TestGetRulesWithStats(t *testing.T) {
 	}
 	SetEngine(me)
 
-	handler := router("", nil, 0, true)
+	handler := router(context.Background(), "", nil, 0, true)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -291,7 +291,7 @@ func TestDisableRule(t *testing.T) {
 	me := &mockEngine{}
 	SetEngine(me)
 
-	handler := router("", nil, 0, true)
+	handler := router(context.Background(), "", nil, 0, true)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -317,37 +317,60 @@ func TestAuthWithQueryToken(t *testing.T) {
 	SetEngine(me)
 
 	secret := "my-secret"
-	handler := router(secret, nil, 0, true)
+	handler := router(context.Background(), secret, nil, 0, true)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
-	// Using ?token= query parameter (for WebSocket clients)
+	// Query-parameter token is only allowed for WebSocket upgrade requests.
+	// A regular HTTP GET with ?token= must be rejected (401) to prevent
+	// token leakage via browser history, access logs, and Referer headers.
 	resp, err := ts.Client().Get(ts.URL + "/drivers?token=" + secret)
 	if err != nil {
 		t.Fatalf("GET /drivers?token= failed: %v", err)
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("expected 200 with query token, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401 for non-WebSocket query token, got %d", resp.StatusCode)
 	}
 
-	// Wrong token
-	resp2, err := ts.Client().Get(ts.URL + "/drivers?token=wrong")
+	// WebSocket upgrade requests may use ?token= (browser WS API cannot
+	// set custom Authorization headers).
+	req, err := http.NewRequest("GET", ts.URL+"/drivers?token="+secret, nil)
 	if err != nil {
-		t.Fatalf("GET /drivers?token=wrong failed: %v", err)
+		t.Fatalf("NewRequest failed: %v", err)
+	}
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Connection", "Upgrade")
+	resp2, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatalf("WebSocket upgrade request failed: %v", err)
 	}
 	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 with WebSocket upgrade query token, got %d", resp2.StatusCode)
+	}
 
-	if resp2.StatusCode != http.StatusUnauthorized {
-		t.Errorf("expected 401 with wrong token, got %d", resp2.StatusCode)
+	// Wrong token on WebSocket upgrade
+	req2, err := http.NewRequest("GET", ts.URL+"/drivers?token=wrong", nil)
+	if err != nil {
+		t.Fatalf("NewRequest failed: %v", err)
+	}
+	req2.Header.Set("Upgrade", "websocket")
+	req2.Header.Set("Connection", "Upgrade")
+	resp3, err := ts.Client().Do(req2)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp3.Body.Close()
+	if resp3.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401 with wrong token, got %d", resp3.StatusCode)
 	}
 }
 
 // TestPprofDisabled verifies that when pprofEnabled is false, the pprof
 // endpoints are not registered on the main router.
 func TestPprofDisabled(t *testing.T) {
-	handler := router("", nil, 0, false) // pprofEnabled = false
+	handler := router(context.Background(), "", nil, 0, false) // pprofEnabled = false
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -365,7 +388,7 @@ func TestPprofDisabled(t *testing.T) {
 // TestPprofEnabled verifies that when pprofEnabled is true, the pprof
 // endpoints are registered on the main router.
 func TestPprofEnabled(t *testing.T) {
-	handler := router("", nil, 0, true) // pprofEnabled = true
+	handler := router(context.Background(), "", nil, 0, true) // pprofEnabled = true
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 

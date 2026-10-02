@@ -61,6 +61,19 @@ func (r *ruleWrapper) Match(point core.DataPoint) bool {
 	return ok
 }
 
+// RecordMiss updates the miss statistics without evaluating the match
+// expression. Used by the engine's driver-index optimization: when a
+// data point arrives from driver X, rules scoped to driver Y≠X are
+// guaranteed to miss, so the engine skips their full expression
+// evaluation and records the miss directly.
+func (r *ruleWrapper) RecordMiss() {
+	if r.IsDisabled() {
+		return
+	}
+	r.missCount.Add(1)
+	r.missAt.Store(time.Now())
+}
+
 func newRuleWrapper(r core.Rule) *ruleWrapper {
 	return &ruleWrapper{Rule: r}
 }

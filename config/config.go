@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -44,31 +45,107 @@ func LoadNoValidate(path string) (*core.Config, error) {
 // naming convention.
 var envVarRe = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
-// expandEnvVars replaces ${ENV_VAR} placeholders in raw YAML data with
-// environment variable values. Substitution happens at the byte level
-// before YAML parsing, so type inference (int, float, bool, string) is
-// handled naturally by the YAML parser — a value like ${PORT} with
-// PORT=502 becomes port: 502 (int), not port: "502" (string).
+// expandEnvVars replaces ${ENV_VAR} placeholders in YAML data with
+// environment variable values safely. Unlike naive byte-level replacement,
+// which is vulnerable to YAML injection when env var values contain
+// YAML-special characters (newlines, colons, braces), this function parses
+// the YAML into a generic tree first, expands placeholders in string leaf
+// values, and re-serializes — ensuring env var values are properly typed
+// and escaped by the YAML encoder.
+//
+// Type inference is preserved: a value like ${PORT} with PORT=502 is
+// converted to the integer 502 (not the string "502") so that YAML fields
+// expecting numeric types receive the correct type.
 //
 // Unset environment variables are left as-is so misconfiguration is
 // visible in validation errors (e.g. "api.secret is required").
-//
-// Values containing YAML-special characters (such as ':') should be
-// quoted in the config file, e.g.: secret: "${MY_SECRET}" — the same
-// convention as shell variable expansion.
-func expandEnvVars(data []byte) []byte {
+func expandEnvVars(data []byte) ([]byte, error) {
 	// Fast path: skip if no placeholder pattern is present.
 	if !strings.Contains(string(data), "${") {
-		return data
+		return data, nil
 	}
-	return envVarRe.ReplaceAllFunc(data, func(match []byte) []byte {
-		// Extract variable name: ${VAR} → VAR (strip ${ and }).
-		varName := string(match[2 : len(match)-1])
-		if val, ok := os.LookupEnv(varName); ok {
-			return []byte(val)
+
+	// Parse YAML into a generic tree. Placeholders are treated as plain
+	// string scalars by the YAML parser — they cannot inject YAML
+	// structure at this stage.
+	var raw any
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("failed to parse YAML for env var expansion: %w", err)
+	}
+
+	// Recursively expand env vars in all string leaf values, with type
+	// inference to preserve YAML scalar types (int, float, bool).
+	raw = expandEnvInTree(raw)
+
+	// Re-marshal the expanded tree back to YAML bytes. The YAML encoder
+	// properly quotes/escapes values containing special characters,
+	// preventing injection.
+	expanded, err := yaml.Marshal(raw)
+	if err != nil {
+		return nil, fmt.Errorf("failed to re-marshal YAML after env var expansion: %w", err)
+	}
+
+	return expanded, nil
+}
+
+// expandEnvInTree recursively walks a YAML-parsed value and expands
+// ${ENV_VAR} placeholders in string leaf values. After expansion, the
+// resulting string is passed through inferYamlScalar so that numeric
+// and boolean values retain their YAML scalar type (e.g. "502" → int64
+// 502), preserving the type-inference behaviour that byte-level
+// substitution provided.
+func expandEnvInTree(v any) any {
+	switch val := v.(type) {
+	case string:
+		if !strings.Contains(val, "${") {
+			return val
 		}
-		return match // leave as-is if env var is not set
-	})
+		expanded := envVarRe.ReplaceAllStringFunc(val, func(match string) string {
+			varName := match[2 : len(match)-1]
+			if envVal, ok := os.LookupEnv(varName); ok {
+				return envVal
+			}
+			return match // leave as-is if env var is not set
+		})
+		return inferYamlScalar(expanded)
+	case map[string]any:
+		for k, vv := range val {
+			val[k] = expandEnvInTree(vv)
+		}
+		return val
+	case []any:
+		for i, vv := range val {
+			val[i] = expandEnvInTree(vv)
+		}
+		return val
+	default:
+		return v
+	}
+}
+
+// inferYamlScalar attempts to convert a string to its YAML scalar
+// equivalent (int, float, bool, or nil) to preserve type inference
+// after env var expansion. Strings that do not match any scalar type
+// are returned unchanged.
+func inferYamlScalar(s string) any {
+	// Try integer (base 10).
+	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return n
+	}
+	// Try float.
+	if f, err := strconv.ParseFloat(s, 64); err == nil {
+		return f
+	}
+	// Try bool (YAML 1.2 core schema: true/false in any case).
+	switch s {
+	case "true", "True", "TRUE":
+		return true
+	case "false", "False", "FALSE":
+		return false
+	case "null", "Null", "NULL", "~":
+		return nil
+	}
+	return s
 }
 
 // Parse parses YAML bytes into a Config, running the full validation rules.
@@ -95,11 +172,14 @@ func Parse(data []byte) (*core.Config, error) {
 // the merge can restore the real value — see GET /configs/raw + PUT /configs
 // round-trip in hub/executor.
 func ParseNoValidate(data []byte) (*core.Config, error) {
-	// Expand ${ENV_VAR} placeholders before YAML parsing.
-	data = expandEnvVars(data)
+	// Expand ${ENV_VAR} placeholders safely (parse → expand → re-marshal).
+	expanded, err := expandEnvVars(data)
+	if err != nil {
+		return nil, err
+	}
 
 	cfg := &core.Config{}
-	if err := yaml.Unmarshal(data, cfg); err != nil {
+	if err := yaml.Unmarshal(expanded, cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 	// Load tags from external files for drivers that use tags-file.
@@ -131,10 +211,13 @@ func loadTagsFiles(cfg *core.Config) error {
 		if err != nil {
 			return fmt.Errorf("driver %s: failed to read tags file %s: %w", dc.Name, dc.TagsFile, err)
 		}
-		// Expand ${ENV_VAR} placeholders in tags file.
-		data = expandEnvVars(data)
+		// Expand ${ENV_VAR} placeholders safely in tags file.
+		expanded, err := expandEnvVars(data)
+		if err != nil {
+			return fmt.Errorf("driver %s: failed to expand env vars in tags file %s: %w", dc.Name, dc.TagsFile, err)
+		}
 		var fileTags []core.TagConfig
-		if err := yaml.Unmarshal(data, &fileTags); err != nil {
+		if err := yaml.Unmarshal(expanded, &fileTags); err != nil {
 			return fmt.Errorf("driver %s: failed to parse tags file %s: %w", dc.Name, dc.TagsFile, err)
 		}
 		// File tags first, then inline tags appended.
@@ -145,8 +228,41 @@ func loadTagsFiles(cfg *core.Config) error {
 
 // validate performs config validation, failing fast on invalid values
 // that would otherwise only surface at runtime.
-func validate(cfg *core.Config) error { //nolint:gocyclo // central config validation; complexity 48. Refactor into per-section validators tracked as tech debt.
-	// Validate offline buffer configuration if enabled.
+func validate(cfg *core.Config) error {
+	if err := validateBuffer(cfg); err != nil {
+		return err
+	}
+	if err := validateDataSources(cfg); err != nil {
+		return err
+	}
+
+	registeredDrivers := make(map[string]bool)
+	for _, t := range core.RegisteredDrivers() {
+		registeredDrivers[t] = true
+	}
+	registeredTransports := make(map[string]bool)
+	for _, t := range core.RegisteredTransports() {
+		registeredTransports[t] = true
+	}
+
+	if err := validateDrivers(cfg, registeredDrivers); err != nil {
+		return err
+	}
+	if err := validateAPI(cfg); err != nil {
+		return err
+	}
+	transportNames, err := validateTransports(cfg, registeredTransports)
+	if err != nil {
+		return err
+	}
+	if err := validateRules(cfg, transportNames); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateBuffer checks offline buffer configuration.
+func validateBuffer(cfg *core.Config) error {
 	if cfg.Global.Buffer.Enabled {
 		if cfg.Global.Buffer.Path == "" {
 			return fmt.Errorf("buffer.enabled is true but buffer.path is not set")
@@ -155,7 +271,12 @@ func validate(cfg *core.Config) error { //nolint:gocyclo // central config valid
 			return fmt.Errorf("buffer.max-size must be at least 10, got %d", cfg.Global.Buffer.MaxSize)
 		}
 	}
+	return nil
+}
 
+// validateDataSources ensures the config has at least one data source
+// (driver, inbound transport, or auto-discovery) and at least one transport.
+func validateDataSources(cfg *core.Config) error {
 	// A node needs at least one data source. That is normally a driver,
 	// but a pure relay (chained-core) node has no drivers and instead
 	// receives data via an inbound transport (MQTT data-topic or HTTP
@@ -169,18 +290,12 @@ func validate(cfg *core.Config) error { //nolint:gocyclo // central config valid
 	if len(cfg.Transports) == 0 {
 		return fmt.Errorf("at least one transport must be configured")
 	}
+	return nil
+}
 
-	// Collect registered driver/transport types for fail-fast validation (M10).
-	registeredDrivers := make(map[string]bool)
-	for _, t := range core.RegisteredDrivers() {
-		registeredDrivers[t] = true
-	}
-	registeredTransports := make(map[string]bool)
-	for _, t := range core.RegisteredTransports() {
-		registeredTransports[t] = true
-	}
-
-	// Check driver names are unique and validate fields
+// validateDrivers checks driver names are unique, types are registered,
+// and tag fields are valid.
+func validateDrivers(cfg *core.Config, registeredDrivers map[string]bool) error {
 	driverNames := make(map[string]bool)
 	for _, d := range cfg.Drivers {
 		if d.Name == "" {
@@ -236,10 +351,12 @@ func validate(cfg *core.Config) error { //nolint:gocyclo // central config valid
 			}
 		}
 	}
+	return nil
+}
 
-	// API: when the API server is enabled (listen address set), a shared
-	// secret is mandatory to authenticate management requests. This avoids
-	// accidentally exposing an unauthenticated control plane.
+// validateAPI checks that a shared secret is configured when the API
+// server is enabled, and enforces minimum secret length.
+func validateAPI(cfg *core.Config) error {
 	if cfg.Global.API.Listen != "" {
 		if cfg.Global.API.Secret == "" {
 			return fmt.Errorf("api.secret is required when api.listen is set")
@@ -250,23 +367,28 @@ func validate(cfg *core.Config) error { //nolint:gocyclo // central config valid
 			return fmt.Errorf("api.secret must be at least 8 characters, got %d", len(cfg.Global.API.Secret))
 		}
 	}
+	return nil
+}
 
-	// Check transport names are unique
+// validateTransports checks transport names are unique, types are
+// registered, and batch/retry fields are not misplaced inside settings.
+// Returns the set of valid transport names for use by validateRules.
+func validateTransports(cfg *core.Config, registeredTransports map[string]bool) (map[string]bool, error) {
 	transportNames := make(map[string]bool)
 	for _, t := range cfg.Transports {
 		if t.Name == "" {
-			return fmt.Errorf("transport name cannot be empty")
+			return nil, fmt.Errorf("transport name cannot be empty")
 		}
 		if transportNames[t.Name] {
-			return fmt.Errorf("duplicate transport name: %s", t.Name)
+			return nil, fmt.Errorf("duplicate transport name: %s", t.Name)
 		}
 		transportNames[t.Name] = true
 		if t.Type == "" {
-			return fmt.Errorf("transport %s: type cannot be empty", t.Name)
+			return nil, fmt.Errorf("transport %s: type cannot be empty", t.Name)
 		}
 		// M10: validate transport type against registry
 		if len(registeredTransports) > 0 && !registeredTransports[t.Type] {
-			return fmt.Errorf("transport %s: unknown type %q (registered: %s)", t.Name, t.Type, strings.Join(core.RegisteredTransports(), ", "))
+			return nil, fmt.Errorf("transport %s: unknown type %q (registered: %s)", t.Name, t.Type, strings.Join(core.RegisteredTransports(), ", "))
 		}
 		// Detect batch/retry fields misplaced inside the settings map.
 		// These fields (batch-size, flush-interval, retry-count, buffer-size,
@@ -278,18 +400,22 @@ func validate(cfg *core.Config) error { //nolint:gocyclo // central config valid
 		// Fail fast so the user fixes the YAML indentation.
 		for _, miskey := range []string{"batch-size", "batch_size", "flush-interval", "flush_interval", "retry-count", "retry_count", "buffer-size", "buffer_size", "fallback"} {
 			if _, exists := t.Settings[miskey]; exists {
-				return fmt.Errorf("transport %s: field %q must be a top-level transport field (sibling of `settings`), not an entry inside `settings`; move it out one indentation level", t.Name, miskey)
+				return nil, fmt.Errorf("transport %s: field %q must be a top-level transport field (sibling of `settings`), not an entry inside `settings`; move it out one indentation level", t.Name, miskey)
 			}
 		}
 	}
+	return transportNames, nil
+}
 
+// validateRules checks rule names, actions, match expressions, and
+// that rule targets reference existing transports.
+func validateRules(cfg *core.Config, transportNames map[string]bool) error {
 	// Valid rule actions for fail-fast validation (M8)
 	validActions := map[string]bool{
 		"forward": true, "drop": true, "alert": true,
 		"transform": true, "mirror": true,
 	}
 
-	// Validate rules reference existing transports and have valid actions
 	for _, r := range cfg.Rules {
 		if r.Name == "" {
 			return fmt.Errorf("rule name cannot be empty")
@@ -314,7 +440,6 @@ func validate(cfg *core.Config) error { //nolint:gocyclo // central config valid
 			}
 		}
 	}
-
 	return nil
 }
 

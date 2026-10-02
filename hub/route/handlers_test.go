@@ -77,7 +77,7 @@ func (m *mockEngineV2) OnAlert(handler func(point core.DataPoint, rule core.Rule
 
 func newTestServer(secret string, eng core.Engine) *httptest.Server {
 	SetEngine(eng)
-	return httptest.NewServer(router(secret, nil, 0, true))
+	return httptest.NewServer(router(context.Background(), secret, nil, 0, true))
 }
 
 func authedGet(t *testing.T, ts *httptest.Server, path, secret string) *http.Response {

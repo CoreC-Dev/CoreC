@@ -12,6 +12,7 @@ require (
 	github.com/robinson/gos7 v0.0.0-20260622162611-2d6806f80c8b
 	github.com/simonvetter/modbus v1.6.4
 	github.com/tidwall/gjson v1.19.0
+	go.uber.org/goleak v1.3.0
 )
 
 require (
