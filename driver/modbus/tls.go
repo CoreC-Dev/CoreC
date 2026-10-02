@@ -32,22 +32,18 @@ type ModbusTLSDriver struct {
 func NewModbusTLSDriver(config core.DriverConfig) (core.Driver, error) {
 	d := &ModbusTLSDriver{
 		modbusBase: modbusBase{
-			name:       config.Name,
-			config:     config,
-			driverType: "modbus-tls",
-			tags:       make(map[string]core.TagConfig),
-			addrs:      make(map[string]addrInfo),
-			state:      core.StateDisconnected,
+			tags: make(map[string]core.TagConfig),
+			addrs: make(map[string]addrInfo),
 		},
 	}
-	d.initFunc = d.Init
-	d.connectFunc = d.connect
+	d.SetInitFunc(d.Init)
+	d.SetConnectFunc(d.connect)
 	return d, nil
 }
 
 func (d *ModbusTLSDriver) Init(ctx context.Context, config core.DriverConfig) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	d.Lock()
+	defer d.Unlock()
 
 	settings := config.Settings
 
@@ -90,12 +86,12 @@ func (d *ModbusTLSDriver) Init(ctx context.Context, config core.DriverConfig) er
 	}
 	d.rootCAs = rootCAs
 
-	if err := d.initCommon(settings, config); err != nil {
+	if err := d.initCommon("modbus-tls", settings, config); err != nil {
 		return err
 	}
 
 	slog.Info("modbus-tls driver initialized",
-		"name", d.name,
+		"name", d.Name(),
 		"host", d.host,
 		"port", d.port,
 		"slave-id", d.slaveID,

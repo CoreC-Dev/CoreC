@@ -8,12 +8,11 @@ import (
 	"math"
 	"sort"
 	"strconv"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/CoreC-Dev/CoreC/common/util"
 	"github.com/CoreC-Dev/CoreC/core"
+	"github.com/CoreC-Dev/CoreC/driverbase"
 	mb "github.com/simonvetter/modbus"
 )
 
@@ -82,22 +81,15 @@ func areaName(a areaType) string {
 }
 
 // modbusBase contains the state and logic shared by all Modbus drivers
-// (TCP, RTU).  Transport-specific behaviour is injected via initFunc and
-// connectFunc; the driverType string selects log messages and Status/Type
-// output.
+// (TCP, RTU).  Transport-specific behaviour is injected via the BaseDriver
+// hooks (connectFunc, initFunc); the driverType string selects log messages
+// and Status/Type output.
 type modbusBase struct {
-	mu sync.RWMutex
+	driverbase.BaseDriver
 
-	name       string
-	config     core.DriverConfig
-	driverType string // "modbus-tcp" or "modbus-rtu"
-
-	// Injected dependencies. Defaults to NoopLogger/NoopMetrics so
-	// the driver works without explicit injection; the engine wires
-	// real implementations via SetLogger/SetMetrics during AddDriver.
-	// This decouples the driver from slog, enabling independent testing
-	// and community reuse with custom logging/metrics backends.
-	logger  core.Logger
+	// Injected metrics. Defaults to NoopMetrics so the driver works without
+	// explicit injection; the engine wires real implementations via
+	// SetMetrics during AddDriver.
 	metrics core.Metrics
 
 	// Connection
@@ -106,49 +98,26 @@ type modbusBase struct {
 	timeout time.Duration
 
 	// Retry settings
-	maxRetry             int
-	retryBackoff         time.Duration
-	maxReconnectBackoff  time.Duration
-	maxReconnectFailures int // circuit breaker threshold; 0 = disabled
+	maxRetry int
 
 	// Tag mapping: name → TagConfig
 	tags map[string]core.TagConfig
 	// Parsed addresses: name → addrInfo
 	addrs map[string]addrInfo
-
-	// State
-	state     core.ConnState
-	lastRead  time.Time
-	lastError string
-
-	// Counters
-	readCount      atomic.Uint64
-	errorCount     atomic.Uint64
-	reconnectCount atomic.Uint64
-
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup // tracks the reconnectLoop goroutine
-
-	// Transport-specific hooks, wired by the concrete driver constructor.
-	initFunc    func(context.Context, core.DriverConfig) error
-	connectFunc func() error
 }
 
 // initCommon parses the settings shared by every Modbus transport
 // (slave-id, timeout, retry, reconnect back-off, tag addresses) and
 // populates the corresponding base fields.  It is called from each
 // concrete driver's Init after transport-specific fields have been set.
-func (b *modbusBase) initCommon(settings map[string]any, config core.DriverConfig) error {
-	// Default to NoopLogger/NoopMetrics if not injected. The engine
-	// calls SetLogger/SetMetrics during AddDriver; tests and standalone
-	// use get the no-op defaults.
-	if b.logger == nil {
-		b.logger = core.NoopLogger{}
-	}
+func (b *modbusBase) initCommon(driverType string, settings map[string]any, config core.DriverConfig) error {
+	// Set meta (name, type, config, logger default) and parse reconnect settings.
+	b.SetMeta(config.Name, driverType, config)
 	if b.metrics == nil {
 		b.metrics = core.NoopMetrics{}
 	}
+	b.ParseReconnectSettings(settings)
+
 	b.slaveID = uint8(util.GetIntSetting(settings, "slave-id", 1))
 	b.maxRetry = util.GetIntSetting(settings, "retry", 3)
 
@@ -160,9 +129,15 @@ func (b *modbusBase) initCommon(settings map[string]any, config core.DriverConfi
 	if b.timeout == 0 {
 		b.timeout = 3 * time.Second
 	}
-	b.retryBackoff = util.GetDurationSetting(settings, "reconnect-interval", core.DefaultReconnectBackoff)
-	b.maxReconnectBackoff = util.GetDurationSetting(settings, "reconnect-max-interval", core.DefaultMaxReconnectBackoff)
-	b.maxReconnectFailures = util.GetIntSetting(settings, "max-reconnect-failures", core.DefaultMaxReconnectFailures)
+
+	// Set lifecycle hooks for BaseDriver.
+	b.SetCloseConnFunc(func() {
+		if b.client != nil {
+			b.client.Close()
+			b.client = nil
+		}
+	})
+	b.SetTagCountFunc(func() int { return len(b.tags) })
 
 	// Register tags and parse addresses
 	for _, tag := range config.Tags {
@@ -183,9 +158,7 @@ func (b *modbusBase) SetLogger(l core.Logger) {
 	if l == nil {
 		l = core.NoopLogger{}
 	}
-	b.mu.Lock()
-	b.logger = l
-	b.mu.Unlock()
+	b.BaseDriver.SetLogger(l)
 }
 
 // SetMetrics injects a metrics backend into the driver. Called by the
@@ -195,9 +168,9 @@ func (b *modbusBase) SetMetrics(m core.Metrics) {
 	if m == nil {
 		m = core.NoopMetrics{}
 	}
-	b.mu.Lock()
+	b.Lock()
 	b.metrics = m
-	b.mu.Unlock()
+	b.Unlock()
 }
 
 // openClient creates, configures and opens a Modbus client from the given
@@ -218,92 +191,28 @@ func (b *modbusBase) openClient(cfg *mb.ClientConfiguration) error {
 		return fmt.Errorf("failed to connect to %s: %w", cfg.URL, err)
 	}
 
-	b.mu.Lock()
+	b.Lock()
 	b.client = client
-	b.state = core.StateConnected
-	b.lastError = ""
-	b.mu.Unlock()
+	b.SetStateLocked(core.StateConnected)
+	b.SetLastErrorLocked("")
+	b.Unlock()
 
-	b.logger.Info("modbus connected", "driver", b.driverType, "name", b.name, "url", cfg.URL)
+	b.Logger().Info("modbus connected", "driver", b.Type(), "name", b.Name(), "url", cfg.URL)
 	return nil
 }
 
-// Start is shared by all Modbus drivers.
-func (b *modbusBase) Start(ctx context.Context) error {
-	b.ctx, b.cancel = context.WithCancel(ctx)
-
-	if err := b.connectFunc(); err != nil {
-		// Don't fail start — schedule reconnect in background
-		b.logger.Warn("modbus initial connect failed, will retry",
-			"driver", b.driverType, "name", b.name, "error", err)
-		b.mu.Lock()
-		b.state = core.StateConnecting
-		b.lastError = err.Error()
-		b.mu.Unlock()
-
-		b.startReconnectLoop()
-		return nil
-	}
-
-	b.logger.Info("modbus driver started", "driver", b.driverType, "name", b.name)
-	return nil
-}
-
-func (b *modbusBase) reconnectLoop() {
-	util.ReconnectLoopWithBreakerCounted(b.ctx, b.name, b.connectFunc, b.retryBackoff, b.maxReconnectBackoff, b.maxReconnectFailures, &b.reconnectCount)
-}
-
-// startReconnectLoop launches the reconnect goroutine tracked by the
-// WaitGroup so that Stop() can wait for any in-flight connect() to finish
-// before closing the client. This prevents orphaned connections on shutdown.
-func (b *modbusBase) startReconnectLoop() {
-	b.wg.Add(1)
-	go func() {
-		defer b.wg.Done()
-		b.reconnectLoop()
-	}()
-}
-
-func (b *modbusBase) Stop() error {
-	if b.cancel != nil {
-		b.cancel()
-	}
-	// Wait for the reconnectLoop goroutine to exit so it cannot complete a
-	// connect() after we close the client below (which would leak a connection).
-	b.wg.Wait()
-
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if b.client != nil {
-		b.client.Close()
-		b.client = nil
-	}
-	b.state = core.StateDisconnected
-
-	b.logger.Info("modbus driver stopped", "driver", b.driverType, "name", b.name)
-	return nil
-}
-
-func (b *modbusBase) Restart(ctx context.Context, config core.DriverConfig) error {
-	if err := b.Stop(); err != nil {
-		return err
-	}
-	if err := b.initFunc(ctx, config); err != nil {
-		return err
-	}
-	return b.Start(ctx)
-}
+// Start, Stop, Restart, Status, Name, Type, reconnectLoop, startReconnectLoop,
+// and HandleConnectionLost are provided by the embedded driverbase.BaseDriver.
 
 func (b *modbusBase) Read(ctx context.Context, tags []string) ([]core.TagValue, error) {
-	b.mu.RLock()
+	b.RLock()
 	client := b.client
-	state := b.state
-	b.mu.RUnlock()
+	state := b.GetState()
+	b.RUnlock()
 
 	if state != core.StateConnected || client == nil {
-		b.errorCount.Add(1)
-		return nil, fmt.Errorf("driver %s is not connected (state: %s)", b.name, state)
+		b.RecordError()
+		return nil, fmt.Errorf("driver %s is not connected (state: %s)", b.Name(), state)
 	}
 
 	now := time.Now()
@@ -318,10 +227,10 @@ func (b *modbusBase) Read(ctx context.Context, tags []string) ([]core.TagValue, 
 	reqs := make([]batchTagReq, len(tags))
 	valid := make([]bool, len(tags))
 	for i, tagName := range tags {
-		b.mu.RLock()
+		b.RLock()
 		tagCfg, tagOk := b.tags[tagName]
 		ai, addrOk := b.addrs[tagName]
-		b.mu.RUnlock()
+		b.RUnlock()
 
 		if !tagOk || !addrOk {
 			valid[i] = false
@@ -381,11 +290,11 @@ func (b *modbusBase) Read(ctx context.Context, tags []string) ([]core.TagValue, 
 				break
 			}
 			if attempt < b.maxRetry && util.IsConnectionError(err) {
-				time.Sleep(b.retryBackoff)
+				time.Sleep(b.ReconnectBackoff())
 				// Refresh client in case reconnection happened
-				b.mu.RLock()
+				b.RLock()
 				client = b.client
-				b.mu.RUnlock()
+				b.RUnlock()
 				if client == nil {
 					break
 				}
@@ -394,10 +303,10 @@ func (b *modbusBase) Read(ctx context.Context, tags []string) ([]core.TagValue, 
 			break
 		}
 		if err != nil {
-			b.errorCount.Add(1)
-			b.mu.Lock()
-			b.lastError = err.Error()
-			b.mu.Unlock()
+			b.RecordError()
+			b.Lock()
+			b.SetLastErrorLocked(err.Error())
+			b.Unlock()
 
 			results = append(results, core.TagValue{
 				Tag:       tagName,
@@ -408,7 +317,7 @@ func (b *modbusBase) Read(ctx context.Context, tags []string) ([]core.TagValue, 
 
 			// Check if connection is lost
 			if util.IsConnectionError(err) {
-				b.handleConnectionLost()
+				b.HandleConnectionLost()
 			}
 			continue
 		}
@@ -425,10 +334,10 @@ func (b *modbusBase) Read(ctx context.Context, tags []string) ([]core.TagValue, 
 		})
 	}
 
-	b.readCount.Add(uint64(len(tags)))
-	b.mu.Lock()
-	b.lastRead = now
-	b.mu.Unlock()
+	b.AddReadCount(uint64(len(tags)))
+	b.Lock()
+	b.SetLastRead(now)
+	b.Unlock()
 
 	return results, nil
 }
@@ -648,11 +557,11 @@ func (b *modbusBase) readBatchWithRetry(client *mb.ModbusClient, batch readBatch
 			break
 		}
 		if attempt < b.maxRetry && util.IsConnectionError(err) {
-			time.Sleep(b.retryBackoff)
+			time.Sleep(b.ReconnectBackoff())
 			// Refresh client in case reconnection happened.
-			b.mu.RLock()
+			b.RLock()
 			client = b.client
-			b.mu.RUnlock()
+			b.RUnlock()
 			if client == nil {
 				break
 			}
@@ -786,20 +695,20 @@ func extractRegisterValue(regs []uint16, offset int, dt core.DataType) (any, err
 }
 
 func (b *modbusBase) Write(ctx context.Context, commands []core.WriteCommand) ([]core.WriteResult, error) {
-	b.mu.RLock()
+	b.RLock()
 	client := b.client
-	state := b.state
-	b.mu.RUnlock()
+	state := b.GetState()
+	b.RUnlock()
 
 	if state != core.StateConnected || client == nil {
-		return nil, fmt.Errorf("driver %s is not connected", b.name)
+		return nil, fmt.Errorf("driver %s is not connected", b.Name())
 	}
 
 	results := make([]core.WriteResult, len(commands))
 	for i, cmd := range commands {
-		b.mu.RLock()
+		b.RLock()
 		ai, ok := b.addrs[cmd.Tag]
-		b.mu.RUnlock()
+		b.RUnlock()
 
 		if !ok {
 			results[i] = core.WriteResult{
@@ -820,12 +729,12 @@ func (b *modbusBase) Write(ctx context.Context, commands []core.WriteCommand) ([
 
 		err := b.writeTag(client, ai, cmd)
 		if err != nil {
-			b.errorCount.Add(1)
+			b.RecordError()
 			results[i] = core.WriteResult{Success: false, Error: err.Error()}
-			b.logger.Error("modbus write failed", "tag", cmd.Tag, "error", err)
+			b.Logger().Error("modbus write failed", "tag", cmd.Tag, "error", err)
 		} else {
 			results[i] = core.WriteResult{Success: true}
-			b.logger.Info("modbus write success", "tag", cmd.Tag, "value", cmd.Value)
+			b.Logger().Info("modbus write success", "tag", cmd.Tag, "value", cmd.Value)
 		}
 	}
 	return results, nil
@@ -879,24 +788,7 @@ func (b *modbusBase) Subscribe(ctx context.Context, tags []string) (<-chan core.
 	return nil, core.ErrSubscribeNotSupported
 }
 
-func (b *modbusBase) Name() string { return b.name }
-func (b *modbusBase) Type() string { return b.driverType }
-
-func (b *modbusBase) Status() core.DriverStatus {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	return core.DriverStatus{
-		Name:           b.name,
-		Type:           b.driverType,
-		State:          b.state,
-		LastRead:       b.lastRead,
-		LastError:      b.lastError,
-		TagCount:       len(b.tags),
-		ReadCount:      b.readCount.Load(),
-		ErrorCount:     b.errorCount.Load(),
-		ReconnectCount: b.reconnectCount.Load(),
-	}
-}
+// Name, Type, and Status are provided by the embedded driverbase.BaseDriver.
 
 func (b *modbusBase) Capabilities() core.DriverCapabilities {
 	return core.DriverCapabilities{
@@ -908,22 +800,7 @@ func (b *modbusBase) Capabilities() core.DriverCapabilities {
 	}
 }
 
-func (b *modbusBase) handleConnectionLost() {
-	b.mu.Lock()
-	if b.state == core.StateConnecting || b.state == core.StateError {
-		b.mu.Unlock()
-		return
-	}
-	b.state = core.StateError
-	if b.client != nil {
-		b.client.Close()
-		b.client = nil
-	}
-	b.mu.Unlock()
-
-	b.logger.Warn("modbus connection lost, starting reconnect", "driver", b.driverType, "name", b.name)
-	b.startReconnectLoop()
-}
+// HandleConnectionLost is provided by the embedded driverbase.BaseDriver.
 
 // ============================================================
 // Helper functions

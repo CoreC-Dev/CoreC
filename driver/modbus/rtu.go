@@ -27,22 +27,18 @@ type ModbusRTUDriver struct {
 func NewModbusRTUDriver(config core.DriverConfig) (core.Driver, error) {
 	d := &ModbusRTUDriver{
 		modbusBase: modbusBase{
-			name:       config.Name,
-			config:     config,
-			driverType: "modbus-rtu",
-			tags:       make(map[string]core.TagConfig),
-			addrs:      make(map[string]addrInfo),
-			state:      core.StateDisconnected,
+			tags: make(map[string]core.TagConfig),
+			addrs: make(map[string]addrInfo),
 		},
 	}
-	d.initFunc = d.Init
-	d.connectFunc = d.connect
+	d.SetInitFunc(d.Init)
+	d.SetConnectFunc(d.connect)
 	return d, nil
 }
 
 func (d *ModbusRTUDriver) Init(ctx context.Context, config core.DriverConfig) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	d.Lock()
+	defer d.Unlock()
 
 	settings := config.Settings
 
@@ -68,12 +64,12 @@ func (d *ModbusRTUDriver) Init(ctx context.Context, config core.DriverConfig) er
 	// Parse stop bits (default 0 → library auto-selects based on parity)
 	d.stopBits = uint(util.GetIntSetting(settings, "stop-bits", 0))
 
-	if err := d.initCommon(settings, config); err != nil {
+	if err := d.initCommon("modbus-rtu", settings, config); err != nil {
 		return err
 	}
 
 	slog.Info("modbus-rtu driver initialized",
-		"name", d.name,
+		"name", d.Name(),
 		"serial-device", d.serialDevice,
 		"baud-rate", d.baudRate,
 		"data-bits", d.dataBits,

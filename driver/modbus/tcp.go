@@ -21,22 +21,18 @@ type ModbusTCPDriver struct {
 func NewModbusTCPDriver(config core.DriverConfig) (core.Driver, error) {
 	d := &ModbusTCPDriver{
 		modbusBase: modbusBase{
-			name:       config.Name,
-			config:     config,
-			driverType: "modbus-tcp",
-			tags:       make(map[string]core.TagConfig),
-			addrs:      make(map[string]addrInfo),
-			state:      core.StateDisconnected,
+			tags: make(map[string]core.TagConfig),
+			addrs: make(map[string]addrInfo),
 		},
 	}
-	d.initFunc = d.Init
-	d.connectFunc = d.connect
+	d.SetInitFunc(d.Init)
+	d.SetConnectFunc(d.connect)
 	return d, nil
 }
 
 func (d *ModbusTCPDriver) Init(ctx context.Context, config core.DriverConfig) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	d.Lock()
+	defer d.Unlock()
 
 	settings := config.Settings
 
@@ -50,12 +46,12 @@ func (d *ModbusTCPDriver) Init(ctx context.Context, config core.DriverConfig) er
 	// Parse port
 	d.port = util.GetIntSetting(settings, "port", 502)
 
-	if err := d.initCommon(settings, config); err != nil {
+	if err := d.initCommon("modbus-tcp", settings, config); err != nil {
 		return err
 	}
 
 	slog.Info("modbus-tcp driver initialized",
-		"name", d.name,
+		"name", d.Name(),
 		"host", d.host,
 		"port", d.port,
 		"slave-id", d.slaveID,

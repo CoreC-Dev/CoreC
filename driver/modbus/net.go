@@ -28,17 +28,15 @@ type ModbusNetDriver struct {
 func newModbusNetDriver(config core.DriverConfig, driverType, urlScheme string) (core.Driver, error) {
 	d := &ModbusNetDriver{
 		modbusBase: modbusBase{
-			name:       config.Name,
-			config:     config,
-			driverType: driverType,
-			tags:       make(map[string]core.TagConfig),
-			addrs:      make(map[string]addrInfo),
-			state:      core.StateDisconnected,
+			tags: make(map[string]core.TagConfig),
+			addrs: make(map[string]addrInfo),
 		},
 		urlScheme: urlScheme,
 	}
-	d.initFunc = d.Init
-	d.connectFunc = d.connect
+	d.SetInitFunc(d.Init)
+	d.SetConnectFunc(d.connect)
+	// Store driverType for Init (SetMeta is called in initCommon).
+	d.SetMeta(config.Name, driverType, config)
 	return d, nil
 }
 
@@ -60,26 +58,26 @@ func NewModbusRTUOverUDPDriver(config core.DriverConfig) (core.Driver, error) {
 }
 
 func (d *ModbusNetDriver) Init(ctx context.Context, config core.DriverConfig) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	d.Lock()
+	defer d.Unlock()
 
 	settings := config.Settings
 
 	if host, ok := settings["host"].(string); ok {
 		d.host = host
 	} else {
-		return fmt.Errorf("%s: host is required", d.driverType)
+		return fmt.Errorf("%s: host is required", d.Type())
 	}
 
 	d.port = util.GetIntSetting(settings, "port", 502)
 
-	if err := d.initCommon(settings, config); err != nil {
+	if err := d.initCommon(d.Type(), settings, config); err != nil {
 		return err
 	}
 
 	slog.Info("modbus network driver initialized",
-		"driver", d.driverType,
-		"name", d.name,
+		"driver", d.Type(),
+		"name", d.Name(),
 		"host", d.host,
 		"port", d.port,
 		"slave-id", d.slaveID,
