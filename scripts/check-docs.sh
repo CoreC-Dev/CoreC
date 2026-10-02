@@ -95,7 +95,7 @@ for f in "${all_md[@]}"; do
   [[ "$f" == "docs/index.md" ]] && continue
   [[ "$f" == "AGENTS.md" ]] && continue  # root entry point
   [[ "$f" == "README.md" ]] && continue
-  [[ "$f" == "docs/HARNESS-RULES.md" ]] && continue  # construction-phase reference
+  [[ "$f" == "docs/exec-plans/completed/harness-2026-10-03.md" ]] && continue  # archived construction-phase doc
   [[ "$f" == "docs/license.md" ]] && continue  # linked from nav/footer
   # Search for basename or path in other files + config.ts
   basename=$(basename "$f")

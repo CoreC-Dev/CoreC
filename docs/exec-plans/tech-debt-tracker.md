@@ -2,7 +2,7 @@
 
 > 本文件由 Phase 1 全仓只读扫描生成，是后续 Phase 2–5 改造的权威问题列表。
 > 扫描日期：2025-01 · 分支：`harnessing` · Go 1.27.1 · 166 .go / 42,120 行 · 85 _test.go
-> 规则依据：`docs/HARNESS-RULES.md`（附录 B 字段定义）
+> 规则依据：`docs/exec-plans/completed/harness-2026-10-03.md`（附录 B 字段定义，已归档）
 
 ---
 

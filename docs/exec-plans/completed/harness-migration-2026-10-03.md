@@ -1,3 +1,5 @@
+> 一次性施工计划，已竣工归档。五阶段全部通过。常驻规范见 AGENTS.md / core-beliefs.md / ARCHITECTURE.md。
+
 # Harness 工程化改造计划
 
 > 本计划依据《Harness 工程化规则》（`docs/HARNESS-RULES.md`）§5 五阶段流程制定，针对 **CoreC**（Go IIoT 数据采集核心）存量项目。
