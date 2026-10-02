@@ -1,7 +1,7 @@
 # Harness 工程化改造计划
 
 > 本计划依据《Harness 工程化规则》（`docs/HARNESS-RULES.md`）§5 五阶段流程制定，针对 **CoreC**（Go IIoT 数据采集核心）存量项目。
-> **当前处于阶段 4 已完成**：批次 1–12 全部完成，进入阶段 5（测试补全）。
+> **五阶段全部完成**。执行 §14 收官拆解。
 
 ## 0. 元信息
 
@@ -9,7 +9,7 @@
 - 仓库路径：`/workspace/codespace/CoreC`
 - 分支：`harnessing`（由 `main` 创建，§7.1）
 - 计划版本 / 日期：v1.0 / 2026-10-02
-- 状态：**阶段 4 已完成**（批次 1–12 全部完成），进入阶段 5（测试补全）
+- 状态：**五阶段全部完成**（阶段 1–5 全部通过，§14 收官拆解中）
 - 规则文档：`docs/HARNESS-RULES.md`（施工期常驻，竣工后按 §14 拆解归档）
 - 框架判定：其他类型（纯 Go 后端，非 Tauri）—— 详见 `docs/CI.md`
 
@@ -311,3 +311,4 @@
 | 2026-10-03 | 5 | TEST-005/006: rollback + cmd/corec | — | rollbackStart 0→95.8%, cmd/corec 24.6→95.1% |
 | 2026-10-03 | 5 | 验收: 故意破坏实现测试失败（3 样本） | — | discovery client map / parser parseScalar bool / log LevelMapping — 均 FAIL |
 | 2026-10-03 | 5 | TEST-003/004: OPC UA subscription + Modbus reconnect/read | — | opcua 52.7→70.7%, modbus 79.2→88.1%; readTag 100%, subscriptionLoop 100% |
+| 2026-10-03 | 5 | **阶段 5 完成** | — | 全部 TEST 项已修复；覆盖率门禁通过；3× gates 连续无失败；故意破坏验证 3 样本通过 |
