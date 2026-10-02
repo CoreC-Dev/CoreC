@@ -80,6 +80,8 @@ export default defineConfig({
             { text: '规则管理', link: '/api/rules' },
             { text: 'WebSocket', link: '/api/websocket' },
             { text: '统计监控', link: '/api/stats' },
+            { text: 'API 契约', link: '/api/COREC_API_CONTRACT' },
+            { text: 'API 完整参考', link: '/API_REFERENCE' },
           ],
         },
       ],

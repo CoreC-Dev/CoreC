@@ -224,7 +224,7 @@ API 服务器默认启用 CORS（`Access-Control-Allow-Origin: *`），支持浏
 
 ## AI 开发与维护交接
 
-详细的代码架构解析、扩展编写指南及后续演进规划，请参阅：[AI 交接文档 (AI_HANDOVER.md)](AI_HANDOVER.md)。
+详细的代码架构解析、扩展编写指南及后续演进规划，请参阅：[AI 交接文档 (AI_HANDOVER.md)](docs/design-docs/AI_HANDOVER.md)。
 
 ---
 

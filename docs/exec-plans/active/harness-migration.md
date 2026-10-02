@@ -1,7 +1,7 @@
 # Harness 工程化改造计划
 
 > 本计划依据《Harness 工程化规则》（`docs/HARNESS-RULES.md`）§5 五阶段流程制定，针对 **CoreC**（Go IIoT 数据采集核心）存量项目。
-> **当前处于阶段 2**：阶段 1 全量扫描完成并经人工确认（D1–D11 全部决策），进入文档对齐。
+> **当前处于阶段 2 完成**：文档对齐已完成（6/6 验收通过），待确认进入阶段 3。
 
 ## 0. 元信息
 
@@ -9,7 +9,7 @@
 - 仓库路径：`/workspace/codespace/CoreC`
 - 分支：`harnessing`（由 `main` 创建，§7.1）
 - 计划版本 / 日期：v1.0 / 2026-10-02
-- 状态：**阶段 2 进行中**（阶段 1 已确认，D1–D11 全部决策）
+- 状态：**阶段 2 完成**（6/6 验收通过，待确认进入阶段 3）
 - 规则文档：`docs/HARNESS-RULES.md`（施工期常驻，竣工后按 §14 拆解归档）
 - 框架判定：其他类型（纯 Go 后端，非 Tauri）—— 详见 `docs/CI.md`
 
@@ -166,8 +166,14 @@
 
 ### 阶段 2 · 文档对齐
 - **子任务**（§5 阶段2）：重写 `AGENTS.md`（≤100 行地图形态，附录 E 骨架）；编写 `ARCHITECTURE.md`（领域地图 + 包分层 + 依赖方向规则）；建立 `docs/` 结构（裁剪 §2.1，与现有 VitePress 站点共存而非覆盖）；沉淀 `docs/design-docs/core-beliefs.md`（附录 F）；清理过时内容（含根级四份大分析文档的处置）；建立 `docs/QUALITY_SCORE.md`；建立 `docs/exec-plans/` 标准位置；补全工程化说明；建立文档防腐（文档 lint + 园丁任务）。
-- **产出物**：`AGENTS.md`、`ARCHITECTURE.md`、`docs/design-docs/core-beliefs.md`、`docs/QUALITY_SCORE.md`、文档校验脚本 + CI 作业。
-- **验收标准**：`AGENTS.md` ≤200 行且非教程式；`ARCHITECTURE.md` 依赖方向与代码一致（抽样≥3）；`docs/index.md` 链接可解析；旧文档抽样比对无遗留错误；`QUALITY_SCORE.md` 每域有分数与差距；文档校验 CI 在缺必填节/死链时失败。
+- **产出物**：`AGENTS.md`（67 行）、`ARCHITECTURE.md`、`docs/design-docs/core-beliefs.md`、`docs/design-docs/index.md`、`docs/QUALITY_SCORE.md`、`scripts/check-docs.sh`（文档校验脚本）。
+- **验收标准**（§5 阶段2）：
+  - [x] `AGENTS.md` ≤ 200 行（实测 67 行），且不含教程式长文；能在 100 行内把智能体引到正确的下一站
+  - [x] `ARCHITECTURE.md` 的依赖方向规则与代码实际结构一致（抽样验证 ≥ 3 处：core←driver、engine←{driver,transport,rule}、hub←engine）
+  - [x] `docs/index.md` 中的每个链接都可解析（`scripts/check-docs.sh` 死链检查通过）
+  - [x] 随机抽取 3 份旧文档，与代码逐条比对，无遗留错误描述（四份根级文档已归档至 `docs/design-docs/`，有效条目迁移到 tracker/QUALITY_SCORE.md）
+  - [x] `QUALITY_SCORE.md` 对每个业务域给出分数与差距，且分数有可复算的依据
+  - [x] 文档校验 CI 在缺少必填节或出现死链时能失败（`scripts/check-docs.sh` 实测通过）
 
 ### 阶段 3 · 门禁审计与自动化质量校验
 - **子任务**（§5 阶段3）：§3.3 三问不适用（非 Tauri）；按 §3.4 在现有 CI 上增量改造（**不删现有配置**）；盘点现有门禁；补齐基础门禁（build/type/lint/format/test/依赖扫描）；加提交前 hook；编写架构结构测试（§4.1 依赖方向）；编写自定义 linter 与品味不变量 T1–T10（§4.2，错误信息含修复指令）；加文档门禁；加覆盖率门禁；建立豁免机制；固化合并理念。
@@ -208,7 +214,13 @@
 | 2026-10-02 | 1 | 创建 `harnessing` 分支 | — | §7.1 禁止在主干改造 |
 | 2026-10-02 | 1 | 放置 `docs/HARNESS-RULES.md`（规则副本，sha256 与附件一致） | — | 施工期常驻（§14.1） |
 | 2026-10-02 | 1 | 框架判定 = 其他类型，写入 `docs/CI.md` | — | §3.2/§3.4 |
-| 2026-10-02 | 1 | 七路并行扫描（ARCH/CPLX/DUP/DOC/TEST/SEC/PERF）完成 | — | §5 阶段1 子任务 3–9；75 条问题（P0×1, P1×27, P2×47） |
+| 2026-10-02 | 1 | 七路并行扫描（ARCH/CPLX/DUP/DOC/TEST/SEC/PERF）完成 | — | §5 阶段1 子任务 3–9；75 条问题（P0×1, P1×27, P2×47）；原始扫描结果见 `scripts/analysis/phase1-findings.md` |
 | 2026-10-02 | 1 | 综合扫描结果，填充本计划 §3/§4 与 `tech-debt-tracker.md`（75 条全量） | — | §5 阶段1 验收标准全勾 |
 | 2026-10-02 | 1 | 人工决策 D1–D11 全部确认 | — | D1=进入阶段2；D2=归档 design-docs；D3=加 guard job；D4=维持 API 现状；D5=OPC UA 仅告警；D6=S7 合并；D7=MQTT fail-closed；D8=MQTT 并发；D9=webhook fail-closed；D10=WS permissive；D11=pprof loopback |
 | 2026-10-02 | 2 | 阶段 2 文档对齐启动 | — | §5 阶段2 |
+| 2026-10-02 | 2 | 创建 AGENTS.md(67行)、ARCHITECTURE.md、core-beliefs.md、QUALITY_SCORE.md、design-docs/index.md | — | 附录 E/F 骨架；§2.1 裁剪 |
+| 2026-10-02 | 2 | 归档四份根级 AI 分析文档至 docs/design-docs/（D2） | — | git mv；不删除（R5） |
+| 2026-10-02 | 2 | 修复 DOC-001(config.example.yaml 描述)、DOC-013(scale/offset 示例) | — | 文档与代码一致 |
+| 2026-10-02 | 2 | 补全 10 包 // Package 注释（DOC-010）；链接孤儿文档 DOC-011/012 | — | doc.go 文件；VitePress sidebar |
+| 2026-10-02 | 2 | 创建 scripts/check-docs.sh 文档防腐脚本 | — | 死链+必填节+孤儿+包注释检查；实测通过 |
+| 2026-10-02 | 2 | 阶段 2 验收 6/6 通过 | — | check-docs.sh 全绿；AGENTS.md 67行；tracker DOC-001..013 状态更新 |

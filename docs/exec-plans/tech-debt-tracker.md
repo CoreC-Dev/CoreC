@@ -105,19 +105,19 @@
 
 | ID | 标题 | 位置 | 类别 | 严重度 | 证据 | 修复建议 | 业务行为影响 | 关联批次 | 验收方式 | 状态 |
 |---|---|---|---|---|---|---|---|---|---|---|
-| DOC-001 | 配置示例错误描述 env 替换为"字节级"（实际 tree-based 防注入） | config.example.yaml:19 vs config/config.go:48-54 | 文档 | P1 | 示例注释写"byte-level (pre-YAML-parse)"；代码注释写"Unlike naive byte-level replacement…parses YAML tree first"。代码已重构为 tree-based 防注入，示例未同步 | 将 config.example.yaml:18-21 改为"tree-based(parse→expand→re-marshal)，env 值经 YAML 编码器转义防注入" | 无 | Phase 2 | 文档 lint 校验示例描述与 config.go 注释一致 | 待处理 |
-| DOC-002 | IMPROVEMENTS.md 引用 engine.go 不存在行号 | IMPROVEMENTS.md:12,25,60 引用 engine/engine.go:1244/1560/1314/1370 | 文档 | P1 | engine.go 仅 875 行；processingLoop 已迁至 processing.go:7、publishToTargets 至 publish.go:82 等。引用行号不可能存在 | 归档前逐条更新为"文件:函数名"形式，或迁移有效条目到 tech-debt-tracker.md 后归档 | 无 | Phase 2 | 文档 lint 校验 file:line 引用行号 ≤ 文件实际行数 | 待处理 |
-| DOC-003 | IMPROVEMENTS.md 引用 batcher.go/publisher.go 已偏移行号 | IMPROVEMENTS.md:20,49 | 文档 | P1 | 实际行号偏移 48–177 行 | 同 DOC-002 | 无 | Phase 2 | 同 DOC-002 | 待处理 |
-| DOC-004 | REALTIME_EVALUATION.md 行号引用偏移 | REALTIME_EVALUATION.md:55 引用 types.go:175 | 文档 | P2 | ReadTimeout 实际在 core/types.go:229(偏移 +54) | 更新为 types.go:229 或改用字段名 | 无 | Phase 2 | 同 DOC-002 | 待处理 |
-| DOC-005 | QUALITY_ASSESSMENT.md 行号引用偏移 | QUALITY_ASSESSMENT.md:88,204 等 | 文档 | P2 | publisher.go:438-440 实际是 TLS cert pool 代码；modbus_base.go:325 实际是 tag 迭代。行号漂移 | 归档前更新行号或改用函数名；评分方法论迁移到 docs/QUALITY_SCORE.md | 无 | Phase 2 | 同 DOC-002 | 待处理 |
-| DOC-006 | AI_HANDOVER.md engine.go 行数声明过时 | AI_HANDOVER.md:96,426 | 文档 | P2 | 声明"已从 1923 行拆为 823 行"，实际 875 行 | 更新为 875 行或删除具体行数(易腐) | 无 | Phase 2 | 文档 lint 校验声明行数与 wc -l 一致 | 待处理 |
-| DOC-007 | AI_HANDOVER.md 文件树遗漏新增文件 | AI_HANDOVER.md:31-160 | 文档 | P2 | 遗漏 driver/modbus/{batch_test,lifecycle_test,reconnect_count_test}.go、transport/mqtt/{command_auth_test,...}.go 等 | 阶段 2 写 ARCHITECTURE.md 时以代码现状为准重绘；AI_HANDOVER 归档 | 无 | Phase 2 | 结构测试校验文档列举文件集 ⊆ 实际文件集 | 待处理 |
-| DOC-008 | 缺少 AGENTS.md（harness 入口地图） | 仓库根 | 文档 | P2 | ls AGENTS.md → 不存在；§2.1/§2.2 要求为必需项 | Phase 2 按 §2.2/附录 E 创建(≤100 行地图) | 无 | Phase 2 | 存在性检查 + 行数 ≤200 + 含必需 5 节 | 待处理 |
-| DOC-009 | 缺少 ARCHITECTURE.md（领域与分层地图） | 仓库根 | 文档 | P2 | ls ARCHITECTURE.md → 不存在；§2.1 要求为必需项 | Phase 2 创建(领域地图+包分层+依赖方向规则) | 无 | Phase 2 | 存在性检查 + 依赖方向规则与代码抽样一致 | 待处理 |
-| DOC-010 | 18/27 Go 包缺 // Package 包文档注释 | cmd/corec, common/{metrics,observable,trace,util}, core, demo/chained/{4 包}, driver/s7, e2e, engine/statistic, hub, hub/{executor,route}, log, transport/parser | 文档 | P2 | 缺注释 18 包；有注释 9 包 | 为每个缺注释包在主 .go 文件加 // Package X <一句话职责> | 无 | Phase 2 | revive 包注释检查通过 | 待处理 |
-| DOC-011 | docs/api/COREC_API_CONTRACT.md 未被索引链接（孤儿） | docs/api/COREC_API_CONTRACT.md | 文档 | P2 | grep 全 docs/ 无链接指向它；VitePress sidebar 未收录 | 在 config.ts API sidebar 加入条目 | 无 | Phase 2 | 文档 lint 校验每个 .md 至少一条入站链接 | 待处理 |
-| DOC-012 | docs/API_REFERENCE.md 未被索引链接（孤儿） | docs/API_REFERENCE.md | 文档 | P2 | 无入站链接；与 docs/api/* 职责重叠 | 确认与 docs/api/overview.md 关系后合并或链接 | 无 | Phase 2 | 同 DOC-011 | 待处理 |
-| DOC-013 | config.example.yaml 未演示 scale/offset 字段 | config.example.yaml vs core/types.go:219-220 | 文档 | P2 | TagConfig.Scale/Offset 为 omitempty 但属业务常用，根级示例未演示 | 在示例某 tag 加 scale: 0.01 / offset: 0.0 注释行 | 无 | Phase 2 | 文档 lint 校验示例覆盖非 omitempty-仅 字段 | 待处理 |
+| DOC-001 | 配置示例错误描述 env 替换为"字节级"（实际 tree-based 防注入） | config.example.yaml:19 vs config/config.go:48-54 | 文档 | P1 | 示例注释写"byte-level (pre-YAML-parse)"；代码注释写"Unlike naive byte-level replacement…parses YAML tree first"。代码已重构为 tree-based 防注入，示例未同步 | 将 config.example.yaml:18-21 改为"tree-based(parse→expand→re-marshal)，env 值经 YAML 编码器转义防注入" | 无 | Phase 2 | 文档 lint 校验示例描述与 config.go 注释一致 | 已修复 |
+| DOC-002 | IMPROVEMENTS.md 引用 engine.go 不存在行号 | IMPROVEMENTS.md:12,25,60 引用 engine/engine.go:1244/1560/1314/1370 | 文档 | P1 | engine.go 仅 875 行；processingLoop 已迁至 processing.go:7、publishToTargets 至 publish.go:82 等。引用行号不可能存在 | 归档前逐条更新为"文件:函数名"形式，或迁移有效条目到 tech-debt-tracker.md 后归档 | 无 | Phase 2 | 文档 lint 校验 file:line 引用行号 ≤ 文件实际行数 | 已归档 |
+| DOC-003 | IMPROVEMENTS.md 引用 batcher.go/publisher.go 已偏移行号 | IMPROVEMENTS.md:20,49 | 文档 | P1 | 实际行号偏移 48–177 行 | 同 DOC-002 | 无 | Phase 2 | 同 DOC-002 | 已归档 |
+| DOC-004 | REALTIME_EVALUATION.md 行号引用偏移 | REALTIME_EVALUATION.md:55 引用 types.go:175 | 文档 | P2 | ReadTimeout 实际在 core/types.go:229(偏移 +54) | 更新为 types.go:229 或改用字段名 | 无 | Phase 2 | 同 DOC-002 | 已归档 |
+| DOC-005 | QUALITY_ASSESSMENT.md 行号引用偏移 | QUALITY_ASSESSMENT.md:88,204 等 | 文档 | P2 | publisher.go:438-440 实际是 TLS cert pool 代码；modbus_base.go:325 实际是 tag 迭代。行号漂移 | 归档前更新行号或改用函数名；评分方法论迁移到 docs/QUALITY_SCORE.md | 无 | Phase 2 | 同 DOC-002 | 已归档 |
+| DOC-006 | AI_HANDOVER.md engine.go 行数声明过时 | AI_HANDOVER.md:96,426 | 文档 | P2 | 声明"已从 1923 行拆为 823 行"，实际 875 行 | 更新为 875 行或删除具体行数(易腐) | 无 | Phase 2 | 文档 lint 校验声明行数与 wc -l 一致 | 已归档 |
+| DOC-007 | AI_HANDOVER.md 文件树遗漏新增文件 | AI_HANDOVER.md:31-160 | 文档 | P2 | 遗漏 driver/modbus/{batch_test,lifecycle_test,reconnect_count_test}.go、transport/mqtt/{command_auth_test,...}.go 等 | 阶段 2 写 ARCHITECTURE.md 时以代码现状为准重绘；AI_HANDOVER 归档 | 无 | Phase 2 | 结构测试校验文档列举文件集 ⊆ 实际文件集 | 已归档 |
+| DOC-008 | 缺少 AGENTS.md（harness 入口地图） | 仓库根 | 文档 | P2 | ls AGENTS.md → 不存在；§2.1/§2.2 要求为必需项 | Phase 2 按 §2.2/附录 E 创建(≤100 行地图) | 无 | Phase 2 | 存在性检查 + 行数 ≤200 + 含必需 5 节 | 已修复 |
+| DOC-009 | 缺少 ARCHITECTURE.md（领域与分层地图） | 仓库根 | 文档 | P2 | ls ARCHITECTURE.md → 不存在；§2.1 要求为必需项 | Phase 2 创建(领域地图+包分层+依赖方向规则) | 无 | Phase 2 | 存在性检查 + 依赖方向规则与代码抽样一致 | 已修复 |
+| DOC-010 | 18/27 Go 包缺 // Package 包文档注释 | cmd/corec, common/{metrics,observable,trace,util}, core, demo/chained/{4 包}, driver/s7, e2e, engine/statistic, hub, hub/{executor,route}, log, transport/parser | 文档 | P2 | 缺注释 18 包；有注释 9 包 | 为每个缺注释包在主 .go 文件加 // Package X <一句话职责> | 无 | Phase 2 | revive 包注释检查通过 | 已修复 |
+| DOC-011 | docs/api/COREC_API_CONTRACT.md 未被索引链接（孤儿） | docs/api/COREC_API_CONTRACT.md | 文档 | P2 | grep 全 docs/ 无链接指向它；VitePress sidebar 未收录 | 在 config.ts API sidebar 加入条目 | 无 | Phase 2 | 文档 lint 校验每个 .md 至少一条入站链接 | 已修复 |
+| DOC-012 | docs/API_REFERENCE.md 未被索引链接（孤儿） | docs/API_REFERENCE.md | 文档 | P2 | 无入站链接；与 docs/api/* 职责重叠 | 确认与 docs/api/overview.md 关系后合并或链接 | 无 | Phase 2 | 同 DOC-011 | 已修复 |
+| DOC-013 | config.example.yaml 未演示 scale/offset 字段 | config.example.yaml vs core/types.go:219-220 | 文档 | P2 | TagConfig.Scale/Offset 为 omitempty 但属业务常用，根级示例未演示 | 在示例某 tag 加 scale: 0.01 / offset: 0.0 注释行 | 无 | Phase 2 | 文档 lint 校验示例覆盖非 omitempty-仅 字段 | 已修复 |
 
 ### 测试（TEST）
 

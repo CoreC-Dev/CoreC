@@ -16,8 +16,11 @@
 #   - Variable names must match [A-Za-z_][A-Za-z0-9_]*.
 #   - Unset variables are left as-is (the literal ${...} string survives),
 #     making misconfigurations visible at startup.
-#   - Substitution is byte-level (pre-YAML-parse), so type inference is
-#     preserved: "port: ${PORT}" with PORT=502 parses as int, not string.
+#   - Substitution is tree-based (parse → expand → re-marshal): the YAML
+#     is parsed into a tree, ${...} placeholders in leaf values are
+#     expanded, then re-marshaled. Env values are escaped through the
+#     YAML encoder, preventing injection. Type inference is preserved:
+#     "port: ${PORT}" with PORT=502 parses as int, not string.
 #   - Works inside quoted strings: topic: "topo/${NODE_ID}/data".
 
 # --- Topology Auto-Discovery (optional) ---
@@ -122,6 +125,8 @@ drivers:
         interval: 1s
         deadband: 0.2
         read-timeout: 500ms   # per-tag read timeout (optional, default = interval)
+        scale: 0.1            # linear scaling: published = raw * scale + offset
+        offset: -50.0         # e.g. raw=1000 → published=50.0 (optional, default 0)
       - name: pressure
         address: "40003"      # Holding register 2
         type: float32
