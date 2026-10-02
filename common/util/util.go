@@ -94,42 +94,54 @@ func IsConnectionError(err error) bool {
 	return false
 }
 
+// ToFloat64OK converts any numeric value to float64 and returns true.
+// Non-numeric values (bool, string, nil, etc.) return 0 and false.
+// Unlike ToFloat64, bool is NOT treated as numeric — callers that need
+// to reject non-numeric values (e.g. transform expressions) should use this.
+func ToFloat64OK(v any) (float64, bool) {
+	switch val := v.(type) {
+	case float64:
+		return val, true
+	case float32:
+		return float64(val), true
+	case int:
+		return float64(val), true
+	case int8:
+		return float64(val), true
+	case int16:
+		return float64(val), true
+	case int32:
+		return float64(val), true
+	case int64:
+		return float64(val), true
+	case uint:
+		return float64(val), true
+	case uint8:
+		return float64(val), true
+	case uint16:
+		return float64(val), true
+	case uint32:
+		return float64(val), true
+	case uint64:
+		return float64(val), true
+	}
+	return 0, false
+}
+
 // ToFloat64 converts any numeric value (including bool) to float64.
 // Non-numeric values return 0. bool is treated as 1 (true) / 0 (false).
 func ToFloat64(v any) float64 {
-	switch val := v.(type) {
-	case float64:
-		return val
-	case float32:
-		return float64(val)
-	case int:
-		return float64(val)
-	case int8:
-		return float64(val)
-	case int16:
-		return float64(val)
-	case int32:
-		return float64(val)
-	case int64:
-		return float64(val)
-	case uint:
-		return float64(val)
-	case uint8:
-		return float64(val)
-	case uint16:
-		return float64(val)
-	case uint32:
-		return float64(val)
-	case uint64:
-		return float64(val)
-	case bool:
+	f, ok := ToFloat64OK(v)
+	if ok {
+		return f
+	}
+	if val, isBool := v.(bool); isBool {
 		if val {
 			return 1
 		}
 		return 0
-	default:
-		return 0
 	}
+	return 0
 }
 
 // ToFloat32 converts any numeric value to float32. Non-numeric returns 0.
@@ -286,6 +298,31 @@ func jitteredBackoff(d time.Duration) time.Duration {
 // It is a thin wrapper around ReconnectLoopWithBreakerCounted that does
 // not track reconnect attempts. Use the counted variant when a driver
 // wants to expose a reconnect Prometheus metric.
+// ReconnectOpts bundles the parameters for reconnect loop configuration.
+// Use it with ReconnectLoopOpts to avoid passing 6+ positional arguments
+// (taste invariant T4: parameter count ≤ 5).
+type ReconnectOpts struct {
+	InitialBackoff time.Duration
+	MaxBackoff     time.Duration
+	MaxFailures    int
+}
+
+// ReconnectLoopOpts is the opts-struct variant of ReconnectLoopWithBreakerCounted.
+// It collapses the 7 positional parameters into a context, name, connect func,
+// opts struct, and optional counter — keeping the call site readable.
+func ReconnectLoopOpts(ctx context.Context, name string, connect func() error, opts ReconnectOpts, counter *atomic.Uint64) {
+	ReconnectLoopWithBreakerCounted(ctx, name, connect, opts.InitialBackoff, opts.MaxBackoff, opts.MaxFailures, counter)
+}
+
+// ReconnectLoopWithBreaker behaves like ReconnectLoopWithBreakerCounted
+// but does not track reconnect attempts. Use the counted variant when a
+// driver wants to expose a reconnect Prometheus metric.
+//
+// Backoff starts at initialBackoff and doubles after each failure, capped at
+// maxBackoff. A circuit-breaker trips after maxFailures consecutive failures
+// (maxFailures > 0) and increases the backoff to 5 minutes. The breaker
+// resets on the next successful connection. maxFailures <= 0 disables the
+// breaker (pure exponential backoff).
 func ReconnectLoopWithBreaker(ctx context.Context, name string, connect func() error, initialBackoff, maxBackoff time.Duration, maxFailures int) {
 	ReconnectLoopWithBreakerCounted(ctx, name, connect, initialBackoff, maxBackoff, maxFailures, nil)
 }

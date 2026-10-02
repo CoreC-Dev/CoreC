@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/CoreC-Dev/CoreC/common/util"
 	"github.com/CoreC-Dev/CoreC/core"
 	"github.com/CoreC-Dev/CoreC/rule"
 )
@@ -17,7 +18,7 @@ func (e *CoreCEngine) applyTransform(point core.DataPoint, tc *core.TransformCon
 		return point
 	}
 
-	raw, ok := numericValue(point.Value)
+	raw, ok := util.ToFloat64OK(point.Value)
 	if !ok {
 		// Only numeric values can be arithmetically transformed.
 		return point
@@ -38,37 +39,6 @@ func (e *CoreCEngine) applyTransform(point core.DataPoint, tc *core.TransformCon
 	return out
 }
 
-// numericValue returns the float64 representation of a numeric value and true,
-// or 0 and false for non-numeric types (bool, string, nil, etc.).
-func numericValue(v any) (float64, bool) {
-	switch val := v.(type) {
-	case float64:
-		return val, true
-	case float32:
-		return float64(val), true
-	case int:
-		return float64(val), true
-	case int8:
-		return float64(val), true
-	case int16:
-		return float64(val), true
-	case int32:
-		return float64(val), true
-	case int64:
-		return float64(val), true
-	case uint:
-		return float64(val), true
-	case uint8:
-		return float64(val), true
-	case uint16:
-		return float64(val), true
-	case uint32:
-		return float64(val), true
-	case uint64:
-		return float64(val), true
-	}
-	return 0, false
-}
 
 // publishTargetEntry is a snapshot of a single transport and its optional
 // batcher, captured under the engine read lock so that Publish can be
