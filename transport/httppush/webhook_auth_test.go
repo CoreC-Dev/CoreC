@@ -127,28 +127,42 @@ func TestWebhookAuthReject(t *testing.T) {
 	}
 }
 
-// TestWebhookNoSecretBackwardCompat verifies that without a webhook-secret
-// requests are accepted unauthenticated (backward compatibility).
-func TestWebhookNoSecretBackwardCompat(t *testing.T) {
-	tr, addr := newWebhookTransport(t, "wh-nosecret", "")
-	defer tr.Stop()
-
-	resp := postWebhook(t, addr, "", "", validDataPoint())
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusAccepted {
-		t.Fatalf("expected 202 without auth when no secret set, got %d", resp.StatusCode)
+// TestWebhookNoSecretFailClosed verifies that without a webhook-secret
+// the transport refuses to start (fail-closed, D9).
+func TestWebhookNoSecretFailClosed(t *testing.T) {
+	addr := freePort(t)
+	settings := map[string]any{
+		"url":          "http://localhost:9999/no-such-server",
+		"webhook-addr": addr,
+		"webhook-path": "/data",
+	}
+	cfg := core.TransportConfig{
+		Name:     "wh-nosecret",
+		Type:     "http",
+		Settings: settings,
+	}
+	tr, err := NewHTTPTransport(cfg)
+	if err != nil {
+		t.Fatalf("NewHTTPTransport: %v", err)
+	}
+	if err := tr.Init(context.Background(), cfg); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	if err := tr.Start(context.Background()); err == nil {
+		tr.Stop()
+		t.Fatal("expected Start to fail when webhook-addr is set without webhook-secret, but it succeeded")
 	}
 }
 
 // TestWebhookBodySizeLimit verifies that an oversized body is rejected
 // (H1: OOM protection via http.MaxBytesReader).
 func TestWebhookBodySizeLimit(t *testing.T) {
-	tr, addr := newWebhookTransport(t, "wh-sizelimit", "")
+	tr, addr := newWebhookTransport(t, "wh-sizelimit", "s3cr3t")
 	defer tr.Stop()
 
 	// webhookMaxBodyBytes is 10 MiB; send one byte more than the limit.
 	oversized := bytes.Repeat([]byte("x"), webhookMaxBodyBytes+1)
-	resp := postWebhook(t, addr, "", "", oversized)
+	resp := postWebhook(t, addr, "Bearer s3cr3t", "", oversized)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected 400 for oversized body, got %d", resp.StatusCode)
@@ -158,7 +172,7 @@ func TestWebhookBodySizeLimit(t *testing.T) {
 // TestWebhookBodyUnderLimit verifies a body just under the limit is
 // accepted (the limit does not reject legitimate payloads).
 func TestWebhookBodyUnderLimit(t *testing.T) {
-	tr, addr := newWebhookTransport(t, "wh-underlimit", "")
+	tr, addr := newWebhookTransport(t, "wh-underlimit", "s3cr3t")
 	defer tr.Stop()
 
 	// Send a valid JSON array of small points whose total size is well
@@ -172,7 +186,7 @@ func TestWebhookBodyUnderLimit(t *testing.T) {
 	if len(body) >= webhookMaxBodyBytes {
 		t.Fatalf("test body too large: %d bytes", len(body))
 	}
-	resp := postWebhook(t, addr, "", "", body)
+	resp := postWebhook(t, addr, "Bearer s3cr3t", "", body)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("expected 202 for under-limit body, got %d", resp.StatusCode)

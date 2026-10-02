@@ -49,9 +49,10 @@ func TestWebhookOnData(t *testing.T) {
 		Name: "test-webhook",
 		Type: "http",
 		Settings: map[string]any{
-			"url":          "http://localhost:9999/no-such-server",
-			"webhook-addr": addr,
-			"webhook-path": "/data",
+			"url":            "http://localhost:9999/no-such-server",
+			"webhook-addr":   addr,
+			"webhook-path":   "/data",
+			"webhook-secret": "test-secret",
 			// default parser = json.Unmarshal(DataPoint)
 		},
 	}
@@ -90,7 +91,13 @@ func TestWebhookOnData(t *testing.T) {
 	}
 	payload, _ := json.Marshal(dp)
 
-	resp, err := http.Post("http://"+addr+"/data", "application/json", bytes.NewReader(payload))
+	req, err := http.NewRequest(http.MethodPost, "http://"+addr+"/data", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer test-secret")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("POST failed: %v", err)
 	}
@@ -127,9 +134,10 @@ func TestWebhookOnDataArray(t *testing.T) {
 		Name: "test-webhook-array",
 		Type: "http",
 		Settings: map[string]any{
-			"url":          "http://localhost:9999/no-such-server",
-			"webhook-addr": addr,
-			"webhook-path": "/ingest",
+			"url":            "http://localhost:9999/no-such-server",
+			"webhook-addr":   addr,
+			"webhook-path":   "/ingest",
+			"webhook-secret": "test-secret",
 		},
 	}
 
@@ -157,7 +165,13 @@ func TestWebhookOnDataArray(t *testing.T) {
 	}
 	payload, _ := json.Marshal(points)
 
-	resp, err := http.Post("http://"+addr+"/ingest", "application/json", bytes.NewReader(payload))
+	req, err := http.NewRequest(http.MethodPost, "http://"+addr+"/ingest", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer test-secret")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("POST failed: %v", err)
 	}

@@ -127,10 +127,10 @@ func TestWebhookTLSBackwardCompatPlaintext(t *testing.T) {
 // TestWebhookPlaintextStillWorks verifies the end-to-end plaintext webhook
 // path is unchanged when no TLS files are set (backward compatibility).
 func TestWebhookPlaintextStillWorks(t *testing.T) {
-	tr, addr := newWebhookTransport(t, "wh-plain-e2e", "")
+	tr, addr := newWebhookTransport(t, "wh-plain-e2e", "s3cr3t")
 	defer tr.Stop()
 
-	resp := postWebhook(t, addr, "", "", validDataPoint())
+	resp := postWebhook(t, addr, "Bearer s3cr3t", "", validDataPoint())
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("expected 202 over plaintext, got %d", resp.StatusCode)
@@ -145,11 +145,12 @@ func TestWebhookHTTPSEndToEnd(t *testing.T) {
 	certFile, keyFile := generateWebhookCertFiles(t)
 	addr := freePort(t)
 	htr := initHTTPTransport(t, "wh-https", map[string]any{
-		"url":           "http://localhost:9999/x",
-		"webhook-addr":  addr,
-		"webhook-path":  "/data",
-		"tls-cert-file": certFile,
-		"tls-key-file":  keyFile,
+		"url":            "http://localhost:9999/x",
+		"webhook-addr":   addr,
+		"webhook-path":   "/data",
+		"webhook-secret": "s3cr3t",
+		"tls-cert-file":  certFile,
+		"tls-key-file":   keyFile,
 	})
 	if err := htr.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -181,7 +182,13 @@ func TestWebhookHTTPSEndToEnd(t *testing.T) {
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
 	}
-	resp, err := client.Post("https://"+addr+"/data", "application/json", bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, "https://"+addr+"/data", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer s3cr3t")
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("POST over HTTPS failed: %v", err)
 	}
@@ -217,11 +224,12 @@ func TestWebhookHTTPSRejectsPlaintext(t *testing.T) {
 	certFile, keyFile := generateWebhookCertFiles(t)
 	addr := freePort(t)
 	htr := initHTTPTransport(t, "wh-https-only", map[string]any{
-		"url":           "http://localhost:9999/x",
-		"webhook-addr":  addr,
-		"webhook-path":  "/data",
-		"tls-cert-file": certFile,
-		"tls-key-file":  keyFile,
+		"url":            "http://localhost:9999/x",
+		"webhook-addr":   addr,
+		"webhook-path":   "/data",
+		"webhook-secret": "s3cr3t",
+		"tls-cert-file":  certFile,
+		"tls-key-file":   keyFile,
 	})
 	if err := htr.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)

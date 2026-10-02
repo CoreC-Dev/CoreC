@@ -195,12 +195,12 @@ func (t *HTTPTransport) Start(ctx context.Context) error {
 
 	// Start webhook server if configured (chained-core inbound)
 	if t.webhookAddr != "" {
-		// Warn when the webhook has no shared secret: in that mode any
-		// client can POST data to the webhook endpoint.  This keeps
-		// backward compatibility while making the risk visible.
+		// Fail-closed: if a webhook address is configured but no
+		// webhook-secret is set, reject startup. Accepting unauthenticated
+		// requests would allow any client to POST data to the webhook.
 		if t.webhookSecret == "" {
-			slog.Warn("http webhook has no webhook-secret; accepting unauthenticated requests",
-				"name", t.name, "addr", t.webhookAddr, "path", t.webhookPath)
+			return fmt.Errorf("http transport %s: webhook-addr %q is configured but webhook-secret is empty; refusing to start without webhook authentication (set webhook-secret or remove webhook-addr)",
+				t.name, t.webhookAddr)
 		}
 		mux := http.NewServeMux()
 		mux.HandleFunc(t.webhookPath, t.handleWebhook)
