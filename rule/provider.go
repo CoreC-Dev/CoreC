@@ -1,6 +1,7 @@
 package rule
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"log/slog"
 	"os"
@@ -23,7 +24,9 @@ type FileProvider struct {
 	matchers []exprNode // compiled match expressions
 	count    int
 	updated  time.Time
+	lastHash [sha256.Size]byte // PERF-005: skip reload when file unchanged
 	stopCh   chan struct{}
+	done     chan struct{} // PERF-006: Close waits for reloadLoop to exit
 }
 
 // providerFile is the YAML schema for external rule files.
@@ -44,6 +47,7 @@ func NewFileProvider(name, path, intervalStr string) (*FileProvider, error) {
 		path:     path,
 		interval: interval,
 		stopCh:   make(chan struct{}),
+		done:     make(chan struct{}),
 	}
 
 	if err := p.load(); err != nil {
@@ -52,6 +56,8 @@ func NewFileProvider(name, path, intervalStr string) (*FileProvider, error) {
 
 	if interval > 0 {
 		go p.reloadLoop()
+	} else {
+		close(p.done) // no reload goroutine; done is already closed
 	}
 
 	return p, nil
@@ -62,6 +68,15 @@ func (p *FileProvider) load() error {
 	data, err := os.ReadFile(p.path)
 	if err != nil {
 		return fmt.Errorf("read file %s: %w", p.path, err)
+	}
+
+	// PERF-005: skip reload when file content is unchanged.
+	hash := sha256.Sum256(data)
+	p.mu.RLock()
+	prevHash := p.lastHash
+	p.mu.RUnlock()
+	if hash == prevHash {
+		return nil
 	}
 
 	var pf providerFile
@@ -89,6 +104,7 @@ func (p *FileProvider) load() error {
 	p.matchers = matchers
 	p.count = len(matchers)
 	p.updated = time.Now()
+	p.lastHash = hash
 	p.mu.Unlock()
 
 	slog.Info("rule provider loaded", "name", p.name, "path", p.path, "count", len(matchers))
@@ -97,6 +113,7 @@ func (p *FileProvider) load() error {
 
 // reloadLoop periodically re-reads the file.
 func (p *FileProvider) reloadLoop() {
+	defer close(p.done) // PERF-006: signal exit to Close
 	ticker := time.NewTicker(p.interval)
 	defer ticker.Stop()
 	for {
@@ -136,7 +153,8 @@ func (p *FileProvider) Initial() error { return nil }
 // Update forces a reload of the provider file.
 func (p *FileProvider) Update() error { return p.load() }
 
-// Close stops the reload goroutine.
+// Close stops the reload goroutine and waits for it to exit.
 func (p *FileProvider) Close() {
 	close(p.stopCh)
+	<-p.done // PERF-006: wait for reloadLoop to exit
 }
