@@ -97,7 +97,7 @@
 | DUP-004 | ParseReconnectSettings 跨驱动重复 | driver/modbus/modbus_base.go, driver/opcua/client.go, driver/s7/s7.go | 重复 | P2 | 从 config map 解析 reconnect 参数的逻辑三处近似 | 提取 common/driverutil.ParseReconnectSettings | 无 | Phase 4 批次 1 | 单点实现 | 待处理 |
 | DUP-005 | numericValue 与 util.ToFloat64 功能重叠 | （多处引用） | 重复 | P2 | 两个函数做相同的 string→float64 转换 | 统一为 util.ToFloat64 | 无 | Phase 4 批次 1 | 单点实现 | 待处理 |
 | DUP-006 | modbus 地址解析逻辑分散 | driver/modbus/modbus_base.go | 重复 | P2 | parseModbusAddress 与 register 计算逻辑分散 | 集中到 modbus_address.go（配合 CPLX-002 拆分） | 无 | Phase 4 批次 4 | 地址解析单文件 | 待处理 |
-| DUP-007 | util.GetDurationSetting 重复调用模式 | common/util/util.go + 多处调用 | 重复 | P2 | 从 config map 取 duration 的模式多处重复 | 提取 helper 或确认已有 util 函数覆盖 | 无 | Phase 4 批次 1 | 单点实现 | 待处理 |
+| DUP-007 | util.GetDurationSetting 重复调用模式 | common/util/util.go + 多处调用 | 重复 | P2 | 从 config map 取 duration 的模式多处重复 | 提取 helper 或确认已有 util 函数覆盖 | 无 | Phase 4 批次 1 | 单点实现 | 已归档（util.GetDurationSetting 已是单点实现，各调用点无额外重复验证逻辑） |
 | DUP-008 | engine 配置应用逻辑分散重复 | engine/engine.go, engine/driver_manager.go | 重复 | P2 | applyEngineConfig/autoFill 等配置应用逻辑分散且有重复 | 配合 CPLX-003 拆分集中到 engine_config.go | 无 | Phase 4 批次 3 | 配置应用单文件 | 待处理 |
 | DUP-009 | engine 统计/延迟计算重复 | engine/engine.go, engine/statistic/ | 重复 | P2 | 统计计算逻辑在 engine.go 和 statistic 包间有重复 | 集中到 engine/statistic 包 | 无 | Phase 4 批次 3 | 统计单包 | 待处理 |
 
