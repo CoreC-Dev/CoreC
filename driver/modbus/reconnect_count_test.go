@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CoreC-Dev/CoreC/common/testutil"
 	"github.com/CoreC-Dev/CoreC/core"
 	mb "github.com/simonvetter/modbus"
 )
@@ -42,9 +43,6 @@ func TestModbusReconnectCountStartsAtZero(t *testing.T) {
 // as the background reconnect loop makes attempts. The driver is pointed at
 // a port with no server, so every connect attempt fails and the loop keeps
 // retrying; ReconnectCount must grow monotonically while the loop runs.
-//
-// The test uses polling (not a fixed sleep) to observe the counter, matching
-// the no-flaky-patterns rule in CONTRIBUTING.md.
 func TestModbusReconnectCountIncrements(t *testing.T) {
 	port, err := getFreePort()
 	if err != nil {
@@ -76,40 +74,13 @@ func TestModbusReconnectCountIncrements(t *testing.T) {
 		t.Fatalf("Init: %v", err)
 	}
 
-	// Start with no server running — initial connect fails and the
-	// background reconnect loop begins retrying.
 	if err := drv.Start(ctx); err != nil {
 		t.Fatalf("Start should not fail on connect error: %v", err)
 	}
 	defer drv.Stop()
 
-	// Poll until the counter has advanced past zero (proving the counted
-	// reconnect loop is wired up and is incrementing on each attempt).
-	deadline := time.Now().Add(3 * time.Second)
-	var first uint64
-	for time.Now().Before(deadline) {
-		first = drv.Status().ReconnectCount
-		if first > 0 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if first == 0 {
-		t.Fatal("ReconnectCount never incremented; reconnect loop did not make any counted attempts")
-	}
-
-	// Wait a little longer and confirm the counter keeps growing — the
-	// loop is still retrying against the missing server.
-	deadline = time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if drv.Status().ReconnectCount > first {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if got := drv.Status().ReconnectCount; got <= first {
-		t.Errorf("expected ReconnectCount to keep growing, first=%d now=%d", first, got)
-	}
+	first := testutil.PollReconnectCount(t, drv, 3*time.Second)
+	testutil.PollReconnectCountGrowing(t, drv, first, 2*time.Second)
 }
 
 // TestModbusReconnectCountOnRecovery verifies the full reconnect story
@@ -152,19 +123,7 @@ func TestModbusReconnectCountOnRecovery(t *testing.T) {
 	}
 	defer drv.Stop()
 
-	// Wait for at least one counted reconnect attempt against the missing
-	// server.
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if drv.Status().ReconnectCount > 0 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if got := drv.Status().ReconnectCount; got == 0 {
-		t.Fatal("expected at least one counted reconnect attempt before bringing the server up")
-	}
-	countBeforeServer := drv.Status().ReconnectCount
+	countBeforeServer := testutil.PollReconnectCount(t, drv, 3*time.Second)
 
 	// Now bring the server up. The reconnect loop should succeed and the
 	// counter must record that final successful attempt.
@@ -186,17 +145,7 @@ func TestModbusReconnectCountOnRecovery(t *testing.T) {
 	}
 	defer server.Stop()
 
-	// Poll until connected.
-	connected := false
-	deadline = time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if drv.Status().State == core.StateConnected {
-			connected = true
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	if !connected {
+	if !testutil.PollUntilConnected(t, drv, 5*time.Second) {
 		t.Fatal("driver did not reconnect after server started")
 	}
 

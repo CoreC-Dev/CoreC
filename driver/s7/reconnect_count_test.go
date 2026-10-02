@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CoreC-Dev/CoreC/common/testutil"
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
@@ -31,18 +32,9 @@ func TestS7ReconnectCountStartsAtZero(t *testing.T) {
 // at 127.0.0.1:1 (a closed loopback port that refuses connections
 // instantly) with a short reconnect interval, so the loop retries
 // quickly and ReconnectCount must grow monotonically.
-//
-// The test uses polling (not a fixed sleep) to observe the counter,
-// matching the no-flaky-patterns rule in CONTRIBUTING.md. The reconnect
-// goroutine is always torn down via t.Cleanup so the test never leaks a
-// goroutine even if an assertion fails.
 func TestS7ReconnectCountIncrements(t *testing.T) {
 	d := newTestDriver(t, "rc-incr")
 
-	// 127.0.0.1:1 refuses connections immediately ("connection refused"),
-	// so every reconnect attempt fails fast. A short timeout keeps the
-	// dial bounded; a short reconnect interval makes the counter climb
-	// quickly enough to observe within the test window.
 	cfg := core.DriverConfig{
 		Name:     "rc-incr",
 		Type:     "s7",
@@ -52,8 +44,6 @@ func TestS7ReconnectCountIncrements(t *testing.T) {
 	if err := d.Init(context.Background(), cfg); err != nil {
 		t.Fatalf("Init returned error: %v", err)
 	}
-	// Always stop the background reconnect loop so the test never leaks a
-	// goroutine, even if an assertion below fails.
 	t.Cleanup(func() {
 		if err := d.Stop(); err != nil {
 			t.Errorf("cleanup Stop returned error: %v", err)
@@ -64,33 +54,8 @@ func TestS7ReconnectCountIncrements(t *testing.T) {
 		t.Fatalf("Start returned error: %v", err)
 	}
 
-	// Poll until the counter has advanced past zero (proving the counted
-	// reconnect loop is wired up and is incrementing on each attempt).
-	deadline := time.Now().Add(3 * time.Second)
-	var first uint64
-	for time.Now().Before(deadline) {
-		first = d.Status().ReconnectCount
-		if first > 0 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if first == 0 {
-		t.Fatal("ReconnectCount never incremented; reconnect loop did not make any counted attempts")
-	}
-
-	// Wait a little longer and confirm the counter keeps growing — the
-	// loop is still retrying against the closed port.
-	deadline = time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if d.Status().ReconnectCount > first {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if got := d.Status().ReconnectCount; got <= first {
-		t.Errorf("expected ReconnectCount to keep growing, first=%d now=%d", first, got)
-	}
+	first := testutil.PollReconnectCount(t, d, 3*time.Second)
+	testutil.PollReconnectCountGrowing(t, d, first, 2*time.Second)
 }
 
 // TestS7ReconnectCountPopulatedInStatus verifies that Status() returns a
@@ -120,14 +85,7 @@ func TestS7ReconnectCountPopulatedInStatus(t *testing.T) {
 		t.Fatalf("Start returned error: %v", err)
 	}
 
-	// Wait for at least one counted reconnect attempt.
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if d.ReconnectCount() > 0 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	testutil.PollReconnectCount(t, d, 3*time.Second)
 
 	raw := d.ReconnectCount()
 	if raw == 0 {

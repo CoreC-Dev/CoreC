@@ -91,8 +91,8 @@
 
 | ID | 标题 | 位置 | 类别 | 严重度 | 证据 | 修复建议 | 业务行为影响 | 关联批次 | 验收方式 | 状态 |
 |---|---|---|---|---|---|---|---|---|---|---|
-| DUP-001 | driver 生命周期方法跨 modbus/opcua/s7 重复 ~176 行 | driver/modbus/modbus_base.go, driver/opcua/client.go, driver/s7/s7.go | 重复 | P1 | Connect/Close/Health/Reconnect 等生命周期方法在三个驱动中近乎逐行复制；共享 util.ReconnectLoopWithBreakerCounted 已复用，重复在外层 wrapper | 提取 BaseDriver 生命周期骨架到 common/driverbase（或嵌入 mixin），各驱动仅覆写协议特定逻辑 | 无 | Phase 4 批次 1 | jscpd 重复率下降；驱动生命周期测试共享 | 待处理 |
-| DUP-002 | reconnect_count_test.go 跨 modbus/s7 近乎逐行重复 ~350 行 | driver/modbus/reconnect_count_test.go, driver/s7/reconnect_count_test.go | 重复 | P1 | 两文件结构/断言/辅助函数几乎相同，仅驱动类型不同 | 提取 testutil.ReconnectTestHarness，参数化驱动工厂 | 无 | Phase 4 批次 1 | 测试重复行数 <50 | 待处理 |
+| DUP-001 | driver 生命周期方法跨 modbus/opcua/s7 重复 ~176 行 | driver/modbus/modbus_base.go, driver/opcua/client.go, driver/s7/s7.go | 重复 | P1 | Connect/Close/Health/Reconnect 等生命周期方法在三个驱动中近乎逐行复制；共享 util.ReconnectLoopWithBreakerCounted 已复用，重复在外层 wrapper | 提取 BaseDriver 生命周期骨架到 common/driverbase（或嵌入 mixin），各驱动仅覆写协议特定逻辑 | 无 | Phase 4 批次 1 | jscpd 重复率下降；驱动生命周期测试共享 | 已修复 |
+| DUP-002 | reconnect_count_test.go 跨 modbus/s7 近乎逐行重复 ~350 行 | driver/modbus/reconnect_count_test.go, driver/s7/reconnect_count_test.go | 重复 | P1 | 两文件结构/断言/辅助函数几乎相同，仅驱动类型不同 | 提取 testutil.ReconnectTestHarness，参数化驱动工厂 | 无 | Phase 4 批次 1 | 测试重复行数 <50 | 已修复 |
 | DUP-003 | TLS 证书加载逻辑跨 mqtt/httppush/modbus 重复 | transport/mqtt/publisher.go, transport/httppush/push.go, driver/modbus/tls.go | 重复 | P2 | loadCertPool/buildTLSConfig 三处近似实现 | 提取 common/tlsutil.BuildTLSConfig(opts) | 无 | Phase 4 批次 1 | TLS 配置单点实现 | 待处理 |
 | DUP-004 | ParseReconnectSettings 跨驱动重复 | driver/modbus/modbus_base.go, driver/opcua/client.go, driver/s7/s7.go | 重复 | P2 | 从 config map 解析 reconnect 参数的逻辑三处近似 | 提取 common/driverutil.ParseReconnectSettings | 无 | Phase 4 批次 1 | 单点实现 | 待处理 |
 | DUP-005 | numericValue 与 util.ToFloat64 功能重叠 | （多处引用） | 重复 | P2 | 两个函数做相同的 string→float64 转换 | 统一为 util.ToFloat64 | 无 | Phase 4 批次 1 | 单点实现 | 待处理 |
