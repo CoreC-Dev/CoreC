@@ -45,16 +45,29 @@ type publishedMessage struct {
 	payload  []byte
 }
 
+// subscribeRecord captures a single Subscribe call so tests can verify the
+// topic/QoS a subscription was made with and replay mock messages through the
+// registered handler.
+type subscribeRecord struct {
+	topic   string
+	qos     byte
+	handler pahomqtt.MessageHandler
+}
+
 // mockPahoClient is a pahomqtt.Client stub that records Publish calls and
 // reports a configured connected state. Only the methods exercised by
 // ForwardCommand (IsConnected, Publish) carry real behaviour; the rest
 // return zero values / nil tokens so the stub satisfies the interface
 // without depending on a broker.
 type mockPahoClient struct {
-	mu         sync.Mutex
-	connected  bool
-	publishes  []publishedMessage
-	publishErr error
+	mu             sync.Mutex
+	connected      bool
+	publishes      []publishedMessage
+	publishErr     error
+	subscribes     []subscribeRecord
+	subscribeErr   error
+	subscribeToken pahomqtt.Token // when non-nil, returned by Subscribe verbatim
+	publishToken   pahomqtt.Token // when non-nil, returned by Publish verbatim
 }
 
 func (c *mockPahoClient) IsConnected() bool      { return c.connected }
@@ -73,12 +86,23 @@ func (c *mockPahoClient) Publish(topic string, qos byte, retained bool, payload 
 		payload:  payload.([]byte),
 	})
 	err := c.publishErr
+	tok := c.publishToken
 	c.mu.Unlock()
+	if tok != nil {
+		return tok
+	}
 	return newMockToken(err)
 }
 
 func (c *mockPahoClient) Subscribe(topic string, qos byte, callback pahomqtt.MessageHandler) pahomqtt.Token {
-	return newMockToken(nil)
+	c.mu.Lock()
+	c.subscribes = append(c.subscribes, subscribeRecord{topic: topic, qos: qos, handler: callback})
+	tok := c.subscribeToken
+	if tok == nil {
+		tok = newMockToken(c.subscribeErr)
+	}
+	c.mu.Unlock()
+	return tok
 }
 func (c *mockPahoClient) SubscribeMultiple(filters map[string]byte, callback pahomqtt.MessageHandler) pahomqtt.Token {
 	return newMockToken(nil)
@@ -96,6 +120,15 @@ func (c *mockPahoClient) drainPublished() []publishedMessage {
 	defer c.mu.Unlock()
 	out := make([]publishedMessage, len(c.publishes))
 	copy(out, c.publishes)
+	return out
+}
+
+// drainSubscribes returns a snapshot of all recorded Subscribe calls.
+func (c *mockPahoClient) drainSubscribes() []subscribeRecord {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]subscribeRecord, len(c.subscribes))
+	copy(out, c.subscribes)
 	return out
 }
 

@@ -11,7 +11,7 @@
 #   make cover       — generate coverage report
 #   make install-hooks — install git pre-commit hook
 
-.PHONY: all gates build test test-all lint vet arch taste docs cover install-hooks clean
+.PHONY: all gates build test test-all lint vet arch taste docs cover cover-gate install-hooks clean
 
 GOLANGCI ?= golangci-lint
 GOFLAGS  ?= -race
@@ -49,8 +49,12 @@ docs:
 cover:
 	go test -cover -coverprofile=cover.out ./... && go tool cover -func=cover.out | tail -1
 
+# T11: Coverage gate — per-package + overall thresholds (Phase 5)
+cover-gate:
+	@bash scripts/check-coverage.sh
+
 # All gates in one command — the canonical "is this commit safe?" check
-gates: vet lint arch taste docs test
+gates: vet lint arch taste docs test cover-gate
 	@echo ""
 	@echo "✅ All gates passed"
 

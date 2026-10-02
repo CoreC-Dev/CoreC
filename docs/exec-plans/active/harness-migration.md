@@ -302,3 +302,8 @@
 | 2026-10-03 | 4 | SEC-005: demo 配置改用 ${COREC_API_SECRET} 环境变量 | — | 17 YAML: secret "demo-token"→"${COREC_API_SECRET}"；compose 注入 env；README 文档；无行为影响 |
 | 2026-10-03 | 4 | 批次 12 验收通过 | — | validate 工具 17/17 configs valid；全量 gates 全绿 |
 | 2026-10-03 | 4 | **阶段 4 完成** | — | 批次 1–12 全部完成；所有 CPLX/PERF/SEC 项已修复或已决策关闭 |
+| 2026-10-03 | 5 | 阶段 5 启动 | — | 测试补全与门禁接入 |
+| 2026-10-03 | 5 | TEST-001: discovery 生命周期测试 (P0) | `d4da0b9` | 11 函数 0%→~93%；注入 clientFactory mock |
+| 2026-10-03 | 5 | TEST-007/008/011: parser/log/cache 测试 | `8fe303e` | parser 66→93%, log→81%, GetAll→100% |
+| 2026-10-03 | 5 | TEST-009: demo 冒烟测试 + SEC-005 回归 | — | validate 包测试：17 configs valid + 无明文 demo-token |
+| 2026-10-03 | 5 | 覆盖率门禁接入 | — | scripts/check-coverage.sh：整体≥75% + 19 包阈值；make gates 加入 cover-gate |

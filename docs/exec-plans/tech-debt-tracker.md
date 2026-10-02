@@ -131,7 +131,7 @@
 | TEST-006 | cmd/corec 24.6%（main 0%、run 18%） | cmd/corec/main.go | 测试 | P1 | main/run 路径几乎未测；信号测试忽略退出码 | 补 main/run 集成测试（os.Args 注入+信号模拟） | 无 | Phase 5 | cmd/corec 覆盖率 ≥50% | 待处理 |
 | TEST-007 | transport/parser 66.2%（parseScalar 23.8%、parseTimestamp 33.3%） | transport/parser/ | 测试 | P1 | 边界值/错误路径覆盖不足 | 补边界值表驱动测试 | 无 | Phase 5 | parser 覆盖率 ≥85% | 已修复 |
 | TEST-008 | log ParseLevel/adapter 0% | log/ | 测试 | P2 | 日志级别解析/适配器未测 | 补 ParseLevel 表驱动测试 + adapter 行为测试 | 无 | Phase 5 | log 覆盖率 ≥80% | 已修复 |
-| TEST-009 | demo 0% 覆盖 | demo/chained/ | 测试 | P2 | demo 包无测试 | 补 demo 场景冒烟测试（或标注为 fixture 不计入覆盖） | 无 | Phase 5 | demo 冒烟测试通过 | 待处理 |
+| TEST-009 | demo 0% 覆盖 | demo/chained/ | 测试 | P2 | demo 包无测试 | 补 demo 场景冒烟测试（或标注为 fixture 不计入覆盖） | 无 | Phase 5 | demo 冒烟测试通过 | 已修复 |
 | TEST-010 | hub/route 离线缓冲指标 12.5% | hub/route/ | 测试 | P2 | 离线缓冲指标路径覆盖不足 | 补离线缓冲指标测试 | 无 | Phase 5 | 离线缓冲指标覆盖率 ≥70% | 待处理 |
 | TEST-011 | engine cache.GetAll 0% | engine/ | 测试 | P2 | cache GetAll 未测 | 补 GetAll 测试 | 无 | Phase 5 | GetAll 覆盖率 ≥80% | 已修复 |
 
