@@ -81,6 +81,11 @@ type Discovery struct {
 	autoAdded map[string]bool
 	addedMu   sync.Mutex
 
+	// clientFactory creates the MQTT client for each broker. Defaults to
+	// pahomqtt.NewClient in production; tests inject a mock factory to
+	// exercise Start/Stop/heartbeat without a real broker.
+	clientFactory func(*pahomqtt.ClientOptions) pahomqtt.Client
+
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -90,14 +95,15 @@ type Discovery struct {
 // node connects to and what endpoints it advertises on each.
 func NewDiscovery(node core.NodeConfig, brokers []brokerEndpoint, addTransport func(core.TransportConfig) error) *Discovery {
 	return &Discovery{
-		nodeID:       node.ID,
-		role:         node.Role,
-		subscribe:    node.Subscribe,
-		brokers:      brokers,
-		clients:      make(map[string]pahomqtt.Client),
-		registry:     make(map[string]*nodeInfo),
-		addTransport: addTransport,
-		autoAdded:    make(map[string]bool),
+		nodeID:        node.ID,
+		role:          node.Role,
+		subscribe:     node.Subscribe,
+		brokers:       brokers,
+		clients:       make(map[string]pahomqtt.Client),
+		registry:      make(map[string]*nodeInfo),
+		addTransport:  addTransport,
+		autoAdded:     make(map[string]bool),
+		clientFactory: pahomqtt.NewClient,
 	}
 }
 
@@ -126,7 +132,7 @@ func (d *Discovery) Start(ctx context.Context) error {
 			token.WaitTimeout(defaultMQTTSubscribeTimeout)
 		})
 
-		client := pahomqtt.NewClient(opts)
+		client := d.clientFactory(opts)
 		token := client.Connect()
 		if !token.WaitTimeout(defaultMQTTConnectTimeout) {
 			slog.Warn("discovery connect timed out, will retry",

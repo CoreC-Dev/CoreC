@@ -123,7 +123,7 @@
 
 | ID | 标题 | 位置 | 类别 | 严重度 | 证据 | 修复建议 | 业务行为影响 | 关联批次 | 验收方式 | 状态 |
 |---|---|---|---|---|---|---|---|---|---|---|
-| TEST-001 | engine/discovery.go 拓扑自动发现 11 函数全 0.0% 覆盖 | engine/discovery.go（全文件）; engine/discovery_test.go:342行 | 测试 | P0 | discovery_test.go 只测纯辅助函数，从未启动真实 Discovery 心跳/协调 goroutine。11 函数全 0.0% | Phase 5 最先补：启动真实 Discovery 实例，测试心跳/协调/拓扑变更/关停；用 mock 邻居节点 | 无 | Phase 5（最先） | discovery.go 覆盖率 ≥60% | 待处理 |
+| TEST-001 | engine/discovery.go 拓扑自动发现 11 函数全 0.0% 覆盖 | engine/discovery.go（全文件）; engine/discovery_test.go:342行 | 测试 | P0 | discovery_test.go 只测纯辅助函数，从未启动真实 Discovery 心跳/协调 goroutine。11 函数全 0.0% | Phase 5 最先补：启动真实 Discovery 实例，测试心跳/协调/拓扑变更/关停；用 mock 邻居节点 | 无 | Phase 5（最先） | discovery.go 覆盖率 ≥60% | 已修复 |
 | TEST-002 | MQTT Publish() 仅 8.3%、subscribeCommands/subscribeData 0% | transport/mqtt/publisher.go | 测试 | P1 | 需 broker；Publish 核心路径几乎未测 | 用 mock MQTT broker(eclipse-paho 兼容) 补 Publish/subscribe 路径测试 | 无 | Phase 5 | Publish 覆盖率 ≥70% | 待处理 |
 | TEST-003 | OPC UA startSubscription/subscriptionLoop/handleConnectionLost 全 0% | driver/opcua/client.go | 测试 | P1 | 订阅/重连路径无测试 | 用 mock OPC UA server 补订阅生命周期测试 | 无 | Phase 5 | 订阅路径覆盖率 ≥50% | 待处理 |
 | TEST-004 | Modbus handleConnectionLost 0%、readTag 10.5%、三种 connect 0% | driver/modbus/modbus_base.go | 测试 | P1 | 重连/读路径覆盖不足 | 用 mock Modbus slave 补重连+读路径测试 | 无 | Phase 5 | handleConnectionLost/readTag 覆盖率 ≥60% | 待处理 |
