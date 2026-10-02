@@ -187,7 +187,7 @@ func (s *scheduler) PauseDriver(name string) error {
 	return nil
 }
 
-func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) { //nolint:gocyclo // task lifecycle (connect/read/transform/publish/retry); complexity 27. Refactor tracked as tech debt.
+func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) {
 	defer s.wg.Done()
 
 	task := runner.task
@@ -212,139 +212,158 @@ func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) { //nolint:
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			// Check if scheduler is globally paused (e.g. during config reload)
-			if s.globalPaused.Load() {
-				continue
-			}
+		}
 
-			// Check if paused
-			s.mu.RLock()
-			paused := s.paused[task.Driver]
-			s.mu.RUnlock()
-			if paused {
-				continue
-			}
+		// Check if scheduler is globally paused (e.g. during config reload)
+		if s.globalPaused.Load() {
+			continue
+		}
 
-			start := time.Now()
+		// Check if paused
+		s.mu.RLock()
+		paused := s.paused[task.Driver]
+		s.mu.RUnlock()
+		if paused {
+			continue
+		}
 
-			// Execute read with timeout. Use the task's ReadTimeout if
-			// configured (>0), otherwise fall back to the interval. This
-			// decouples the read deadline from the collection cadence.
-			readTimeout := task.ReadTimeout
-			if readTimeout <= 0 {
-				readTimeout = interval
-			}
-			readCtx, readCancel := context.WithTimeout(ctx, readTimeout)
-			values, err := s.readFunc(readCtx, task.Driver, task.Tags)
-			readCancel()
+		start := time.Now()
 
-			latency := time.Since(start)
+		// Execute read with timeout. Use the task's ReadTimeout if
+		// configured (>0), otherwise fall back to the interval.
+		readTimeout := task.ReadTimeout
+		if readTimeout <= 0 {
+			readTimeout = interval
+		}
+		readCtx, readCancel := context.WithTimeout(ctx, readTimeout)
+		values, err := s.readFunc(readCtx, task.Driver, task.Tags)
+		readCancel()
 
-			if latency > interval {
-				runner.overrunCount++
-				if time.Since(runner.lastOverrunLog) >= s.errorThrottleWindow {
-					slog.Warn("scheduler overrun",
-						"task", task.ID,
-						"latency", latency,
-						"interval", interval,
-						"occurrences", runner.overrunCount,
-					)
-					runner.lastOverrunLog = time.Now()
-					runner.overrunCount = 0
-				}
-			}
+		latency := time.Since(start)
+		s.logOverrunIfNeeded(runner, task, latency, interval)
 
-			if err != nil {
-				s.statManager.PushError()
-				errMsg := err.Error()
-				runner.errCount++
-				now := time.Now()
+		if err != nil {
+			s.handleReadError(runner, task, err, interval, degradedInterval, degradeAfterErrors, ticker)
+			continue
+		}
 
-				// Log immediately on first failure or when error message changes,
-				// otherwise throttle to once per errorThrottleWindow.
-				if !runner.inError || errMsg != runner.lastErrMsg || now.Sub(runner.lastErrLog) >= s.errorThrottleWindow {
-					slog.Error("read failed",
-						"task", task.ID,
-						"driver", task.Driver,
-						"error", err,
-						"repeated_count", runner.errCount,
-					)
-					runner.lastErrLog = now
-					runner.lastErrMsg = errMsg
-					runner.errCount = 0
-				}
-				runner.inError = true
-				runner.consecutiveErrors++
+		// If recovered from error
+		if runner.inError {
+			handleRecovery(runner, task, interval, ticker)
+		}
 
-				// Auto-degrade: if we've had enough consecutive errors and
-				// haven't already degraded, stretch the tick interval.
-				if runner.consecutiveErrors >= degradeAfterErrors && !runner.degraded {
-					runner.degraded = true
-					ticker.Reset(degradedInterval)
-					slog.Warn("scheduler auto-degrade: stretching interval due to sustained errors",
-						"task", task.ID,
-						"driver", task.Driver,
-						"original_interval", interval,
-						"degraded_interval", degradedInterval,
-						"consecutive_errors", runner.consecutiveErrors,
-					)
-				}
-				continue
-			}
+		if len(values) == 0 {
+			continue
+		}
 
-			// If recovered from error
-			if runner.inError {
-				slog.Info("read recovered",
-					"task", task.ID,
-					"driver", task.Driver,
-				)
-				runner.inError = false
-				runner.lastErrMsg = ""
-				runner.errCount = 0
-				runner.consecutiveErrors = 0
-
-				// Restore original interval if we were degraded.
-				if runner.degraded {
-					runner.degraded = false
-					ticker.Reset(interval)
-					slog.Info("scheduler auto-degrade: restoring original interval",
-						"task", task.ID,
-						"driver", task.Driver,
-						"interval", interval,
-					)
-				}
-			}
-
-			if len(values) > 0 {
-				s.statManager.PushRead(int64(len(values)))
-
-				// Apply deadband filtering: skip values that haven't changed
-				// beyond the configured threshold since last report.
-				// A fresh slice is allocated so the filter never aliases
-				// the driver's returned slice (a driver may legitimately
-				// reuse its return buffer across Read calls).
-				if len(runner.task.DeadBands) > 0 {
-					filtered := make([]core.TagValue, 0, len(values))
-					for _, v := range values {
-						threshold, ok := runner.task.DeadBands[v.Tag]
-						if !ok || threshold <= 0 {
-							filtered = append(filtered, v)
-							continue
-						}
-						numVal := util.ToFloat64(v.Value)
-						lastVal, hasLast := runner.lastValues[v.Tag]
-						if !hasLast || math.Abs(numVal-lastVal) >= threshold {
-							filtered = append(filtered, v)
-							runner.lastValues[v.Tag] = numVal
-						}
-					}
-					values = filtered
-				}
-
-				if len(values) > 0 {
-					s.onData(task.Driver, values, task.Priority)
-				}
-			}
+		s.statManager.PushRead(int64(len(values)))
+		values = applyDeadbandFilter(runner, values)
+		if len(values) > 0 {
+			s.onData(task.Driver, values, task.Priority)
 		}
 	}
+}
+
+// logOverrunIfNeeded warns when a read takes longer than the collection interval.
+func (s *scheduler) logOverrunIfNeeded(runner *taskRunner, task core.ScheduleTask, latency, interval time.Duration) {
+	if latency <= interval {
+		return
+	}
+	runner.overrunCount++
+	if time.Since(runner.lastOverrunLog) < s.errorThrottleWindow {
+		return
+	}
+	slog.Warn("scheduler overrun",
+		"task", task.ID,
+		"latency", latency,
+		"interval", interval,
+		"occurrences", runner.overrunCount,
+	)
+	runner.lastOverrunLog = time.Now()
+	runner.overrunCount = 0
+}
+
+// handleReadError records the error, logs it (throttled), and auto-degrades
+// the ticker if sustained errors reach the threshold.
+func (s *scheduler) handleReadError(runner *taskRunner, task core.ScheduleTask, err error, interval, degradedInterval time.Duration, degradeAfterErrors int, ticker *time.Ticker) {
+	s.statManager.PushError()
+	errMsg := err.Error()
+	runner.errCount++
+	now := time.Now()
+
+	// Log immediately on first failure or when error message changes,
+	// otherwise throttle to once per errorThrottleWindow.
+	if !runner.inError || errMsg != runner.lastErrMsg || now.Sub(runner.lastErrLog) >= s.errorThrottleWindow {
+		slog.Error("read failed",
+			"task", task.ID,
+			"driver", task.Driver,
+			"error", err,
+			"repeated_count", runner.errCount,
+		)
+		runner.lastErrLog = now
+		runner.lastErrMsg = errMsg
+		runner.errCount = 0
+	}
+	runner.inError = true
+	runner.consecutiveErrors++
+
+	// Auto-degrade: if we've had enough consecutive errors and
+	// haven't already degraded, stretch the tick interval.
+	if runner.consecutiveErrors >= degradeAfterErrors && !runner.degraded {
+		runner.degraded = true
+		ticker.Reset(degradedInterval)
+		slog.Warn("scheduler auto-degrade: stretching interval due to sustained errors",
+			"task", task.ID,
+			"driver", task.Driver,
+			"original_interval", interval,
+			"degraded_interval", degradedInterval,
+			"consecutive_errors", runner.consecutiveErrors,
+		)
+	}
+}
+
+// handleRecovery logs the recovery and restores the original interval if degraded.
+func handleRecovery(runner *taskRunner, task core.ScheduleTask, interval time.Duration, ticker *time.Ticker) {
+	slog.Info("read recovered",
+		"task", task.ID,
+		"driver", task.Driver,
+	)
+	runner.inError = false
+	runner.lastErrMsg = ""
+	runner.errCount = 0
+	runner.consecutiveErrors = 0
+
+	if runner.degraded {
+		runner.degraded = false
+		ticker.Reset(interval)
+		slog.Info("scheduler auto-degrade: restoring original interval",
+			"task", task.ID,
+			"driver", task.Driver,
+			"interval", interval,
+		)
+	}
+}
+
+// applyDeadbandFilter skips values that haven't changed beyond the configured
+// threshold since last report. A fresh slice is allocated so the filter never
+// aliases the driver's returned slice.
+func applyDeadbandFilter(runner *taskRunner, values []core.TagValue) []core.TagValue {
+	if len(runner.task.DeadBands) == 0 {
+		return values
+	}
+	filtered := make([]core.TagValue, 0, len(values))
+	for _, v := range values {
+		threshold, ok := runner.task.DeadBands[v.Tag]
+		if !ok || threshold <= 0 {
+			filtered = append(filtered, v)
+			continue
+		}
+		numVal := util.ToFloat64(v.Value)
+		lastVal, hasLast := runner.lastValues[v.Tag]
+		if !hasLast || math.Abs(numVal-lastVal) >= threshold {
+			filtered = append(filtered, v)
+			runner.lastValues[v.Tag] = numVal
+		}
+	}
+	return filtered
 }
