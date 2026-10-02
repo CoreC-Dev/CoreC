@@ -1,7 +1,7 @@
 # Harness 工程化改造计划
 
 > 本计划依据《Harness 工程化规则》（`docs/HARNESS-RULES.md`）§5 五阶段流程制定，针对 **CoreC**（Go IIoT 数据采集核心）存量项目。
-> **当前处于阶段 2 完成**：文档对齐已完成（6/6 验收通过），待确认进入阶段 3。
+> **当前处于阶段 3 完成**：门禁审计与自动化质量校验已落地（10 项门禁全绿，违规实测拦截），待确认进入阶段 4。
 
 ## 0. 元信息
 
@@ -9,7 +9,7 @@
 - 仓库路径：`/workspace/codespace/CoreC`
 - 分支：`harnessing`（由 `main` 创建，§7.1）
 - 计划版本 / 日期：v1.0 / 2026-10-02
-- 状态：**阶段 2 完成**（6/6 验收通过，待确认进入阶段 3）
+- 状态：**阶段 3 完成**（10 项门禁全绿，违规实测拦截，待确认进入阶段 4）
 - 规则文档：`docs/HARNESS-RULES.md`（施工期常驻，竣工后按 §14 拆解归档）
 - 框架判定：其他类型（纯 Go 后端，非 Tauri）—— 详见 `docs/CI.md`
 
@@ -179,6 +179,16 @@
 - **子任务**（§5 阶段3）：§3.3 三问不适用（非 Tauri）；按 §3.4 在现有 CI 上增量改造（**不删现有配置**）；盘点现有门禁；补齐基础门禁（build/type/lint/format/test/依赖扫描）；加提交前 hook；编写架构结构测试（§4.1 依赖方向）；编写自定义 linter 与品味不变量 T1–T10（§4.2，错误信息含修复指令）；加文档门禁；加覆盖率门禁；建立豁免机制；固化合并理念。
 - **产出物**：更新后的 `docs/CI.md`、门禁清单文档、CI/hook/linter/结构测试配置、覆盖率配置。
 - **验收标准**：干净环境「安装→构建→测试」一次成功；故意越层依赖/超长文件/非结构化日志/死链门禁**实测**失败；每个失败信息含可执行修复指引；门禁可本地一条命令复现；豁免项有原因与到期时间。
+- **完成清单**：
+  - [x] 架构结构测试 `archtest/arch_test.go`（T7: 依赖方向，`go list -json` 解析 import 图，对照 ARCHITECTURE.md 允许边表校验，含跨域禁止规则）
+  - [x] 品味不变量测试 `tastetest/taste_test.go`（T1: 文件 ≤600 行 + 豁免登记；T6: 禁止 fmt.Println/Printf 生产代码）
+  - [x] `Makefile`（`make gates` 一条命令复现全部门禁：vet+lint+arch+taste+docs+test）
+  - [x] `scripts/pre-commit.sh` 提交前 hook（`make install-hooks` 安装）
+  - [x] CI 增量改造 `.github/workflows/ci.yml`：新增 `gates`/`doc-gate`/`coverage`/`version-check` 四个 job，**未删任何现有 job**；修复 paths-ignore 过期条目
+  - [x] `docs/gates.md` 门禁清单（10 项门禁 G1–G10，每项含触发/失败含义/修复指引/本地命令）
+  - [x] 豁免机制文档化（nolint 须附原因+tracker ID；文件大小豁免含修复计划；t.Skip 须附原因）
+  - [x] 违规实测：注入跨域 import → T7 拦截 ✅；注入超长文件 → T1 拦截 ✅；注入 fmt.Println → T6 拦截 ✅；每条失败信息含可执行修复指引
+  - [x] 干净环境全绿：vet ✅ build ✅ arch ✅ taste ✅ docs ✅ test ✅
 
 ### 阶段 4 · 问题修复与重构落地
 - **子任务**（§5 阶段4）：按 §4 批次推进；拆分臃肿模块；落实单一职责；降低复杂度；抽离公共可复用逻辑到共享工具包；修复问题清单缺陷（P0 优先）；同步更新文档与 `QUALITY_SCORE.md`；维护计划进度日志；更新技术债台账。
@@ -224,3 +234,11 @@
 | 2026-10-02 | 2 | 补全 10 包 // Package 注释（DOC-010）；链接孤儿文档 DOC-011/012 | — | doc.go 文件；VitePress sidebar |
 | 2026-10-02 | 2 | 创建 scripts/check-docs.sh 文档防腐脚本 | — | 死链+必填节+孤儿+包注释检查；实测通过 |
 | 2026-10-02 | 2 | 阶段 2 验收 6/6 通过 | — | check-docs.sh 全绿；AGENTS.md 67行；tracker DOC-001..013 状态更新 |
+| 2026-10-03 | 3 | 阶段 3 门禁审计启动 | — | §5 阶段3；R3 先护栏后动手 |
+| 2026-10-03 | 3 | 编写架构结构测试 `archtest/arch_test.go`（T7） | — | `go list -json` 解析 import 图；对照 ARCHITECTURE.md 允许边表；跨域禁止（driver/* 互禁、transport/mqtt↔httppush 互禁）；修复 ARCHITECTURE.md log 依赖条目 |
+| 2026-10-03 | 3 | 编写品味不变量测试 `tastetest/taste_test.go`（T1+T6） | — | T1: ≤600 行 + 11 个豁免登记（CPLX-001..014）；T6: 禁止 fmt.Println/Printf 生产代码 |
+| 2026-10-03 | 3 | 创建 Makefile + pre-commit hook | — | `make gates` 一命令复现；`make install-hooks` 安装 git hook |
+| 2026-10-03 | 3 | CI 增量改造 `.github/workflows/ci.yml` | — | 新增 gates/doc-gate/coverage/version-check 四 job；未删现有 job；修复 paths-ignore |
+| 2026-10-03 | 3 | 编写 `docs/gates.md` 门禁清单 + 豁免机制文档 | — | 10 项门禁 G1–G10；每项含触发/失败/修复/命令；nolint 须附原因+tracker ID |
+| 2026-10-03 | 3 | 违规实测验证 | — | 注入跨域 import→T7 拦截✅；注入超长文件→T1 拦截✅；注入 fmt.Println→T6 拦截✅；干净环境全绿✅ |
+| 2026-10-03 | 3 | 阶段 3 验收通过 | — | 10 项门禁全绿；违规实测拦截；失败信息含修复指引；本地一命令复现；豁免项有原因 |

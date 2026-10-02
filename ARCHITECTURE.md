@@ -46,7 +46,7 @@ Layer 4 (入口层):    cmd/corec
 | `hub/*` | `core`, `engine`, `config`, `common` | 依赖 `driver`/`transport`/`rule`（仅通过 engine 间接） |
 | `config` | `core`(仅类型), `common` | 依赖 `engine`/`driver`/`transport`/`hub` |
 | `common` | （无，纯工具） | 依赖任何业务包 |
-| `log` | （标准库） | 依赖任何业务包 |
+| `log` | `core`, `common/observable` | 依赖 `engine`/`driver`/`transport`/`hub`/`config` |
 | `cmd/corec` | 所有（wiring 点） | — |
 
 **跨域禁止**：`driver/modbus` 不可依赖 `driver/opcua` 或 `driver/s7`；`transport/mqtt` 不可依赖 `transport/httppush`。

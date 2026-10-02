@@ -7,14 +7,12 @@ on:
     paths-ignore:
       - 'docs/**'
       - 'README.md'
-      - 'AI_HANDOVER.md'
       - '.github/workflows/deploy-docs.yml'
   pull_request:
     branches: [main]
     paths-ignore:
       - 'docs/**'
       - 'README.md'
-      - 'AI_HANDOVER.md'
       - '.github/workflows/deploy-docs.yml'
 
 jobs:
@@ -69,3 +67,92 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
         run: go build -o /dev/null ./cmd/corec
+
+  # Phase 3: Architecture + taste invariant gates (T1/T6/T7)
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.1'
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Architecture structure test (T7: dependency direction)
+        run: go test -v ./archtest/
+
+      - name: Taste invariant tests (T1: file size, T6: structured logging)
+        run: go test -v ./tastetest/
+
+  # Phase 3: Document gate (T9)
+  doc-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Document lint (T9: dead links, required sections, orphans, package comments)
+        run: bash scripts/check-docs.sh
+
+  # Phase 3: Coverage gate (T10)
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.1'
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Generate coverage
+        run: go test -cover -coverprofile=cover.out -short -timeout 120s ./...
+
+      - name: Check coverage threshold (≥75% overall)
+        run: |
+          COVERAGE=$(go tool cover -func=cover.out | tail -1 | grep -oP '[\d.]+%')
+          echo "Overall coverage: $COVERAGE"
+          COVERAGE_NUM=$(echo "$COVERAGE" | sed 's/%//')
+          if (( $(echo "$COVERAGE_NUM < 75.0" | bc -l) )); then
+            echo "❌ Coverage $COVERAGE is below 75% threshold"
+            exit 1
+          fi
+          echo "✅ Coverage $COVERAGE meets 75% threshold"
+
+  # Phase 3: Version consistency guard (D3)
+  version-check:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.1'
+
+      - name: Verify version consistency
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          echo "Git tag: $TAG"
+          # Check tag is valid semver
+          if ! echo "$TAG" | grep -qP '^v?\d+\.\d+\.\d+'; then
+            echo "❌ Tag '$TAG' is not valid semver (expected vX.Y.Z or X.Y.Z)"
+            exit 1
+          fi
+          # Verify release.yml injects the tag as version
+          if ! grep -q 'main.version' .github/workflows/release.yml; then
+            echo "❌ release.yml does not inject main.version via ldflags"
+            exit 1
+          fi
+          if ! grep -q 'hub/route.Version' .github/workflows/release.yml; then
+            echo "❌ release.yml does not inject hub/route.Version via ldflags"
+            exit 1
+          fi
+          echo "✅ Version consistency verified: tag=$TAG, ldflags inject main.version + hub/route.Version"
