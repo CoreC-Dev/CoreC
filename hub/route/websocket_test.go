@@ -344,7 +344,7 @@ func TestAuthQueryToken(t *testing.T) {
 	}
 
 	// WebSocket upgrade requests may use ?token=.
-	req, err := http.NewRequest("GET", ts.URL+"/drivers?token=my-secret", nil)
+	req, err := http.NewRequest("GET", ts.URL+"/drivers?token=my-secret", http.NoBody)
 	if err != nil {
 		t.Fatalf("NewRequest failed: %v", err)
 	}

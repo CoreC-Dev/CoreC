@@ -335,7 +335,7 @@ func TestAuthWithQueryToken(t *testing.T) {
 
 	// WebSocket upgrade requests may use ?token= (browser WS API cannot
 	// set custom Authorization headers).
-	req, err := http.NewRequest("GET", ts.URL+"/drivers?token="+secret, nil)
+	req, err := http.NewRequest("GET", ts.URL+"/drivers?token="+secret, http.NoBody)
 	if err != nil {
 		t.Fatalf("NewRequest failed: %v", err)
 	}
@@ -351,7 +351,7 @@ func TestAuthWithQueryToken(t *testing.T) {
 	}
 
 	// Wrong token on WebSocket upgrade
-	req2, err := http.NewRequest("GET", ts.URL+"/drivers?token=wrong", nil)
+	req2, err := http.NewRequest("GET", ts.URL+"/drivers?token=wrong", http.NoBody)
 	if err != nil {
 		t.Fatalf("NewRequest failed: %v", err)
 	}

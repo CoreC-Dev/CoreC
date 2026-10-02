@@ -240,22 +240,7 @@ func ReCreateServer(cfg *Config) {
 	}
 
 	// Apply configured timeouts, falling back to defaults.
-	rht := cfg.ReadHeaderTimeout
-	if rht <= 0 {
-		rht = defaultReadHeaderTimeout
-	}
-	rt := cfg.ReadTimeout
-	if rt <= 0 {
-		rt = defaultReadTimeout
-	}
-	wt := cfg.WriteTimeout
-	if wt <= 0 {
-		wt = defaultWriteTimeout
-	}
-	it := cfg.IdleTimeout
-	if it <= 0 {
-		it = defaultIdleTimeout
-	}
+	rht, rt, wt, it := resolveTimeouts(cfg)
 
 	// Create the listener upfront so a bind failure is reported
 	// synchronously rather than in the goroutine below.
@@ -281,47 +266,79 @@ func ReCreateServer(cfg *Config) {
 	httpServer = server
 	serverMu.Unlock()
 
+	go serveAPI(server, ln, cfg)
+
+	// Start a separate pprof server if PprofAddr is configured.
+	startPprofServer(cfg)
+}
+
+// resolveTimeouts applies configured timeouts, falling back to defaults
+// for any non-positive value.
+func resolveTimeouts(cfg *Config) (rht, rt, wt, it time.Duration) {
+	rht = cfg.ReadHeaderTimeout
+	if rht <= 0 {
+		rht = defaultReadHeaderTimeout
+	}
+	rt = cfg.ReadTimeout
+	if rt <= 0 {
+		rt = defaultReadTimeout
+	}
+	wt = cfg.WriteTimeout
+	if wt <= 0 {
+		wt = defaultWriteTimeout
+	}
+	it = cfg.IdleTimeout
+	if it <= 0 {
+		it = defaultIdleTimeout
+	}
+	return rht, rt, wt, it
+}
+
+// serveAPI runs the HTTP server in a background goroutine. It logs
+// listen/startup messages and any serve errors.
+func serveAPI(server *http.Server, ln net.Listener, cfg *Config) {
+	log.Infoln("RESTful API listening at %s", cfg.Addr)
+	var err error
+	if cfg.TLSCert != "" && cfg.TLSKey != "" {
+		log.Infoln("TLS enabled — using HTTPS")
+		err = server.ServeTLS(ln, cfg.TLSCert, cfg.TLSKey)
+	} else {
+		err = server.Serve(ln)
+	}
+	if err != nil && err != http.ErrServerClosed {
+		log.Errorln("RESTful API error: %v", err)
+	}
+}
+
+// startPprofServer starts a separate pprof server if PprofAddr is
+// configured. This keeps profiling endpoints off the main API port
+// and does NOT require authentication, so it should be bound to a
+// loopback or private interface only.
+func startPprofServer(cfg *Config) {
+	if cfg.PprofAddr == "" || cfg.PprofDisabled {
+		return
+	}
+	pprofMu.Lock()
+	if pprofServer != nil {
+		_ = pprofServer.Close()
+	}
+	pMux := http.NewServeMux()
+	pMux.HandleFunc("/debug/pprof/", pprof.Index)
+	pMux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	pMux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	pMux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	pMux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	pprofServer = &http.Server{
+		Addr:    cfg.PprofAddr,
+		Handler: pMux,
+	}
+	pprofMu.Unlock()
 	go func() {
-		log.Infoln("RESTful API listening at %s", cfg.Addr)
-		var err error
-		if cfg.TLSCert != "" && cfg.TLSKey != "" {
-			log.Infoln("TLS enabled — using HTTPS")
-			err = server.ServeTLS(ln, cfg.TLSCert, cfg.TLSKey)
-		} else {
-			err = server.Serve(ln)
-		}
-		if err != nil && err != http.ErrServerClosed {
-			log.Errorln("RESTful API error: %v", err)
+		log.Infoln("pprof server listening at %s (no auth)", cfg.PprofAddr)
+		if err := pprofServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Errorln("pprof server error: %v", err)
 		}
 	}()
-
-	// Start a separate pprof server if PprofAddr is configured. This
-	// keeps profiling endpoints off the main API port and does NOT
-	// require authentication, so it should be bound to a loopback or
-	// private interface only.
-	if cfg.PprofAddr != "" && !cfg.PprofDisabled {
-		pprofMu.Lock()
-		if pprofServer != nil {
-			_ = pprofServer.Close()
-		}
-		pMux := http.NewServeMux()
-		pMux.HandleFunc("/debug/pprof/", pprof.Index)
-		pMux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-		pMux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-		pMux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-		pMux.HandleFunc("/debug/pprof/trace", pprof.Trace)
-		pprofServer = &http.Server{
-			Addr:    cfg.PprofAddr,
-			Handler: pMux,
-		}
-		pprofMu.Unlock()
-		go func() {
-			log.Infoln("pprof server listening at %s (no auth)", cfg.PprofAddr)
-			if err := pprofServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				log.Errorln("pprof server error: %v", err)
-			}
-		}()
-	}
 }
 
 // serverShutdownTimeout is the maximum time CloseServer waits for in-flight
