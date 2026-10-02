@@ -62,17 +62,17 @@
 |---|---|---|---|---|---|---|---|---|---|---|
 | CPLX-001 | 超长文件: MQTT publisher 1186 行 | transport/mqtt/publisher.go:1-1186 | 复杂度 | P1 | 1186 行(>800, T1 阈值 400) | 拆分 replay_window.go / command_handler.go / tls_config.go / publisher.go | 无 | Phase 4 批次 7 | 文件 <400 行 | 待处理 |
 | CPLX-002 | 超长文件: Modbus base 953 行 | driver/modbus/modbus_base.go:1-953 | 复杂度 | P1 | 953 行(>800) | 拆分 modbus_read.go / modbus_write.go / modbus_address.go / modbus_base.go | 无 | Phase 4 批次 4 | 文件 <400 行 | 待处理 |
-| CPLX-003 | 超长文件: engine.go 875 行 | engine/engine.go:1-875 | 复杂度 | P1 | 875 行(>800) | 拆分 engine_lifecycle.go / engine_stats.go / engine_config.go | 无 | Phase 4 批次 3 | 文件 <400 行 | 待处理 |
+| CPLX-003 | 超长文件: engine.go 875 行 | engine/engine.go:1-875 | 复杂度 | P1 | 875 行(>800) | 拆分 engine_lifecycle.go / engine_stats.go / engine_config.go | 无 | Phase 4 批次 3 | 文件 <400 行 | 已修复 |
 | CPLX-004 | 超长文件: S7 driver 727 行 | driver/s7/s7.go:1-727 | 复杂度 | P1 | 727 行(600-800) | 拆分 s7_address.go / s7_codec.go / s7.go | 无 | Phase 4 批次 6 | 文件 <400 行 | 待处理 |
 | CPLX-005 | 超长文件: route server 701 行 | hub/route/server.go:1-701 | 复杂度 | P1 | 701 行(600-800) | 拆分 server_lifecycle.go / middleware.go / router.go | 无 | Phase 4 批次 10 | 文件 <400 行 | 待处理 |
 | CPLX-006 | 超长文件: OPCUA client 662 行 | driver/opcua/client.go:1-662 | 复杂度 | P1 | 662 行(600-800) | 拆分 opcua_subscription.go / opcua_read.go / opcua_write.go / client.go | 无 | Phase 4 批次 5 | 文件 <400 行 | 待处理 |
 | CPLX-007 | 超长文件: rule engine 659 行 | rule/engine.go:1-659 | 复杂度 | P1 | 659 行(600-800) | 拆分 rule_engine.go / rule_build.go / rule_match.go | 无 | Phase 4 批次 9 | 文件 <400 行 | 待处理 |
-| CPLX-008 | 超长文件: batcher 512 行 | engine/batcher.go:1-512 | 复杂度 | P2 | 512 行(400-600) | 拆出 retry_buffer.go | 无 | Phase 4 批次 3 | 文件 <400 行 | 待处理 |
+| CPLX-008 | 超长文件: batcher 512 行 | engine/batcher.go:1-512 | 复杂度 | P2 | 512 行(400-600) | 拆出 retry_buffer.go | 无 | Phase 4 批次 3 | 文件 <400 行 | 已修复 |
 | CPLX-009 | 超长文件: httppush 480 行 | transport/httppush/push.go:1-480 | 复杂度 | P2 | 480 行(400-600) | 拆出 webhook.go / push_config.go | 无 | Phase 4 批次 8 | 文件 <400 行 | 待处理 |
 | CPLX-010 | 超长文件: config 467 行 | config/config.go:1-467 | 复杂度 | P2 | 467 行(400-600) | 拆出 validate.go / env_expand.go | 无 | Phase 4 批次 2 | 文件 <400 行 | 已修复 |
 | CPLX-011 | 超长文件: route metrics 453 行 | hub/route/metrics.go:1-453 | 复杂度 | P2 | 453 行(400-600) | 按指标族拆分 metrics_driver.go / metrics_transport.go / metrics_runtime.go | 无 | Phase 4 批次 10 | 文件 <400 行 | 待处理 |
 | CPLX-012 | 超长文件: executor 450 行 | hub/executor/executor.go:1-450 | 复杂度 | P2 | 450 行(400-600) | 拆出 diff.go / apply.go | 无 | Phase 4 批次 11 | 文件 <400 行 | 待处理 |
-| CPLX-013 | 超长文件: driver_manager 422 行 | engine/driver_manager.go:1-422 | 复杂度 | P2 | 422 行(400-600) | 拆出 tagfile_watcher.go | 无 | Phase 4 批次 3 | 文件 <400 行 | 待处理 |
+| CPLX-013 | 超长文件: driver_manager 422 行 | engine/driver_manager.go:1-422 | 复杂度 | P2 | 422 行(400-600) | 拆出 tagfile_watcher.go | 无 | Phase 4 批次 3 | 文件 <400 行 | 已修复 |
 | CPLX-014 | 超高圈复杂度: scheduler.runTask gocyclo=27 | engine/scheduler.go:190-350(161行) | 复杂度 | P2 | gocyclo=27(>20), //nolint:gocyclo 抑制; 嵌套 7 层 | 抽取 deadband 过滤/错误降级/重连为独立函数；早返回降低嵌套 | 无 | Phase 4 批次 3 | gocyclo <20 且嵌套 ≤4 层 | 待处理 |
 | CPLX-015 | 超高圈复杂度: engine.Start gocyclo=26 | engine/engine.go:235-379(145行) | 复杂度 | P2 | gocyclo=26(>20), //nolint:gocyclo 抑制 | 按子系统拆为 startDrivers/startTransports/startScheduler/startBatchers | 无 | Phase 4 批次 3 | gocyclo <20 | 待处理 |
 | CPLX-016 | 超高圈复杂度: modbus.readTag gocyclo=26 | driver/modbus/modbus_base.go:437-536(100行) | 复杂度 | P2 | gocyclo=26(>20), //nolint:gocyclo 抑制 | 按数据类型分派表替换 if/switch 链；拆 decodeInt/decodeFloat/decodeBool | 无 | Phase 4 批次 4 | gocyclo <20 | 待处理 |
@@ -157,7 +157,7 @@
 | PERF-005 | rule provider 热重载每 tick 全量重解析+重编译，无 hash 检查 | rule/provider.go:99-112 | 性能 | P2 | reloadLoop 每 tick 调 load()→ReadFile+Unmarshal+compileExpr，无变更检测。对比 tagfile.go 用 SHA-256 hash 跳过 | 仿 tagfile.go 加 SHA-256 hash，未变更则跳过 load | 修复bug | Phase 4 批次 9 | 未改文件时断言 load 次数为 0 | 待处理 |
 | PERF-006 | rule provider Close 不等 reloadLoop 退出(有界泄漏) | rule/provider.go:140-142 | 性能 | P2 | Close() 仅 close(p.stopCh)，无 done channel。reloadLoop 最长再跑一个 tick 才退出 | 加 done chan，loop 退出 close(done)，Close 后 <-done。仿 tagfile.go:132-135 | 修复bug | Phase 4 批次 9 | goleak 测试：Close 后无 reloadLoop 拘留 | 待处理 |
 | PERF-007 | goleak 仅覆盖 4 包，driver/* 与 transport/httppush 未强制 | driver/opcua/, driver/modbus/, driver/s7/, transport/httppush/ | 性能 | P2 | goleak.VerifyTestMain 仅在 engine/, transport/mqtt/, hub/route/, rule/。driver reconnectLoop/subscriptionLoop、httppush webhook goroutine 无机械泄漏校验 | 为上述 4 包加 main_test.go + goleak.VerifyTestMain(按需 IgnoreAnyFunction 排除 paho/gos7) | 修复bug | Phase 3 | 新增 main_test.go 后 go test goleak 通过 | 待处理 |
-| PERF-008 | engine.Stop() 对 batcher.stop() 无超时(与 driver/transport 不对称) | engine/engine.go:528-531 | 性能 | P2 | for range batchers { b.stop() } 无 time.After 包裹。当前因内部 WithTimeout+有界 retry 而有界，但若 transport 忽略 ctx 或 retry 配置过大则 Stop 挂起 | 给 batcher.stop() 加超时包裹，或给 flushFinal 传带超时 ctx | 修复bug | Phase 4 批次 3 | 注入阻塞型 transport，断言 engine.Stop() 在 shutdownTimeout 内返回 | 待处理 |
+| PERF-008 | engine.Stop() 对 batcher.stop() 无超时(与 driver/transport 不对称) | engine/engine.go:528-531 | 性能 | P2 | for range batchers { b.stop() } 无 time.After 包裹。当前因内部 WithTimeout+有界 retry 而有界，但若 transport 忽略 ctx 或 retry 配置过大则 Stop 挂起 | 给 batcher.stop() 加超时包裹，或给 flushFinal 传带超时 ctx | 修复bug | Phase 4 批次 3 | 注入阻塞型 transport，断言 engine.Stop() 在 shutdownTimeout 内返回 | 已修复 |
 
 ---
 
