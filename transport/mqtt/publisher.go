@@ -293,12 +293,12 @@ func (t *MQTTTransport) Start(ctx context.Context) (err error) {
 
 	// Warn if a command topic is configured without a command secret: in
 	// that mode command messages are accepted unauthenticated, which is
-	// insecure in any deployment where untrusted clients can publish to
-	// the command topic. This preserves backward compatibility while
-	// making the risk visible at startup.
+	// Fail-closed: if a command topic is configured but no command-secret is
+	// set, reject startup. Accepting unauthenticated command messages would
+	// allow any MQTT client to issue PLC write commands.
 	if t.commandTopic != "" && t.commandSecret == "" {
-		slog.Warn("mqtt command topic has no command-secret; accepting unauthenticated command messages",
-			"name", t.name, "topic", t.commandTopic)
+		return fmt.Errorf("mqtt transport %s: command-topic %q is configured but command-secret is empty; refusing to start without command authentication (set command-secret or remove command-topic)",
+			t.name, t.commandTopic)
 	}
 	// When command authentication is enabled, surface the replay-protection
 	// posture so operators can confirm whether timestamp enforcement and
@@ -630,13 +630,37 @@ func (t *MQTTTransport) ForwardCommand(ctx context.Context, cmd core.WriteComman
 }
 
 func (t *MQTTTransport) PublishBatch(ctx context.Context, points []core.DataPoint) error {
-	var firstErr error
+	if len(points) == 0 {
+		return nil
+	}
+
+	if t.client == nil || !t.client.IsConnected() {
+		t.failed.Add(uint64(len(points)))
+		return fmt.Errorf("mqtt transport %s is not connected", t.name)
+	}
+
+	// Concurrent publish: fire all tokens, then wait for all to complete.
+	// This reduces batch latency from N×RTT to ~RTT (D8).
+	type publishResult struct {
+		index int
+		err   error
+	}
+	results := make([]publishResult, len(points))
+	var wg sync.WaitGroup
+	wg.Add(len(points))
+
 	for i := range points {
-		if err := t.Publish(ctx, points[i]); err != nil {
-			if firstErr == nil {
-				firstErr = fmt.Errorf("publishBatch: point %d/%d: %w", i+1, len(points), err)
-			}
-			// Continue publishing remaining points
+		go func(idx int) {
+			defer wg.Done()
+			results[idx] = publishResult{index: idx, err: t.Publish(ctx, points[idx])}
+		}(i)
+	}
+	wg.Wait()
+
+	var firstErr error
+	for _, r := range results {
+		if r.err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("publishBatch: point %d/%d: %w", r.index+1, len(points), r.err)
 		}
 	}
 	return firstErr
