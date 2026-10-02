@@ -37,7 +37,6 @@ var exemptedFiles = map[string]string{
 	"transport/mqtt/publisher.go": "CPLX-001: 1192 lines, Phase 4 batch 7 will split into replay_window/command_handler/tls_config/publisher",
 	"engine/engine.go":            "CPLX-003: 875 lines, Phase 4 batch 3 will split into lifecycle/stats/config",
 	"transport/httppush/push.go":  "CPLX-009: 759 lines, Phase 4 batch 8 will split into webhook/push_config",
-	"hub/executor/executor.go":    "CPLX-012: 622 lines, Phase 4 batch 11 will split into diff/apply",
 	"engine/batcher.go":           "CPLX-014: 617 lines, Phase 4 batch 3 will split into retry_buffer",
 }
 
