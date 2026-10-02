@@ -1,7 +1,7 @@
 # Harness 工程化改造计划
 
 > 本计划依据《Harness 工程化规则》（`docs/HARNESS-RULES.md`）§5 五阶段流程制定，针对 **CoreC**（Go IIoT 数据采集核心）存量项目。
-> **当前处于阶段 4 进行中**：批次 1（common）已完成，批次 2–12 待执行。
+> **当前处于阶段 4 进行中**：批次 1–3 已完成，批次 4–12 待执行。
 
 ## 0. 元信息
 
@@ -9,7 +9,7 @@
 - 仓库路径：`/workspace/codespace/CoreC`
 - 分支：`harnessing`（由 `main` 创建，§7.1）
 - 计划版本 / 日期：v1.0 / 2026-10-02
-- 状态：**阶段 4 进行中**（批次 1 完成，批次 2–12 待执行）
+- 状态：**阶段 4 进行中**（批次 1–3 完成，批次 4–12 待执行）
 - 规则文档：`docs/HARNESS-RULES.md`（施工期常驻，竣工后按 §14 拆解归档）
 - 框架判定：其他类型（纯 Go 后端，非 Tauri）—— 详见 `docs/CI.md`
 
@@ -255,3 +255,13 @@
 | 2026-10-03 | 4 | 批次 1 验收通过 | — | 全量 build+test+vet+archtest+tastetest+docs 全绿；行为守恒（R2） |
 | 2026-10-03 | 4 | 批次 2（config）: CPLX-010 拆 config.go→config+env_expand+validate | `a00e24e` | 467→124+120+248 行；ARCH-002 注入 DriverRegistry/TransportRegistry 接口 |
 | 2026-10-03 | 4 | 批次 2 验收通过 | — | 全量 build+test+vet+archtest+tastetest 全绿；行为守恒（R2） |
+| 2026-10-03 | 4 | 批次 3（engine）启动 | — | PERF-008/CPLX-003/008/013/014/015/019 + DUP-008/009；CPLX-020/025 延期 |
+| 2026-10-03 | 4 | PERF-008: batcher.stop() 加超时包裹 | `8560988` | 与 driver/transport Stop 对称 |
+| 2026-10-03 | 4 | CPLX-003: 拆 engine.go 875→4 文件 | `d245c1c` | engine.go(195)+lifecycle(361)+stats(194)+config(160) |
+| 2026-10-03 | 4 | CPLX-008: 拆 batcher.go 512→379+retry_buffer(143) | `33e434a` | 纯机械移动 |
+| 2026-10-03 | 4 | CPLX-013: 拆 driver_manager.go 422→268+tagfile_watcher(163) | `14f4395` | 纯机械移动 |
+| 2026-10-03 | 4 | CPLX-015: Start gocyclo 26→<20 | `1a3d8c0` | 提取 startScheduler/startTransports/initRules/startDrivers/startProcessingWorkers |
+| 2026-10-03 | 4 | CPLX-014/019: runTask gocyclo 27→<20, nesting 7→3 | `c325556` | 提取 logOverrunIfNeeded/handleReadError/handleRecovery/applyDeadbandFilter |
+| 2026-10-03 | 4 | DUP-008/009: 配置/统计逻辑随文件拆分集中 | — | engine_config.go/engine_stats.go 单一职责 |
+| 2026-10-03 | 4 | 修复预存 lint 问题（gofmt×7, nilerr×4, nilnil×1） | `ffab75c` | nolint 附原因 |
+| 2026-10-03 | 4 | 批次 3 验收通过 | — | 全量 vet+lint+build+test+archtest+tastetest 全绿；0 nolint:gocyclo；行为守恒（R2） |
