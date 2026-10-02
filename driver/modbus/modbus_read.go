@@ -54,7 +54,7 @@ func (b *modbusBase) Read(ctx context.Context, tags []string) ([]core.TagValue, 
 	// Phase 2: batch reads. Returns a map of tag index → raw value for
 	// tags that were read successfully as part of a batch. Tags absent
 	// from the map are handled individually in Phase 3.
-	batchValues, client := b.performBatchReads(client, reqs, valid)
+	batchValues, client := b.performBatchReads(ctx, client, reqs, valid)
 
 	// Phase 3: assemble results in input order. Batched tags use the
 	// value from Phase 2; everything else goes through the per-tag
@@ -99,7 +99,12 @@ func (b *modbusBase) Read(ctx context.Context, tags []string) ([]core.TagValue, 
 				break
 			}
 			if attempt < b.maxRetry && util.IsConnectionError(err) {
-				time.Sleep(b.ReconnectBackoff())
+				// Wait for backoff but return immediately if ctx is cancelled.
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(b.ReconnectBackoff()):
+				}
 				// Refresh client in case reconnection happened
 				b.RLock()
 				client = b.client
@@ -315,7 +320,7 @@ func (rb readBatch) regType() mb.RegType {
 // omitted so Phase 3 handles them individually. The possibly-refreshed
 // client is returned so subsequent individual reads reuse a reconnected
 // client.
-func (b *modbusBase) performBatchReads(client *mb.ModbusClient, reqs []batchTagReq, valid []bool) (map[int]any, *mb.ModbusClient) {
+func (b *modbusBase) performBatchReads(ctx context.Context, client *mb.ModbusClient, reqs []batchTagReq, valid []bool) (map[int]any, *mb.ModbusClient) {
 	batchValues := make(map[int]any)
 
 	maxBatch := uint16(b.Capabilities().MaxBatchSize)
@@ -338,7 +343,7 @@ func (b *modbusBase) performBatchReads(client *mb.ModbusClient, reqs []batchTagR
 		})
 
 		for _, batch := range mergeBatches(area, indices, reqs, maxBatch) {
-			values, refreshedClient, err := b.readBatchWithRetry(client, batch, reqs)
+			values, refreshedClient, err := b.readBatchWithRetry(ctx, client, batch, reqs)
 			client = refreshedClient
 			if err != nil {
 				// Batch failed after retries: leave these tags for
@@ -357,7 +362,7 @@ func (b *modbusBase) performBatchReads(client *mb.ModbusClient, reqs []batchTagR
 
 // readBatchWithRetry issues a single batch read, retrying on
 // connection-class errors (mirroring the per-tag retry policy in Read).
-func (b *modbusBase) readBatchWithRetry(client *mb.ModbusClient, batch readBatch, reqs []batchTagReq) (map[int]any, *mb.ModbusClient, error) {
+func (b *modbusBase) readBatchWithRetry(ctx context.Context, client *mb.ModbusClient, batch readBatch, reqs []batchTagReq) (map[int]any, *mb.ModbusClient, error) {
 	var values map[int]any
 	var err error
 	for attempt := 0; attempt <= b.maxRetry; attempt++ {
@@ -366,7 +371,12 @@ func (b *modbusBase) readBatchWithRetry(client *mb.ModbusClient, batch readBatch
 			break
 		}
 		if attempt < b.maxRetry && util.IsConnectionError(err) {
-			time.Sleep(b.ReconnectBackoff())
+			// Wait for backoff but return immediately if ctx is cancelled.
+			select {
+			case <-ctx.Done():
+				return nil, client, ctx.Err()
+			case <-time.After(b.ReconnectBackoff()):
+			}
 			// Refresh client in case reconnection happened.
 			b.RLock()
 			client = b.client
