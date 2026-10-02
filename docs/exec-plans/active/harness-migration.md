@@ -1,7 +1,7 @@
 # Harness 工程化改造计划
 
 > 本计划依据《Harness 工程化规则》（`docs/HARNESS-RULES.md`）§5 五阶段流程制定，针对 **CoreC**（Go IIoT 数据采集核心）存量项目。
-> **当前处于阶段 4 进行中**：批次 1–9 已完成，批次 10–12 待执行。
+> **当前处于阶段 4 进行中**：批次 1–10 已完成，批次 11–12 待执行。
 
 ## 0. 元信息
 
@@ -9,7 +9,7 @@
 - 仓库路径：`/workspace/codespace/CoreC`
 - 分支：`harnessing`（由 `main` 创建，§7.1）
 - 计划版本 / 日期：v1.0 / 2026-10-02
-- 状态：**阶段 4 进行中**（批次 1–9 完成，批次 10–12 待执行）
+- 状态：**阶段 4 进行中**（批次 1–10 完成，批次 11–12 待执行）
 - 规则文档：`docs/HARNESS-RULES.md`（施工期常驻，竣工后按 §14 拆解归档）
 - 框架判定：其他类型（纯 Go 后端，非 Tauri）—— 详见 `docs/CI.md`
 
@@ -290,3 +290,8 @@
 | 2026-10-03 | 4 | PERF-005/006: rule provider hash-skip reload + Close 等 done | `e19bb67` | reloadLoop 加 SHA-256 hash 跳过未变更；Close 加 done channel 等待退出；bug 修复 |
 | 2026-10-03 | 4 | CPLX-007: 拆 rule/engine.go 659→3 文件 | `30ca1f3` | engine(149)+rule_build(451)+rule_match(70)；纯机械移动 |
 | 2026-10-03 | 4 | 批次 9 验收通过 | — | 全量 vet+lint+build+test+archtest+tastetest 全绿；行为守恒（R2）+bug 修复标注 |
+| 2026-10-03 | 4 | 批次 10（hub/route）启动 | — | CPLX-005/011 + SEC-006（SEC-004 已 D10 关闭） |
+| 2026-10-03 | 4 | CPLX-005: 拆 server.go 701→4 文件 | `e29fa45` | server(171)+lifecycle(242)+middleware(216)+router(99)；纯机械移动 |
+| 2026-10-03 | 4 | CPLX-011: 拆 metrics.go 453→6 文件 | `567f857` | metrics(117)+driver(57)+transport(65)+engine(85)+http(57)+runtime(110)；按指标族 |
+| 2026-10-03 | 4 | SEC-006: pprof 非回环地址拒绝绑定 | `b92a3a1` | D11 变更行为；isLoopbackAddr 守卫 + 3 测试；修复 pprofServer 潜在 data race |
+| 2026-10-03 | 4 | 批次 10 验收通过 | — | 全量 vet+lint+build+test+archtest+tastetest 全绿；行为变更显式标注 |
