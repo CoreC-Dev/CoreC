@@ -56,8 +56,8 @@ func TestNewOPCUADriver(t *testing.T) {
 	d := drv.(*OPCUADriver)
 
 	// Name and type are derived from the config immediately.
-	if d.name != "opcua-1" {
-		t.Errorf("expected name %q, got %q", "opcua-1", d.name)
+	if d.Name() != "opcua-1" {
+		t.Errorf("expected name %q, got %q", "opcua-1", d.Name())
 	}
 	if d.Name() != "opcua-1" {
 		t.Errorf("Name() = %q, want %q", d.Name(), "opcua-1")
@@ -67,8 +67,8 @@ func TestNewOPCUADriver(t *testing.T) {
 	}
 
 	// A freshly-created driver is disconnected with no client and empty maps.
-	if d.state != core.StateDisconnected {
-		t.Errorf("expected initial state StateDisconnected, got %s", d.state)
+	if d.GetState() != core.StateDisconnected {
+		t.Errorf("expected initial state StateDisconnected, got %s", d.GetState())
 	}
 	if d.client != nil {
 		t.Error("expected nil client before Start")
@@ -92,8 +92,8 @@ func TestNewOPCUADriver(t *testing.T) {
 	}
 
 	// Counters start at zero.
-	if d.readCount.Load() != 0 || d.errorCount.Load() != 0 {
-		t.Errorf("counters should start at zero, got read=%d err=%d", d.readCount.Load(), d.errorCount.Load())
+	if d.ReadCount() != 0 || d.ErrorCount() != 0 {
+		t.Errorf("counters should start at zero, got read=%d err=%d", d.ReadCount(), d.ErrorCount())
 	}
 }
 
@@ -199,11 +199,11 @@ func TestInitConfigParsing(t *testing.T) { //nolint:gocyclo // exhaustive config
 	if d.timeout != 3*time.Second {
 		t.Errorf("timeout = %v, want 3s", d.timeout)
 	}
-	if d.reconnectBackoff != 1*time.Second {
-		t.Errorf("reconnectBackoff = %v, want 1s", d.reconnectBackoff)
+	if d.ReconnectBackoff() != 1*time.Second {
+		t.Errorf("reconnectBackoff = %v, want 1s", d.ReconnectBackoff())
 	}
-	if d.maxReconnectBackoff != 10*time.Second {
-		t.Errorf("maxReconnectBackoff = %v, want 10s", d.maxReconnectBackoff)
+	if d.MaxReconnectBackoff() != 10*time.Second {
+		t.Errorf("maxReconnectBackoff = %v, want 10s", d.MaxReconnectBackoff())
 	}
 	if d.maxBatchSize != 500 {
 		t.Errorf("maxBatchSize = %d, want 500", d.maxBatchSize)
@@ -242,11 +242,11 @@ func TestInitDefaults(t *testing.T) {
 	if d.subInterval != 500*time.Millisecond {
 		t.Errorf("default subInterval = %v, want 500ms", d.subInterval)
 	}
-	if d.reconnectBackoff != core.DefaultReconnectBackoff {
-		t.Errorf("default reconnectBackoff = %v, want %v", d.reconnectBackoff, core.DefaultReconnectBackoff)
+	if d.ReconnectBackoff() != core.DefaultReconnectBackoff {
+		t.Errorf("default reconnectBackoff = %v, want %v", d.ReconnectBackoff(), core.DefaultReconnectBackoff)
 	}
-	if d.maxReconnectBackoff != core.DefaultMaxReconnectBackoff {
-		t.Errorf("default maxReconnectBackoff = %v, want %v", d.maxReconnectBackoff, core.DefaultMaxReconnectBackoff)
+	if d.MaxReconnectBackoff() != core.DefaultMaxReconnectBackoff {
+		t.Errorf("default maxReconnectBackoff = %v, want %v", d.MaxReconnectBackoff(), core.DefaultMaxReconnectBackoff)
 	}
 	if d.maxBatchSize != 1000 {
 		t.Errorf("default maxBatchSize = %d, want 1000", d.maxBatchSize)
@@ -481,8 +481,8 @@ func TestStop(t *testing.T) {
 		if err := drv.Stop(); err != nil {
 			t.Errorf("Stop() returned error: %v", err)
 		}
-		if d.state != core.StateDisconnected {
-			t.Errorf("state = %s, want disconnected", d.state)
+		if d.GetState() != core.StateDisconnected {
+			t.Errorf("state = %s, want disconnected", d.GetState())
 		}
 	})
 
@@ -491,8 +491,8 @@ func TestStop(t *testing.T) {
 		if err := d.Stop(); err != nil {
 			t.Errorf("Stop() returned error: %v", err)
 		}
-		if d.state != core.StateDisconnected {
-			t.Errorf("state = %s, want disconnected", d.state)
+		if d.GetState() != core.StateDisconnected {
+			t.Errorf("state = %s, want disconnected", d.GetState())
 		}
 		if d.client != nil {
 			t.Error("client should be nil after Stop")
@@ -562,16 +562,16 @@ func TestRestart(t *testing.T) {
 			t.Errorf("tag1 nodeID = ns=%d;s=%s, want ns=3;s=Reactor.Temp", nodeID.Namespace(), nodeID.StringID())
 		}
 		// Start failed to connect (no server) so the driver is left connecting.
-		if d.state != core.StateConnecting {
-			t.Errorf("state after restart = %s, want connecting", d.state)
+		if d.GetState() != core.StateConnecting {
+			t.Errorf("state after restart = %s, want connecting", d.GetState())
 		}
 
 		// Tear down the reconnect goroutine and verify a clean stop.
 		if err := d.Stop(); err != nil {
 			t.Fatalf("Stop after restart failed: %v", err)
 		}
-		if d.state != core.StateDisconnected {
-			t.Errorf("state after stop = %s, want disconnected", d.state)
+		if d.GetState() != core.StateDisconnected {
+			t.Errorf("state after stop = %s, want disconnected", d.GetState())
 		}
 	})
 
@@ -703,8 +703,8 @@ func TestReadNotConnected(t *testing.T) {
 	if !strings.Contains(err.Error(), "not connected") {
 		t.Errorf("error = %q, want substring 'not connected'", err.Error())
 	}
-	if d.errorCount.Load() != 1 {
-		t.Errorf("errorCount = %d, want 1", d.errorCount.Load())
+	if d.ErrorCount() != 1 {
+		t.Errorf("errorCount = %d, want 1", d.ErrorCount())
 	}
 
 	// An unknown tag still hits the not-connected guard first.
@@ -712,8 +712,8 @@ func TestReadNotConnected(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected Read to fail when not connected")
 	}
-	if d.errorCount.Load() != 2 {
-		t.Errorf("errorCount = %d, want 2", d.errorCount.Load())
+	if d.ErrorCount() != 2 {
+		t.Errorf("errorCount = %d, want 2", d.ErrorCount())
 	}
 }
 

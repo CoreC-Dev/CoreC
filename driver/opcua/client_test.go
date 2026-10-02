@@ -109,10 +109,10 @@ func initConnectedOPCUA(t *testing.T, cfg core.DriverConfig) *OPCUADriver {
 	if err != nil {
 		t.Fatalf("opcua.NewClient error: %v", err)
 	}
-	d.mu.Lock()
+	d.Lock()
 	d.client = client
-	d.state = core.StateConnected
-	d.mu.Unlock()
+	d.SetStateLocked(core.StateConnected)
+	d.Unlock()
 	return d
 }
 
@@ -458,7 +458,7 @@ func TestOPCUAWriteEncode(t *testing.T) {
 func TestOPCUAReadError(t *testing.T) {
 	d := initConnectedOPCUA(t, validConfig("x"))
 
-	beforeErr := d.errorCount.Load()
+	beforeErr := d.ErrorCount()
 	vals, err := d.Read(context.Background(), []string{"tag1"})
 	if err == nil {
 		t.Fatal("expected error from unconnected client, got nil")
@@ -469,8 +469,8 @@ func TestOPCUAReadError(t *testing.T) {
 	if !strings.Contains(err.Error(), "opcua batch read failed") {
 		t.Errorf("error = %q, want substring 'opcua batch read failed'", err.Error())
 	}
-	if d.errorCount.Load() != beforeErr+1 {
-		t.Errorf("errorCount = %d, want %d", d.errorCount.Load(), beforeErr+1)
+	if d.ErrorCount() != beforeErr+1 {
+		t.Errorf("errorCount = %d, want %d", d.ErrorCount(), beforeErr+1)
 	}
 	// lastError stores the raw underlying error (not the wrapped form).
 	if !strings.Contains(d.Status().LastError, "not connected") {

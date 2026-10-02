@@ -230,6 +230,9 @@ func (d *BaseDriver) GetState() core.ConnState {
 	return d.state
 }
 
+// GetStateLocked returns state without locking (caller must hold mu).
+func (d *BaseDriver) GetStateLocked() core.ConnState { return d.state }
+
 // SetLastError records the last error message (thread-safe).
 func (d *BaseDriver) SetLastError(err string) {
 	d.mu.Lock()
@@ -263,6 +266,15 @@ func (d *BaseDriver) ReconnectCount() uint64 { return d.reconnectCount.Load() }
 
 // ReconnectBackoff returns the initial reconnect backoff interval.
 func (d *BaseDriver) ReconnectBackoff() time.Duration { return d.reconnectBackoff }
+
+// MaxReconnectBackoff returns the maximum reconnect backoff interval.
+func (d *BaseDriver) MaxReconnectBackoff() time.Duration { return d.maxReconnectBackoff }
+
+// ReadCount returns the total read count.
+func (d *BaseDriver) ReadCount() uint64 { return d.readCount.Load() }
+
+// ErrorCount returns the total error count.
+func (d *BaseDriver) ErrorCount() uint64 { return d.errorCount.Load() }
 
 // Context returns the driver's context (set during Start).
 func (d *BaseDriver) Context() context.Context { return d.ctx }

@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/CoreC-Dev/CoreC/common/util"
 	"github.com/CoreC-Dev/CoreC/core"
+	"github.com/CoreC-Dev/CoreC/driverbase"
 	"github.com/gopcua/opcua"
 	"github.com/gopcua/opcua/ua"
 )
@@ -20,25 +20,19 @@ const TypeName = "opcua"
 
 // OPCUADriver implements core.Driver for OPC UA protocol.
 type OPCUADriver struct {
-	mu sync.RWMutex
-
-	name   string
-	config core.DriverConfig
+	driverbase.BaseDriver
 
 	// OPC UA settings
-	endpoint             string
-	securityPolicy       string
-	securityMode         string
-	username             string
-	password             string
-	certFile             string
-	keyFile              string
-	timeout              time.Duration
-	reconnectBackoff     time.Duration
-	maxReconnectBackoff  time.Duration
-	maxReconnectFailures int // circuit breaker threshold; 0 = disabled
-	subBufferSize        int
-	maxBatchSize         int
+	endpoint      string
+	securityPolicy string
+	securityMode   string
+	username       string
+	password       string
+	certFile       string
+	keyFile        string
+	timeout        time.Duration
+	subBufferSize  int
+	maxBatchSize   int
 
 	// OPC UA client
 	client *opcua.Client
@@ -55,20 +49,6 @@ type OPCUADriver struct {
 	handleToTag  map[uint32]string
 	subNotifyCh  chan *opcua.PublishNotificationData
 	subWg        sync.WaitGroup // tracks the subscription notification goroutine
-
-	// State
-	state     core.ConnState
-	lastRead  time.Time
-	lastError string
-
-	// Counters
-	readCount      atomic.Uint64
-	errorCount     atomic.Uint64
-	reconnectCount atomic.Uint64
-
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup // tracks the reconnectLoop goroutine
 }
 
 // NewOPCUADriver creates a new OPC UA driver instance.
@@ -78,21 +58,20 @@ func NewOPCUADriver(config core.DriverConfig) (core.Driver, error) {
 		bufSize = 1024
 	}
 	d := &OPCUADriver{
-		name:          config.Name,
-		config:        config,
 		tags:          make(map[string]core.TagConfig),
 		nodeIDs:       make(map[string]*ua.NodeID),
-		state:         core.StateDisconnected,
 		subChannel:    make(chan core.DataPoint, bufSize),
 		subBufferSize: bufSize,
 	}
+	d.SetMeta(config.Name, TypeName, config)
 	return d, nil
 }
 
 func (d *OPCUADriver) Init(ctx context.Context, config core.DriverConfig) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	d.Lock()
+	defer d.Unlock()
 
+	d.SetMeta(config.Name, TypeName, config)
 	settings := config.Settings
 
 	// Parse endpoint
@@ -132,9 +111,7 @@ func (d *OPCUADriver) Init(ctx context.Context, config core.DriverConfig) error 
 	d.timeout = util.GetDurationSetting(settings, "timeout", core.DefaultDriverTimeout)
 
 	// Reconnect and batch settings
-	d.reconnectBackoff = util.GetDurationSetting(settings, "reconnect-interval", core.DefaultReconnectBackoff)
-	d.maxReconnectBackoff = util.GetDurationSetting(settings, "reconnect-max-interval", core.DefaultMaxReconnectBackoff)
-	d.maxReconnectFailures = util.GetIntSetting(settings, "max-reconnect-failures", core.DefaultMaxReconnectFailures)
+	d.ParseReconnectSettings(settings)
 	d.maxBatchSize = util.GetIntSetting(settings, "max-batch-size", 1000)
 
 	// Parse tags and node IDs
@@ -147,8 +124,26 @@ func (d *OPCUADriver) Init(ctx context.Context, config core.DriverConfig) error 
 		d.nodeIDs[tag.Name] = nodeID
 	}
 
+	// Lifecycle hooks for BaseDriver.
+	d.SetConnectFunc(func() error { return d.connect(d.Context()) })
+	d.SetInitFunc(d.Init)
+	d.SetCloseConnFunc(func() {
+		if d.client != nil {
+			d.client.Close(context.Background())
+			d.client = nil
+		}
+	})
+	d.SetExtraShutdown(func() {
+		d.stopSubscription()
+		d.subWg.Wait()
+	})
+	d.SetOnConnLost(func() {
+		d.stopSubscription()
+	})
+	d.SetTagCountFunc(func() int { return len(d.tags) })
+
 	slog.Info("opcua driver initialized",
-		"name", d.name,
+		"name", d.Name(),
 		"endpoint", d.endpoint,
 		"tags", len(d.tags),
 		"subscription_mode", d.subMode,
@@ -157,24 +152,8 @@ func (d *OPCUADriver) Init(ctx context.Context, config core.DriverConfig) error 
 	return nil
 }
 
-func (d *OPCUADriver) Start(ctx context.Context) error {
-	d.ctx, d.cancel = context.WithCancel(ctx)
-
-	if err := d.connect(ctx); err != nil {
-		slog.Warn("opcua initial connect failed, will retry in background",
-			"name", d.name, "error", err)
-		d.mu.Lock()
-		d.state = core.StateConnecting
-		d.lastError = err.Error()
-		d.mu.Unlock()
-
-		d.startReconnectLoop()
-		return nil
-	}
-
-	slog.Info("opcua driver started", "name", d.name, "endpoint", d.endpoint)
-	return nil
-}
+// Start, Stop, Restart, Status, Name, Type, reconnectLoop, startReconnectLoop,
+// and HandleConnectionLost are provided by the embedded driverbase.BaseDriver.
 
 func (d *OPCUADriver) connect(ctx context.Context) error {
 	opts := []opcua.Option{
@@ -208,18 +187,18 @@ func (d *OPCUADriver) connect(ctx context.Context) error {
 		return fmt.Errorf("failed to connect to opcua endpoint: %w", err)
 	}
 
-	d.mu.Lock()
+	d.Lock()
 	d.client = client
-	d.state = core.StateConnected
-	d.lastError = ""
-	d.mu.Unlock()
+	d.SetStateLocked(core.StateConnected)
+	d.SetLastErrorLocked("")
+	d.Unlock()
 
-	slog.Info("opcua connected successfully", "name", d.name, "endpoint", d.endpoint)
+	slog.Info("opcua connected successfully", "name", d.Name(), "endpoint", d.endpoint)
 
 	if d.subMode {
 		if err := d.startSubscription(ctx); err != nil {
 			slog.Warn("opcua subscription setup failed, falling back to polling reads",
-				"name", d.name, "error", err)
+				"name", d.Name(), "error", err)
 		}
 	}
 
@@ -232,11 +211,11 @@ func (d *OPCUADriver) connect(ctx context.Context) error {
 // implementation behind Subscribe(); it is called automatically after a
 // successful connect when the driver is in subscription mode.
 func (d *OPCUADriver) startSubscription(ctx context.Context) error {
-	d.mu.RLock()
+	d.RLock()
 	client := d.client
 	nodeIDs := d.nodeIDs
 	tags := d.tags
-	d.mu.RUnlock()
+	d.RUnlock()
 
 	if client == nil || len(nodeIDs) == 0 {
 		return fmt.Errorf("no client or tags to subscribe")
@@ -279,18 +258,18 @@ func (d *OPCUADriver) startSubscription(ctx context.Context) error {
 		}
 	}
 
-	d.mu.Lock()
+	d.Lock()
 	d.subscription = sub
 	d.handleToTag = handleToTag
 	d.subNotifyCh = notifyCh
-	d.mu.Unlock()
+	d.Unlock()
 
 	// Notification forwarding goroutine.
 	d.subWg.Add(1)
 	go d.subscriptionLoop(ctx, notifyCh, handleToTag, tags)
 
 	slog.Info("opcua subscription active",
-		"name", d.name, "subscription_id", sub.SubscriptionID, "items", len(items))
+		"name", d.Name(), "subscription_id", sub.SubscriptionID, "items", len(items))
 	return nil
 }
 
@@ -312,8 +291,8 @@ func (d *OPCUADriver) subscriptionLoop(ctx context.Context,
 				return
 			}
 			if msg.Error != nil {
-				d.errorCount.Add(1)
-				slog.Warn("opcua subscription error", "name", d.name, "error", msg.Error)
+				d.RecordError()
+				slog.Warn("opcua subscription error", "name", d.Name(), "error", msg.Error)
 				continue
 			}
 			notif, ok := msg.Value.(*ua.DataChangeNotification)
@@ -334,7 +313,7 @@ func (d *OPCUADriver) subscriptionLoop(ctx context.Context,
 				dt, _ := core.ParseDataType(tagCfg.Type)
 
 				dp := core.DataPoint{
-					Driver:    d.name,
+					Driver:    d.Name(),
 					Tag:       tagName,
 					Value:     val,
 					Type:      dt,
@@ -345,9 +324,9 @@ func (d *OPCUADriver) subscriptionLoop(ctx context.Context,
 				case d.subChannel <- dp:
 				default:
 					// subChannel full; drop to avoid blocking the notification loop.
-					d.errorCount.Add(1)
+					d.RecordError()
 					slog.Warn("opcua subscription channel full, dropping data point",
-						"name", d.name,
+						"name", d.Name(),
 						"tag", dp.Tag,
 						"driver", dp.Driver,
 					)
@@ -360,13 +339,13 @@ func (d *OPCUADriver) subscriptionLoop(ctx context.Context,
 // stopSubscription tears down an active OPC UA subscription and waits for the
 // notification goroutine to exit. Safe to call when no subscription is active.
 func (d *OPCUADriver) stopSubscription() {
-	d.mu.Lock()
+	d.Lock()
 	sub := d.subscription
 	notifyCh := d.subNotifyCh
 	d.subscription = nil
 	d.subNotifyCh = nil
 	d.handleToTag = nil
-	d.mu.Unlock()
+	d.Unlock()
 
 	if sub != nil {
 		_ = sub.Cancel(context.Background())
@@ -377,65 +356,17 @@ func (d *OPCUADriver) stopSubscription() {
 	_ = notifyCh
 }
 
-func (d *OPCUADriver) reconnectLoop() {
-	util.ReconnectLoopWithBreakerCounted(d.ctx, d.name, func() error { return d.connect(d.ctx) }, d.reconnectBackoff, d.maxReconnectBackoff, d.maxReconnectFailures, &d.reconnectCount)
-}
-
-// startReconnectLoop launches the reconnect goroutine tracked by the WaitGroup
-// so that Stop() can wait for any in-flight connect() to finish before closing
-// the client. This prevents orphaned connections on shutdown.
-func (d *OPCUADriver) startReconnectLoop() {
-	d.wg.Add(1)
-	go func() {
-		defer d.wg.Done()
-		d.reconnectLoop()
-	}()
-}
-
-func (d *OPCUADriver) Stop() error {
-	if d.cancel != nil {
-		d.cancel()
-	}
-	// Wait for the reconnectLoop goroutine to exit so it cannot complete a
-	// connect() after we close the client below (which would leak a connection).
-	d.wg.Wait()
-
-	// Tear down any active subscription and wait for its notification goroutine.
-	d.stopSubscription()
-	d.subWg.Wait()
-
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	if d.client != nil {
-		d.client.Close(context.Background())
-		d.client = nil
-	}
-	d.state = core.StateDisconnected
-
-	slog.Info("opcua driver stopped", "name", d.name)
-	return nil
-}
-
-func (d *OPCUADriver) Restart(ctx context.Context, config core.DriverConfig) error {
-	if err := d.Stop(); err != nil {
-		return err
-	}
-	if err := d.Init(ctx, config); err != nil {
-		return err
-	}
-	return d.Start(ctx)
-}
+// startReconnectLoop and reconnectLoop are provided by BaseDriver.
 
 func (d *OPCUADriver) Read(ctx context.Context, tags []string) ([]core.TagValue, error) {
-	d.mu.RLock()
+	d.RLock()
 	client := d.client
-	state := d.state
-	d.mu.RUnlock()
+	state := d.GetStateLocked()
+	d.RUnlock()
 
 	if state != core.StateConnected || client == nil {
-		d.errorCount.Add(1)
-		return nil, fmt.Errorf("driver %s is not connected", d.name)
+		d.RecordError()
+		return nil, fmt.Errorf("driver %s is not connected", d.Name())
 	}
 
 	readValues := make([]*ua.ReadValueID, 0, len(tags))
@@ -443,9 +374,9 @@ func (d *OPCUADriver) Read(ctx context.Context, tags []string) ([]core.TagValue,
 	now := time.Now()
 
 	for _, tagName := range tags {
-		d.mu.RLock()
+		d.RLock()
 		nodeID, ok := d.nodeIDs[tagName]
-		d.mu.RUnlock()
+		d.RUnlock()
 
 		if !ok {
 			continue
@@ -469,14 +400,14 @@ func (d *OPCUADriver) Read(ctx context.Context, tags []string) ([]core.TagValue,
 
 	resp, err := client.Read(ctx, req)
 	if err != nil {
-		d.errorCount.Add(1)
-		d.mu.Lock()
-		d.lastError = err.Error()
-		d.mu.Unlock()
+		d.RecordError()
+		d.Lock()
+		d.SetLastErrorLocked(err.Error())
+		d.Unlock()
 
 		// Check if connection is lost and trigger reconnect
 		if util.IsConnectionError(err) {
-			d.handleConnectionLost()
+			d.HandleConnectionLost()
 		}
 		return nil, fmt.Errorf("opcua batch read failed: %w", err)
 	}
@@ -484,9 +415,9 @@ func (d *OPCUADriver) Read(ctx context.Context, tags []string) ([]core.TagValue,
 	results := make([]core.TagValue, 0, len(resp.Results))
 	for i, r := range resp.Results {
 		tagName := validTagNames[i]
-		d.mu.RLock()
+		d.RLock()
 		tagCfg := d.tags[tagName]
-		d.mu.RUnlock()
+		d.RUnlock()
 
 		dt, _ := core.ParseDataType(tagCfg.Type)
 
@@ -512,22 +443,22 @@ func (d *OPCUADriver) Read(ctx context.Context, tags []string) ([]core.TagValue,
 		})
 	}
 
-	d.readCount.Add(uint64(len(results)))
-	d.mu.Lock()
-	d.lastRead = now
-	d.mu.Unlock()
+	d.AddReadCount(uint64(len(results)))
+	d.Lock()
+	d.SetLastRead(now)
+	d.Unlock()
 
 	return results, nil
 }
 
 func (d *OPCUADriver) Write(ctx context.Context, commands []core.WriteCommand) ([]core.WriteResult, error) {
-	d.mu.RLock()
+	d.RLock()
 	client := d.client
-	state := d.state
-	d.mu.RUnlock()
+	state := d.GetStateLocked()
+	d.RUnlock()
 
 	if state != core.StateConnected || client == nil {
-		return nil, fmt.Errorf("driver %s is not connected", d.name)
+		return nil, fmt.Errorf("driver %s is not connected", d.Name())
 	}
 
 	results := make([]core.WriteResult, len(commands))
@@ -540,9 +471,9 @@ func (d *OPCUADriver) Write(ctx context.Context, commands []core.WriteCommand) (
 	validIndices := make([]int, 0, len(commands))
 
 	for i, cmd := range commands {
-		d.mu.RLock()
+		d.RLock()
 		nodeID, ok := d.nodeIDs[cmd.Tag]
-		d.mu.RUnlock()
+		d.RUnlock()
 
 		if !ok {
 			results[i] = core.WriteResult{
@@ -607,24 +538,7 @@ func (d *OPCUADriver) Subscribe(ctx context.Context, tags []string) (<-chan core
 	return d.subChannel, nil
 }
 
-func (d *OPCUADriver) Name() string { return d.name }
-func (d *OPCUADriver) Type() string { return TypeName }
-
-func (d *OPCUADriver) Status() core.DriverStatus {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	return core.DriverStatus{
-		Name:           d.name,
-		Type:           TypeName,
-		State:          d.state,
-		LastRead:       d.lastRead,
-		LastError:      d.lastError,
-		TagCount:       len(d.tags),
-		ReadCount:      d.readCount.Load(),
-		ErrorCount:     d.errorCount.Load(),
-		ReconnectCount: d.reconnectCount.Load(),
-	}
-}
+// Name, Type, and Status are provided by the embedded driverbase.BaseDriver.
 
 func (d *OPCUADriver) Capabilities() core.DriverCapabilities {
 	return core.DriverCapabilities{
@@ -636,27 +550,8 @@ func (d *OPCUADriver) Capabilities() core.DriverCapabilities {
 	}
 }
 
+// HandleConnectionLost is provided by the embedded driverbase.BaseDriver.
+
 // ============================================================
 // Helper functions
 // ============================================================
-
-// handleConnectionLost marks the driver as disconnected and starts background reconnection.
-func (d *OPCUADriver) handleConnectionLost() {
-	d.mu.Lock()
-	if d.state == core.StateConnecting || d.state == core.StateError {
-		d.mu.Unlock()
-		return
-	}
-	d.state = core.StateError
-	if d.client != nil {
-		d.client.Close(context.Background())
-		d.client = nil
-	}
-	d.mu.Unlock()
-
-	// The subscription is tied to the now-dead client; tear it down.
-	d.stopSubscription()
-
-	slog.Warn("opcua connection lost, starting reconnect", "name", d.name)
-	d.startReconnectLoop()
-}
