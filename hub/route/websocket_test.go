@@ -508,3 +508,68 @@ func TestHelloEndpoint(t *testing.T) {
 		t.Errorf("expected status=ok, got %q", result["status"])
 	}
 }
+
+// --- SEC-006 (D11): pprof loopback validation ---
+
+func TestIsLoopbackAddr(t *testing.T) {
+	cases := []struct {
+		addr string
+		want bool
+	}{
+		{"127.0.0.1:6060", true},
+		{"localhost:6060", true},
+		{"[::1]:6060", true},
+		{"0.0.0.0:6060", false},
+		{":6060", false},
+		{"192.168.1.1:6060", false},
+		{"10.0.0.1:6060", false},
+		{"example.com:6060", false}, // arbitrary hostname
+		{"127.0.0.1", false},        // missing port → SplitHostPort error
+		{"", false},
+	}
+	for _, c := range cases {
+		if got := isLoopbackAddr(c.addr); got != c.want {
+			t.Errorf("isLoopbackAddr(%q) = %v, want %v", c.addr, got, c.want)
+		}
+	}
+}
+
+// TestPprofAddrNonLoopbackRejected verifies that a non-loopback PprofAddr is
+// refused: the separate pprof server (which has no authentication) must not
+// start on a publicly-reachable address. SEC-006 (D11).
+func TestPprofAddrNonLoopbackRejected(t *testing.T) {
+	ReCreateServer(&Config{
+		Addr:      "127.0.0.1:0",
+		Secret:    "test-secret",
+		PprofAddr: "0.0.0.0:6060", // non-loopback → must be refused
+	})
+	defer CloseServer()
+
+	if httpServer == nil {
+		t.Fatal("expected main server to be created")
+	}
+	pprofMu.Lock()
+	defer pprofMu.Unlock()
+	if pprofServer != nil {
+		t.Error("expected pprofServer to be nil for non-loopback PprofAddr, but it was started")
+		_ = pprofServer.Close()
+		pprofServer = nil
+	}
+}
+
+// TestPprofAddrLoopbackAccepted verifies that a loopback PprofAddr starts the
+// separate pprof server. SEC-006 (D11).
+func TestPprofAddrLoopbackAccepted(t *testing.T) {
+	ReCreateServer(&Config{
+		Addr:      "127.0.0.1:0",
+		Secret:    "test-secret",
+		PprofAddr: "127.0.0.1:0", // loopback → allowed
+	})
+	defer CloseServer()
+
+	pprofMu.Lock()
+	defer pprofMu.Unlock()
+	if pprofServer == nil {
+		t.Fatal("expected pprofServer to be created for loopback PprofAddr")
+	}
+}

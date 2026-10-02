@@ -168,8 +168,23 @@ func serveAPI(server *http.Server, ln net.Listener, cfg *Config) {
 // configured. This keeps profiling endpoints off the main API port
 // and does NOT require authentication, so it should be bound to a
 // loopback or private interface only.
+//
+// SEC-006 (D11): the separate pprof server has no authentication, so it
+// must only bind to a loopback address. A non-loopback PprofAddr (e.g.
+// 0.0.0.0:6060 or a public IP) is refused to prevent exposing profiling
+// endpoints — which leak goroutine stacks, heap profiles, and CPU data —
+// to the network. This is a fail-closed behavior change: previously any
+// address was accepted.
 func startPprofServer(cfg *Config) {
 	if cfg.PprofAddr == "" || cfg.PprofDisabled {
+		return
+	}
+	if !isLoopbackAddr(cfg.PprofAddr) {
+		log.Errorln("pprof server refusing to start on non-loopback address %s: "+
+			"the separate pprof server has no authentication and must be bound to a "+
+			"loopback interface only (e.g. 127.0.0.1:<port> or localhost:<port>). "+
+			"Use PprofDisabled to disable pprof, or leave PprofAddr empty to register "+
+			"pprof behind the authenticated main API.", cfg.PprofAddr)
 		return
 	}
 	pprofMu.Lock()
@@ -186,10 +201,11 @@ func startPprofServer(cfg *Config) {
 		Addr:    cfg.PprofAddr,
 		Handler: pMux,
 	}
+	srv := pprofServer
 	pprofMu.Unlock()
 	go func() {
 		log.Infoln("pprof server listening at %s (no auth)", cfg.PprofAddr)
-		if err := pprofServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Errorln("pprof server error: %v", err)
 		}
 	}()
@@ -239,4 +255,28 @@ func CloseServer() error {
 	pprofMu.Unlock()
 
 	return err
+}
+
+// isLoopbackAddr reports whether addr (a host:port string) binds only to a
+// loopback interface. It accepts explicit loopback IPs (127.0.0.1, ::1) and
+// the literal hostname "localhost". It rejects:
+//   - empty hosts (":port" binds all interfaces),
+//   - non-loopback IPs (0.0.0.0, 192.168.x.x, public IPs),
+//   - arbitrary hostnames, which could resolve to a non-loopback address and
+//     cannot be verified statically (fail-closed).
+//
+// SEC-006 (D11): used to gate the unauthenticated separate pprof server.
+func isLoopbackAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false // arbitrary hostname; cannot verify statically
+	}
+	return ip.IsLoopback()
 }
