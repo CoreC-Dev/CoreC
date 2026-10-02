@@ -1,7 +1,7 @@
 # Harness 工程化改造计划
 
 > 本计划依据《Harness 工程化规则》（`docs/HARNESS-RULES.md`）§5 五阶段流程制定，针对 **CoreC**（Go IIoT 数据采集核心）存量项目。
-> **当前处于阶段 4 进行中**：批次 1–4 已完成，批次 5–12 待执行。
+> **当前处于阶段 4 进行中**：批次 1–5 已完成，批次 6–12 待执行。
 
 ## 0. 元信息
 
@@ -9,7 +9,7 @@
 - 仓库路径：`/workspace/codespace/CoreC`
 - 分支：`harnessing`（由 `main` 创建，§7.1）
 - 计划版本 / 日期：v1.0 / 2026-10-02
-- 状态：**阶段 4 进行中**（批次 1–4 完成，批次 5–12 待执行）
+- 状态：**阶段 4 进行中**（批次 1–5 完成，批次 6–12 待执行）
 - 规则文档：`docs/HARNESS-RULES.md`（施工期常驻，竣工后按 §14 拆解归档）
 - 框架判定：其他类型（纯 Go 后端，非 Tauri）—— 详见 `docs/CI.md`
 
@@ -270,3 +270,7 @@
 | 2026-10-03 | 4 | PERF-002: retry backoff 响应 ctx 取消 | `2f0ec49` | time.Sleep→select{ctx.Done,time.After}；行为变更（bug 修复） |
 | 2026-10-03 | 4 | CPLX-016: readTag gocyclo 26→<20 | `68edb25` | 提取 readBoolTag/readFloat64Tag |
 | 2026-10-03 | 4 | 批次 4 验收通过 | — | 全量 vet+lint+build+test 全绿；行为守恒（R2）+bug 修复标注 |
+| 2026-10-03 | 4 | 批次 5（opcua）启动 | — | CPLX-006/022 + SEC-001 + PERF-001 |
+| 2026-10-03 | 4 | CPLX-006: 拆 client.go 555→4 文件 | `942ca41` | client(231)+read(104)+write(89)+subscription(163) |
+| 2026-10-03 | 4 | SEC-001+PERF-001: OPC UA 安全告警+Close/Cancel 超时 | `337a4a7` | D5=仅告警；PERF-001 bug 修复防泄漏 |
+| 2026-10-03 | 4 | 批次 5 验收通过 | — | 全量 vet+lint+build+test 全绿；行为变更显式标注 |
