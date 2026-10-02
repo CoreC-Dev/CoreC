@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/CoreC-Dev/CoreC/common/tlsutil"
 	"github.com/CoreC-Dev/CoreC/common/util"
 	"github.com/CoreC-Dev/CoreC/core"
 	mb "github.com/simonvetter/modbus"
@@ -73,16 +74,16 @@ func (d *ModbusTLSDriver) Init(ctx context.Context, config core.DriverConfig) er
 	}
 
 	// Load client certificate + key pair
-	cert, err := tls.LoadX509KeyPair(d.certFile, d.keyFile)
+	cert, err := tlsutil.LoadClientCert(d.certFile, d.keyFile)
 	if err != nil {
-		return fmt.Errorf("modbus-tls: failed to load client key pair: %w", err)
+		return fmt.Errorf("modbus-tls: %w", err)
 	}
 	d.clientCert = &cert
 
 	// Load CA certificate pool for server validation
-	rootCAs, err := mb.LoadCertPool(d.caFile)
+	rootCAs, err := tlsutil.LoadCertPool(d.caFile)
 	if err != nil {
-		return fmt.Errorf("modbus-tls: failed to load CA certificate: %w", err)
+		return fmt.Errorf("modbus-tls: %w", err)
 	}
 	d.rootCAs = rootCAs
 

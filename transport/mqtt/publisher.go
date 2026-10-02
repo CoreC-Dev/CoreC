@@ -7,20 +7,19 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"text/template"
 	"time"
 
+	"github.com/CoreC-Dev/CoreC/common/tlsutil"
 	"github.com/CoreC-Dev/CoreC/common/util"
 	"github.com/CoreC-Dev/CoreC/core"
 	"github.com/CoreC-Dev/CoreC/transport/parser"
@@ -428,13 +427,9 @@ func (t *MQTTTransport) buildTLSConfig() (*tls.Config, error) {
 	// CA certificate pool for server verification.  When omitted, Go falls
 	// back to the system root certificates.
 	if t.tlsCAFile != "" {
-		pem, err := os.ReadFile(t.tlsCAFile)
+		pool, err := tlsutil.LoadCertPool(t.tlsCAFile)
 		if err != nil {
-			return nil, fmt.Errorf("mqtt: failed to read CA file %s: %w", t.tlsCAFile, err)
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(pem) {
-			return nil, fmt.Errorf("mqtt: failed to parse CA certificate(s) from %s", t.tlsCAFile)
+			return nil, fmt.Errorf("mqtt: %w", err)
 		}
 		cfg.RootCAs = pool
 	}
@@ -442,12 +437,9 @@ func (t *MQTTTransport) buildTLSConfig() (*tls.Config, error) {
 	// Client certificate + key for mutual TLS.  Both must be provided
 	// together; specifying only one is a configuration error.
 	if t.tlsCertFile != "" || t.tlsKeyFile != "" {
-		if t.tlsCertFile == "" || t.tlsKeyFile == "" {
-			return nil, fmt.Errorf("mqtt: tls-cert-file and tls-key-file must both be set for mutual TLS")
-		}
-		cert, err := tls.LoadX509KeyPair(t.tlsCertFile, t.tlsKeyFile)
+		cert, err := tlsutil.LoadClientCert(t.tlsCertFile, t.tlsKeyFile)
 		if err != nil {
-			return nil, fmt.Errorf("mqtt: failed to load client key pair: %w", err)
+			return nil, fmt.Errorf("mqtt: %w", err)
 		}
 		cfg.Certificates = []tls.Certificate{cert}
 	}
