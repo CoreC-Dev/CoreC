@@ -253,3 +253,5 @@
 | 2026-10-03 | 4 | DUP-003: 提取 `common/tlsutil` TLS 配置辅助 | `38db04a` | LoadCertPool/LoadClientCert/BuildTLSConfig；mqtt+modbus 复用 |
 | 2026-10-03 | 4 | DUP-007: 归档（util.GetDurationSetting 已是单点实现） | `9327593` | 各调用点无额外重复验证逻辑 |
 | 2026-10-03 | 4 | 批次 1 验收通过 | — | 全量 build+test+vet+archtest+tastetest+docs 全绿；行为守恒（R2） |
+| 2026-10-03 | 4 | 批次 2（config）: CPLX-010 拆 config.go→config+env_expand+validate | `a00e24e` | 467→124+120+248 行；ARCH-002 注入 DriverRegistry/TransportRegistry 接口 |
+| 2026-10-03 | 4 | 批次 2 验收通过 | — | 全量 build+test+vet+archtest+tastetest 全绿；行为守恒（R2） |
