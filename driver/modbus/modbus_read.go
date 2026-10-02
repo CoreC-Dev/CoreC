@@ -157,7 +157,7 @@ func (b *modbusBase) Read(ctx context.Context, tags []string) ([]core.TagValue, 
 }
 
 // readTag reads a single tag value from the Modbus device.
-func (b *modbusBase) readTag(client *mb.ModbusClient, ai addrInfo, dt core.DataType, tagName string) (any, error) { //nolint:gocyclo // per-datatype Modbus decode dispatch; complexity 26. Splitting risks subtle bit-packing regressions.
+func (b *modbusBase) readTag(client *mb.ModbusClient, ai addrInfo, dt core.DataType, tagName string) (any, error) {
 	// Coils (0xxxx) and discrete inputs (1xxxx) are single-bit areas. Only
 	// bool reads are meaningful there; any other type would be routed to a
 	// holding/input-register read via regType() (which returns HOLDING_REGISTER
@@ -169,48 +169,25 @@ func (b *modbusBase) readTag(client *mb.ModbusClient, ai addrInfo, dt core.DataT
 
 	switch dt {
 	case core.TypeBool:
-		if ai.area == areaCoil {
-			val, err := client.ReadCoil(ai.addr)
-			if err != nil {
-				return nil, fmt.Errorf("read coil: %w", err)
-			}
-			return val, nil
-		}
-		if ai.area == areaDiscreteInput {
-			val, err := client.ReadDiscreteInput(ai.addr)
-			if err != nil {
-				return nil, fmt.Errorf("read discrete input: %w", err)
-			}
-			return val, nil
-		}
-		// Read from register
-		val, err := client.ReadRegister(ai.addr, ai.regType())
-		if err != nil {
-			return nil, fmt.Errorf("read bool register: %w", err)
-		}
-		return val != 0, nil
-
+		return readBoolTag(client, ai)
 	case core.TypeUint16:
 		val, err := client.ReadRegister(ai.addr, ai.regType())
 		if err != nil {
 			return nil, fmt.Errorf("read uint16: %w", err)
 		}
 		return val, nil
-
 	case core.TypeInt16:
 		val, err := client.ReadRegister(ai.addr, ai.regType())
 		if err != nil {
 			return nil, fmt.Errorf("read int16: %w", err)
 		}
 		return int16(val), nil
-
 	case core.TypeUint32:
 		regs, err := client.ReadRegisters(ai.addr, 2, ai.regType())
 		if err != nil {
 			return nil, fmt.Errorf("read uint32: %w", err)
 		}
 		return uint32(regs[0])<<16 | uint32(regs[1]), nil
-
 	case core.TypeInt32:
 		regs, err := client.ReadRegisters(ai.addr, 2, ai.regType())
 		if err != nil {
@@ -218,33 +195,20 @@ func (b *modbusBase) readTag(client *mb.ModbusClient, ai addrInfo, dt core.DataT
 		}
 		val := uint32(regs[0])<<16 | uint32(regs[1])
 		return int32(val), nil
-
 	case core.TypeFloat32:
 		val, err := client.ReadFloat32(ai.addr, ai.regType())
 		if err != nil {
 			return nil, fmt.Errorf("read float32: %w", err)
 		}
 		return val, nil
-
 	case core.TypeFloat64:
-		regs, err := client.ReadRegisters(ai.addr, 4, ai.regType())
-		if err != nil {
-			return nil, fmt.Errorf("read float64: %w", err)
-		}
-		buf := make([]byte, 8)
-		binary.BigEndian.PutUint16(buf[0:2], regs[0])
-		binary.BigEndian.PutUint16(buf[2:4], regs[1])
-		binary.BigEndian.PutUint16(buf[4:6], regs[2])
-		binary.BigEndian.PutUint16(buf[6:8], regs[3])
-		return math.Float64frombits(binary.BigEndian.Uint64(buf)), nil
-
+		return readFloat64Tag(client, ai)
 	case core.TypeUint64:
 		regs, err := client.ReadRegisters(ai.addr, 4, ai.regType())
 		if err != nil {
 			return nil, fmt.Errorf("read uint64: %w", err)
 		}
 		return uint64(regs[0])<<48 | uint64(regs[1])<<32 | uint64(regs[2])<<16 | uint64(regs[3]), nil
-
 	case core.TypeInt64:
 		regs, err := client.ReadRegisters(ai.addr, 4, ai.regType())
 		if err != nil {
@@ -252,10 +216,47 @@ func (b *modbusBase) readTag(client *mb.ModbusClient, ai addrInfo, dt core.DataT
 		}
 		val := uint64(regs[0])<<48 | uint64(regs[1])<<32 | uint64(regs[2])<<16 | uint64(regs[3])
 		return int64(val), nil
-
 	default:
 		return nil, fmt.Errorf("unsupported data type: %s", dt)
 	}
+}
+
+// readBoolTag reads a boolean value from coils, discrete inputs, or registers.
+func readBoolTag(client *mb.ModbusClient, ai addrInfo) (any, error) {
+	if ai.area == areaCoil {
+		val, err := client.ReadCoil(ai.addr)
+		if err != nil {
+			return nil, fmt.Errorf("read coil: %w", err)
+		}
+		return val, nil
+	}
+	if ai.area == areaDiscreteInput {
+		val, err := client.ReadDiscreteInput(ai.addr)
+		if err != nil {
+			return nil, fmt.Errorf("read discrete input: %w", err)
+		}
+		return val, nil
+	}
+	// Read from register
+	val, err := client.ReadRegister(ai.addr, ai.regType())
+	if err != nil {
+		return nil, fmt.Errorf("read bool register: %w", err)
+	}
+	return val != 0, nil
+}
+
+// readFloat64Tag reads a float64 from 4 registers (big-endian).
+func readFloat64Tag(client *mb.ModbusClient, ai addrInfo) (any, error) {
+	regs, err := client.ReadRegisters(ai.addr, 4, ai.regType())
+	if err != nil {
+		return nil, fmt.Errorf("read float64: %w", err)
+	}
+	buf := make([]byte, 8)
+	binary.BigEndian.PutUint16(buf[0:2], regs[0])
+	binary.BigEndian.PutUint16(buf[2:4], regs[1])
+	binary.BigEndian.PutUint16(buf[4:6], regs[2])
+	binary.BigEndian.PutUint16(buf[6:8], regs[3])
+	return math.Float64frombits(binary.BigEndian.Uint64(buf)), nil
 }
 
 // ============================================================
