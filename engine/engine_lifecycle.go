@@ -10,15 +10,13 @@ import (
 	"github.com/CoreC-Dev/CoreC/rule"
 )
 
-func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error { //nolint:gocyclo // engine startup orchestrates many subsystems; complexity 26. Refactor tracked as tech debt.
+func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error {
 	e.mu.Lock()
 	e.parentCtx = ctx
 	e.ctx, e.cancel = context.WithCancel(ctx)
 	e.startTime = time.Now()
 	e.status = core.EngineStatusRunning
 	// Clear stale state from any previous run (e.g. after Reload→Stop→Start).
-	// Stop() stops all drivers/transports but does not clear the maps, so
-	// without this reset, Reload would accumulate old entries alongside new ones.
 	e.drivers = make(map[string]core.Driver)
 	e.transports = make(map[string]core.Transport)
 	e.batchers = make(map[string]*transportBatcher)
@@ -59,7 +57,6 @@ func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error { //
 	)
 
 	// rollback cleans up any partially-started components if Start fails.
-	// This prevents leaking goroutines and leaving the engine in a half-started state (M14).
 	var started bool
 	defer func() {
 		if started {
@@ -68,8 +65,39 @@ func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error { //
 		e.rollbackStart()
 	}()
 
-	// Create data bus and scheduler under the lock so concurrent
-	// Stats()/ListDrivers() callers don't race on the pointer writes.
+	if err := e.startScheduler(); err != nil {
+		return err
+	}
+
+	// Auto-fill node config: if node.id is set, auto-generate topic-template,
+	// command-topic, parser, and forward rules where not explicitly configured.
+	e.autoFillNodeConfig(config)
+
+	if err := e.startTransports(config); err != nil {
+		return err
+	}
+
+	if err := e.initRules(config); err != nil {
+		return err
+	}
+
+	if err := e.startDrivers(config); err != nil {
+		return err
+	}
+
+	e.startProcessingWorkers()
+
+	// Start topology auto-discovery if node config is present.
+	e.startDiscovery(config)
+
+	started = true
+	slog.Info("CoreC engine started successfully")
+	return nil
+}
+
+// startScheduler creates the data bus and scheduler, then starts the
+// scheduler goroutine.
+func (e *CoreCEngine) startScheduler() error {
 	e.mu.Lock()
 	e.dataBus = NewDataBus(e.dataBusSize)
 	e.scheduler = NewScheduler(e.readFromDriver, e.onDriverData, e.errorThrottleWin, e.statManager)
@@ -78,20 +106,22 @@ func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error { //
 	if err := e.scheduler.Start(e.ctx); err != nil {
 		return fmt.Errorf("failed to start scheduler: %w", err)
 	}
+	return nil
+}
 
-	// Auto-fill node config: if node.id is set, auto-generate topic-template,
-	// command-topic, parser, and forward rules where not explicitly configured.
-	e.autoFillNodeConfig(config)
-
-	// Initialize transports first (they're the data consumers)
+// startTransports initializes and adds all configured transports.
+func (e *CoreCEngine) startTransports(config *core.Config) error {
 	for _, tc := range config.Transports {
 		if err := e.AddTransport(tc); err != nil {
 			slog.Error("failed to add transport", "name", tc.Name, "error", err)
 			return fmt.Errorf("failed to add transport %s: %w", tc.Name, err)
 		}
 	}
+	return nil
+}
 
-	// Set up rule providers
+// initRules sets up rule providers, sub-rule groups, and top-level rules.
+func (e *CoreCEngine) initRules(config *core.Config) error {
 	for _, pc := range config.RuleProviders {
 		p, err := rule.NewFileProvider(pc.Name, pc.Path, pc.Interval)
 		if err != nil {
@@ -101,29 +131,32 @@ func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error { //
 		e.ruleEngine.AddProvider(p)
 	}
 
-	// Set up sub-rule groups
 	if len(config.RuleGroups) > 0 {
 		if err := e.ruleEngine.SetSubRules(config.RuleGroups); err != nil {
 			return fmt.Errorf("failed to set sub-rules: %w", err)
 		}
 	}
 
-	// Set rules
 	if err := e.SetRules(config.Rules); err != nil {
 		return fmt.Errorf("failed to set rules: %w", err)
 	}
+	return nil
+}
 
-	// Initialize and start drivers
+// startDrivers initializes and starts all configured drivers.
+func (e *CoreCEngine) startDrivers(config *core.Config) error {
 	for _, dc := range config.Drivers {
 		if err := e.AddDriver(dc); err != nil {
 			slog.Error("failed to add driver", "name", dc.Name, "error", err)
 			return fmt.Errorf("failed to add driver %s: %w", dc.Name, err)
 		}
 	}
+	return nil
+}
 
-	// Start the processing pipeline — N worker goroutines consume
-	// from the same DataBus channel, parallelising cache update,
-	// rule matching and publishing.
+// startProcessingWorkers launches the N worker goroutines that consume
+// from the DataBus channel, plus optional high-priority workers.
+func (e *CoreCEngine) startProcessingWorkers() {
 	numWorkers := e.numWorkers
 	if numWorkers < 1 {
 		numWorkers = 1
@@ -133,9 +166,6 @@ func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error { //
 		go e.processingLoop()
 	}
 
-	// Start dedicated high-priority workers that read only from the
-	// DataBus high-priority channel. This isolates fast-interval
-	// collection from low-frequency bulk-read bursts (IMPROVEMENTS #5).
 	numHP := e.numHighPriorityWorkers
 	if numHP < 0 {
 		numHP = 0
@@ -147,13 +177,6 @@ func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error { //
 		}
 		slog.Info("high-priority processing workers started", "count", numHP)
 	}
-
-	// Start topology auto-discovery if node config is present.
-	e.startDiscovery(config)
-
-	started = true
-	slog.Info("CoreC engine started successfully")
-	return nil
 }
 
 func (e *CoreCEngine) Stop() error {
