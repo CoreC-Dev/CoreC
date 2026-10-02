@@ -44,7 +44,6 @@ var exemptedFiles = map[string]string{
 	"driver/s7/s7.go":              "CPLX-004: 645 lines, Phase 4 batch 6 will split into address/codec/lifecycle",
 	"hub/executor/executor.go":     "CPLX-012: 622 lines, Phase 4 batch 11 will split into diff/apply",
 	"engine/batcher.go":            "CPLX-014: 617 lines, Phase 4 batch 3 will split into retry_buffer",
-	"rule/engine.go":               "CPLX-007: 660 lines, Phase 4 batch 9 will split into rule_engine/rule_build/rule_match",
 }
 
 func TestFileSizeLimit(t *testing.T) {

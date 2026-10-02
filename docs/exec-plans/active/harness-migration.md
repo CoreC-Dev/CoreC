@@ -1,7 +1,7 @@
 # Harness 工程化改造计划
 
 > 本计划依据《Harness 工程化规则》（`docs/HARNESS-RULES.md`）§5 五阶段流程制定，针对 **CoreC**（Go IIoT 数据采集核心）存量项目。
-> **当前处于阶段 4 进行中**：批次 1–8 已完成，批次 9–12 待执行。
+> **当前处于阶段 4 进行中**：批次 1–9 已完成，批次 10–12 待执行。
 
 ## 0. 元信息
 
@@ -9,7 +9,7 @@
 - 仓库路径：`/workspace/codespace/CoreC`
 - 分支：`harnessing`（由 `main` 创建，§7.1）
 - 计划版本 / 日期：v1.0 / 2026-10-02
-- 状态：**阶段 4 进行中**（批次 1–8 完成，批次 9–12 待执行）
+- 状态：**阶段 4 进行中**（批次 1–9 完成，批次 10–12 待执行）
 - 规则文档：`docs/HARNESS-RULES.md`（施工期常驻，竣工后按 §14 拆解归档）
 - 框架判定：其他类型（纯 Go 后端，非 Tauri）—— 详见 `docs/CI.md`
 
@@ -286,3 +286,7 @@
 | 2026-10-03 | 4 | SEC-003: webhook fail-closed | `e6327dd` | D9 变更行为；测试更新 |
 | 2026-10-03 | 4 | CPLX-009: 拆 push.go 480→2 文件 | `286ca6a` | push(399)+webhook(89) |
 | 2026-10-03 | 4 | 批次 8 验收通过 | — | 全量 vet+lint+build+test 全绿；行为变更显式标注 |
+| 2026-10-03 | 4 | 批次 9（rule）启动 | — | CPLX-007 + PERF-005/006 |
+| 2026-10-03 | 4 | PERF-005/006: rule provider hash-skip reload + Close 等 done | `e19bb67` | reloadLoop 加 SHA-256 hash 跳过未变更；Close 加 done channel 等待退出；bug 修复 |
+| 2026-10-03 | 4 | CPLX-007: 拆 rule/engine.go 659→3 文件 | `30ca1f3` | engine(149)+rule_build(451)+rule_match(70)；纯机械移动 |
+| 2026-10-03 | 4 | 批次 9 验收通过 | — | 全量 vet+lint+build+test+archtest+tastetest 全绿；行为守恒（R2）+bug 修复标注 |
