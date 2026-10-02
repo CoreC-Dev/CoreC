@@ -524,10 +524,19 @@ func (e *CoreCEngine) stopComponents() {
 		}
 	}
 
-	// Stop all batchers (flush remaining buffered data)
+	// Stop all batchers with timeout (flush remaining buffered data).
+	// Without a timeout, a batcher whose transport ignores context
+	// cancellation or has an oversized retry config could hang Stop
+	// indefinitely (PERF-008).
 	for i, b := range batchers {
-		b.stop()
-		slog.Info("batcher stopped", "name", batcherNames[i])
+		done := make(chan struct{}, 1)
+		go func() { b.stop(); done <- struct{}{} }()
+		select {
+		case <-done:
+			slog.Info("batcher stopped", "name", batcherNames[i])
+		case <-time.After(stopTimeout):
+			slog.Error("timed out stopping batcher", "name", batcherNames[i], "timeout", stopTimeout)
+		}
 	}
 
 	// Stop all transports with timeout
