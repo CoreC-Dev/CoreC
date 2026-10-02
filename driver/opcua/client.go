@@ -68,7 +68,9 @@ func NewOPCUADriver(config core.DriverConfig) (core.Driver, error) {
 	d.SetInitFunc(d.Init)
 	d.SetCloseConnFunc(func() {
 		if d.client != nil {
-			d.client.Close(context.Background())
+			closeCtx, closeCancel := context.WithTimeout(context.Background(), d.timeout)
+			defer closeCancel()
+			d.client.Close(closeCtx)
 			d.client = nil
 		}
 	})
@@ -160,6 +162,9 @@ func (d *OPCUADriver) connect(ctx context.Context) error {
 
 	if d.securityPolicy != "" {
 		opts = append(opts, opcua.SecurityPolicy(d.securityPolicy))
+	} else {
+		slog.Warn("OPC UA connecting without security policy (SecurityPolicy#None — no encryption)",
+			"driver", d.Name(), "endpoint", d.endpoint)
 	}
 	if d.securityMode != "" {
 		opts = append(opts, opcua.SecurityModeString(d.securityMode))
@@ -167,6 +172,8 @@ func (d *OPCUADriver) connect(ctx context.Context) error {
 	if d.username != "" {
 		opts = append(opts, opcua.AuthUsername(d.username, d.password))
 	} else {
+		slog.Warn("OPC UA connecting with anonymous authentication",
+			"driver", d.Name(), "endpoint", d.endpoint)
 		opts = append(opts, opcua.AuthAnonymous())
 	}
 	if d.certFile != "" && d.keyFile != "" {

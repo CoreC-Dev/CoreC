@@ -154,7 +154,9 @@ func (d *OPCUADriver) stopSubscription() {
 	d.Unlock()
 
 	if sub != nil {
-		_ = sub.Cancel(context.Background())
+		cancelCtx, cancelFn := context.WithTimeout(context.Background(), d.timeout)
+		defer cancelFn()
+		_ = sub.Cancel(cancelCtx)
 	}
 	// Closing notifyCh is handled by the library on Cancel; the goroutine
 	// exits via channel close or context cancellation. We don't wait here
