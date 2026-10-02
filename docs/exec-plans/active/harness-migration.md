@@ -1,7 +1,7 @@
 # Harness 工程化改造计划
 
 > 本计划依据《Harness 工程化规则》（`docs/HARNESS-RULES.md`）§5 五阶段流程制定，针对 **CoreC**（Go IIoT 数据采集核心）存量项目。
-> **当前处于阶段 3 完成**：门禁审计与自动化质量校验已落地（10 项门禁全绿，违规实测拦截），待确认进入阶段 4。
+> **当前处于阶段 4 进行中**：批次 1（common）已完成，批次 2–12 待执行。
 
 ## 0. 元信息
 
@@ -9,7 +9,7 @@
 - 仓库路径：`/workspace/codespace/CoreC`
 - 分支：`harnessing`（由 `main` 创建，§7.1）
 - 计划版本 / 日期：v1.0 / 2026-10-02
-- 状态：**阶段 3 完成**（10 项门禁全绿，违规实测拦截，待确认进入阶段 4）
+- 状态：**阶段 4 进行中**（批次 1 完成，批次 2–12 待执行）
 - 规则文档：`docs/HARNESS-RULES.md`（施工期常驻，竣工后按 §14 拆解归档）
 - 框架判定：其他类型（纯 Go 后端，非 Tauri）—— 详见 `docs/CI.md`
 
@@ -242,3 +242,14 @@
 | 2026-10-03 | 3 | 编写 `docs/gates.md` 门禁清单 + 豁免机制文档 | — | 10 项门禁 G1–G10；每项含触发/失败/修复/命令；nolint 须附原因+tracker ID |
 | 2026-10-03 | 3 | 违规实测验证 | — | 注入跨域 import→T7 拦截✅；注入超长文件→T1 拦截✅；注入 fmt.Println→T6 拦截✅；干净环境全绿✅ |
 | 2026-10-03 | 3 | 阶段 3 验收通过 | — | 10 项门禁全绿；违规实测拦截；失败信息含修复指引；本地一命令复现；豁免项有原因 |
+| 2026-10-03 | 4 | 批次 1（common）启动 | — | §4 批次划分；DUP-001/002/003/005/007 + CPLX-026 |
+| 2026-10-03 | 4 | DUP-005: 提取 `util.ToFloat64OK` | `fd2d59c` | engine/publish.go 删除本地 numericValue，委托 util |
+| 2026-10-03 | 4 | CPLX-026: 提取 `util.ReconnectOpts` + `ReconnectLoopOpts()` | `fd2d59c` | 参数对象替代长参数列表 |
+| 2026-10-03 | 4 | DUP-001: 创建 `driverbase.BaseDriver` 生命周期骨架 | `0232389` | ~296 行共享生命周期状态+方法+hook setter；modbus 首个迁移 |
+| 2026-10-03 | 4 | DUP-001: opcua 迁移至 BaseDriver | `99d725e` | client.go 662→556 行；hooks 移至构造函数 |
+| 2026-10-03 | 4 | DUP-001: s7 迁移至 BaseDriver | `7dd5a08` | s7.go 727→621 行；writeMu 保留（协议特定） |
+| 2026-10-03 | 4 | opcua hooks 移至构造函数（Restart 安全） | `62d3055` | Restart-without-Init 不再 panic |
+| 2026-10-03 | 4 | DUP-002: 提取 `common/testutil` 重连测试辅助 | `664d95a` | PollReconnectCount/PollReconnectCountGrowing/PollUntilConnected；modbus+s7 复用 |
+| 2026-10-03 | 4 | DUP-003: 提取 `common/tlsutil` TLS 配置辅助 | `38db04a` | LoadCertPool/LoadClientCert/BuildTLSConfig；mqtt+modbus 复用 |
+| 2026-10-03 | 4 | DUP-007: 归档（util.GetDurationSetting 已是单点实现） | `9327593` | 各调用点无额外重复验证逻辑 |
+| 2026-10-03 | 4 | 批次 1 验收通过 | — | 全量 build+test+vet+archtest+tastetest+docs 全绿；行为守恒（R2） |
