@@ -40,10 +40,11 @@
 | 业务行为影响=无 | **65**（纯重构/补测试/补文档） |
 | 业务行为影响=修复bug | **6**（SEC-001告警 · PERF-001 · PERF-002 · PERF-005 · PERF-006 · PERF-007 · PERF-008） |
 | 业务行为影响=变更行为 | **7**（SEC-001改默认 · SEC-002 · SEC-003 · SEC-004 · SEC-006 · PERF-003 · PERF-004）→ 待人工决策 |
-| 整体测试覆盖率 | 80.1%（85 _test.go，0 FAIL，goleak 4 包启用） |
+| 整体测试覆盖率 | **85.5%**（Phase 5 后实测；Phase 1 基线 80.1%） |
 | 生产 InsecureSkipVerify | 0（1 处 WS Origin 跳过 + 1 处仅测试） |
 | TODO/FIXME/XXX/HACK | 0 |
-| 死链 | 0（孤儿文档 2） |
+| 死链 | 0（孤儿文档 1：已归档施工计划，预期内） |
+| 状态汇总 | 已修复 **62** · 已归档 7 · 已关闭 1 · 待处理 **2**（CPLX-018 · PERF-007）· 延期至阶段5后 **3**（CPLX-020 · CPLX-025 · PERF-003） |
 
 ---
 
@@ -85,7 +86,7 @@
 | CPLX-023 | God Object: modbusBase 26 字段/22 方法 | driver/modbus/modbus_base.go:88-136(struct) | 复杂度 | P2 | 26 字段, 22 方法 | 拆为 ModbusConn/BatchPlanner/TagResolver 组合 | 无 | Phase 4 批次 4 | 字段 ≤10 且方法 ≤12 | 已修复 |
 | CPLX-024 | 字段过多: S7Driver 27 字段 / HTTPTransport 25 字段 | driver/s7/s7.go:50-96; transport/httppush/push.go:31-71 | 复杂度 | P2 | 字段数 >10 | 收敛连接/状态字段到子结构体 | 无 | Phase 4 批次 6/8 | 字段 ≤10 | 已修复 |
 | CPLX-025 | God Object: transportBatcher 16 字段/13 方法 | engine/batcher.go:53-110(struct) | 复杂度 | P2 | 16 字段, 13 方法 | 拆出 RetryPolicy/BufferState 子结构 | 无 | Phase 4 批次 3 | 字段 ≤10 且方法 ≤12 | 延期至阶段5后 |
-| CPLX-026 | 高参数计数(>5, 3 函数) | common/util/util.go:303 ReconnectLoopWithBreakerCounted(7参); engine/batcher.go:120 newTransportBatcher(6参); common/util/util.go:289 ReconnectLoopWithBreaker(6参) | 复杂度 | P2 | 参数数 6-7(>5) | 引入 ReconnectOpts/BatcherOpts 配置结构体收拢参数 | 无 | Phase 4 批次 1 | 参数 ≤5 | 待处理 |
+| CPLX-026 | 高参数计数(>5, 3 函数) | common/util/util.go:303 ReconnectLoopWithBreakerCounted(7参); engine/batcher.go:120 newTransportBatcher(6参); common/util/util.go:289 ReconnectLoopWithBreaker(6参) | 复杂度 | P2 | 参数数 6-7(>5) | 引入 ReconnectOpts/BatcherOpts 配置结构体收拢参数 | 无 | Phase 4 批次 1 | 参数 ≤5 | 已修复（`util.ReconnectOpts` + `ReconnectLoopOpts()` 已创建，见 commit `fd2d59c`；原函数保留向后兼容） |
 
 ### 重复（DUP）
 
@@ -95,7 +96,7 @@
 | DUP-002 | reconnect_count_test.go 跨 modbus/s7 近乎逐行重复 ~350 行 | driver/modbus/reconnect_count_test.go, driver/s7/reconnect_count_test.go | 重复 | P1 | 两文件结构/断言/辅助函数几乎相同，仅驱动类型不同 | 提取 testutil.ReconnectTestHarness，参数化驱动工厂 | 无 | Phase 4 批次 1 | 测试重复行数 <50 | 已修复 |
 | DUP-003 | TLS 证书加载逻辑跨 mqtt/httppush/modbus 重复 | transport/mqtt/publisher.go, transport/httppush/push.go, driver/modbus/tls.go | 重复 | P2 | loadCertPool/buildTLSConfig 三处近似实现 | 提取 common/tlsutil.BuildTLSConfig(opts) | 无 | Phase 4 批次 1 | TLS 配置单点实现 | 已修复 |
 | DUP-004 | ParseReconnectSettings 跨驱动重复 | driver/modbus/modbus_base.go, driver/opcua/client.go, driver/s7/s7.go | 重复 | P2 | 从 config map 解析 reconnect 参数的逻辑三处近似 | 提取 common/driverutil.ParseReconnectSettings | 无 | Phase 4 批次 1 | 单点实现 | 已修复 |
-| DUP-005 | numericValue 与 util.ToFloat64 功能重叠 | （多处引用） | 重复 | P2 | 两个函数做相同的 string→float64 转换 | 统一为 util.ToFloat64 | 无 | Phase 4 批次 1 | 单点实现 | 待处理 |
+| DUP-005 | numericValue 与 util.ToFloat64 功能重叠 | （多处引用） | 重复 | P2 | 两个函数做相同的 string→float64 转换 | 统一为 util.ToFloat64 | 无 | Phase 4 批次 1 | 单点实现 | 已修复（`util.ToFloat64OK` 已创建，见 commit `fd2d59c`；engine/publish.go 委托 util） |
 | DUP-006 | modbus 地址解析逻辑分散 | driver/modbus/modbus_base.go | 重复 | P2 | parseModbusAddress 与 register 计算逻辑分散 | 集中到 modbus_address.go（配合 CPLX-002 拆分） | 无 | Phase 4 批次 4 | 地址解析单文件 | 已修复 |
 | DUP-007 | util.GetDurationSetting 重复调用模式 | common/util/util.go + 多处调用 | 重复 | P2 | 从 config map 取 duration 的模式多处重复 | 提取 helper 或确认已有 util 函数覆盖 | 无 | Phase 4 批次 1 | 单点实现 | 已归档（util.GetDurationSetting 已是单点实现，各调用点无额外重复验证逻辑） |
 | DUP-008 | engine 配置应用逻辑分散重复 | engine/engine.go, engine/driver_manager.go | 重复 | P2 | applyEngineConfig/autoFill 等配置应用逻辑分散且有重复 | 配合 CPLX-003 拆分集中到 engine_config.go | 无 | Phase 4 批次 3 | 配置应用单文件 | 已修复 |
