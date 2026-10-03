@@ -368,7 +368,7 @@ MQTT Command Topic ──> Transport.OnCommand() ──> Engine.startCommandList
 12. **OPC UA 订阅模式完整实现 (`driver/opcua/client.go`)**：
     - `subscription` 模式已对接 `gopcua/opcua` 的 `Subscription` API：`connect()` 成功后自动创建订阅、为所有配置标签创建 MonitoredItem，通知 goroutine 将值变更写入 `subChannel`。断线时自动取消订阅，重连后重建。
 13. **DataPoint Group 富化 (`engine/engine.go`)**：
-    - 在 `onDriverData` 中从 `TagConfig.Group`（`AddDriver` 时缓存的 `tagGroups` 映射）补全 `DataPoint.Group` 字段，支撑 `group == 'reactor'` 规则匹配与 `{{.Group}}` 主题模板。
+    - 在 `onDriverData` 中从 `TagConfig.Group`（`AddDriver` 时缓存的 `tagGroups` 映射）补全 `DataPoint.Group` 字段，支撑 `group == 'reactor'` 规则匹配与 <code v-pre>{{.Group}}</code> 主题模板。
 14. **拓扑自动发现 (`engine/discovery.go`, `core/engine.go` NodeConfig)**：
     - 配置 `node.id` 后，节点通过 MQTT 心跳（`corec/_discovery/{node-id}`，retained，5s 间隔）广播身份与端点信息。
     - `subscribe` 声明上游节点，发现模块自动创建 inbound transport（auto-subscribe）。

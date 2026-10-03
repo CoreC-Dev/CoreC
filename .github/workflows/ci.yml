@@ -1,9 +1,9 @@
 name: CI
 
-# 触发条件：push 到 main 分支 或 提交 PR 时运行
+# 触发条件：push 到 main/harnessing 分支 或 提交 PR 时运行
 on:
   push:
-    branches: [main]
+    branches: [main, harnessing]
     paths-ignore:
       - 'docs/**'
       - 'README.md'
