@@ -132,3 +132,5 @@ func setupLogging(cfg *core.Config, override string) {
 	// so ALL slog.Info/slog.Error calls are captured by the log bus.
 	log.Init(coreLevel, format)
 }
+
+// CI trigger test
