@@ -87,10 +87,10 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Architecture structure test (T7: dependency direction)
+      - name: "Architecture structure test (T7: dependency direction)"
         run: go test -v ./archtest/
 
-      - name: Taste invariant tests (T1: file size, T6: structured logging)
+      - name: "Taste invariant tests (T1: file size, T6: structured logging)"
         run: go test -v ./tastetest/
 
   # Phase 3: Document gate (T9)
@@ -99,7 +99,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Document lint (T9: dead links, required sections, orphans, package comments)
+      - name: "Document lint (T9: dead links, required sections, orphans, package comments)"
         run: bash scripts/check-docs.sh
 
   # Phase 3: Coverage gate (T10)

@@ -133,4 +133,3 @@ func setupLogging(cfg *core.Config, override string) {
 	log.Init(coreLevel, format)
 }
 
-// CI trigger test
