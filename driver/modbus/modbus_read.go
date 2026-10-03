@@ -91,7 +91,7 @@ func (b *modbusBase) Read(ctx context.Context, tags []string) ([]core.TagValue, 
 		// errors (e.g. EOF/reset/timeout). Non-connection errors such as
 		// Modbus exception responses ("illegal data address") are not
 		// retried, since repeating the same request will not succeed.
-		value, err, newClient, aborted := b.readTagWithRetry(ctx, client, req, tagName)
+		value, newClient, aborted, err := b.readTagWithRetry(ctx, client, req, tagName)
 		client = newClient
 		if aborted {
 			return nil, err
@@ -141,17 +141,17 @@ func (b *modbusBase) Read(ctx context.Context, tags []string) ([]core.TagValue, 
 // error, the (possibly refreshed) client, and aborted=true when the context
 // was cancelled mid-retry — in that case the caller must propagate err
 // (ctx.Err()) immediately to abort the whole batch.
-func (b *modbusBase) readTagWithRetry(ctx context.Context, client *mb.ModbusClient, req batchTagReq, tagName string) (value any, err error, newClient *mb.ModbusClient, aborted bool) {
+func (b *modbusBase) readTagWithRetry(ctx context.Context, client *mb.ModbusClient, req batchTagReq, tagName string) (value any, newClient *mb.ModbusClient, aborted bool, err error) {
 	for attempt := 0; attempt <= b.maxRetry; attempt++ {
 		value, err = b.readTag(client, req.ai, req.dt, tagName)
 		if err == nil {
-			return value, nil, client, false
+			return value, client, false, nil
 		}
 		if attempt < b.maxRetry && util.IsConnectionError(err) {
 			// Wait for backoff but return immediately if ctx is cancelled.
 			select {
 			case <-ctx.Done():
-				return nil, ctx.Err(), client, true
+				return nil, client, true, ctx.Err()
 			case <-time.After(b.ReconnectBackoff()):
 			}
 			// Refresh client in case reconnection happened.
@@ -159,13 +159,13 @@ func (b *modbusBase) readTagWithRetry(ctx context.Context, client *mb.ModbusClie
 			client = b.client
 			b.RUnlock()
 			if client == nil {
-				return value, err, client, false
+				return value, client, false, err
 			}
 			continue
 		}
-		return value, err, client, false
+		return value, client, false, err
 	}
-	return value, err, client, false
+	return value, client, false, err
 }
 
 // readTag reads a single tag value from the Modbus device.

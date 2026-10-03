@@ -277,11 +277,12 @@ func (t *HTTPTransport) PublishBatch(ctx context.Context, points []core.DataPoin
 		return nil
 	}
 
-	client, url, method, headers, retryCount, ok := t.snapshotForPublish()
-	if !ok {
+	snap := t.snapshotForPublish()
+	if !snap.ok {
 		t.failed.Add(uint64(len(points)))
 		return fmt.Errorf("http transport %s is not connected", t.name)
 	}
+	retryCount := snap.retryCount
 	if retryCount < 0 {
 		retryCount = 0
 	}
@@ -312,7 +313,7 @@ func (t *HTTPTransport) PublishBatch(ctx context.Context, points []core.DataPoin
 			backoff *= 2
 		}
 
-		status, serr, retryable := t.sendHTTPRequest(ctx, client, method, url, headers, payload)
+		status, serr, retryable := t.sendHTTPRequest(ctx, snap.client, snap.method, snap.url, snap.headers, payload)
 		if serr != nil {
 			if !retryable {
 				t.failed.Add(uint64(len(points)))
@@ -345,19 +346,36 @@ func (t *HTTPTransport) PublishBatch(ctx context.Context, points []core.DataPoin
 	return lastErr
 }
 
+// publishSnapshot captures the publish-relevant state under a read lock.
+type publishSnapshot struct {
+	client     *http.Client
+	url        string
+	method     string
+	headers    map[string]string
+	retryCount int
+	ok         bool
+}
+
 // snapshotForPublish captures the publish-relevant state under a read lock.
 // Returns ok=false when the transport is not connected.
-func (t *HTTPTransport) snapshotForPublish() (client *http.Client, url, method string, headers map[string]string, retryCount int, ok bool) {
+func (t *HTTPTransport) snapshotForPublish() publishSnapshot {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	if t.state != core.StateConnected {
-		return nil, "", "", nil, 0, false
+		return publishSnapshot{}
 	}
-	headers = make(map[string]string, len(t.headers))
+	headers := make(map[string]string, len(t.headers))
 	for k, v := range t.headers {
 		headers[k] = v
 	}
-	return t.client, t.url, t.method, headers, t.config.RetryCount, true
+	return publishSnapshot{
+		client:     t.client,
+		url:        t.url,
+		method:     t.method,
+		headers:    headers,
+		retryCount: t.config.RetryCount,
+		ok:         true,
+	}
 }
 
 // sendHTTPRequest performs a single HTTP attempt. Returns the status code (0

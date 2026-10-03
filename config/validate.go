@@ -100,7 +100,7 @@ func validateDrivers(cfg *core.Config, registeredDrivers map[string]bool, allDri
 
 // validateDriver validates a single driver configuration: unique name, non-empty
 // type, registered type, at least one tag, and all tags valid.
-func validateDriver(d core.DriverConfig, driverNames map[string]bool, registeredDrivers map[string]bool, allDriverTypes []string) error {
+func validateDriver(d core.DriverConfig, driverNames, registeredDrivers map[string]bool, allDriverTypes []string) error {
 	if d.Name == "" {
 		return fmt.Errorf("driver name cannot be empty")
 	}
