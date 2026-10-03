@@ -123,7 +123,21 @@ func TestModbusReconnectCountOnRecovery(t *testing.T) {
 	}
 	defer drv.Stop()
 
-	countBeforeServer := testutil.PollReconnectCount(t, drv, 3*time.Second)
+	// Wait for the reconnect loop to make at least two attempts.
+	// PollReconnectCount returns as soon as the counter exceeds zero,
+	// but the attempt that incremented it may still be in progress
+	// (has not yet called connect()). If the server starts during
+	// that window, the in-progress attempt succeeds and the counter
+	// does not advance further, causing countAtReconnect == countBeforeServer.
+	//
+	// PollReconnectCountGrowing waits for the counter to advance past
+	// firstCount, proving that attempt completed (failed). Using
+	// firstCount as countBeforeServer is safe because the counter is
+	// monotonic — any later reading, including after the server starts
+	// and the driver reconnects, will be strictly greater.
+	firstCount := testutil.PollReconnectCount(t, drv, 3*time.Second)
+	testutil.PollReconnectCountGrowing(t, drv, firstCount, 3*time.Second)
+	countBeforeServer := firstCount
 
 	// Now bring the server up. The reconnect loop should succeed and the
 	// counter must record that final successful attempt.
