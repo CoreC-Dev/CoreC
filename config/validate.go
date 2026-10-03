@@ -91,58 +91,84 @@ func validateDataSources(cfg *core.Config) error {
 func validateDrivers(cfg *core.Config, registeredDrivers map[string]bool, allDriverTypes []string) error {
 	driverNames := make(map[string]bool)
 	for _, d := range cfg.Drivers {
-		if d.Name == "" {
-			return fmt.Errorf("driver name cannot be empty")
+		if err := validateDriver(d, driverNames, registeredDrivers, allDriverTypes); err != nil {
+			return err
 		}
-		if driverNames[d.Name] {
-			return fmt.Errorf("duplicate driver name: %s", d.Name)
-		}
-		driverNames[d.Name] = true
-		if d.Type == "" {
-			return fmt.Errorf("driver %s: type cannot be empty", d.Name)
-		}
-		// M10: validate driver type against registry
-		if len(registeredDrivers) > 0 && !registeredDrivers[d.Type] {
-			return fmt.Errorf("driver %s: unknown type %q (registered: %s)", d.Name, d.Type, strings.Join(allDriverTypes, ", "))
-		}
-		if len(d.Tags) == 0 {
-			return fmt.Errorf("driver %s: at least one tag must be configured", d.Name)
-		}
+	}
+	return nil
+}
 
-		// M7: validate tag fields
-		tagNames := make(map[string]bool)
-		for _, tag := range d.Tags {
-			if tag.Name == "" {
-				return fmt.Errorf("driver %s: tag name cannot be empty", d.Name)
-			}
-			if tagNames[tag.Name] {
-				return fmt.Errorf("driver %s: duplicate tag name %q", d.Name, tag.Name)
-			}
-			tagNames[tag.Name] = true
-			if tag.Address == "" {
-				return fmt.Errorf("driver %s: tag %q: address cannot be empty", d.Name, tag.Name)
-			}
-			if tag.Type == "" {
-				return fmt.Errorf("driver %s: tag %q: type cannot be empty", d.Name, tag.Name)
-			}
-			if _, ok := core.ParseDataType(tag.Type); !ok {
-				return fmt.Errorf("driver %s: tag %q: invalid type %q (valid: bool, int8, int16, int32, int64, uint8, uint16, uint32, uint64, float32, float64, string, bytes)", d.Name, tag.Name, tag.Type)
-			}
-			if tag.Interval != "" {
-				if dur, err := time.ParseDuration(tag.Interval); err != nil {
-					return fmt.Errorf("driver %s: tag %q: invalid interval %q: %w", d.Name, tag.Name, tag.Interval, err)
-				} else if dur <= 0 {
-					return fmt.Errorf("driver %s: tag %q: interval must be positive, got %v", d.Name, tag.Name, dur)
-				}
-			}
-			if tag.ReadTimeout != "" {
-				if dur, err := time.ParseDuration(tag.ReadTimeout); err != nil {
-					return fmt.Errorf("driver %s: tag %q: invalid read-timeout %q: %w", d.Name, tag.Name, tag.ReadTimeout, err)
-				} else if dur <= 0 {
-					return fmt.Errorf("driver %s: tag %q: read-timeout must be positive, got %v", d.Name, tag.Name, dur)
-				}
-			}
+// validateDriver validates a single driver configuration: unique name, non-empty
+// type, registered type, at least one tag, and all tags valid.
+func validateDriver(d core.DriverConfig, driverNames map[string]bool, registeredDrivers map[string]bool, allDriverTypes []string) error {
+	if d.Name == "" {
+		return fmt.Errorf("driver name cannot be empty")
+	}
+	if driverNames[d.Name] {
+		return fmt.Errorf("duplicate driver name: %s", d.Name)
+	}
+	driverNames[d.Name] = true
+	if d.Type == "" {
+		return fmt.Errorf("driver %s: type cannot be empty", d.Name)
+	}
+	// M10: validate driver type against registry
+	if len(registeredDrivers) > 0 && !registeredDrivers[d.Type] {
+		return fmt.Errorf("driver %s: unknown type %q (registered: %s)", d.Name, d.Type, strings.Join(allDriverTypes, ", "))
+	}
+	if len(d.Tags) == 0 {
+		return fmt.Errorf("driver %s: at least one tag must be configured", d.Name)
+	}
+
+	// M7: validate tag fields
+	tagNames := make(map[string]bool)
+	for _, tag := range d.Tags {
+		if err := validateTag(d.Name, tag, tagNames); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+// validateTag validates a single tag configuration: unique name, non-empty
+// address and type, valid data type, and positive intervals/timeouts.
+func validateTag(driverName string, tag core.TagConfig, tagNames map[string]bool) error {
+	if tag.Name == "" {
+		return fmt.Errorf("driver %s: tag name cannot be empty", driverName)
+	}
+	if tagNames[tag.Name] {
+		return fmt.Errorf("driver %s: duplicate tag name %q", driverName, tag.Name)
+	}
+	tagNames[tag.Name] = true
+	if tag.Address == "" {
+		return fmt.Errorf("driver %s: tag %q: address cannot be empty", driverName, tag.Name)
+	}
+	if tag.Type == "" {
+		return fmt.Errorf("driver %s: tag %q: type cannot be empty", driverName, tag.Name)
+	}
+	if _, ok := core.ParseDataType(tag.Type); !ok {
+		return fmt.Errorf("driver %s: tag %q: invalid type %q (valid: bool, int8, int16, int32, int64, uint8, uint16, uint32, uint64, float32, float64, string, bytes)", driverName, tag.Name, tag.Type)
+	}
+	if err := validatePositiveDuration(driverName, tag.Name, "interval", tag.Interval); err != nil {
+		return err
+	}
+	if err := validatePositiveDuration(driverName, tag.Name, "read-timeout", tag.ReadTimeout); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validatePositiveDuration validates that a duration string, if non-empty,
+// parses to a positive duration.
+func validatePositiveDuration(driverName, tagName, field, value string) error {
+	if value == "" {
+		return nil
+	}
+	dur, err := time.ParseDuration(value)
+	if err != nil {
+		return fmt.Errorf("driver %s: tag %q: invalid %s %q: %w", driverName, tagName, field, value, err)
+	}
+	if dur <= 0 {
+		return fmt.Errorf("driver %s: tag %q: %s must be positive, got %v", driverName, tagName, field, dur)
 	}
 	return nil
 }

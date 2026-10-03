@@ -190,40 +190,58 @@ func mergeSettings(incoming, current map[string]any) map[string]any {
 	}
 	for k, v := range incoming {
 		if secretSettingKeys[k] {
-			if s, ok := v.(string); ok && s == SentinelValue {
-				if current != nil {
-					if cv, exists := current[k]; exists {
-						incoming[k] = cv
-					} else {
-						delete(incoming, k)
-					}
-				} else {
-					delete(incoming, k)
-				}
-			}
+			mergeSecretEntry(incoming, k, v, current)
 			continue
 		}
 		if k == headersKey {
-			if hdrs, ok := v.(map[string]any); ok {
-				var curHdrs map[string]any
-				if current != nil {
-					if ch, ok := current[headersKey].(map[string]any); ok {
-						curHdrs = ch
-					}
-				}
-				for hk, hv := range hdrs {
-					if s, ok := hv.(string); ok && s == SentinelValue {
-						if cv, exists := curHdrs[hk]; exists {
-							hdrs[hk] = cv
-						} else {
-							delete(hdrs, hk)
-						}
-					}
-				}
-			}
+			mergeHeaderEntries(v, current)
 		}
 	}
 	return incoming
+}
+
+// mergeSecretEntry backfills a single secret sentinel value from current into
+// incoming. If the value is not a sentinel or current has no entry, the key is
+// deleted from incoming.
+func mergeSecretEntry(incoming map[string]any, k string, v any, current map[string]any) {
+	s, ok := v.(string)
+	if !ok || s != SentinelValue {
+		return
+	}
+	if current != nil {
+		if cv, exists := current[k]; exists {
+			incoming[k] = cv
+		} else {
+			delete(incoming, k)
+		}
+	} else {
+		delete(incoming, k)
+	}
+}
+
+// mergeHeaderEntries backfills secret sentinel values inside a headers map.
+func mergeHeaderEntries(v any, current map[string]any) {
+	hdrs, ok := v.(map[string]any)
+	if !ok {
+		return
+	}
+	var curHdrs map[string]any
+	if current != nil {
+		if ch, ok := current[headersKey].(map[string]any); ok {
+			curHdrs = ch
+		}
+	}
+	for hk, hv := range hdrs {
+		s, ok := hv.(string)
+		if !ok || s != SentinelValue {
+			continue
+		}
+		if cv, exists := curHdrs[hk]; exists {
+			hdrs[hk] = cv
+		} else {
+			delete(hdrs, hk)
+		}
+	}
 }
 
 // lookupTransportSettings returns the settings map of the transport named

@@ -30,17 +30,7 @@ var tlsSchemes = map[string]bool{
 //   - ServerName is derived from the broker URL host so that certificate
 //     hostname verification works correctly.
 func (t *MQTTTransport) buildTLSConfig() (*tls.Config, error) {
-	// Normalize the broker the same way paho's AddBroker does so that any
-	// broker paho accepts (including schemeless "host:port" forms) is
-	// accepted here too, and we derive the same scheme paho would use.
-	broker := t.broker
-	if broker != "" && broker[0] == ':' {
-		broker = "127.0.0.1" + broker
-	}
-	if !strings.Contains(broker, "://") {
-		broker = "tcp://" + broker
-	}
-
+	broker := normalizeBrokerURL(t.broker)
 	u, err := url.Parse(broker)
 	schemeTLS := err == nil && tlsSchemes[strings.ToLower(u.Scheme)]
 	anyFile := t.tlsCAFile != "" || t.tlsCertFile != "" || t.tlsKeyFile != ""
@@ -64,24 +54,8 @@ func (t *MQTTTransport) buildTLSConfig() (*tls.Config, error) {
 		MinVersion: tls.VersionTLS12,
 	}
 
-	// CA certificate pool for server verification.  When omitted, Go falls
-	// back to the system root certificates.
-	if t.tlsCAFile != "" {
-		pool, err := tlsutil.LoadCertPool(t.tlsCAFile)
-		if err != nil {
-			return nil, fmt.Errorf("mqtt: %w", err)
-		}
-		cfg.RootCAs = pool
-	}
-
-	// Client certificate + key for mutual TLS.  Both must be provided
-	// together; specifying only one is a configuration error.
-	if t.tlsCertFile != "" || t.tlsKeyFile != "" {
-		cert, err := tlsutil.LoadClientCert(t.tlsCertFile, t.tlsKeyFile)
-		if err != nil {
-			return nil, fmt.Errorf("mqtt: %w", err)
-		}
-		cfg.Certificates = []tls.Certificate{cert}
+	if err := t.loadTLSFiles(cfg); err != nil {
+		return nil, err
 	}
 
 	// Fail if TLS files were provided but the broker scheme is plaintext:
@@ -94,4 +68,38 @@ func (t *MQTTTransport) buildTLSConfig() (*tls.Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// normalizeBrokerURL normalizes the broker string the same way paho's AddBroker
+// does so that any broker paho accepts (including schemeless "host:port" forms)
+// is accepted here too, and we derive the same scheme paho would use.
+func normalizeBrokerURL(broker string) string {
+	if broker != "" && broker[0] == ':' {
+		broker = "127.0.0.1" + broker
+	}
+	if !strings.Contains(broker, "://") {
+		broker = "tcp://" + broker
+	}
+	return broker
+}
+
+// loadTLSFiles loads the CA certificate pool and client certificate/key pair
+// into the given tls.Config.  CA pool is optional (falls back to system roots);
+// client cert + key must both be provided together.
+func (t *MQTTTransport) loadTLSFiles(cfg *tls.Config) error {
+	if t.tlsCAFile != "" {
+		pool, err := tlsutil.LoadCertPool(t.tlsCAFile)
+		if err != nil {
+			return fmt.Errorf("mqtt: %w", err)
+		}
+		cfg.RootCAs = pool
+	}
+	if t.tlsCertFile != "" || t.tlsKeyFile != "" {
+		cert, err := tlsutil.LoadClientCert(t.tlsCertFile, t.tlsKeyFile)
+		if err != nil {
+			return fmt.Errorf("mqtt: %w", err)
+		}
+		cfg.Certificates = []tls.Certificate{cert}
+	}
+	return nil
 }

@@ -19,21 +19,33 @@ func decodeS7Buffer(buf []byte, addr s7Address, dt core.DataType, h *gos7.Helper
 	// DBB0 byte address configured with type uint16, yielding a 1-byte
 	// buffer) would otherwise cause an index-out-of-range panic inside the
 	// decoding helpers below. Convert that into a graceful error.
-	requiredSize := 0
-	switch dt {
-	case core.TypeBool, core.TypeUint8, core.TypeInt8, core.TypeString:
-		requiredSize = 1
-	case core.TypeUint16, core.TypeInt16:
-		requiredSize = 2
-	case core.TypeUint32, core.TypeInt32, core.TypeFloat32:
-		requiredSize = 4
-	case core.TypeFloat64:
-		requiredSize = 8
-	}
+	requiredSize := s7RequiredSize(dt)
 	if requiredSize > 0 && len(buf) < requiredSize {
 		return nil, fmt.Errorf("s7: buffer too small for type %s: have %d bytes, need %d", dt, len(buf), requiredSize)
 	}
 
+	return decodeS7TypedValue(buf, addr, dt, h)
+}
+
+// s7RequiredSize returns the minimum byte length needed to decode a value of
+// the given type, or 0 for types with no fixed size requirement.
+func s7RequiredSize(dt core.DataType) int {
+	switch dt {
+	case core.TypeBool, core.TypeUint8, core.TypeInt8, core.TypeString:
+		return 1
+	case core.TypeUint16, core.TypeInt16:
+		return 2
+	case core.TypeUint32, core.TypeInt32, core.TypeFloat32:
+		return 4
+	case core.TypeFloat64:
+		return 8
+	default:
+		return 0
+	}
+}
+
+// decodeS7TypedValue decodes a fixed-size value from buf according to dt.
+func decodeS7TypedValue(buf []byte, addr s7Address, dt core.DataType, h *gos7.Helper) (any, error) {
 	switch dt {
 	case core.TypeBool:
 		return h.GetBoolAt(buf[0], addr.bit), nil

@@ -49,7 +49,7 @@
 - 7 = 有 400–600 行文件或候选带函数
 - 5 = 有 600–800 行文件或 gocyclo >20（nolint 抑制）
 - 3 = 有 >800 行文件或多个 God Object
-- 数据来源：Phase 5 后实测——**4** 文件 >400 行（publisher.go 733 · modbus_read.go 515 · rule_build.go 451 · util.go 401）；**0** 函数 gocyclo >20（0 nolint:gocyclo，全部重构）；**2** God Object 延期（CoreCEngine 11 字段/64 方法 · transportBatcher 16 字段/13 方法）
+- 数据来源：Phase 5 后实测——**4** 文件 >400 行（publisher.go 733 · modbus_read.go 515 · rule_build.go 451 · util.go 401）；**0** 函数 gocyclo >20（0 nolint:gocyclo，全部重构）；**0** 生产函数 gocyclo >15（CPLX-018 候选带 8 函数 + stopComponents + readTag 全部拆分至 ≤15）；**2** God Object 延期（CoreCEngine 11 字段/64 方法 · transportBatcher 16 字段/13 方法）
 
 ### 依赖合规（20%）
 - 10 = 0 环 / 0 跨层 / 0 跨域（当前全项目达标）
@@ -62,6 +62,7 @@
 | 整体覆盖率 ≥85% | **85.5%** | ✅ 达标 | Phase 5 完成 |
 | 无 >400 行文件 | 4 个 | -4 | publisher.go/modbus_read.go/rule_build.go/util.go（T1 门禁阈值 600 行，均通过） |
 | gocyclo 全 <20（无 nolint） | **0** | ✅ 达标 | Phase 4 完成，0 nolint:gocyclo |
+| 生产函数 gocyclo ≤15（CPLX-018） | **0** >15 | ✅ 达标 | 候选带 8 函数 + stopComponents + readTag 全部拆分至 ≤15 |
 | 无 God Object | 2 个 | -2 | CPLX-020/025 延期至阶段5后（CoreCEngine 字段已 43→11，方法仍 64） |
 | 全包有 // Package 注释 | **0 缺** | ✅ 达标 | Phase 2 完成 |
 | 0 孤儿文档 | 1 个 | -1 | 已归档施工计划（预期内，不阻断） |
@@ -83,6 +84,4 @@
 |---|---|---|---|
 | CPLX-020 | P1 | CoreCEngine God Object（11 字段/64 方法，字段已从 43 降至 11） | 延期至阶段5后 |
 | CPLX-025 | P2 | transportBatcher God Object（16 字段/13 方法） | 延期至阶段5后 |
-| CPLX-018 | P2 | 8 函数 gocyclo 16–20（低于阈值 20，候选改进） | 待处理 |
 | PERF-003 | P2 | S7 逐 tag N+1 往返（变更行为，需测试覆盖） | 延期至阶段5后 |
-| PERF-007 | P2 | goleak 未覆盖 driver/* 与 transport/httppush | 待处理 |

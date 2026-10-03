@@ -313,16 +313,7 @@ func (e *CoreCEngine) stopComponents() {
 
 	// Stop all drivers with timeout
 	for i, d := range drivers {
-		done := make(chan error, 1)
-		go func() { done <- d.Stop() }()
-		select {
-		case err := <-done:
-			if err != nil {
-				slog.Error("failed to stop driver", "name", driverNames[i], "error", err)
-			}
-		case <-time.After(stopTimeout):
-			slog.Error("timed out stopping driver", "name", driverNames[i], "timeout", stopTimeout)
-		}
+		stopWithErrorTimeout(driverNames[i], "driver", stopTimeout, d.Stop)
 	}
 
 	// Stop all batchers with timeout (flush remaining buffered data).
@@ -342,16 +333,7 @@ func (e *CoreCEngine) stopComponents() {
 
 	// Stop all transports with timeout
 	for i, t := range transports {
-		done := make(chan error, 1)
-		go func() { done <- t.Stop() }()
-		select {
-		case err := <-done:
-			if err != nil {
-				slog.Error("failed to stop transport", "name", transportNames[i], "error", err)
-			}
-		case <-time.After(stopTimeout):
-			slog.Error("timed out stopping transport", "name", transportNames[i], "timeout", stopTimeout)
-		}
+		stopWithErrorTimeout(transportNames[i], "transport", stopTimeout, t.Stop)
 	}
 
 	// Close data bus
@@ -366,6 +348,21 @@ func (e *CoreCEngine) stopComponents() {
 
 	// Stop all tag-file watchers to prevent goroutine leaks on reload.
 	e.stopAllTagFileWatchers()
+}
+
+// stopWithErrorTimeout runs stopFn in a goroutine and waits up to timeout for
+// it to complete, logging an error on failure or timeout.
+func stopWithErrorTimeout(name, kind string, timeout time.Duration, stopFn func() error) {
+	done := make(chan error, 1)
+	go func() { done <- stopFn() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			slog.Error("failed to stop "+kind, "name", name, "error", err)
+		}
+	case <-time.After(timeout):
+		slog.Error("timed out stopping "+kind, "name", name, "timeout", timeout)
+	}
 }
 
 func (e *CoreCEngine) Reload(config *core.Config) error {

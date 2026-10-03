@@ -310,7 +310,24 @@ func (t *MQTTTransport) Start(ctx context.Context) (err error) {
 			"replay-cache", t.replayCache != nil)
 	}
 
-	// Build MQTT client options
+	// Build MQTT client options and connect.
+	t.client = pahomqtt.NewClient(t.buildMQTTOptions())
+
+	t.mu.Lock()
+	t.state = core.StateConnecting
+	t.mu.Unlock()
+
+	if cerr := t.connectMQTT(); cerr != nil {
+		return cerr
+	}
+
+	slog.Info("mqtt transport started", "name", t.name, "broker", t.broker)
+	return nil
+}
+
+// buildMQTTOptions assembles the paho client options (broker, credentials,
+// TLS, and connection lifecycle handlers) from the transport's configuration.
+func (t *MQTTTransport) buildMQTTOptions() *pahomqtt.ClientOptions {
 	opts := pahomqtt.NewClientOptions()
 	opts.AddBroker(t.broker)
 	opts.SetClientID(t.clientID)
@@ -327,16 +344,14 @@ func (t *MQTTTransport) Start(ctx context.Context) (err error) {
 	if t.password != "" {
 		opts.SetPassword(t.password)
 	}
-
-	// Apply TLS configuration when present.  paho only uses this config for
+	// Apply TLS configuration when present. paho only uses this config for
 	// TLS-scheme brokers (mqtts://, tls://, ssl://, ...); for plaintext
-	// brokers it is ignored.  buildTLSConfig guarantees a non-nil config
+	// brokers it is ignored. buildTLSConfig guarantees a non-nil config
 	// only when TLS is actually required.
 	if t.tlsConfig != nil {
 		opts.SetTLSConfig(t.tlsConfig)
 	}
 
-	// Connection handlers
 	opts.SetOnConnectHandler(func(c pahomqtt.Client) {
 		slog.Info("mqtt connected", "name", t.name, "broker", t.broker)
 		t.mu.Lock()
@@ -347,39 +362,31 @@ func (t *MQTTTransport) Start(ctx context.Context) (err error) {
 		if t.commandTopic != "" {
 			t.subscribeCommands(c)
 		}
-
 		// Subscribe to data topic if configured (chained core inbound)
 		if t.dataTopic != "" {
 			t.subscribeData(c)
 		}
 	})
-
 	opts.SetConnectionLostHandler(func(c pahomqtt.Client, err error) {
 		slog.Warn("mqtt connection lost", "name", t.name, "error", err)
 		t.mu.Lock()
 		t.state = core.StateConnecting // auto-reconnect is enabled
 		t.mu.Unlock()
 	})
-
 	opts.SetReconnectingHandler(func(c pahomqtt.Client, opts *pahomqtt.ClientOptions) {
 		slog.Info("mqtt reconnecting", "name", t.name)
 	})
+	return opts
+}
 
-	// Create and connect
-	t.client = pahomqtt.NewClient(opts)
-
-	t.mu.Lock()
-	t.state = core.StateConnecting
-	t.mu.Unlock()
-
+// connectMQTT drives the initial connection attempt. When neither
+// auto-reconnect nor connect-retry is enabled, a timeout or error is surfaced
+// as a hard failure (no background mechanism would ever recover). When a
+// retry mechanism is enabled, the historical behaviour is preserved: the
+// failure is logged and nil is returned so the background retry recovers.
+func (t *MQTTTransport) connectMQTT() error {
 	token := t.client.Connect()
 	if ok := token.WaitTimeout(t.connectTimeout); !ok {
-		// If neither auto-reconnect nor connect-retry is enabled, there is
-		// no background mechanism that will ever establish the connection,
-		// so reporting success would leave the engine believing the
-		// transport is healthy while it is permanently stuck. Surface the
-		// failure instead. When a retry mechanism is enabled, keep the
-		// historical behaviour and let the background retry recover.
 		if !t.autoReconnect && !t.connectRetry {
 			t.mu.Lock()
 			t.state = core.StateError
@@ -390,7 +397,6 @@ func (t *MQTTTransport) Start(ctx context.Context) (err error) {
 		}
 		slog.Warn("mqtt connect timed out, will retry in background",
 			"name", t.name, "broker", t.broker)
-		// Don't fail — ConnectRetry will handle it
 		return nil
 	}
 
@@ -405,11 +411,8 @@ func (t *MQTTTransport) Start(ctx context.Context) (err error) {
 		}
 		slog.Warn("mqtt connect failed, will retry in background",
 			"name", t.name, "error", err)
-		// Don't fail — ConnectRetry will handle it
 		return nil
 	}
-
-	slog.Info("mqtt transport started", "name", t.name, "broker", t.broker)
 	return nil
 }
 

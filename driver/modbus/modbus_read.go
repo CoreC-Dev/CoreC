@@ -86,35 +86,15 @@ func (b *modbusBase) Read(ctx context.Context, tags []string) ([]core.TagValue, 
 			continue
 		}
 
-		// Individual read with retry (original behaviour).
-		var value any
-		var err error
-		// Retry individual tag reads up to maxRetry times, but only for
-		// connection-class errors (e.g. EOF/reset/timeout). Non-connection
-		// errors such as Modbus exception responses ("illegal data address")
-		// are not retried, since repeating the same request will not succeed.
-		for attempt := 0; attempt <= b.maxRetry; attempt++ {
-			value, err = b.readTag(client, req.ai, req.dt, tagName)
-			if err == nil {
-				break
-			}
-			if attempt < b.maxRetry && util.IsConnectionError(err) {
-				// Wait for backoff but return immediately if ctx is cancelled.
-				select {
-				case <-ctx.Done():
-					return nil, ctx.Err()
-				case <-time.After(b.ReconnectBackoff()):
-				}
-				// Refresh client in case reconnection happened
-				b.RLock()
-				client = b.client
-				b.RUnlock()
-				if client == nil {
-					break
-				}
-				continue
-			}
-			break
+		// Individual read with retry (original behaviour). Retry individual
+		// tag reads up to maxRetry times, but only for connection-class
+		// errors (e.g. EOF/reset/timeout). Non-connection errors such as
+		// Modbus exception responses ("illegal data address") are not
+		// retried, since repeating the same request will not succeed.
+		value, err, newClient, aborted := b.readTagWithRetry(ctx, client, req, tagName)
+		client = newClient
+		if aborted {
+			return nil, err
 		}
 		if err != nil {
 			b.RecordError()
@@ -156,6 +136,38 @@ func (b *modbusBase) Read(ctx context.Context, tags []string) ([]core.TagValue, 
 	return results, nil
 }
 
+// readTagWithRetry reads a single tag with connection-class retry, refreshing
+// the client when a reconnect happens. It returns the raw value, any final
+// error, the (possibly refreshed) client, and aborted=true when the context
+// was cancelled mid-retry — in that case the caller must propagate err
+// (ctx.Err()) immediately to abort the whole batch.
+func (b *modbusBase) readTagWithRetry(ctx context.Context, client *mb.ModbusClient, req batchTagReq, tagName string) (value any, err error, newClient *mb.ModbusClient, aborted bool) {
+	for attempt := 0; attempt <= b.maxRetry; attempt++ {
+		value, err = b.readTag(client, req.ai, req.dt, tagName)
+		if err == nil {
+			return value, nil, client, false
+		}
+		if attempt < b.maxRetry && util.IsConnectionError(err) {
+			// Wait for backoff but return immediately if ctx is cancelled.
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err(), client, true
+			case <-time.After(b.ReconnectBackoff()):
+			}
+			// Refresh client in case reconnection happened.
+			b.RLock()
+			client = b.client
+			b.RUnlock()
+			if client == nil {
+				return value, err, client, false
+			}
+			continue
+		}
+		return value, err, client, false
+	}
+	return value, err, client, false
+}
+
 // readTag reads a single tag value from the Modbus device.
 func (b *modbusBase) readTag(client *mb.ModbusClient, ai addrInfo, dt core.DataType, tagName string) (any, error) {
 	// Coils (0xxxx) and discrete inputs (1xxxx) are single-bit areas. Only
@@ -170,31 +182,10 @@ func (b *modbusBase) readTag(client *mb.ModbusClient, ai addrInfo, dt core.DataT
 	switch dt {
 	case core.TypeBool:
 		return readBoolTag(client, ai)
-	case core.TypeUint16:
-		val, err := client.ReadRegister(ai.addr, ai.regType())
-		if err != nil {
-			return nil, fmt.Errorf("read uint16: %w", err)
-		}
-		return val, nil
-	case core.TypeInt16:
-		val, err := client.ReadRegister(ai.addr, ai.regType())
-		if err != nil {
-			return nil, fmt.Errorf("read int16: %w", err)
-		}
-		return int16(val), nil
-	case core.TypeUint32:
-		regs, err := client.ReadRegisters(ai.addr, 2, ai.regType())
-		if err != nil {
-			return nil, fmt.Errorf("read uint32: %w", err)
-		}
-		return uint32(regs[0])<<16 | uint32(regs[1]), nil
-	case core.TypeInt32:
-		regs, err := client.ReadRegisters(ai.addr, 2, ai.regType())
-		if err != nil {
-			return nil, fmt.Errorf("read int32: %w", err)
-		}
-		val := uint32(regs[0])<<16 | uint32(regs[1])
-		return int32(val), nil
+	case core.TypeUint16, core.TypeInt16:
+		return readSingleRegister(client, ai, dt)
+	case core.TypeUint32, core.TypeInt32:
+		return readDoubleRegister(client, ai, dt)
 	case core.TypeFloat32:
 		val, err := client.ReadFloat32(ai.addr, ai.regType())
 		if err != nil {
@@ -203,22 +194,52 @@ func (b *modbusBase) readTag(client *mb.ModbusClient, ai addrInfo, dt core.DataT
 		return val, nil
 	case core.TypeFloat64:
 		return readFloat64Tag(client, ai)
-	case core.TypeUint64:
-		regs, err := client.ReadRegisters(ai.addr, 4, ai.regType())
-		if err != nil {
-			return nil, fmt.Errorf("read uint64: %w", err)
-		}
-		return uint64(regs[0])<<48 | uint64(regs[1])<<32 | uint64(regs[2])<<16 | uint64(regs[3]), nil
-	case core.TypeInt64:
-		regs, err := client.ReadRegisters(ai.addr, 4, ai.regType())
-		if err != nil {
-			return nil, fmt.Errorf("read int64: %w", err)
-		}
-		val := uint64(regs[0])<<48 | uint64(regs[1])<<32 | uint64(regs[2])<<16 | uint64(regs[3])
-		return int64(val), nil
+	case core.TypeUint64, core.TypeInt64:
+		return readQuadRegister(client, ai, dt)
 	default:
 		return nil, fmt.Errorf("unsupported data type: %s", dt)
 	}
+}
+
+// readSingleRegister reads a single 16-bit register and converts to the
+// requested data type (uint16 or int16).
+func readSingleRegister(client *mb.ModbusClient, ai addrInfo, dt core.DataType) (any, error) {
+	val, err := client.ReadRegister(ai.addr, ai.regType())
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", dt, err)
+	}
+	if dt == core.TypeInt16 {
+		return int16(val), nil
+	}
+	return val, nil
+}
+
+// readDoubleRegister reads two 16-bit registers and converts to the requested
+// data type (uint32 or int32).
+func readDoubleRegister(client *mb.ModbusClient, ai addrInfo, dt core.DataType) (any, error) {
+	regs, err := client.ReadRegisters(ai.addr, 2, ai.regType())
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", dt, err)
+	}
+	val := uint32(regs[0])<<16 | uint32(regs[1])
+	if dt == core.TypeInt32 {
+		return int32(val), nil
+	}
+	return val, nil
+}
+
+// readQuadRegister reads four 16-bit registers and converts to the requested
+// data type (uint64 or int64).
+func readQuadRegister(client *mb.ModbusClient, ai addrInfo, dt core.DataType) (any, error) {
+	regs, err := client.ReadRegisters(ai.addr, 4, ai.regType())
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", dt, err)
+	}
+	val := uint64(regs[0])<<48 | uint64(regs[1])<<32 | uint64(regs[2])<<16 | uint64(regs[3])
+	if dt == core.TypeInt64 {
+		return int64(val), nil
+	}
+	return val, nil
 }
 
 // readBoolTag reads a boolean value from coils, discrete inputs, or registers.

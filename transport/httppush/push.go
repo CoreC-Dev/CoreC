@@ -93,29 +93,44 @@ func (t *HTTPTransport) Init(ctx context.Context, config core.TransportConfig) e
 	// set here (under the lock) rather than only at construction so that
 	// a re-Init with a different config is honoured.
 	t.config = config
-
 	settings := config.Settings
 
-	// Parse target URL (optional when used as webhook-only inbound)
+	t.parseHTTPSettings(settings)
+	t.initHTTPClient(settings)
+
+	if err := t.parseWebhookSettings(settings); err != nil {
+		return err
+	}
+
+	// Must have at least an outbound URL or an inbound webhook
+	if t.url == "" && t.webhookAddr == "" {
+		return fmt.Errorf("http transport: either url or webhook-addr is required")
+	}
+
+	slog.Info("http transport initialized",
+		"name", t.name,
+		"url", t.url,
+		"method", t.method,
+	)
+	return nil
+}
+
+// parseHTTPSettings extracts the outbound HTTP settings (url, method, headers,
+// timeout) from the settings map into the transport fields.
+func (t *HTTPTransport) parseHTTPSettings(settings map[string]any) {
 	if u, ok := settings["url"].(string); ok {
 		t.url = u
 	}
-
-	// HTTP method
 	if m, ok := settings["method"].(string); ok && m != "" {
 		t.method = m
 	} else {
 		t.method = http.MethodPost
 	}
-
-	// Headers
 	if headersMap, ok := settings["headers"].(map[string]any); ok {
 		for k, v := range headersMap {
 			t.headers[k] = fmt.Sprintf("%v", v)
 		}
 	}
-
-	// Timeout
 	if timeoutStr, ok := settings["timeout"].(string); ok {
 		if d, err := time.ParseDuration(timeoutStr); err == nil {
 			t.timeout = d
@@ -124,12 +139,14 @@ func (t *HTTPTransport) Init(ctx context.Context, config core.TransportConfig) e
 	if t.timeout == 0 {
 		t.timeout = core.DefaultTransportTimeout
 	}
+}
 
-	// Custom HTTP client with configurable connection pool
+// initHTTPClient creates a custom HTTP client with a configurable connection
+// pool.
+func (t *HTTPTransport) initHTTPClient(settings map[string]any) {
 	maxIdleConns := util.GetIntSetting(settings, "max-idle-conns", 100)
 	maxIdleConnsPerHost := util.GetIntSetting(settings, "max-idle-conns-per-host", 20)
 	idleConnTimeout := util.GetDurationSetting(settings, "idle-conn-timeout", 90*time.Second)
-
 	t.client = &http.Client{
 		Timeout: t.timeout,
 		Transport: &http.Transport{
@@ -138,49 +155,34 @@ func (t *HTTPTransport) Init(ctx context.Context, config core.TransportConfig) e
 			IdleConnTimeout:     idleConnTimeout,
 		},
 	}
+}
 
-	slog.Info("http transport initialized",
-		"name", t.name,
-		"url", t.url,
-		"method", t.method,
-	)
-
-	// Parse webhook config (chained-core inbound)
-	if addr, ok := settings["webhook-addr"].(string); ok && addr != "" {
-		t.webhookAddr = addr
-		t.webhookPath = util.GetStringSetting(settings, "webhook-path", "/data")
-		// Optional shared secret for authenticating webhook POSTs.
-		// When set, requests must carry it in either an
-		// "Authorization: Bearer <secret>" header or an
-		// "X-Webhook-Secret: <secret>" header.  When empty, requests
-		// are accepted unauthenticated (backward-compatible, but a
-		// warning is logged at Start() time).
-		if secret, ok := settings["webhook-secret"].(string); ok {
-			t.webhookSecret = secret
-		}
-		// Optional TLS for the webhook server.  When both tls-cert-file
-		// and tls-key-file are set, the webhook listens over HTTPS
-		// (ListenAndServeTLS); when either is empty the webhook stays
-		// plaintext HTTP (backward-compatible).  This mirrors the MQTT
-		// transport's tls-cert-file / tls-key-file settings.
-		if cert, ok := settings["tls-cert-file"].(string); ok {
-			t.webhookTLSCert = cert
-		}
-		if key, ok := settings["tls-key-file"].(string); ok {
-			t.webhookTLSKey = key
-		}
-		p, err := parser.New(settings)
-		if err != nil {
-			return fmt.Errorf("http transport: invalid parser config: %w", err)
-		}
-		t.dataParser = p
+// parseWebhookSettings extracts the inbound webhook configuration (chained-core
+// inbound) from the settings map. Returns an error if the parser config is
+// invalid.
+func (t *HTTPTransport) parseWebhookSettings(settings map[string]any) error {
+	addr, ok := settings["webhook-addr"].(string)
+	if !ok || addr == "" {
+		return nil
 	}
-
-	// Must have at least an outbound URL or an inbound webhook
-	if t.url == "" && t.webhookAddr == "" {
-		return fmt.Errorf("http transport: either url or webhook-addr is required")
+	t.webhookAddr = addr
+	t.webhookPath = util.GetStringSetting(settings, "webhook-path", "/data")
+	// Optional shared secret for authenticating webhook POSTs.
+	if secret, ok := settings["webhook-secret"].(string); ok {
+		t.webhookSecret = secret
 	}
-
+	// Optional TLS for the webhook server.
+	if cert, ok := settings["tls-cert-file"].(string); ok {
+		t.webhookTLSCert = cert
+	}
+	if key, ok := settings["tls-key-file"].(string); ok {
+		t.webhookTLSKey = key
+	}
+	p, err := parser.New(settings)
+	if err != nil {
+		return fmt.Errorf("http transport: invalid parser config: %w", err)
+	}
+	t.dataParser = p
 	return nil
 }
 
@@ -275,21 +277,11 @@ func (t *HTTPTransport) PublishBatch(ctx context.Context, points []core.DataPoin
 		return nil
 	}
 
-	t.mu.RLock()
-	if t.state != core.StateConnected {
-		t.mu.RUnlock()
+	client, url, method, headers, retryCount, ok := t.snapshotForPublish()
+	if !ok {
 		t.failed.Add(uint64(len(points)))
 		return fmt.Errorf("http transport %s is not connected", t.name)
 	}
-	client := t.client
-	url := t.url
-	method := t.method
-	headers := make(map[string]string, len(t.headers))
-	for k, v := range t.headers {
-		headers[k] = v
-	}
-	retryCount := t.config.RetryCount
-	t.mu.RUnlock()
 	if retryCount < 0 {
 		retryCount = 0
 	}
@@ -320,33 +312,19 @@ func (t *HTTPTransport) PublishBatch(ctx context.Context, points []core.DataPoin
 			backoff *= 2
 		}
 
-		req, rerr := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(payload))
-		if rerr != nil {
-			t.failed.Add(uint64(len(points)))
-			return fmt.Errorf("failed to create http request: %w", rerr)
-		}
-		req.Header.Set("Content-Type", "application/json")
-		for k, v := range headers {
-			req.Header.Set(k, v)
-		}
-		// Propagate W3C trace context to the downstream service so that
-		// the trace spans can be correlated across service boundaries.
-		trace.InjectTraceparent(ctx, req)
-
-		resp, derr := client.Do(req)
-		if derr != nil {
-			// Network error — transient, retry.
-			lastErr = fmt.Errorf("http push error: %w", derr)
+		status, serr, retryable := t.sendHTTPRequest(ctx, client, method, url, headers, payload)
+		if serr != nil {
+			if !retryable {
+				t.failed.Add(uint64(len(points)))
+				return serr
+			}
+			lastErr = serr
 			slog.Warn("http push failed, will retry",
-				"name", t.name, "attempt", attempt+1, "max", maxAttempts, "error", derr)
+				"name", t.name, "attempt", attempt+1, "max", maxAttempts, "error", serr)
 			continue
 		}
 
-		// Drain and close the body so the connection can be reused.
-		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-
-		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		if status >= 200 && status < 300 {
 			t.published.Add(uint64(len(points)))
 			t.mu.Lock()
 			t.lastPublish = time.Now()
@@ -354,17 +332,59 @@ func (t *HTTPTransport) PublishBatch(ctx context.Context, points []core.DataPoin
 			return nil
 		}
 
-		lastErr = fmt.Errorf("http push returned non-2xx status: %d", resp.StatusCode)
+		lastErr = fmt.Errorf("http push returned non-2xx status: %d", status)
 		// Only 5xx is retried; 4xx and other non-2xx are terminal.
-		if resp.StatusCode < 500 || resp.StatusCode >= 600 {
+		if status < 500 || status >= 600 {
 			break
 		}
 		slog.Warn("http push returned 5xx, will retry",
-			"name", t.name, "attempt", attempt+1, "max", maxAttempts, "status", resp.StatusCode)
+			"name", t.name, "attempt", attempt+1, "max", maxAttempts, "status", status)
 	}
 
 	t.failed.Add(uint64(len(points)))
 	return lastErr
+}
+
+// snapshotForPublish captures the publish-relevant state under a read lock.
+// Returns ok=false when the transport is not connected.
+func (t *HTTPTransport) snapshotForPublish() (client *http.Client, url, method string, headers map[string]string, retryCount int, ok bool) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if t.state != core.StateConnected {
+		return nil, "", "", nil, 0, false
+	}
+	headers = make(map[string]string, len(t.headers))
+	for k, v := range t.headers {
+		headers[k] = v
+	}
+	return t.client, t.url, t.method, headers, t.config.RetryCount, true
+}
+
+// sendHTTPRequest performs a single HTTP attempt. Returns the status code (0
+// on error), an error, and retryable (true for network errors that may succeed
+// on retry, false for request-creation errors that will not change).
+func (t *HTTPTransport) sendHTTPRequest(ctx context.Context, client *http.Client, method, url string, headers map[string]string, payload []byte) (status int, err error, retryable bool) {
+	req, rerr := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(payload))
+	if rerr != nil {
+		return 0, fmt.Errorf("failed to create http request: %w", rerr), false
+	}
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	// Propagate W3C trace context to the downstream service so that
+	// the trace spans can be correlated across service boundaries.
+	trace.InjectTraceparent(ctx, req)
+
+	resp, derr := client.Do(req)
+	if derr != nil {
+		return 0, fmt.Errorf("http push error: %w", derr), true
+	}
+
+	// Drain and close the body so the connection can be reused.
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	return resp.StatusCode, nil, false
 }
 
 func (t *HTTPTransport) OnCommand() <-chan core.WriteCommand {
