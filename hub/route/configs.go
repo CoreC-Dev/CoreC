@@ -68,28 +68,6 @@ func getConfigs(w http.ResponseWriter, r *http.Request) {
 // Content-Type is application/yaml because the payload is a YAML document the
 // frontend feeds directly into a Monaco YAML editor.
 func getConfigsRaw(w http.ResponseWriter, r *http.Request) {
-	// ?reveal=true → return config with secrets in plaintext (no redaction).
-	reveal := r.URL.Query().Get("reveal") == "true"
-
-	if reveal && GetRawConfigRevealFunc != nil {
-		yamlText, err := GetRawConfigRevealFunc()
-		if err != nil {
-			slog.Error("failed to produce raw config (reveal)",
-				"method", r.Method,
-				"path", r.URL.Path,
-				"remote", r.RemoteAddr,
-				"error", err)
-			renderInternalError(w, r, err)
-			return
-		}
-		w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		if _, err := io.WriteString(w, yamlText); err != nil {
-			slog.Error("failed to write raw config response", "error", err)
-		}
-		return
-	}
-
 	if GetRawConfigFunc == nil {
 		renderInternalError(w, r, fmt.Errorf("raw config endpoint not wired"))
 		return

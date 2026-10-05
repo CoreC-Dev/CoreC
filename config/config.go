@@ -34,12 +34,9 @@ func Load(path string) (*core.Config, error) {
 }
 
 // LoadNoValidate reads and parses a YAML configuration file WITHOUT running
-// validation. Used by the executor's Reload path, which must run the
-// sentinel-merge (config.MergeSentinels) BETWEEN parse and validate: a config
-// round-tripped from GET /configs/raw carries "***" for unchanged secrets, and
-// validate rejects short sentinels (e.g. api.secret < 8 chars). Merging first
-// restores the real secret values, then Validate runs against the faithful
-// config the operator is about to apply.
+// validation. Used by the executor's Reload path, which parses first and
+// validates second so the operator gets a clear validation error before any
+// config is applied.
 func LoadNoValidate(path string) (*core.Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

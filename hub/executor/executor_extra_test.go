@@ -358,28 +358,25 @@ func liveConfigForValidate() *core.Config {
 	}
 }
 
-// TestValidate_RedactedPayloadMergesAndValidates proves the executor's dry-run
-// Validate merges "***" sentinels against currentCfg BEFORE validating, so a
-// config round-tripped from GET /configs/raw validates successfully (the real
-// api.secret is restored, passing the min-length check that would reject "***").
-func TestValidate_RedactedPayloadMergesAndValidates(t *testing.T) {
+// TestValidate_PlaintextPayloadValidates proves the executor's dry-run Validate
+// accepts a config with plaintext secrets that meet the minimum length check.
+func TestValidate_PlaintextPayloadValidates(t *testing.T) {
 	Init(&mockEngineForExecutor{}, liveConfigForValidate(), "config.yaml")
 
-	// A redacted payload: api.secret and driver password are "***" (what the
-	// operator gets from GET /configs/raw and submits unchanged).
-	redactedYAML := `
+	// A plaintext payload with real secrets that meet min-length requirements.
+	plaintextYAML := `
 global:
   log-level: info
   api:
     listen: 0.0.0.0:9090
-    secret: "***"
+    secret: "live-api-secret-2026"
 drivers:
   - name: plc1
     type: modbus-tcp
     settings:
       host: 10.0.0.5
       port: 502
-      password: "***"
+      password: "live-driver-password"
     tags:
       - name: temp
         address: "40001"
@@ -389,24 +386,23 @@ transports:
     type: http
     settings:
       webhook-addr: 0.0.0.0:9091
-      webhook-secret: "***"
+      webhook-secret: "live-wh-secret"
 rules:
   - name: r1
     match: ALL
     action: forward
 `
-	if _, err := Validate(redactedYAML); err != nil {
-		t.Fatalf("Validate should pass after merge restores real secrets, got: %v", err)
+	if _, err := Validate(plaintextYAML); err != nil {
+		t.Fatalf("Validate should pass with plaintext secrets, got: %v", err)
 	}
 }
 
-// TestValidate_RotatedSecretValidates proves an operator-changed secret (not
-// "***") passes through the merge untouched and validates on its own merits.
+// TestValidate_RotatedSecretValidates proves an operator-changed secret passes
+// validation on its own merits.
 func TestValidate_RotatedSecretValidates(t *testing.T) {
 	Init(&mockEngineForExecutor{}, liveConfigForValidate(), "config.yaml")
 
-	// Operator rotates the api.secret to a new 8+ char value; leaves the
-	// driver password as "***" (unchanged → backfilled).
+	// Operator rotates the api.secret to a new 8+ char value.
 	rotatedYAML := `
 global:
   log-level: info
@@ -419,7 +415,7 @@ drivers:
     settings:
       host: 10.0.0.5
       port: 502
-      password: "***"
+      password: "live-driver-password"
     tags:
       - name: temp
         address: "40001"
@@ -429,7 +425,7 @@ transports:
     type: http
     settings:
       webhook-addr: 0.0.0.0:9091
-      webhook-secret: "***"
+      webhook-secret: "live-wh-secret"
 rules:
   - name: r1
     match: ALL

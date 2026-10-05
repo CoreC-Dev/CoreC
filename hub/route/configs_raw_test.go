@@ -16,7 +16,7 @@ import (
 )
 
 // TestGetConfigsRaw verifies GET /configs/raw returns the full config as YAML
-// with secrets redacted to "***" and never leaks the real secret values.
+// with all values in plaintext (no redaction).
 func TestGetConfigsRaw(t *testing.T) {
 	const realSecret = "do-not-leak-this-token-2026"
 	const realPwd = "super-private-mqtt-password"
@@ -28,7 +28,7 @@ func TestGetConfigsRaw(t *testing.T) {
 		SetEngine(nil)
 	}()
 
-	// Return a config carrying real secrets; the handler must redact them.
+	// Return a config with real secrets in plaintext.
 	GetRawConfigFunc = func() (string, error) {
 		cfg := &core.Config{
 			Global: core.GlobalConfig{
@@ -44,12 +44,7 @@ func TestGetConfigsRaw(t *testing.T) {
 			}},
 			Rules: []core.RuleConfig{{Name: "r1", Match: "ALL", Action: "forward"}},
 		}
-		// Use the real Redact path to prove the wired func produces redacted YAML.
-		redacted, err := config.Redact(cfg)
-		if err != nil {
-			return "", err
-		}
-		data, err := yaml.Marshal(redacted)
+		data, err := yaml.Marshal(cfg)
 		if err != nil {
 			return "", err
 		}
@@ -69,7 +64,7 @@ func TestGetConfigsRaw(t *testing.T) {
 		t.Errorf("no-auth GET /configs/raw: got %d, want 401", resp.StatusCode)
 	}
 
-	// 2. With auth → 200 + application/yaml + redacted.
+	// 2. With auth → 200 + application/yaml + plaintext secrets.
 	req, _ := http.NewRequest("GET", ts.URL+"/configs/raw", http.NoBody)
 	req.Header.Set("Authorization", "Bearer secret-123")
 	resp, err = ts.Client().Do(req)
@@ -87,18 +82,14 @@ func TestGetConfigsRaw(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	yamlText := string(body)
 
-	// Red-team: real secrets must NOT appear in the response body.
-	if strings.Contains(yamlText, realSecret) {
-		t.Errorf("GET /configs/raw leaked api.secret %q", realSecret)
+	// Secrets must appear in plaintext.
+	if !strings.Contains(yamlText, realSecret) {
+		t.Errorf("GET /configs/raw missing api.secret %q", realSecret)
 	}
-	if strings.Contains(yamlText, realPwd) {
-		t.Errorf("GET /configs/raw leaked transport password %q", realPwd)
+	if !strings.Contains(yamlText, realPwd) {
+		t.Errorf("GET /configs/raw missing transport password %q", realPwd)
 	}
-	// Sentinel must appear so the operator sees the secret is configured.
-	if !strings.Contains(yamlText, "***") {
-		t.Errorf("GET /configs/raw missing sentinel *** for redacted secrets")
-	}
-	// Non-secret config must survive so the editor shows real config.
+	// Non-secret config must also survive.
 	if !strings.Contains(yamlText, "ssl://broker:8883") {
 		t.Errorf("GET /configs/raw dropped non-secret broker field")
 	}
