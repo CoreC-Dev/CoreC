@@ -8,6 +8,10 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
 </p>
 
+<p align="center">
+  <img src="https://icon-marquee.giann.dev/v1/marquee?i=go,mqtt,yml,websocket,prometheus,githubactions,linux&width=800" alt="CoreC 技术栈" />
+</p>
+
 **CoreC** 是一个面向工业物联网 (IIoT) 与边缘计算的**高性能、配置驱动、插件化数据采集与控制核心**。
 
 > **CoreC = Connect · Collect · Control** —— 设备连接管理、工业数据采集、控制指令下发，三位一体。
