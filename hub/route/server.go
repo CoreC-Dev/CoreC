@@ -88,21 +88,22 @@ type Config struct {
 }
 
 var (
-	httpServer       *http.Server
-	serverMu         sync.Mutex                   // protects httpServer in ReCreateServer/CloseServer
-	serverCancel     context.CancelFunc           // cancels the active server's lifecycle context
-	serverListener   net.Listener                 // persistent listener for zero-downtime reload
-	serverAddr       string                       // current listening address
-	handlerPtr       atomic.Pointer[http.Handler] // swapped atomically on hot-reload
-	pprofServer      *http.Server
-	pprofMu          sync.Mutex // protects pprofServer
-	engine           core.Engine
-	engineMu         sync.RWMutex
-	ReloadFunc       func(path, payload string) error
-	PatchFunc        func(patch map[string]any) error
-	GetConfigFunc    func() *core.Config
-	GetRawConfigFunc func() (string, error)                 // Path A: GET /configs/raw — full redacted YAML
-	ValidateFunc     func(payload string) ([]string, error) // Path A: POST /configs/validate — dry-run; returns idle warnings + error
+	httpServer             *http.Server
+	serverMu               sync.Mutex                   // protects httpServer in ReCreateServer/CloseServer
+	serverCancel           context.CancelFunc           // cancels the active server's lifecycle context
+	serverListener         net.Listener                 // persistent listener for zero-downtime reload
+	serverAddr             string                       // current listening address
+	handlerPtr             atomic.Pointer[http.Handler] // swapped atomically on hot-reload
+	pprofServer            *http.Server
+	pprofMu                sync.Mutex // protects pprofServer
+	engine                 core.Engine
+	engineMu               sync.RWMutex
+	ReloadFunc             func(path, payload string) error
+	PatchFunc              func(patch map[string]any) error
+	GetConfigFunc          func() *core.Config
+	GetRawConfigFunc       func() (string, error)                 // Path A: GET /configs/raw — full redacted YAML
+	GetRawConfigRevealFunc func() (string, error)                 // GET /configs/raw?reveal=true — full YAML with secrets in plaintext
+	ValidateFunc           func(payload string) ([]string, error) // Path A: POST /configs/validate — dry-run; returns idle warnings + error
 
 	// Version is the build version, injected via ldflags:
 	//   -ldflags "-X github.com/CoreC-Dev/CoreC/hub/route.Version=1.0.0"

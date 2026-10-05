@@ -36,6 +36,7 @@ func Init(e core.Engine, initialCfg *core.Config, path string) {
 	// validator (POST /configs/validate) to the route layer without creating an
 	// import cycle (executor → route, never the reverse).
 	route.GetRawConfigFunc = RawConfigYAML
+	route.GetRawConfigRevealFunc = RawConfigYAMLReveal
 	route.ValidateFunc = Validate
 }
 
@@ -114,6 +115,24 @@ func RawConfigYAML() (string, error) {
 		return "", fmt.Errorf("no active configuration")
 	}
 	data, err := yaml.Marshal(redacted)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal config: %w", err)
+	}
+	return string(data), nil
+}
+
+// RawConfigYAMLReveal returns the full active configuration as YAML text with
+// secret values in PLAINTEXT (no redaction). Used by GET /configs/raw?reveal=true
+// so the Dashboard can display the real credentials (api.secret, passwords,
+// webhook-secrets, auth headers) to the operator.
+func RawConfigYAMLReveal() (string, error) {
+	mux.Lock()
+	cfg := currentCfg
+	mux.Unlock()
+	if cfg == nil {
+		return "", fmt.Errorf("no active configuration")
+	}
+	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal config: %w", err)
 	}
