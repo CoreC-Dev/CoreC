@@ -71,13 +71,13 @@ func ParseWithBytes(buf []byte) (*core.Config, error) {
 // would reject the 3-char "***" sentinel before the real value is restored.
 // Merging first makes the dry-run match the real Reload outcome (which also
 // merges before validating).
-func Validate(payload string) (error, []string) {
+func Validate(payload string) (warnings []string, err error) {
 	if payload == "" {
-		return fmt.Errorf("empty config payload"), nil
+		return nil, fmt.Errorf("empty config payload")
 	}
-	cfg, err := ParseWithBytes([]byte(payload))
-	if err != nil {
-		return err, nil
+	cfg, parseErr := ParseWithBytes([]byte(payload))
+	if parseErr != nil {
+		return nil, parseErr
 	}
 	// Merge "***" sentinels against the live config so validation sees the real
 	// secret values the operator did not change. This mirrors Reload's behavior.
@@ -85,10 +85,10 @@ func Validate(payload string) (error, []string) {
 	liveCfg := currentCfg
 	mux.Unlock()
 	config.MergeSentinels(cfg, liveCfg)
-	if err := config.Validate(cfg); err != nil {
-		return fmt.Errorf("config validation failed: %w", err), nil
+	if vErr := config.Validate(cfg); vErr != nil {
+		return nil, fmt.Errorf("config validation failed: %w", vErr)
 	}
-	return nil, config.IdleWarnings(cfg)
+	return config.IdleWarnings(cfg), nil
 }
 
 // RawConfigYAML returns the full active configuration as YAML text with every

@@ -112,7 +112,7 @@ func validateConfigs(w http.ResponseWriter, r *http.Request) {
 		renderInternalError(w, r, fmt.Errorf("validate endpoint not wired"))
 		return
 	}
-	vErr, warnings := ValidateFunc(req.Payload)
+	warnings, vErr := ValidateFunc(req.Payload)
 	if vErr != nil {
 		slog.Info("config validate failed",
 			"method", r.Method,

@@ -114,9 +114,9 @@ func TestValidateConfigs(t *testing.T) {
 	}()
 
 	// ValidateFunc mirrors the executor: parse+validate only, no apply.
-	ValidateFunc = func(payload string) (error, []string) {
+	ValidateFunc = func(payload string) ([]string, error) {
 		_, err := config.Parse([]byte(payload))
-		return err, nil
+		return nil, err
 	}
 
 	ts := httptest.NewServer(router(context.Background(), "secret-123", nil, 0, true))
@@ -172,7 +172,7 @@ func TestValidateConfigs(t *testing.T) {
 
 // TestValidateConfigs_NoAuth verifies the validate endpoint requires auth.
 func TestValidateConfigs_NoAuth(t *testing.T) {
-	ValidateFunc = func(string) (error, []string) { return nil, nil }
+	ValidateFunc = func(string) ([]string, error) { return nil, nil }
 	defer func() { ValidateFunc = nil }()
 	ts := httptest.NewServer(router(context.Background(), "secret-123", nil, 0, true))
 	defer ts.Close()

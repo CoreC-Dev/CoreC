@@ -12,13 +12,13 @@ import (
 // from diffDrivers/diffTransports.
 type mockEngineRemoveFail struct {
 	core.Engine
-	removeDriverErr   error
+	removeDriverErr    error
 	removeTransportErr error
-	removedDrivers    []string
-	removedTransports []string
+	removedDrivers     []string
+	removedTransports  []string
 }
 
-func (m *mockEngineRemoveFail) AddDriver(core.DriverConfig) error  { return nil }
+func (m *mockEngineRemoveFail) AddDriver(core.DriverConfig) error { return nil }
 func (m *mockEngineRemoveFail) RemoveDriver(name string) error {
 	m.removedDrivers = append(m.removedDrivers, name)
 	return m.removeDriverErr
@@ -28,9 +28,9 @@ func (m *mockEngineRemoveFail) RemoveTransport(name string) error {
 	m.removedTransports = append(m.removedTransports, name)
 	return m.removeTransportErr
 }
-func (m *mockEngineRemoveFail) SetRules([]core.RuleConfig) error  { return nil }
-func (m *mockEngineRemoveFail) Suspend() error                    { return nil }
-func (m *mockEngineRemoveFail) Resume() error                     { return nil }
+func (m *mockEngineRemoveFail) SetRules([]core.RuleConfig) error { return nil }
+func (m *mockEngineRemoveFail) Suspend() error                   { return nil }
+func (m *mockEngineRemoveFail) Resume() error                    { return nil }
 
 // TestDiffDrivers_RemoveAllToEmpty verifies the N→0 reload path: removing
 // all drivers when the new config has none. This was previously untested.

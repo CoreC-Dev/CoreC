@@ -101,8 +101,8 @@ var (
 	ReloadFunc       func(path, payload string) error
 	PatchFunc        func(patch map[string]any) error
 	GetConfigFunc    func() *core.Config
-	GetRawConfigFunc func() (string, error)     // Path A: GET /configs/raw — full redacted YAML
-	ValidateFunc     func(payload string) (error, []string) // Path A: POST /configs/validate — dry-run; returns error + idle warnings
+	GetRawConfigFunc func() (string, error)                 // Path A: GET /configs/raw — full redacted YAML
+	ValidateFunc     func(payload string) ([]string, error) // Path A: POST /configs/validate — dry-run; returns idle warnings + error
 
 	// Version is the build version, injected via ldflags:
 	//   -ldflags "-X github.com/CoreC-Dev/CoreC/hub/route.Version=1.0.0"
