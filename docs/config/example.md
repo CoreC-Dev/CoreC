@@ -25,9 +25,13 @@ CoreC 配置采用 YAML，顶层段如下：
 | --- | --- | --- | --- |
 | `node` | 拓扑自动发现（节点身份、上游订阅） | 否 | [链式核心 → 自动发现](/guide/chained-core#拓扑自动发现-auto-discovery) |
 | `global` | 核心全局设置（日志、API、引擎调优） | 否 | [全局配置](/config/global) |
-| `drivers` | 南向采集驱动列表 | 条件必填 | [驱动配置](/config/drivers) |
-| `transports` | 北向传输通道列表 | **是** | [传输配置](/config/transports) |
+| `drivers` | 南向采集驱动列表 | 否 | [驱动配置](/config/drivers) |
+| `transports` | 北向传输通道列表 | 否 | [传输配置](/config/transports) |
 | `rules` | 数据路由与处理规则 | 否 | [规则配置](/config/rules) |
+
+::: tip 空配置 / Idle 模式
+`drivers` 与 `transports` 均非必填。CoreC 支持以仅含 `global.api` 的最小配置启动（idle 模式），再通过 Dashboard 从零配置全部业务。启动时若无数据源或无传输，日志会输出非阻塞告警（`no data source configured` / `no transport configured`），引擎以空管线安全运行。详见下方"空配置 / Idle 模式"小节。
+:::
 
 ::: info
 `node` 段是可选的。省略时所有自动发现功能关闭，引擎行为与旧版完全一致。设置 `node.id` 后，`topic-template`、`command-topic`、`parser` 等字段在省略时自动生成。
@@ -314,4 +318,52 @@ curl -H "Authorization: Bearer corec-secret-token" \
 
 ::: info
 若日志出现驱动 `error` 状态，请依次检查：设备网络可达性、`slave-id` / `slot` / `endpoint` 正确性、防火墙端口放行。
+:::
+
+---
+
+## 空配置 / Idle 模式
+
+CoreC 支持以**空配置或仅含 `global.api` 的最小配置**启动——无需任何 driver、transport 或 rule。引擎以空管线安全运行（scheduler 空转、处理 worker 阻塞在空数据总线、readiness 探针空载时返回 ready），运维随后通过 Dashboard 从零搭建全部业务配置。
+
+### 最小配置
+
+仓库提供 [`config.minimal.yaml`](https://github.com/CoreC-Dev/CoreC/blob/main/config.minimal.yaml)：
+
+```yaml
+global:
+  log-level: info
+  api:
+    listen: 0.0.0.0:9090
+    secret: ${COREC_API_SECRET}    # ≥8 字符
+```
+
+启动：
+
+```bash
+COREC_API_SECRET=change-me-please ./corec -c config.minimal.yaml
+```
+
+### 启动告警
+
+空配置启动时，日志会输出两条**非阻塞告警**（`WARN` 级别，不影响启动）：
+
+```
+WARN no data source configured — running in idle mode; add a driver, an inbound transport ...
+WARN no transport configured — running in idle mode; add a northbound transport ...
+```
+
+这些告警同时出现在 Dashboard 的日志流（`/logs` WebSocket）中，提示运维当前核心处于 idle 模式。
+
+### 经 Dashboard 配置
+
+启动后打开 Dashboard 并连接到该实例的 API（`http://<host>:9090`，使用 `api.secret` 认证）。随后可通过：
+
+- **配置中心**：编辑完整 YAML 并 `PUT /configs` 热重载；
+- **驱动 / 传输 / 规则向导**：逐个添加实体，向导会在合并到工作配置后做本地校验（存在性校验已降级为非阻塞告警，不再阻止"先加第一个驱动"等鸡生蛋场景）。
+
+每次 `PUT /configs` 应用一个仍无数据源 / 无传输的配置时，服务端会再次输出 idle 告警；一旦配置了数据源与传输，告警消失，核心进入正常采集状态。
+
+::: info
+`api.secret` 在 `api.listen` 设置时仍为**硬性必填**且不少于 8 字符——这是安全不变量，不因 idle 模式而放宽。其余硬校验（名称唯一、类型已注册、tag 字段合法、规则 target 引用等）同样保持不变。
 :::

@@ -56,25 +56,10 @@ func TestValidateConfigErrors(t *testing.T) {
 		cfg     *core.Config
 		wantErr string
 	}{
-		{
-			name:    "empty drivers and no inbound transport",
-			cfg:     &core.Config{},
-			wantErr: "no data source: configure at least one driver, or at least one transport as inbound consumer (mqtt data-topic / http webhook-addr) for relay mode, or enable auto-discovery with node.subscribe",
-		},
-		{
-			name: "empty drivers with non-inbound transport",
-			cfg: &core.Config{
-				Transports: []core.TransportConfig{{Name: "t1", Type: "mqtt"}},
-			},
-			wantErr: "no data source: configure at least one driver, or at least one transport as inbound consumer (mqtt data-topic / http webhook-addr) for relay mode, or enable auto-discovery with node.subscribe",
-		},
-		{
-			name: "empty transports",
-			cfg: &core.Config{
-				Drivers: []core.DriverConfig{{Name: "d1", Type: "modbus-tcp", Tags: []core.TagConfig{validTag}}},
-			},
-			wantErr: "at least one transport must be configured",
-		},
+		// Note: "no data source" and "no transport" are no longer hard
+		// validation errors — an empty/API-only config is a valid startup
+		// state for the dashboard-driven workflow. See TestValidateEmptyAllowed
+		// and TestIdleWarnings below.
 		{
 			name: "duplicate driver",
 			cfg: &core.Config{
@@ -226,16 +211,131 @@ func TestValidateRelayMode(t *testing.T) {
 		}
 	})
 
-	t.Run("zero drivers with node.id but no subscribe is invalid", func(t *testing.T) {
+	t.Run("zero drivers with node.id but no subscribe is valid (idle mode)", func(t *testing.T) {
+		// Presence of a data source is no longer a hard error (dashboard-driven
+		// workflow). A node with an ID but no subscribe, no drivers, and no
+		// inbound transport is a valid idle state — it broadcasts heartbeats
+		// but produces no data until configured via the Dashboard.
 		cfg := &core.Config{
 			Node: core.NodeConfig{ID: "relay-B", Role: "relay"},
 			Transports: []core.TransportConfig{
 				{Name: "mqtt", Type: "mqtt", Settings: map[string]any{"broker": "tcp://broker:1883"}},
 			},
 		}
-		err := ValidateWithRegistries(cfg, globalDriverRegistry{}, globalTransportRegistry{})
-		if err == nil {
-			t.Fatal("expected error for relay with no data source and no subscribe, got nil")
+		if err := ValidateWithRegistries(cfg, globalDriverRegistry{}, globalTransportRegistry{}); err != nil {
+			t.Fatalf("expected no error for idle relay node, got %v", err)
+		}
+	})
+}
+
+// TestValidateEmptyAllowed asserts that empty / API-only / partial configs
+// pass validation. These were hard errors before the dashboard-driven
+// workflow relaxed the data-source/transport presence requirement.
+func TestValidateEmptyAllowed(t *testing.T) {
+	validTag := core.TagConfig{Name: "t1", Address: "40001", Type: "float32"}
+
+	t.Run("completely empty config", func(t *testing.T) {
+		if err := ValidateWithRegistries(&core.Config{}, globalDriverRegistry{}, globalTransportRegistry{}); err != nil {
+			t.Fatalf("expected no error for empty config, got %v", err)
+		}
+	})
+
+	t.Run("API-only config (no drivers, no transports)", func(t *testing.T) {
+		cfg := &core.Config{
+			Global: core.GlobalConfig{
+				API: core.APIConfig{Listen: "0.0.0.0:9090", Secret: "secret123"},
+			},
+		}
+		if err := ValidateWithRegistries(cfg, globalDriverRegistry{}, globalTransportRegistry{}); err != nil {
+			t.Fatalf("expected no error for API-only config, got %v", err)
+		}
+	})
+
+	t.Run("driver but no transport", func(t *testing.T) {
+		cfg := &core.Config{
+			Drivers: []core.DriverConfig{{Name: "d1", Type: "modbus-tcp", Tags: []core.TagConfig{validTag}}},
+		}
+		if err := ValidateWithRegistries(cfg, globalDriverRegistry{}, globalTransportRegistry{}); err != nil {
+			t.Fatalf("expected no error for driver-only config, got %v", err)
+		}
+	})
+
+	t.Run("non-inbound transport but no driver", func(t *testing.T) {
+		cfg := &core.Config{
+			Transports: []core.TransportConfig{{Name: "t1", Type: "mqtt"}},
+		}
+		if err := ValidateWithRegistries(cfg, globalDriverRegistry{}, globalTransportRegistry{}); err != nil {
+			t.Fatalf("expected no error for transport-only config, got %v", err)
+		}
+	})
+}
+
+// TestIdleWarnings asserts the non-blocking idle-mode warnings.
+func TestIdleWarnings(t *testing.T) {
+	validTag := core.TagConfig{Name: "t1", Address: "40001", Type: "float32"}
+	apiCfg := core.GlobalConfig{API: core.APIConfig{Listen: ":9090", Secret: "secret123"}}
+
+	t.Run("empty config warns about api.listen, data source and transport", func(t *testing.T) {
+		w := IdleWarnings(&core.Config{})
+		if len(w) != 3 {
+			t.Fatalf("expected 3 warnings for empty config, got %d: %v", len(w), w)
+		}
+	})
+
+	t.Run("API-only config warns about data source and transport", func(t *testing.T) {
+		cfg := &core.Config{Global: apiCfg}
+		if len(IdleWarnings(cfg)) != 2 {
+			t.Fatalf("expected 2 warnings for API-only config, got %v", IdleWarnings(cfg))
+		}
+	})
+
+	t.Run("driver only warns about api.listen and no transport", func(t *testing.T) {
+		cfg := &core.Config{
+			Drivers: []core.DriverConfig{{Name: "d1", Type: "modbus-tcp", Tags: []core.TagConfig{validTag}}},
+		}
+		w := IdleWarnings(cfg)
+		if len(w) != 2 {
+			t.Fatalf("expected 2 warnings (api.listen + no transport), got %d: %v", len(w), w)
+		}
+	})
+
+	t.Run("inbound transport only warns about api.listen", func(t *testing.T) {
+		cfg := &core.Config{
+			Transports: []core.TransportConfig{
+				{Name: "t1", Type: "mqtt", Settings: map[string]any{"data-topic": "up/#"}},
+			},
+		}
+		w := IdleWarnings(cfg)
+		if len(w) != 1 {
+			t.Fatalf("expected 1 warning (api.listen), got %v", w)
+		}
+	})
+
+	t.Run("driver plus transport warns about api.listen", func(t *testing.T) {
+		cfg := &core.Config{
+			Drivers:    []core.DriverConfig{{Name: "d1", Type: "modbus-tcp", Tags: []core.TagConfig{validTag}}},
+			Transports: []core.TransportConfig{{Name: "t1", Type: "mqtt"}},
+		}
+		w := IdleWarnings(cfg)
+		if len(w) != 1 {
+			t.Fatalf("expected 1 warning (api.listen), got %v", w)
+		}
+	})
+
+	t.Run("full config with api.listen — no warnings", func(t *testing.T) {
+		cfg := &core.Config{
+			Global:     apiCfg,
+			Drivers:    []core.DriverConfig{{Name: "d1", Type: "modbus-tcp", Tags: []core.TagConfig{validTag}}},
+			Transports: []core.TransportConfig{{Name: "t1", Type: "mqtt"}},
+		}
+		if len(IdleWarnings(cfg)) != 0 {
+			t.Fatalf("expected 0 warnings for full config, got %v", IdleWarnings(cfg))
+		}
+	})
+
+	t.Run("nil config — no panic", func(t *testing.T) {
+		if w := IdleWarnings(nil); w != nil {
+			t.Fatalf("expected nil for nil config, got %v", w)
 		}
 	})
 }

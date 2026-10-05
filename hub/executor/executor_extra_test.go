@@ -395,7 +395,7 @@ rules:
     match: ALL
     action: forward
 `
-	if err := Validate(redactedYAML); err != nil {
+	if err, _ := Validate(redactedYAML); err != nil {
 		t.Fatalf("Validate should pass after merge restores real secrets, got: %v", err)
 	}
 }
@@ -435,7 +435,7 @@ rules:
     match: ALL
     action: forward
 `
-	if err := Validate(rotatedYAML); err != nil {
+	if err, _ := Validate(rotatedYAML); err != nil {
 		t.Fatalf("Validate with rotated secret should pass, got: %v", err)
 	}
 }
@@ -473,7 +473,7 @@ rules:
     match: ALL
     action: forward
 `
-	err := Validate(tooShortYAML)
+	err, _ := Validate(tooShortYAML)
 	if err == nil {
 		t.Fatal("expected validation error for too-short rotated secret, got nil")
 	}
@@ -482,7 +482,7 @@ rules:
 // TestValidate_EmptyPayload proves the empty-payload guard.
 func TestValidate_EmptyPayload(t *testing.T) {
 	Init(&mockEngineForExecutor{}, liveConfigForValidate(), "config.yaml")
-	if err := Validate(""); err == nil {
+	if err, _ := Validate(""); err == nil {
 		t.Error("expected error for empty payload")
 	}
 }

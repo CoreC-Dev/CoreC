@@ -62,6 +62,15 @@ func run() int {
 	// Setup logging
 	setupLogging(cfg, logLevel)
 
+	// Surface non-blocking idle-mode warnings (no data source / no transport).
+	// An empty or API-only config is a valid startup state: the operator is
+	// expected to build the full configuration via the Dashboard. Log these
+	// after logging is initialized so they flow through the log bus and are
+	// visible in the Dashboard's /logs WebSocket stream.
+	for _, w := range config.IdleWarnings(cfg) {
+		slog.Warn(w)
+	}
+
 	// Print registered drivers and transports
 	slog.Info("registered drivers", "types", core.RegisteredDrivers())
 	slog.Info("registered transports", "types", core.RegisteredTransports())

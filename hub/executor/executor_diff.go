@@ -24,7 +24,7 @@ func diffDrivers(oldDrivers, newDrivers []core.DriverConfig, force bool) error {
 		if _, exists := newMap[name]; !exists {
 			slog.Info("removing driver", "name", name)
 			if err := engine.RemoveDriver(name); err != nil {
-				slog.Error("failed to remove driver", "name", name, "error", err)
+				return fmt.Errorf("failed to remove driver %s: %w", name, err)
 			}
 		}
 	}
@@ -40,7 +40,7 @@ func diffDrivers(oldDrivers, newDrivers []core.DriverConfig, force bool) error {
 		} else if force || !reflect.DeepEqual(oldDriver, newDriver) {
 			slog.Info("reloading modified driver", "name", name)
 			if err := engine.RemoveDriver(name); err != nil {
-				slog.Error("failed to stop driver for restart", "name", name, "error", err)
+				return fmt.Errorf("failed to stop driver %s for restart: %w", name, err)
 			}
 			if err := engine.AddDriver(newDriver); err != nil {
 				return fmt.Errorf("failed to restart driver %s: %w", name, err)
@@ -67,7 +67,7 @@ func diffTransports(oldTransports, newTransports []core.TransportConfig, force b
 		if _, exists := newMap[name]; !exists {
 			slog.Info("removing transport", "name", name)
 			if err := engine.RemoveTransport(name); err != nil {
-				slog.Error("failed to remove transport", "name", name, "error", err)
+				return fmt.Errorf("failed to remove transport %s: %w", name, err)
 			}
 		}
 	}
@@ -83,7 +83,7 @@ func diffTransports(oldTransports, newTransports []core.TransportConfig, force b
 		} else if force || !reflect.DeepEqual(oldTransport, newTransport) {
 			slog.Info("reloading modified transport", "name", name)
 			if err := engine.RemoveTransport(name); err != nil {
-				slog.Error("failed to stop transport for restart", "name", name, "error", err)
+				return fmt.Errorf("failed to stop transport %s for restart: %w", name, err)
 			}
 			if err := engine.AddTransport(newTransport); err != nil {
 				return fmt.Errorf("failed to restart transport %s: %w", name, err)

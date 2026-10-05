@@ -71,13 +71,13 @@ func ParseWithBytes(buf []byte) (*core.Config, error) {
 // would reject the 3-char "***" sentinel before the real value is restored.
 // Merging first makes the dry-run match the real Reload outcome (which also
 // merges before validating).
-func Validate(payload string) error {
+func Validate(payload string) (error, []string) {
 	if payload == "" {
-		return fmt.Errorf("empty config payload")
+		return fmt.Errorf("empty config payload"), nil
 	}
 	cfg, err := ParseWithBytes([]byte(payload))
 	if err != nil {
-		return err
+		return err, nil
 	}
 	// Merge "***" sentinels against the live config so validation sees the real
 	// secret values the operator did not change. This mirrors Reload's behavior.
@@ -86,9 +86,9 @@ func Validate(payload string) error {
 	mux.Unlock()
 	config.MergeSentinels(cfg, liveCfg)
 	if err := config.Validate(cfg); err != nil {
-		return fmt.Errorf("config validation failed: %w", err)
+		return fmt.Errorf("config validation failed: %w", err), nil
 	}
-	return nil
+	return nil, config.IdleWarnings(cfg)
 }
 
 // RawConfigYAML returns the full active configuration as YAML text with every
@@ -221,6 +221,13 @@ func Reload(path, payload string) error {
 	// identical to the dry-run POST /configs/validate.
 	if err := config.Validate(cfg); err != nil {
 		return fmt.Errorf("config validation failed: %w", err)
+	}
+
+	// Surface non-blocking idle-mode warnings for the config being applied.
+	// An empty/partial config is valid (dashboard-driven workflow); these
+	// warnings let the operator see the core is running in idle mode.
+	for _, w := range config.IdleWarnings(cfg) {
+		slog.Warn(w)
 	}
 
 	return ApplyConfig(cfg, false)

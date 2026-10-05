@@ -291,19 +291,8 @@ transports:
 `,
 			wantErr: `driver d1: tag "t1": interval must be positive`,
 		},
-		{
-			name: "no transports",
-			yaml: `
-drivers:
-  - name: d1
-    type: modbus-tcp
-    tags:
-      - name: t1
-        address: "40001"
-        type: float32
-`,
-			wantErr: "at least one transport must be configured",
-		},
+		// Note: "no transports" is no longer a hard error — a driver-only
+		// config is a valid idle state in the dashboard-driven workflow.
 		{
 			name: "unknown driver type",
 			yaml: `

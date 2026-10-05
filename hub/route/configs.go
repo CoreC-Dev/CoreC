@@ -112,15 +112,17 @@ func validateConfigs(w http.ResponseWriter, r *http.Request) {
 		renderInternalError(w, r, fmt.Errorf("validate endpoint not wired"))
 		return
 	}
-	if err := ValidateFunc(req.Payload); err != nil {
+	vErr, warnings := ValidateFunc(req.Payload)
+	if vErr != nil {
 		slog.Info("config validate failed",
 			"method", r.Method,
 			"path", r.URL.Path,
 			"remote", r.RemoteAddr,
-			"error", err)
+			"error", vErr)
 		render(w, r, http.StatusBadRequest, map[string]any{
-			"valid": false,
-			"error": err.Error(),
+			"valid":    false,
+			"error":    vErr.Error(),
+			"warnings": warnings,
 		})
 		return
 	}
@@ -128,7 +130,10 @@ func validateConfigs(w http.ResponseWriter, r *http.Request) {
 		"method", r.Method,
 		"path", r.URL.Path,
 		"remote", r.RemoteAddr)
-	render(w, r, http.StatusOK, map[string]any{"valid": true})
+	render(w, r, http.StatusOK, map[string]any{
+		"valid":    true,
+		"warnings": warnings,
+	})
 }
 
 func buildConfigOverview(cfg *core.Config) configOverview {

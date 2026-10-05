@@ -74,16 +74,46 @@ func validateBuffer(cfg *core.Config) error {
 	return nil
 }
 
-// validateDataSources ensures the config has at least one data source
-// (driver, inbound transport, or auto-discovery) and at least one transport.
+// validateDataSources is retained as a no-op for backward compatibility.
+//
+// Historically this enforced "at least one data source (driver, inbound
+// transport, or auto-discovery) AND at least one transport" as a hard
+// startup error. That blocked the dashboard-driven workflow where an
+// operator starts CoreC with an empty/API-only config and builds the
+// full configuration entirely through the Dashboard.
+//
+// The engine handles empty drivers/transports/rules safely (idle
+// scheduler, vacuous readiness), so the presence requirement is now a
+// non-blocking warning surfaced via IdleWarnings (logged at startup and
+// on reload) rather than a validation failure. All other validations
+// (unique names, registered types, valid tags, API secret, rule target
+// refs, …) remain hard errors — only existence is relaxed, because an
+// empty pipeline is a valid transient state in the Dashboard workflow.
 func validateDataSources(cfg *core.Config) error {
+	_ = cfg
+	return nil
+}
+
+// IdleWarnings returns human-readable, non-blocking warnings for a config
+// that has no data source and/or no transport. These are logged at startup
+// (cmd/corec) and on reload (hub/executor) so an operator sees that the
+// core is running in idle mode and can configure it via the Dashboard.
+// Returns nil for a config that has both a data source and a transport.
+func IdleWarnings(cfg *core.Config) []string {
+	if cfg == nil {
+		return nil
+	}
+	var warnings []string
+	if cfg.Global.API.Listen == "" {
+		warnings = append(warnings, "control plane (global.api.listen) not configured — Dashboard and HTTP API will not start; set global.api.listen and global.api.secret to enable remote configuration")
+	}
 	if len(cfg.Drivers) == 0 && !hasInboundTransport(cfg.Transports) && !hasAutoDiscoveryInbound(cfg) {
-		return fmt.Errorf("no data source: configure at least one driver, or at least one transport as inbound consumer (mqtt data-topic / http webhook-addr) for relay mode, or enable auto-discovery with node.subscribe")
+		warnings = append(warnings, "no data source configured — running in idle mode; add a driver, an inbound transport (mqtt data-topic / http webhook-addr), or enable auto-discovery with node.subscribe via the Dashboard")
 	}
 	if len(cfg.Transports) == 0 {
-		return fmt.Errorf("at least one transport must be configured")
+		warnings = append(warnings, "no transport configured — running in idle mode; add a northbound transport via the Dashboard")
 	}
-	return nil
+	return warnings
 }
 
 // validateDrivers checks driver names are unique, types are registered,

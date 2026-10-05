@@ -2,6 +2,16 @@
 # CoreC Configuration Example
 # IIoT Data Collection and Distribution Core
 # ============================================================
+#
+# This is a fully working demo config (1 Modbus driver, 2 transports,
+# 2 rules). To start CoreC with NO business config and build everything
+# via the Dashboard instead, use config.minimal.yaml:
+#
+#   COREC_API_SECRET=change-me-please ./corec -c config.minimal.yaml
+#
+# CoreC starts in idle mode (empty pipeline) and the operator adds
+# drivers, transports, and rules through the Dashboard. An empty or
+# API-only config is a valid startup state.
 
 # --- Environment Variable Substitution ---
 # Any ${ENV_VAR} placeholder in the YAML (including tags-file contents)

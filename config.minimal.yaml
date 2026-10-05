@@ -1,0 +1,27 @@
+# ============================================================
+# CoreC Minimal / Bootstrap Configuration
+# ============================================================
+# The smallest config that starts CoreC and exposes the Dashboard API.
+# No drivers, transports, or rules are defined — CoreC starts in idle
+# mode and the operator builds the full configuration entirely through
+# the Dashboard (Config Center → PUT /configs, or the driver/transport/
+# rule wizards).
+#
+# At startup CoreC logs non-blocking warnings:
+#   - "no data source configured — running in idle mode ..."
+#   - "no transport configured — running in idle mode ..."
+# These are expected: the engine runs with an empty pipeline until the
+# first configuration is applied via the Dashboard.
+#
+# Usage:
+#   COREC_API_SECRET=change-me-please ./corec -c config.minimal.yaml
+# Then open the Dashboard and connect to this instance's API.
+# ============================================================
+
+global:
+  log-level: info
+  api:
+    listen: 0.0.0.0:9090
+    secret: ${COREC_API_SECRET}    # required (≥8 chars) when api.listen is set
+    # allowed-origins:              # restrict CORS to the Dashboard origin
+    #   - http://localhost:5173

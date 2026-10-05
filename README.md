@@ -165,6 +165,16 @@ rules:
 ./corec.exe -c config.example.yaml
 ```
 
+### 4b. 空配置启动 + Dashboard 驱动配置
+
+CoreC 支持以**空配置 / 仅 API 配置**启动（无 driver、transport、rule），进入 idle 模式后由运维在 Dashboard 中从零搭建全部业务配置。参考 [`config.minimal.yaml`](config.minimal.yaml)：
+
+```bash
+COREC_API_SECRET=change-me-please ./corec.exe -c config.minimal.yaml
+```
+
+启动后日志会输出非阻塞告警（`no data source configured` / `no transport configured`），引擎以空管线运行，Dashboard 连上后即可通过配置中心（`PUT /configs`）或驱动/传输/规则向导逐步添加配置。详见 [`docs/config/example.md`](docs/config/example.md) → "空配置 / Idle 模式"。
+
 ---
 
 ## External Controller API

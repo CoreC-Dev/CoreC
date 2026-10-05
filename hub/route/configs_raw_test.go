@@ -114,9 +114,9 @@ func TestValidateConfigs(t *testing.T) {
 	}()
 
 	// ValidateFunc mirrors the executor: parse+validate only, no apply.
-	ValidateFunc = func(payload string) error {
+	ValidateFunc = func(payload string) (error, []string) {
 		_, err := config.Parse([]byte(payload))
-		return err
+		return err, nil
 	}
 
 	ts := httptest.NewServer(router(context.Background(), "secret-123", nil, 0, true))
@@ -143,8 +143,11 @@ func TestValidateConfigs(t *testing.T) {
 		t.Errorf("valid payload: response valid=%v, want true", ok["valid"])
 	}
 
-	// 2. Invalid config (missing required transport) → 400 {valid: false, error: ...}.
-	invalidYAML := "node:\n  id: edge\nglobal:\n  api:\n    listen: 0.0.0.0:9090\n    secret: valid-secret-123\n" // no transports
+	// 2. Invalid config (api.secret too short) → 400 {valid: false, error: ...}.
+	// Note: "no data source / no transport" is no longer invalid — an empty
+	// config is a valid idle state. Use a hard, registry-independent failure
+	// (secret length) so the outcome does not depend on driver registration.
+	invalidYAML := "global:\n  api:\n    listen: 0.0.0.0:9090\n    secret: short\n"
 	body, _ = json.Marshal(map[string]string{"payload": invalidYAML})
 	req, _ = http.NewRequest("POST", ts.URL+"/configs/validate", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer secret-123")
@@ -169,7 +172,7 @@ func TestValidateConfigs(t *testing.T) {
 
 // TestValidateConfigs_NoAuth verifies the validate endpoint requires auth.
 func TestValidateConfigs_NoAuth(t *testing.T) {
-	ValidateFunc = func(string) error { return nil }
+	ValidateFunc = func(string) (error, []string) { return nil, nil }
 	defer func() { ValidateFunc = nil }()
 	ts := httptest.NewServer(router(context.Background(), "secret-123", nil, 0, true))
 	defer ts.Close()
