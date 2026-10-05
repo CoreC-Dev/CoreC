@@ -3,6 +3,7 @@ package executor
 import (
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -189,7 +190,29 @@ func Reload(path, payload string) error {
 		slog.Warn(w)
 	}
 
-	return ApplyConfig(cfg, false)
+	if err := ApplyConfig(cfg, false); err != nil {
+		return err
+	}
+
+	// Persist the config to disk so changes survive a restart. When the reload
+	// came from a payload (dashboard PUT /configs), write it back to the active
+	// config file. Skip silently if no configPath is set (empty-config startup
+	// with no file to write to).
+	if payload != "" {
+		mux.Lock()
+		p := configPath
+		mux.Unlock()
+		if p != "" {
+			if err := os.WriteFile(p, []byte(payload), 0o644); err != nil {
+				slog.Warn("config applied in memory but failed to persist to disk",
+					"path", p, "error", err)
+			} else {
+				slog.Info("config persisted to disk", "path", p)
+			}
+		}
+	}
+
+	return nil
 }
 
 // Patch updates selective runtime properties without full reload.
