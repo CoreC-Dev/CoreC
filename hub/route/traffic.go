@@ -18,7 +18,7 @@ func getTraffic(w http.ResponseWriter, r *http.Request) {
 	}
 	defer c.Close(websocket.StatusInternalError, "closed")
 
-	ctx := c.CloseRead(context.Background())
+	ctx := c.CloseRead(r.Context())
 	interval := wsPushInterval
 	if v := r.URL.Query().Get("interval"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {

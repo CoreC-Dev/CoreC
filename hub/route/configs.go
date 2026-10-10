@@ -50,20 +50,21 @@ func getConfigs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Fallback: no config available
-	render(w, r, http.StatusOK, map[string]any{"error": "no active configuration"})
+	// Fallback: no config available — return 503 Service Unavailable so the
+	// client can distinguish "server running but no config loaded" from a
+	// successful response with an empty config.
+	render(w, r, http.StatusServiceUnavailable, map[string]any{"error": "no active configuration"})
 }
 
 // getConfigsRaw handles GET /configs/raw. It returns the FULL active
-// configuration as YAML text with every secret value redacted to "***"
+// configuration as YAML text with all values in plaintext, including secrets
 // (api.secret, mqtt/http/driver passwords, webhook-secrets, auth headers).
 //
-// Unlike GET /configs (a names-only summary), this exposes the complete config
-// so the Dashboard's Config Center can populate its YAML editor with the
-// server's real configuration. Secrets are replaced with the sentinel "***"
-// so credentials never reach the operator's browser; the executor's
-// sentinel-merge restores them when the (possibly edited) config is submitted
-// back via PUT /configs.
+// Unlike GET /configs (a names-only summary with secret-set boolean), this
+// exposes the complete config so the Dashboard's Config Center can populate
+// its YAML editor with the server's real configuration. The endpoint is
+// authenticated (behind the same Bearer-token middleware as all /configs/*
+// routes), so only operators with the API secret can retrieve it.
 //
 // Content-Type is application/yaml because the payload is a YAML document the
 // frontend feeds directly into a Monaco YAML editor.
@@ -165,17 +166,19 @@ func updateConfigs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if ReloadFunc != nil {
-		if err := ReloadFunc(req.Path, req.Payload); err != nil {
-			slog.Error("config update failed",
-				"method", r.Method,
-				"path", r.URL.Path,
-				"config_path", req.Path,
-				"remote", r.RemoteAddr,
-				"error", err)
-			renderInternalError(w, r, err)
-			return
-		}
+	if ReloadFunc == nil {
+		renderInternalError(w, r, fmt.Errorf("config reload endpoint not wired"))
+		return
+	}
+	if err := ReloadFunc(req.Path, req.Payload); err != nil {
+		slog.Error("config update failed",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"config_path", req.Path,
+			"remote", r.RemoteAddr,
+			"error", err)
+		renderInternalError(w, r, err)
+		return
 	}
 	slog.Info("config updated",
 		"method", r.Method,
@@ -198,16 +201,18 @@ func patchConfigs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if PatchFunc != nil {
-		if err := PatchFunc(req); err != nil {
-			slog.Error("config patch failed",
-				"method", r.Method,
-				"path", r.URL.Path,
-				"remote", r.RemoteAddr,
-				"error", err)
-			renderError(w, r, http.StatusBadRequest, err.Error())
-			return
-		}
+	if PatchFunc == nil {
+		renderInternalError(w, r, fmt.Errorf("config patch endpoint not wired"))
+		return
+	}
+	if err := PatchFunc(req); err != nil {
+		slog.Error("config patch failed",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"remote", r.RemoteAddr,
+			"error", err)
+		renderError(w, r, http.StatusBadRequest, err.Error())
+		return
 	}
 	slog.Info("config patched",
 		"method", r.Method,

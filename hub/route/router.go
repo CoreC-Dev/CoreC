@@ -14,7 +14,8 @@ func router(ctx context.Context, secret string, allowedOrigins []string, rateLim
 	// calls (which do their own Origin check, independent of CORS) honor the
 	// same allowed-origins config. Without this, cross-origin WS upgrades
 	// are 403'd by coder/websocket's strict default.
-	wsAllowedOrigins = allowedOrigins
+	// Use the atomic setter to avoid racing concurrent acceptWS callers (BR-4).
+	setWSAllowedOrigins(allowedOrigins)
 
 	r := chi.NewRouter()
 

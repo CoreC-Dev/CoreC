@@ -75,6 +75,15 @@ func decodeS7TypedValue(buf []byte, addr s7Address, dt core.DataType, h *gos7.He
 }
 
 func encodeS7Value(v any, addr s7Address, dt core.DataType, h *gos7.Helper) ([]byte, error) {
+	// Verify the address-kind buffer is large enough for the write data type.
+	// A mismatch (e.g. writing uint32 to a Word address yielding a 2-byte
+	// buffer) would cause an index-out-of-range panic inside the encoding
+	// helpers below. Convert that into a graceful error, mirroring the
+	// decode path's size check.
+	requiredSize := s7RequiredSize(dt)
+	if requiredSize > 0 && addr.size < requiredSize {
+		return nil, fmt.Errorf("s7: address buffer too small for write type %s: have %d bytes, need %d", dt, addr.size, requiredSize)
+	}
 	buf := make([]byte, addr.size)
 	switch dt {
 	case core.TypeBool:

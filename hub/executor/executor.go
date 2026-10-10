@@ -3,6 +3,7 @@ package executor
 import (
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -223,7 +224,32 @@ func Reload(path, payload string) error {
 		return fmt.Errorf("config validation failed: %w", err)
 	}
 
-	return ApplyConfig(cfg, false)
+	if err := ApplyConfig(cfg, false); err != nil {
+		return err
+	}
+
+	// Persist the config to disk so changes survive a restart. When the reload
+	// came from a payload (dashboard PUT /configs), write it back to the active
+	// config file. Skip silently if no configPath is set (empty-config startup
+	// with no file to write to).
+	if payload != "" {
+		mux.Lock()
+		p := configPath
+		mux.Unlock()
+		if p != "" {
+			// 0o600: owner read/write only. The config file contains the API
+			// secret and driver/transport credentials — world/group-readable
+			// permissions would leak them to other users on the host.
+			if err := os.WriteFile(p, []byte(payload), 0o600); err != nil {
+				slog.Warn("config applied in memory but failed to persist to disk",
+					"path", p, "error", err)
+			} else {
+				slog.Info("config persisted to disk", "path", p)
+			}
+		}
+	}
+
+	return nil
 }
 
 // Patch updates selective runtime properties without full reload.
@@ -247,24 +273,31 @@ func Patch(patch map[string]any) error {
 		return fmt.Errorf("unsupported patch key(s): %v (supported: log-level)", unknown)
 	}
 
-	if lvl, ok := patch["log-level"].(string); ok && lvl != "" {
-		if l, found := log.ParseLevel(lvl); found {
-			log.SetLevel(l)
-			// Sync the in-memory active config so GET /configs/raw reflects the
-			// runtime-patched level. Without this, the Config Center editor
-			// would show the stale pre-PATCH value, and a subsequent Hot Reload
-			// (PUT /configs) that did not touch log-level would silently
-			// overwrite the patched level with the old value. currentCfg is the
-			// source of truth for the running state (ApplyConfig sets it on
-			// every successful reload); PATCH is a runtime state change, so it
-			// must update currentCfg too. The on-disk config is untouched - a
-			// CoreC restart still returns to the persisted level.
-			if currentCfg != nil {
-				currentCfg.Global.LogLevel = lvl
+	if lvlRaw, exists := patch["log-level"]; exists {
+		lvl, ok := lvlRaw.(string)
+		if !ok {
+			return fmt.Errorf("log-level must be a string, got %T", lvlRaw)
+		}
+		// Empty string is a no-op (client sent an empty value, don't change).
+		if lvl != "" {
+			if l, found := log.ParseLevel(lvl); found {
+				log.SetLevel(l)
+				// Sync the in-memory active config so GET /configs/raw reflects the
+				// runtime-patched level. Without this, the Config Center editor
+				// would show the stale pre-PATCH value, and a subsequent Hot Reload
+				// (PUT /configs) that did not touch log-level would silently
+				// overwrite the patched level with the old value. currentCfg is the
+				// source of truth for the running state (ApplyConfig sets it on
+				// every successful reload); PATCH is a runtime state change, so it
+				// must update currentCfg too. The on-disk config is untouched - a
+				// CoreC restart still returns to the persisted level.
+				if currentCfg != nil {
+					currentCfg.Global.LogLevel = lvl
+				}
+				slog.Info("log level patched", "level", lvl)
+			} else {
+				return fmt.Errorf("invalid log-level %q", lvl)
 			}
-			slog.Info("log level patched", "level", lvl)
-		} else {
-			return fmt.Errorf("invalid log-level %q", lvl)
 		}
 	}
 	return nil

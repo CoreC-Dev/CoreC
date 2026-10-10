@@ -28,6 +28,15 @@ var (
 func parseS7Address(addrStr string, dt core.DataType) (s7Address, error) {
 	addrStr = strings.TrimSpace(addrStr)
 
+	// validateBitOffset ensures the bit offset is 0–7. Values ≥ 8 cause
+	// silent shift overflow in gos7's GetBoolAt/SetBitAt helpers.
+	validateBitOffset := func(bit int) error {
+		if bit < 0 || bit > 7 {
+			return fmt.Errorf("s7: bit offset %d out of range (must be 0–7)", bit)
+		}
+		return nil
+	}
+
 	// Try DB pattern
 	if m := reDB.FindStringSubmatch(addrStr); len(m) > 0 {
 		dbNum, _ := strconv.Atoi(m[1])
@@ -37,6 +46,9 @@ func parseS7Address(addrStr string, dt core.DataType) (s7Address, error) {
 		bitOffset := 0
 		if m[4] != "" {
 			bitOffset, _ = strconv.Atoi(m[4])
+		}
+		if err := validateBitOffset(bitOffset); err != nil {
+			return s7Address{}, err
 		}
 
 		size := dataSizeForKind(kind, dt)
@@ -62,6 +74,9 @@ func parseS7Address(addrStr string, dt core.DataType) (s7Address, error) {
 		} else if kind == "" {
 			isBit = (dt == core.TypeBool)
 		}
+		if err := validateBitOffset(bitOffset); err != nil {
+			return s7Address{}, err
+		}
 
 		size := dataSizeForKind(kind, dt)
 		return s7Address{
@@ -85,6 +100,9 @@ func parseS7Address(addrStr string, dt core.DataType) (s7Address, error) {
 		} else if kind == "" {
 			isBit = (dt == core.TypeBool)
 		}
+		if err := validateBitOffset(bitOffset); err != nil {
+			return s7Address{}, err
+		}
 
 		size := dataSizeForKind(kind, dt)
 		return s7Address{
@@ -107,6 +125,9 @@ func parseS7Address(addrStr string, dt core.DataType) (s7Address, error) {
 			isBit = true
 		} else if kind == "" {
 			isBit = (dt == core.TypeBool)
+		}
+		if err := validateBitOffset(bitOffset); err != nil {
+			return s7Address{}, err
 		}
 
 		size := dataSizeForKind(kind, dt)

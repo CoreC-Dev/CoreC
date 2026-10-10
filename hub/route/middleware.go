@@ -35,9 +35,14 @@ func corsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
 				w.Header().Set("Access-Control-Max-Age", strconv.Itoa(corsMaxAgeSeconds))
 			} else if origin != "" && allowed[origin] {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Vary", "Origin")
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 				w.Header().Set("Access-Control-Max-Age", strconv.Itoa(corsMaxAgeSeconds))
+			} else if origin != "" {
+				// Origin not in allowlist — emit Vary so caches don't serve
+				// a cross-origin response to a different origin.
+				w.Header().Set("Vary", "Origin")
 			}
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)
@@ -175,6 +180,14 @@ func safeRequestLogger(next http.Handler) http.Handler {
 func authentication(secret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Fail-closed: an empty configured secret must never authenticate,
+			// even against an empty token (sha256("") == sha256("") would
+			// otherwise pass). The server refuses to start with an empty
+			// secret, but this is a defense-in-depth guard.
+			if secret == "" {
+				renderError(w, r, http.StatusUnauthorized, "unauthorized")
+				return
+			}
 			token := r.Header.Get("Authorization")
 			if token != "" {
 				if len(token) > 7 && token[:7] == "Bearer " {

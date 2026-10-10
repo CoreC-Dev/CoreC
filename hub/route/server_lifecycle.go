@@ -198,8 +198,10 @@ func startPprofServer(cfg *Config) {
 	pMux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 	pMux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 	pprofServer = &http.Server{
-		Addr:    cfg.PprofAddr,
-		Handler: pMux,
+		Addr:              cfg.PprofAddr,
+		Handler:           pMux,
+		ReadHeaderTimeout: defaultReadHeaderTimeout,
+		ReadTimeout:       defaultReadTimeout,
 	}
 	srv := pprofServer
 	pprofMu.Unlock()

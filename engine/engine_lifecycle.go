@@ -242,6 +242,11 @@ func (e *CoreCEngine) Resume() error {
 // fails mid-way. This prevents leaking goroutines and leaving the engine
 // in a half-started state (M14). Extracted from Start's defer to keep
 // Start focused on orchestration.
+//
+// Mirrors stopComponents' approach: snapshot under RLock, release before
+// calling Stop() (avoids holding the lock during blocking I/O — BE-2),
+// and close rule providers + tag-file watchers (BE-1: without these, a
+// partial start leaks reload-loop and watcher goroutines).
 func (e *CoreCEngine) rollbackStart() {
 	slog.Error("engine start failed, rolling back partially started components")
 	if e.cancel != nil {
@@ -252,30 +257,61 @@ func (e *CoreCEngine) rollbackStart() {
 			slog.Error("rollback: failed to stop scheduler", "error", err)
 		}
 	}
-	e.mu.Lock()
-	for name, d := range e.drivers {
-		if err := d.Stop(); err != nil {
-			slog.Error("rollback: failed to stop driver", "name", name, "error", err)
-		}
+
+	// Snapshot under RLock, then release before blocking Stop() calls.
+	e.mu.RLock()
+	drivers := make([]core.Driver, 0, len(e.drivers))
+	for _, d := range e.drivers {
+		drivers = append(drivers, d)
 	}
+	batchers := make([]*transportBatcher, 0, len(e.batchers))
 	for _, b := range e.batchers {
-		b.stop()
+		batchers = append(batchers, b)
 	}
-	for name, t := range e.transports {
-		if err := t.Stop(); err != nil {
-			slog.Error("rollback: failed to stop transport", "name", name, "error", err)
+	transports := make([]core.Transport, 0, len(e.transports))
+	for _, t := range e.transports {
+		transports = append(transports, t)
+	}
+	e.mu.RUnlock()
+
+	stopTimeout := e.shutdownTimeout
+	for _, d := range drivers {
+		stopWithErrorTimeout("rollback", "driver", stopTimeout, d.Stop)
+	}
+	for _, b := range batchers {
+		done := make(chan struct{}, 1)
+		go func() { b.stop(); done <- struct{}{} }()
+		select {
+		case <-done:
+		case <-time.After(stopTimeout):
+			slog.Error("rollback: timed out stopping batcher", "timeout", stopTimeout)
 		}
 	}
-	e.drivers = make(map[string]core.Driver)
-	e.transports = make(map[string]core.Transport)
-	e.batchers = make(map[string]*transportBatcher)
-	e.mu.Unlock()
+	for _, t := range transports {
+		stopWithErrorTimeout("rollback", "transport", stopTimeout, t.Stop)
+	}
+
+	// Close rule providers and tag-file watchers — without these, a partial
+	// start leaks reload-loop and watcher goroutines (BE-1).
+	if e.ruleEngine != nil {
+		e.ruleEngine.CloseProviders()
+	}
+	e.stopAllTagFileWatchers()
+
 	if e.dataBus != nil {
 		e.dataBus.Close()
 	}
+
 	e.mu.Lock()
+	e.drivers = make(map[string]core.Driver)
+	e.transports = make(map[string]core.Transport)
+	e.batchers = make(map[string]*transportBatcher)
 	e.status = core.EngineStatusStopped
 	e.mu.Unlock()
+
+	// Wait for processing/listener goroutines to exit so the engine is
+	// fully quiesced before a potential retry (BE-3).
+	e.wg.Wait()
 }
 
 // stopComponents stops all runtime components (drivers, batchers,
