@@ -19,28 +19,28 @@ func writeDriverMetrics(b *strings.Builder, driverStats map[string]core.DriverSt
 	writePromHeader(b, "corec_driver_read_total", "counter", "Total reads performed by this driver")
 	for _, name := range names {
 		d := driverStats[name]
-		fmt.Fprintf(b, "corec_driver_read_total{driver=%q,type=%q} %d\n",
+		fmt.Fprintf(b, "corec_driver_read_total{driver=\"%s\",type=\"%s\"} %d\n",
 			promEscape(name), promEscape(d.Type), d.ReadCount)
 	}
 
 	writePromHeader(b, "corec_driver_errors_total", "counter", "Total errors reported by this driver")
 	for _, name := range names {
 		d := driverStats[name]
-		fmt.Fprintf(b, "corec_driver_errors_total{driver=%q} %d\n",
+		fmt.Fprintf(b, "corec_driver_errors_total{driver=\"%s\"} %d\n",
 			promEscape(name), d.ErrorCount)
 	}
 
 	writePromHeader(b, "corec_driver_reconnect_total", "counter", "Total reconnect attempts made by this driver")
 	for _, name := range names {
 		d := driverStats[name]
-		fmt.Fprintf(b, "corec_driver_reconnect_total{driver=%q} %d\n",
+		fmt.Fprintf(b, "corec_driver_reconnect_total{driver=\"%s\"} %d\n",
 			promEscape(name), d.ReconnectCount)
 	}
 
 	writePromHeader(b, "corec_driver_tags", "gauge", "Number of tags configured for this driver")
 	for _, name := range names {
 		d := driverStats[name]
-		fmt.Fprintf(b, "corec_driver_tags{driver=%q} %d\n",
+		fmt.Fprintf(b, "corec_driver_tags{driver=\"%s\"} %d\n",
 			promEscape(name), d.TagCount)
 	}
 
@@ -51,7 +51,7 @@ func writeDriverMetrics(b *strings.Builder, driverStats map[string]core.DriverSt
 		if d.State == core.StateConnected {
 			val = 1
 		}
-		fmt.Fprintf(b, "corec_driver_connected{driver=%q} %d\n",
+		fmt.Fprintf(b, "corec_driver_connected{driver=\"%s\"} %d\n",
 			promEscape(name), val)
 	}
 }

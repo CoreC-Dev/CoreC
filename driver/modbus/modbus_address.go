@@ -27,7 +27,13 @@ func parseModbusAddress(addr string) (addrInfo, error) {
 	case num >= modbusCoilStart && num <= modbusCoilEnd:
 		return addrInfo{area: areaCoil, addr: uint16(num - modbusCoilStart)}, nil
 	default:
-		// Also support raw register addresses (0-based)
+		// Also support raw register addresses (0-based). Reject values
+		// exceeding the uint16 range instead of silently truncating via
+		// uint16(num) which would wrap modulo 65536 and read the wrong
+		// register.
+		if num > 65535 {
+			return addrInfo{}, fmt.Errorf("address %s exceeds maximum Modbus register address (65535)", addr)
+		}
 		return addrInfo{area: areaHoldingRegister, addr: uint16(num)}, nil
 	}
 }

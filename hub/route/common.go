@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sync/atomic"
 
 	"github.com/coder/websocket"
 )
@@ -22,18 +23,36 @@ const maxRequestBody = 1 << 20 // 1 MiB
 // check independent of the chi CORS middleware. Without feeding OriginPatterns,
 // any cross-origin WS upgrade (e.g. dashboard at :3080 → CoreC at :9090) is
 // rejected with HTTP 403, silently breaking all realtime pages.
-var wsAllowedOrigins []string
+//
+// Stored as an atomic.Value so router() can swap it during hot-reload without
+// racing concurrent acceptWS callers (BR-4).
+var wsAllowedOrigins atomic.Value // stores []string
+
+// getWSAllowedOrigins atomically loads the current allowed-origins slice.
+func getWSAllowedOrigins() []string {
+	v := wsAllowedOrigins.Load()
+	if v == nil {
+		return nil
+	}
+	return v.([]string)
+}
+
+// setWSAllowedOrigins atomically stores the allowed-origins slice.
+func setWSAllowedOrigins(origins []string) {
+	wsAllowedOrigins.Store(origins)
+}
 
 // acceptWS accepts a WebSocket connection with OriginPatterns derived from the
 // configured allowed origins. When no origins are configured (permissive mode),
 // it allows all origins — matching corsMiddleware's behavior.
 func acceptWS(w http.ResponseWriter, r *http.Request) (*websocket.Conn, error) {
 	opts := &websocket.AcceptOptions{}
-	if len(wsAllowedOrigins) == 0 {
+	allowed := getWSAllowedOrigins()
+	if len(allowed) == 0 {
 		// Permissive mode: allow any origin (local/dev default).
 		opts.InsecureSkipVerify = true
 	} else {
-		opts.OriginPatterns = wsAllowedOrigins
+		opts.OriginPatterns = allowed
 	}
 	return websocket.Accept(w, r, opts)
 }

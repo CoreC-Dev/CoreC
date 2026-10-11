@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/CoreC-Dev/CoreC/core"
@@ -58,14 +59,30 @@ func writeTag(w http.ResponseWriter, r *http.Request) {
 	var da core.DataAccessor = getEngine()
 	res, err := da.WriteTag(r.Context(), cmd)
 	if err != nil {
-		slog.Error("tag write failed",
-			"method", r.Method,
-			"path", r.URL.Path,
-			"driver", cmd.Driver,
-			"tag", cmd.Tag,
-			"remote", r.RemoteAddr,
-			"error", err)
-		renderInternalError(w, r, err)
+		// Distinguish client errors (wrong driver/tag name) from server
+		// errors (internal processing failure). "not found" and
+		// "not connected" are client-actionable (400); other errors are
+		// 500 with a generic message to avoid leaking internals.
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "not found") || strings.Contains(errMsg, "not connected") {
+			slog.Error("tag write failed",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"driver", cmd.Driver,
+				"tag", cmd.Tag,
+				"remote", r.RemoteAddr,
+				"error", err)
+			renderError(w, r, http.StatusBadRequest, errMsg)
+		} else {
+			slog.Error("tag write failed",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"driver", cmd.Driver,
+				"tag", cmd.Tag,
+				"remote", r.RemoteAddr,
+				"error", err)
+			renderInternalError(w, r, err)
+		}
 		return
 	}
 
