@@ -223,7 +223,7 @@ GET /write/failed
 
 ```json
 {
-  "entries": [
+  "failed_writes": [
     {
       "command": {
         "driver": "plc1",
@@ -236,7 +236,8 @@ GET /write/failed
       "failed_at": "2024-09-08T10:30:05.123456789Z",
       "attempts": 4
     }
-  ]
+  ],
+  "count": 1
 }
 ```
 

@@ -52,7 +52,7 @@ API: POST /write ──> WriteTag ──> Driver.Write (同步直写)
 **关键设计：**
 - 调度器按"同 interval 的 tags 合并为一个 task"分组（`scheduleDriverTags`），减少 goroutine 数量。
 - Modbus 支持批量读（`performBatchReads`）：将连续/重叠地址合并为单次 FC03/FC04 请求（上限 125 寄存器），**一次网络往返读多个点**，显著降低批量采集延迟。
-- `ReadTimeout` 与 `interval` 解耦（`types.go:175`）：高频采集（200ms）可配更长读超时（1s），避免误杀慢响应。
+- `ReadTimeout` 与 `interval` 解耦（`core/types.go:229`）：高频采集（200ms）可配更长读超时（1s），避免误杀慢响应。
 
 ### 2. 数据总线：Go Channel 无锁流水线
 
@@ -109,7 +109,7 @@ executeWriteWithRetry: writeRetryCount+1 次（默认4次），退避 100ms→20
   └── 无本地驱动 → forwardCommand 遍历支持 CommandForwarder 的传输转发
 ```
 
-- 命令通道 `commandCh` 默认 buffer 100，满时**丢弃命令并告警**（`mqtt publisher.go:667`）——控制指令不排队堆积，宁可丢也不阻塞。
+- 命令通道 `commandCh` 默认 buffer 100，满时**丢弃命令并告警**（`mqtt publisher.go`（命令通道满时转存死信队列））——控制指令不排队堆积，宁可丢也不阻塞。
 - 控制路径是**异步**的：MQTT 收到命令 → commandCh → listener 协程 → 写驱动，解耦了 MQTT 回调线程。
 - API `POST /write` 是**同步直写**（`WriteTag` → `Driver.Write`），延迟 = 驱动写入 RTT。
 
@@ -157,9 +157,9 @@ executeWriteWithRetry: writeRetryCount+1 次（默认4次），退避 100ms→20
 
 | 瓶颈 | 位置 | 影响 | 建议 |
 |:---|:---|:---|:---|
-| 规则线性扫描 | `rule/engine.go:282` | 规则数 >500 时每点多微秒 | 加 tag/driver 索引预筛（牺牲部分统计精确性） |
-| 同步 Publish 阻塞 worker | `engine.go:1615` | 慢传输拖累整个管线 | 默认走 batcher 异步，或 Publish 也走独立 channel |
-| 命令通道满丢命令 | `mqtt/publisher.go:667` | 控制指令丢失 | 控制场景应增大 buffer 或提供持久化命令队列 |
+| 规则线性扫描 | `rule/engine.go:109` | 规则数 >500 时每点多微秒 | 加 tag/driver 索引预筛（牺牲部分统计精确性） |
+| 同步 Publish 阻塞 worker | `engine/publish.go` | 慢传输拖累整个管线 | 默认走 batcher 异步，或 Publish 也走独立 channel |
+| 命令通道满丢命令 | `mqtt/publisher.go`（已改为死信队列） | 控制指令丢失 | 控制场景应增大 buffer 或提供持久化命令队列 |
 | GC pause 抖动 | Go runtime | 高频采集(200ms)下可见 jitter | 调 GOGC、用 sync.Pool 减少 alloc（已部分用 atomic） |
 | 无优先级隔离 | 全局 worker 池 | 高频任务与低频任务争 worker | 按 interval 分池或加权调度 |
 

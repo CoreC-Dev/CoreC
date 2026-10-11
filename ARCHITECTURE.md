@@ -56,8 +56,8 @@ Layer 4 (入口层):    cmd/corec
 - ✅ 0 环依赖
 - ✅ 0 跨层违规
 - ✅ 0 跨域依赖
-- ⚠️ ARCH-001：无机械约束（depguard/结构测试），依赖方向正确但无护栏防退化 → Phase 3 建立
-- ⚠️ ARCH-002：`config.validate` 耦合 `core.globalRegistry` 全局单例 → Phase 4 批次 2 修复
+- ✅ ARCH-001：结构测试已建立（archtest/ 机械强制依赖方向）
+- ✅ ARCH-002：config.validate 已消除全局单例耦合
 
 ## 插件注册机制
 
@@ -90,7 +90,7 @@ signal.Notify(SIGINT, SIGTERM) → hub.Stop() → engine.Stop()
   → discovery.Stop() → scheduler.Stop()
   → stopComponents():
       drivers/transports（带超时 time.After）
-      batchers（PERF-008: 当前无超时 → Phase 4 修复）
+      batchers（带超时 time.After）
       dataBus.Close() → ruleProviders → tagWatchers
   → wg.Wait()（收集 processingLoop/listener goroutine）
 ```
@@ -98,6 +98,4 @@ signal.Notify(SIGINT, SIGTERM) → hub.Stop() → engine.Stop()
 ## 已知架构债务
 
 详见 `docs/exec-plans/tech-debt-tracker.md`。架构相关条目：
-- ARCH-001（P1）：无 depguard/结构测试 → Phase 3
-- ARCH-002（P2）：config 耦合全局单例 → Phase 4 批次 2
-- CPLX-020/021/022（P1）：CoreCEngine/MQTTTransport/OPCUADriver God Object → Phase 4 批次 3/7/5
+- CPLX-020（P1）：CoreCEngine God Object → 延期至阶段5后

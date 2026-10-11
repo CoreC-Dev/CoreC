@@ -17,10 +17,9 @@ docker compose logs -f subscriber
 
 A 采集 PLC → 发布 `edgeA/...` → B 订阅转发到 `cloud/...` → subscriber 可见。
 
-## 命令下行（限制说明）
+## 命令下行
 
-⚠️ **命令经中继 B 透传到 A 当前不支持**（引擎已知限制）。
-B 收到 `cloud/commands/#` 的命令时只会调用自身本地驱动（B 是中继，`drivers: []`），不会重发布到 `edgeA/commands/#`。
+命令经中继 B 透传到 A 需配置 `command-forward-topic`（引擎已支持）。本场景未配置该字段，故 B 不会重发布命令到 `edgeA/commands/#`。
 
 ### 测试命令下行（直连 A）
 

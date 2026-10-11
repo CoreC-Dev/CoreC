@@ -9,7 +9,7 @@
 
 ### 1. ⚠️ processingLoop 同步 Publish 阻塞 worker —— 最严重的实时性瓶颈
 
-**位置**：`engine/engine.go:1244` (`processingLoop`) → `:1560` (`publishToTargets`)
+**位置**：`engine/processing.go:7` (`processingLoop`) → `engine/publish.go:51` (`publishToTargets`)
 
 **问题**：worker 从 DataBus 取出数据点后，**同步调用** `publishToTargets`，后者遍历所有目标传输并**同步** `Transport.Publish`。若某传输慢（MQTT broker 延迟、HTTP webhook 超时），该 worker 被阻塞，无法消费 DataBus 后续数据，导致缓冲堆积 → `pushDropped` 增长 → **数据丢失**。
 
@@ -22,7 +22,7 @@
 
 ### 2. ⚠️ startCommandListener 单 goroutine 串行 + 重试退避阻塞
 
-**位置**：`engine/engine.go:1314` (`startCommandListener`) → `:1370` (`executeWriteWithRetry`)
+**位置**：`engine/command_manager.go:68` (`startCommandListener`) → `engine/command_manager.go:148` (`executeWriteWithRetry`)
 
 **问题**：每个传输的命令监听是**单个 goroutine**，`executeWriteWithRetry` 在其中**同步执行**（含退避 sleep 100ms→200ms→400ms，上限2s）。一条慢写（如 Modbus 写超时1s × 4次重试 + 退避）可阻塞该传输**数秒**，期间 `commandCh` 里堆积的后续命令全部延迟——**控制指令的延迟被串行化放大**。
 
@@ -46,7 +46,7 @@
 
 ### 4. 命令通道满直接丢命令
 
-**位置**：`transport/mqtt/publisher.go:665`
+**位置**：`transport/mqtt/publisher.go`（命令通道满时转存有界死信队列，非直接丢弃）
 
 **问题**：`commandCh`（默认 buffer 100）满时，命令被丢弃并告警。对**控制指令**而言，"丢"比"延迟"更危险——操作员下发急停却丢了，后果严重。
 
@@ -57,7 +57,7 @@
 
 ### 5. 全局 worker 池无优先级隔离
 
-**位置**：`engine/engine.go:154`（`numWorkers: runtime.NumCPU()` 赋值，可被 `cfg.Workers` 于 `:176` 覆盖）→ `:341-342`（`for i:=0; i<numWorkers; i++ { go e.processingLoop() }`，N=NumCPU 个 processingLoop）
+**位置**：`engine/engine.go:178`（`numWorkers` 赋值）→ `engine/engine_lifecycle.go:166`（worker goroutine 启动）
 
 **问题**：高频采集任务(200ms)与低频任务(5s)共享同一 worker 池。低频大批量数据（如 tags-file 几百点一次读回）可能瞬间占满 worker，让高频任务排队，破坏高频任务的周期确定性。
 
@@ -79,9 +79,9 @@
 - 引擎构造时注入 `core.Logger`，内部所有 `slog.X` 改为 `e.logger.X`。
 - 同理 `core.Metrics` 端口落地，替换全局 `statistic.DefaultManager`（当前是包级单例，多实例会串数据）。
 
-### 7. engine.go 单文件 1792 行过长
+### 7. engine.go 单文件过长（已拆分）
 
-**位置**：`engine/engine.go`
+**位置**：`engine/engine.go`（已实施，engine.go 现 195 行）
 
 **问题**：单文件承载引擎生命周期、驱动/传输管理、命令调度、发布、发现、配置自动填充、死信队列等十余个职责。`gocyclo` 在 `engine.go` 内有 **1 处** nolint（`:198` `Start`，complexity 26）；全仓共 **5 处** nolint:gocyclo，complexity 范围 22–48（48 在 `config/config.go:104`，22 在 `hub/executor/executor.go:173`，27 在 `engine/scheduler.go:178`，26 在 `driver/modbus/modbus_base.go:397`）。维护成本高，改动易引入回归。
 
@@ -92,7 +92,7 @@
 - `engine_discovery.go`（autoFillNodeConfig/startDiscovery）
 - `engine_config.go`（applyEngineConfig）
 
-### 8. statistic.DefaultManager 是包级全局单例
+### 8. statistic.DefaultManager 是包级全局单例（已修复：engine 使用注入的 statManager 实例字段，见 ADR-003）
 
 **位置**：`engine/statistic/manager.go:13`
 
@@ -194,31 +194,7 @@
 
 ## 核实记录（第二轮：逐项重读代码验证）
 
-> 应要求重新完整阅读代码，确认每条改进项是否属实。结论：**11 项中 10 项属实，1 项（#14）原结论错误已修正**；"值得肯定"6 项全部经代码验证成立。
-
-| # | 改进项 | 核实结论 | 代码证据 |
-|:---:|:---|:---:|:---|
-| 1 | processingLoop 同步 Publish 阻塞 worker | ✅ 属实 | `engine.go:1292/1294/1296` 在循环内同步调 `publishToTargets`；`:1615` 同步 `entry.transport.Publish(e.ctx, point)`，worker 阻塞期间不消费 DataBus |
-| 2 | 命令监听单 goroutine + 重试退避阻塞 | ✅ 属实 | `engine.go:1319-1333` 每传输单 goroutine；`:1330` 同步调 `executeWriteWithRetry`；`:1408-1422` `time.After(delay)` 退避 sleep 阻塞 listener |
-| 3 | 规则线性扫描 O(N) | ✅ 属实（但刻意） | `rule/engine.go:282-297` `for _, r := range rules` 线性扫描；`:257-273` 注释明示"Correctness is preserved over performance"，为保优先级全局有序+统计完整性 |
-| 4 | 命令通道满即丢 | ✅ 属实 | `publisher.go:664-668` `select { case commandCh<-cmd: default: slog.Warn(...dropping...) }` |
-| 5 | 全局 worker 池无优先级隔离 | ✅ 属实 | `engine.go:154`（`numWorkers=runtime.NumCPU()`）→ `:341-342`（`go e.processingLoop()`）单一 `processingLoop` 池，高频/低频任务共享 |
-| 6 | Logger/Metrics 端口未注入 | ✅ 属实（但有意分阶段） | `core/logger.go:9-12` 与 `core/metrics.go:9-12` 注释均明示"defined but NOT yet injected... larger, separate refactor; establish the port so future work can adopt it"——作者明知，非疏忽 |
-| 7 | engine.go 单文件过长 | ✅ 属实 | 1792 行；`engine.go` 内 1 处 `nolint:gocyclo`（`:198 Start`，complexity 26），全仓共 5 处（complexity 22–48） |
-| 8 | statistic.DefaultManager 全局单例 | ✅ 属实 | `statistic/manager.go:13` `var DefaultManager = NewManager()`；11 处调用（engine.go×9, scheduler.go×2）直接用包级单例 |
-| 9 | 缺端到端延迟追踪 | ✅ 属实 | grep `pipeline_latency/data_age/e2e` 仅命中 e2e 测试注释；`trace.go:88-89` span 仅 debug 级才分配否则 noopSpan；`core/types.go` DataPoint 不携带 trace context——trace 未贯穿采集→发布。**注**：traceparent 边界传播已落地（`middleware.go:27/86` + `server.go:290` + `push.go:336`），非空壳，缺口仅在采集→Publish 贯穿 |
-| 11 | QUALITY_ASSESSMENT 过时 | ✅ 属实 | 第 35/168/173/256/276/318/324 行均称"仍缺延迟直方图"，但 `latency.go` + `metrics.go:258-259` 已实现并暴露 `corec_read/publish_latency_seconds` |
-| 14 | 断路器冷却"无探活" | ❌ **原结论错误，已修正** | `util.go:346-348` 触发后 backoff=5min；`:317-327` 循环 `time.After(5min)` 后**仍调 `connect()`**（:337）——冷却期**有探活**，仅间隔粗。最坏恢复延迟≈5min |
-
-**"值得肯定"6 项验证：**
-- DataBus 弃旧：`databus.go:72-89` 非阻塞 select+弃最旧 ✅
-- OfflineBuffer 崩溃安全：`offlinebuffer.go:140-179` Write→Sync→rename→dir.Sync ✅
-- 规则线性扫描取舍：`rule/engine.go:257-273` 注释佐证刻意 ✅
-- Modbus 批读合并：`modbus_base.go:553-687` `performBatchReads`+`mergeBatches` 贪心合并连续/重叠地址，125寄存器/请求 ✅
-- 64分片缓存：`cache.go:11,96-128` numCacheShards=64 + atomic.Pointer 快照 ✅
-- 测试覆盖：实测 test 78 / src 73 ✅
-
-**总体判定**：改进建议经核实绝大多数成立（10/11），唯一误判（#14）已修正。其中 #3、#6 属"作者已知的有意取舍"，应标注为"可优化但非缺陷"，避免误读为疏忽。
+> 已过时：本轮核实基于 engine.go 行号引用（如 :1292/:1615/:341-342），engine.go 现仅 195 行。核实结论已体现在各条目的实施记录中。
 
 ---
 
@@ -228,38 +204,7 @@
 
 ## 核实记录（第三轮：独立全量重读验证）
 
-> 本轮按行号逐条回到源码核对全部 14 项 + 6 项"值得肯定"。结论：**12 项完全属实，2 项（#1、#9）部分属实，0 项被证伪**。#1、#9 的核心问题均成立，但正文各有一处"前提/现状"表述不够准确（见修正 C、D）；另有两处支撑性细节表述不精确（修正 A、B）。
-
-| # | 改进项 | 核实结论 | 备注 |
-|:---:|:---|:---:|:---|
-| 1 | processingLoop 同步 Publish 阻塞 worker | ⚠ 部分 | **核心属实**：无 batcher 路径 `engine.go:1615 transport.Publish` 同步阻塞 worker。**但方案B前提不准确**：batcher 路径并非"安全非阻塞"——见修正 C |
-| 2 | 命令监听单 goroutine + 退避阻塞 | ✅ | `:1314/1319-1333` 每传输单 goroutine，`:1330` 同步 `executeWriteWithRetry`；`:1408/1422` `time.After(delay)` 退避（100→200→400ms，上限 2s，`batcher.go:18/37`） |
-| 3 | 规则线性扫描 O(N) | ✅（刻意） | `rule/engine.go:283` `for _, r := range rules`；`:257-273` 注释明示"Correctness is preserved over performance" |
-| 4 | 命令通道满即丢 | ✅ | `mqtt/publisher.go:664-668` `select{case commandCh<-cmd:default:Warn(dropping)}`；缓冲默认 100（`core/types.go:218`） |
-| 5 | 全局 worker 池无优先级隔离 | ✅ | `engine.go:154` `numWorkers=runtime.NumCPU()`，`:341-342` 单一 `processingLoop` 池共享 |
-| 6 | Logger/Metrics 端口未注入 | ✅（有意） | `core/logger.go:9-12`、`core/metrics.go:9-12` 明示"defined but NOT yet injected"；engine.go 全程 55 处直接 `slog.*` |
-| 7 | engine.go 单文件过长 | ✅ 已修正 | 1792 行（实测三工具一致）；`engine.go` 内 1 处 `nolint:gocyclo`（`:198 Start`，complexity 26），全仓 5 处（complexity 22–48）。正文已回写 |
-| 8 | statistic.DefaultManager 全局单例 | ✅ | `statistic/manager.go:13`；调用 11 处＝engine.go×9(`1263/1605/1609/1620/1624/1646/1649/1660/1663`)＋scheduler.go×2(`246/307`) |
-| 9 | 缺端到端延迟追踪 | ⚠ 部分 | **4 个子项全部属实**（DataPoint 无 trace 字段、debug 关闭返回 noopSpan、无 pipeline 指标、Publish 路径无 span）。**但正文低估了 trace 现状**——见修正 D |
-| 10 | 缺数据新鲜度分布 | ✅ | 仅 `IsStale bool`（`core/types.go:137`），无 `corec_data_age_seconds` 直方图 |
-| 11 | QUALITY_ASSESSMENT 过时 | ✅ | 第 35/168/173/256/276/318/324 行仍称"缺延迟直方图"，但 `common/metrics/latency.go:19/24` 已实现、`hub/route/metrics.go:258-259` 已暴露 `corec_read/publish_latency_seconds` |
-| 12 | 缺 ADR | ✅ | `docs/` 下无 `adr/` 目录与任何 ADR 文件 |
-| 13 | DataBus 弃旧无控制类区分 | ✅ | `databus.go:72-89` 非阻塞 Push+evict 最旧；当前仅承载遥测 |
-| 14 | 断路器冷却探活 | ✅（已修正版正确） | `util.go:346-350` 触发后 backoff=`5min`(`:24`)，循环继续 `:326 time.After(wait)` 后 `:337` 仍 `connect()` —— 冷却期**有探活**，仅间隔粗 |
-
-**修正 A（#7 支撑细节）**：`engine.go` 内实际**仅 1 处** `nolint:gocyclo`（第 198 行 `Start`，complexity 26）。"complexity 48" 位于 `config/config.go:104`（`validate`）。全仓共 5 处 `nolint:gocyclo`：config.go(48)、executor.go(22)、engine.go(26)、scheduler.go(27)、modbus_base.go(26)。故 "26-48" 是全仓范围、非 engine.go；结论"1792 行、十余职责"不受影响。
-
-**修正 B（#2 附注）**：正文"`forwardCommand` 持 RLock 遍历所有传输"不精确——`engine.go:1345-1350` 仅在 RLock 内**快照** transports 切片，随后 `:1350` 释放锁，`:1352-1363` 才遍历并调用 `ForwardCommand`（不持锁）。核心结论"单 goroutine＋退避阻塞"不受影响。
-
-**修正 C（#1 方案B 前提不准确）**：正文方案B称"batcher 的 `publish` 已是缓冲+定时刷新"，暗示走 batcher 即非阻塞。**实际不然**：`batcher.go:183 publish()` 在 `len(buffer) >= batchSize`（`:186`）时**同步**调用 `flush()`（`:190`，运行于调用方 goroutine，即 processingLoop worker，经 `engine.go:1600 entry.batcher.publish` 进入）；`flush()`→`publishWithRetryAndBuffer`（`:206`）内 `for attempt`（`:240`）含 `time.After(delay)` 指数退避 sleep（`:250/:269`，base 100ms，cap `defaultRetryMaxDelay`）。即便 `retryCount=0`（maxAttempts=1 无 sleep），单次 `PublishBatch`（`:242`）仍是同步网络 I/O。**故 batcher 仅在 buffer 未满时才非阻塞——恰在负载突发、buffer 填满（最需要批处理的时刻）时同步阻塞 worker**。结论：方案B"强制全部走 batcher"不能解除 #1 瓶颈，只会把阻塞推迟到 buffer 填满之际；真正解法仍是方案A（per-transport 独立发布 goroutine）或方案C（Publish 超时落 OfflineBuffer）。核心问题（同步 Publish 阻塞 worker）成立。
-
-**修正 D（#9 低估 trace 现状）**：正文称 trace "仅以 slog.Debug 记录"、聚焦 OTLP 未导出，易被读成"trace 是空壳"。**实际 W3C traceparent 传播已在 HTTP 边界 operational 落地**：`common/trace/middleware.go` 的 `Middleware`（`:27`）解析入站 `traceparent` 头（`:32`，`parseTraceparent` `:55`），`InjectTraceparent`（`:86`）注出站头（`:94`）；已接线 `hub/route/server.go:290`（入站）+ `transport/httppush/push.go:336`（出站）。即 HTTP→HTTP 的 W3C 传播链是通的。真正的缺口只是 **DataPoint 不携带 trace context**（`core/types.go:122-141` 无 trace 字段），导致 trace 无法从采集端贯穿到 Publish 端。故 #9 的"缺端到端延迟追踪/贯穿"结论成立，但"trace 未落地"的印象应纠正为"traceparent 边界传播已通，仅未贯穿采集→发布"。
-
-**"值得肯定" 6 项核验**：DataBus 弃旧(`databus.go:72-89`)、OfflineBuffer fsync+dir fsync+atomic rename(`offlinebuffer.go:139-180`)、规则线性扫描刻意(`rule/engine.go:257-273`)、Modbus 125 寄存器批读合并(`modbus_base.go:53/560/667`)、64 分片缓存+`atomic.Pointer`(`cache.go:11/31`)、测试 78>源 73＋0 TODO/FIXME —— **全部属实**。
-
-**最终判定**：14 项中 **12 项完全属实、2 项（#1、#9）部分属实、0 项被证伪**。本轮已将所有纠正**回写正文**（不再仅以附注形式存在）：#1 方案B 补"buffer 满仍同步阻塞"（修正 C）；#2 附注改"快照后释放锁、遍历不持锁"（修正 B）；#5 位置补 `:154→:341-342`；#7 nolint 改"engine.go 1 处、全仓 5 处、complexity 22–48"（修正 A，行数实测 1792 不动）；#9 现状补"traceparent 边界传播已落地、非空壳"（修正 D）。第二、三轮表同步更正。"值得肯定"6 项全部属实。其中 #3、#6 为作者已知的有意取舍，#14 已在上轮修正为"冷却期有探活"。
-
-> 附：行号/计数核验（以代码实测为准）。engine.go 行数经 `wc -l`/`awk NR`/`grep -c ''` 三种工具一致为 **1792**（曾出现的"1793"系末行无换行的计数口径差异，实测为 1792）；#5 的 `numWorkers=runtime.NumCPU()` 赋值在 `engine.go:154`，`:341-342` 为 `go processingLoop()` 启动点；#3 的 `Match` 入口在 `rule/engine.go:274`，线性扫描实际在 `matchInRules:282-297`。
+> 已过时：本轮引用 engine.go 行号（如 :1615）及 'engine.go 行数一致为 1792' 声明，engine.go 现仅 195 行。
 
 ---
 

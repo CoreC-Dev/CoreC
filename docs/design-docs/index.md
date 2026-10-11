@@ -10,7 +10,7 @@
 | [AI_HANDOVER.md](./AI_HANDOVER.md) | AI 交接记录（归档自根级，含设计 rationale） | ⚠️ 部分过时，保留作参考 |
 | [IMPROVEMENTS.md](./IMPROVEMENTS.md) | 改进建议（归档自根级，有效条目已迁移到 tech-debt-tracker.md） | ⚠️ 行号过时，保留作参考 |
 | [QUALITY_ASSESSMENT.md](./QUALITY_ASSESSMENT.md) | 质量评估快照（归档自根级，方法论已迁移到 QUALITY_SCORE.md） | ⚠️ 行号过时，保留作参考 |
-| [REALTIME_EVALUATION.md](./REALTIME_EVALUATION.md) | 实时性能评估（归档自根级） | ⚠️ 单处行号偏移，保留作参考 |
+| [REALTIME_EVALUATION.md](./REALTIME_EVALUATION.md) | 实时性能评估（归档自根级） | ⚠️ 多处行号偏移，保留作参考 |
 
 > 根级四份 AI 分析文档于 Phase 2 归档至此（D2）。含设计 rationale，不删除（R5）。
 > 行号引用过时属已知问题（DOC-002..007），有效内容已迁移到 `tech-debt-tracker.md` / `QUALITY_SCORE.md`。

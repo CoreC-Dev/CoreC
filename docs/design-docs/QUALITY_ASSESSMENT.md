@@ -3,7 +3,7 @@
 > 由 6 个独立 AI Agent 并行多维度评估生成，后续多 Agent 实施改进  
 > 评估日期: 2025-09-15 · 改进日期: 2026-09-15 · 订正日期: 2026-09-15  
 > 项目: CoreC (Connect · Collect · Control) — 工业物联网数据采集与控制核心  
-> 规模: 137 Go 文件, 78 测试文件, ~32,900 LOC
+> 规模: 225 Go 文件, 101 测试文件（Phase 1 快照，后续增长未更新）
 
 > ⚠️ **订正说明**: 本报告曾给出 A+ (94/100) 的总评，经逐条对照源码复核，发现多处高估与
 > 不实 "✅" 标记（最严重者为 "W3C 分布式追踪" 实为空壳、"重放保护" 实为时间戳新鲜度、
@@ -33,7 +33,7 @@ opcua 依赖违规、offlinebuffer fsync）、Prometheus /metrics 端点（含�
 MQTT 真重放缓存、MQTT 重连抖动 (±20%)、pprof 可配置、CI lint 增强。
 **仍被高估或未真正完成的部分**: "W3C 分布式追踪" 已解析/注入 traceparent 并在引擎管线内创建 span，
 但仍无采样、无 OTLP 导出后端；`core.Metrics`/`core.Logger` 端口已定义但未注入（ADR-008 延迟）；**分段延迟直方图已实现**
-(`corec_read_latency_seconds`/`corec_publish_latency_seconds`，见 `common/metrics/latency.go` + `hub/route/metrics.go:258-259`)；
+(`corec_read_latency_seconds`/`corec_publish_latency_seconds`，见 `common/metrics/latency.go` + `hub/route/metrics_engine.go:57-58`)；
 **数据新鲜度分布直方图已实现** (`corec_data_age_seconds`，见 `core.DataAgeProvider` + `engine/batcher.go`/`engine/publish.go`：batcher 路径在 `publishWithRetryAndBuffer` 的真实 `PublishBatch` 调用处观察，direct 路径在 `publish.go` 观察)；
 端到端管线延迟 = `corec_data_age_seconds`（Publish 时刻与 `DataPoint.Timestamp` 差值，即采集到发布的全链路延迟）；
 `statistic.DefaultManager` 全局单例已消除（改为 `CoreCEngine.statManager` 实例字段，ADR-003 已更新）；
@@ -57,7 +57,7 @@ RBAC、控制面 fail-closed、英文文档、state 示例修复均未完成。
 |--------|------|------|------|
 | 🔴 严重 | **依赖方向违规**: `driver/opcua` 导入 `engine/statistic`，适配器反向依赖应用层 | `driver/opcua/client.go` (import removed) | ✅ **已修复** (opcua 不再 import statistic) |
 | 🟡 中等 | **God Interface**: `core.Engine` 25 方法接口违反接口隔离原则 (ISP) | `core/engine.go` | ✅ **已改善** (拆为 7 角色接口；复合接口仍保留向后兼容) |
-| 🟡 中等 | **引擎硬编码 rule 包**: `ruleEngine` 字段已改为 `core.RuleEngine` 接口，但 `engine/engine.go` 仍 import 具体 `rule` 包用于构造 (`rule.NewEngine()`/`rule.NewFileProvider`) | `engine/engine.go:17,144,295` | 🟡 **部分修复** (字段已接口化，构造仍耦合) |
+| 🟡 中等 | **引擎硬编码 rule 包**: `ruleEngine` 字段已改为 `core.RuleEngine` 接口，但 `engine/engine.go` 仍 import 具体 `rule` 包用于构造 (`rule.NewEngine()`/`rule.NewFileProvider`) | `engine/engine.go`（rule 包构造耦合） | 🟡 **部分修复** (字段已接口化，构造仍耦合) |
 | 🟡 中等 | **全局单例**: `statistic.DefaultManager` ~~仍被 scheduler/engine 多处直接引用~~ | `engine/statistic/manager.go:13` | ✅ **已修复** (改为 `CoreCEngine.statManager` 实例字段，注入 scheduler；ADR-003 已更新) |
 | 🟡 中等 | **`core.Metrics`/`core.Logger` 端口未注入**: 端口与 Noop 实现已定义，但驱动/组件并未实际持有或调用（源码注释自述 "defined but NOT yet injected"） | `core/metrics.go`, `core/logger.go` | ⏳ 待改进 (端口已立，未接线；ADR-008 记录延迟原因) |
 
@@ -85,7 +85,7 @@ RBAC、控制面 fail-closed、英文文档、state 示例修复均未完成。
 |--------|------|------|------|
 | 🔴 严重 | **LatestCache dirty-flag 竞态**: check-then-act 可静默丢失缓存更新 | `engine/cache.go:107-125` | ✅ **已修复** (写锁下重建快照；**注意: 实现为互斥锁保护的快照，并非 seqlock/序列计数器**) |
 | 🔴 严重 | **httpServer 全局变量无锁访问**: 并发 reload/shutdown 数据竞争 | `hub/route/server.go` | ✅ **已修复** (`serverMu` 互斥锁；`startTime` 改为 `atomic.Pointer[time.Time]`) |
-| 🟡 中等 | **Context 未传播到驱动 I/O**: `time.Sleep` 重试不可取消 | `driver/modbus/modbus_base.go:325` | ⏳ 待改进 |
+| 🟡 中等 | **Context 未传播到驱动 I/O**: `time.Sleep` 重试不可取消 | `driver/modbus/modbus_base.go`（重试 time.Sleep） | ⏳ 待改进 |
 | 🟡 中等 | **Lint "0 issues" 需独立复核**: 配置已显著增强（含 gofmt/goimports），但 "0 issues" 仅在安装 golangci-lint v2 并实际运行后方可确认；本次审计环境未安装该工具，仅验证 `go build`/`go vet`/`gofmt -l` 均通过 | `.golangci.yml` | 🟡 配置已就位，结论待 CI 复核 |
 
 ### 改进建议
@@ -164,11 +164,11 @@ cmd/corec           22.7%  ████
 | 严重度 | 问题 | 位置 | 状态 |
 |--------|------|------|------|
 | 🟡 中等 | **可观测性部分实现**: Prometheus /metrics (含运行时指标) 与 pprof (可配置) 已加，"W3C 分布式追踪" 已解析/注入 `traceparent` 并在引擎 `readFromDriver` 管线步经 `trace.Start` 创建 span、span 时长与属性经 slog.Debug 记录；**但仍无采样、无 OTLP 导出后端** | `common/trace/*`, `hub/route/server.go` | 🟡 **部分实现** (traceparent 解析/注入 + 管线 span 已落地；缺采样与 OTLP 导出) |
-| 🔴 严重 | **MQTT RemoveTransport goroutine 泄漏**: Stop 不关闭 channel，listener 永久阻塞 | `publisher.go:819` | ✅ **已修复** (per-transport ctx) |
+| 🔴 严重 | **MQTT RemoveTransport goroutine 泄漏**: Stop 不关闭 channel，listener 永久阻塞 | `transport/mqtt/publisher.go`（goroutine 泄漏） | ✅ **已修复** (per-transport ctx) |
 | 🟡 中等 | **离线缓冲非 power-loss safe**: 缺少 fsync | `offlinebuffer.go` | ✅ **已修复** (数据 fsync + rename 后目录 fsync) |
 | 🟡 中等 | **健康端点不反映真实健康**: 始终返回 ok | `server.go` | ✅ **已修复** (readiness/liveness 分离 + 引擎 nil 返回 503) |
 | 🟡 中等 | **无重连抖动 (jitter)**: 网络恢复后 thundering herd | `util.go` | ✅ **已修复** (±20% 抖动已加于驱动 `ReconnectLoopWithBreaker`；MQTT 传输 `connect-retry-interval` 在 Init 时施加 ±20% 实例级抖动，防多传输同步重连) |
-| 🟡 中等 | **pprof 无法关闭且与主端口共用**: `/debug/pprof/*` 始终注册于主 API 端口认证组内，无配置开关；生产环境暴露 profiling 端面于业务端口 | `hub/route/server.go:346-350` | ✅ **已修复** (`api.pprof-disabled: true` 可关闭；`api.pprof-addr` 可指定独立免认证端口；为空时回退主 API 端口，向后兼容) |
+| 🟡 中等 | **pprof 无法关闭且与主端口共用**: `/debug/pprof/*` 始终注册于主 API 端口认证组内，无配置开关；生产环境暴露 profiling 端面于业务端口 | `hub/route/server.go`（pprof 暴露） | ✅ **已修复** (`api.pprof-disabled: true` 可关闭；`api.pprof-addr` 可指定独立免认证端口；为空时回退主 API 端口，向后兼容) |
 | 🟡 中等 | **指标直方图部分到位**: 已补 goroutine/heap (alloc/sys)/stack/GC (count+pause)/CPU 等运行时指标 (Prometheus gauges)；**分段延迟直方图已实现** (`corec_read/publish_latency_seconds`)；**数据新鲜度分布直方图已实现** (`corec_data_age_seconds`，`core.DataAgeProvider` 角色接口，4 个发布站点 Observe) | `hub/route/metrics.go` | ✅ **已修复** (运行时+分段延迟+数据新鲜度直方图均已实现) |
 
 ### 改进建议
@@ -201,7 +201,7 @@ cmd/corec           22.7%  ████
 | 🟡 中等 | **Webhook auth 非常量时间**: 字符串比较短路 | `transport/httppush/push.go` | ✅ **已修复** (SHA256 定长 + `hmac.Equal`) |
 | 🟡 中等 | **"重放保护"**: HMAC + timestamp ±5min 窗口 + strict 模式 + **有界重放缓存 (10,000 条, 2×skew TTL, SHA256 去重)**，同一认证命令在 skew 窗口内不可重复接受；属真正 anti-replay | `transport/mqtt/publisher.go` | ✅ **已修复** (有界重放缓存；非仅时间戳新鲜度) |
 | 🟡 中等 | **无 RBAC**: 单一共享 secret 授予全部权限 (含控制/配置) | `hub/route/` | ⏳ 待改进 |
-| 🟡 中等 | **控制面认证可选**: `command-secret` 缺失仅 warn 不 fail | `transport/mqtt/publisher.go:438-440` | ⏳ 待改进 |
+| 🟡 中等 | **控制面认证可选**: `command-secret` 缺失仅 warn 不 fail | `transport/mqtt/publisher.go`（command-secret warn） | ⏳ 待改进 |
 | 🟡 中等 | **pprof 暴露于业务端口**: 见维度 4 | `hub/route/server.go` | ✅ **已修复** (可关闭/独立端口，见维度 4) |
 
 ### 改进建议
@@ -216,7 +216,7 @@ cmd/corec           22.7%  ████
 ## 📖 维度 6: 文档与配置 — A- (87)
 
 ### 核心优势
-- **异常深度的文档体系**: README + 29KB AI_HANDOVER + 完整 VitePress 站点
+- **异常深度的文档体系**: README + 35KB AI_HANDOVER + 完整 VitePress 站点
 - **完整准确的 API 参考**: 每个端点含请求/响应 JSON、状态码表、字段表
 - **最佳实践配置文档**: 每字段 `type/required/default/description` + 487 行注释示例
 - **可操作入门**: minimal-config → 验证 → Docker Compose 多容器 demo

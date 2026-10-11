@@ -50,5 +50,5 @@ docker compose down
 ## 场景⑦说明
 
 场景⑦的**数据上行**（A→B→云端）完全可用。
-**命令下行经中继透传**（云端→B→A）是引擎已知限制——B 无本地驱动，不会重发布命令。
+**命令下行经中继透传**（云端→B→A）需配置 `command-forward-topic`（引擎已支持，见 `engine/command_manager.go:forwardCommand`）。
 如需测试命令下行，直接向 A 的 `command-topic` 发布命令即可（见 scenario7/README.md）。

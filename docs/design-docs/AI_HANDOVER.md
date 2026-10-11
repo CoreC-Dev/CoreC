@@ -28,6 +28,8 @@ CoreC 采用 **“六边形端口与适配器架构 (Ports and Adapters)”**，
 
 ## 2. 项目代码结构拓扑
 
+> ⚠️ 以下文件树为 Phase 1 快照，后续拆分新增文件未补入。以 `find . -name '*.go'` 为准。
+
 ```
 corec/
 ├── cmd/corec/
@@ -93,7 +95,7 @@ corec/
 │   ├── engine_test.go   # 规则匹配、统计与禁用单元测试
 │   └── p1p2_test.go     # 表达式解析 P1/P2 回归测试
 ├── engine/                      # 引擎核心实现
-│   ├── engine.go                # Engine 编排器（struct/New/Start/Stop/Reload/Suspend/Resume/Stats/Latency histograms/autoFillNodeConfig/startDiscovery/规则管理）— 已从 1923 行拆为 823 行
+│   ├── engine.go                # Engine 编排器（struct/New/Start/Stop/Reload/Suspend/Resume/Stats/Latency histograms/autoFillNodeConfig/startDiscovery/规则管理）— 已从 1923 行拆为 195 行（engine.go + engine_lifecycle/stats/config/driver_manager/transport_manager/command_manager/processing/publish/query）
 │   ├── driver_manager.go        # 驱动管理（AddDriver/RemoveDriver/GetDriver/ListDrivers/tag-file watcher/readFromDriver/onDriverData/scheduleDriverTags）
 │   ├── transport_manager.go     # 传输管理（AddTransport/RemoveTransport/GetTransport/ListTransports/startDataListener）
 │   ├── command_manager.go       # 命令执行（ReadTag/WriteTag/startCommandListener/forwardCommand/executeWriteWithRetry/dead-letter）
@@ -423,7 +425,7 @@ MQTT Command Topic ──> Transport.OnCommand() ──> Engine.startCommandList
 | 4 | 控制命令不丢 | ✅ | `transport/mqtt/publisher.go`（死信存储） |
 | 5 | Worker 优先级隔离 | ✅ | `engine/databus.go` + `engine/processing.go`（高优通道+专用worker） |
 | 6 | Logger/Metrics 注入 | ⏸ 延迟 | ADR-008（94处slog调用+5+构造器） |
-| 7 | 拆分 engine.go | ✅ | 1923→823行，拆为7个职责文件 |
+| 7 | 拆分 engine.go | ✅ | 1923→195行，拆为 12+ 职责文件 |
 | 8 | Manager 实例化 | ✅ | `engine/engine.go`（statManager 实例字段） |
 | 9 | 端到端延迟追踪 | ⚠ 部分 | ADR-009（pipeline=data_age已实现；OTLP+trace贯穿延迟） |
 | 10 | 数据新鲜度直方图 | ✅ | `core.DataAgeProvider` + `hub/route/metrics.go` |

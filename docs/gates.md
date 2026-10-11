@@ -44,7 +44,7 @@
 - **失败含义**：.go 文件超过 600 行且未在 `exemptedFiles` 中登记
 - **修复指引**：按职责拆分为更小文件。若暂不能拆，在 `tastetest/taste_test.go` 的 `exemptedFiles` 中添加条目并附 tracker ID
 - **测试位置**：`tastetest/taste_test.go::TestFileSizeLimit`
-- **当前豁免**：10 个文件（CPLX-001..012），Phase 4 批次 3–11 将拆分
+- **当前豁免**：1 个文件（transport/mqtt/publisher.go，CPLX-001，733 行），其余已拆分完成
 
 ### G5: 结构化日志（T6）
 - **失败含义**：生产代码中使用 `fmt.Println` 或 `fmt.Printf`（非测试/非 demo/非 cmd/非 log 包）
@@ -65,7 +65,7 @@
 ### G8: 覆盖率门禁（T10）
 - **失败含义**：整体覆盖率低于 75%
 - **修复指引**：`go test -cover -coverprofile=cover.out ./... && go tool cover -func=cover.out` 找出低覆盖包，补充测试
-- **当前基线**：80.1%（阈值 75%，有 5.1% 余量）
+- **当前基线**：85.5%（阈值 75%，有 10.5% 余量）
 - **豁免**：无
 
 ### G9: 版本一致性（D3）

@@ -292,10 +292,6 @@ GET /memory?interval={duration}
 默认每 1 秒推送一次（`time.NewTicker(wsPushInterval)`），可通过 `?interval=` 查询参数自定义间隔。
 :::
 
-::: warning 性能影响
-每次推送都会调用 `runtime.ReadMemStats()`，该操作会触发 STW（Stop-The-World）。1 秒的推送间隔对生产环境影响可忽略。
-:::
-
 ### 示例
 
 ::: code-group

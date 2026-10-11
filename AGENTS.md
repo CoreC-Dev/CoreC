@@ -20,8 +20,8 @@ CoreC — 工业物联网（IIoT）数据采集与控制核心，Go 实现。南
 - **分层依赖**：`core`（接口）← {config, driver, transport, engine, rule, hub, common}；`engine` ← {driver, transport, rule, config, common}；`driver`/`transport` ← {core, common}；`hub` ← {engine, config, core, common}。只能单向，禁止反向或跨域。
 - **插件注册**：驱动/传输通过 `init()` 工厂注册，由 `driver/all`、`transport/all` 空导入触发。新增插件须在 `all` 包注册。
 - **边界解析**：外部输入（配置 YAML、MQTT 命令、HTTP webhook）必须经校验/解析后才能进入核心，禁止信任原始输入。
-- **配置密钥**：`${ENV_VAR}` 替换为 tree-based（parse→expand→re-marshal），非字节级；`secrets.go` 保证 API 永不回显明文。
-- 违反以上约束会被 depguard / 结构测试 / 自定义 linter 拦截（阶段 3 建立）。
+- **配置密钥**：`${ENV_VAR}` 替换为 tree-based（parse→expand→re-marshal），非字节级；`config/config.go` 保证 API 永不回显明文。
+- 违反以上约束会被结构测试（`archtest/`）+ 自定义 linter 拦截（阶段 3 已落地）。
 
 ## 常用命令
 
