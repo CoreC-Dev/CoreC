@@ -47,9 +47,9 @@ Both the configured secret and the supplied token are SHA-256-hashed to a fixed
 32 bytes and compared with `hmac.Equal` (constant-time, length-leak-safe).
 Failure → `401` `{"error":"unauthorized"}`.
 
-> The server **refuses to start** if `global.api.secret` is empty (`server.go:154`),
+> The server **refuses to start** if `global.api.secret` is empty (`server_lifecycle.go:44`),
 > and config validation requires `api.secret` (≥ 8 chars) whenever `api.listen`
-> is set (`config/config.go:199`). So in any running server, secret is non-empty
+> is set (`config/validate.go:215`). So in any running server, secret is non-empty
 > and the authenticated group always enforces auth.
 
 ### 1.2 Middleware stack (order)
@@ -545,7 +545,7 @@ commands that failed after all retries.
 
 Handler `getRules` (`rules.go:12`). Auth required. No query params.
 Returns `{"rules": rm.GetRuleStats()}` → `[]core.RuleStat` (built by
-`rule/engine.go:181` `RuleStats()`).
+`rule/rule_build.go:142` `RuleStats()`).
 
 **Response `200`:**
 ```json
@@ -588,7 +588,7 @@ Returns `{"rules": rm.GetRuleStats()}` → `[]core.RuleStat` (built by
 | `MissCount` | `uint64` | `"miss_count"` | number | times the rule was evaluated but did not match |
 | `MissAt` | `time.Time` | `"miss_at"` | RFC3339 string | last miss time |
 
-`Action` values come from `actionToString` (`rule/engine.go:230`):
+`Action` values come from `actionToString` (`rule/rule_build.go:191`):
 `forward|drop|alert|transform|mirror`.
 
 ### 3.17 `PATCH /rules/disable`
@@ -604,7 +604,7 @@ Handler `disableRule` (`rules.go:23`). Auth required. Body limited to 1 MiB.
 | `index` | `int` | `"index"` | number | yes | rule index (from `GET /rules` `[].index`) |
 | `disabled` | `bool` | `"disabled"` | boolean | yes | `true` = disable, `false` = re-enable |
 
-Calls `rm.SetRuleDisabled(index, disabled)` (`rule/engine.go:212`).
+Calls `rm.SetRuleDisabled(index, disabled)` (`rule/rule_build.go:173`).
 
 **Response:** `204 No Content` on success.
 **`400`** `{"error":"<message>"}` on bad JSON or out-of-range index
@@ -613,7 +613,7 @@ Calls `rm.SetRuleDisabled(index, disabled)` (`rule/engine.go:212`).
 ### 3.18 `GET /stats`
 
 Handler `getStats` (`stats.go:10`). Auth required. No query params.
-Returns `sp.Stats()` directly → `core.EngineStats` (`engine/engine.go:586`).
+Returns `sp.Stats()` directly → `core.EngineStats` (`core/engine.go:315`).
 
 **Response `200`:**
 ```json
@@ -1119,7 +1119,7 @@ warning on reload).
 | `BufferSize` | `buffer-size,omitempty` | int | no | command/data channel capacity; default `100` |
 | `Fallback` | `fallback,omitempty` | string | no | secondary transport name on publish failure |
 
-> Config validation (`config/config.go:235`) explicitly rejects
+> Config validation (`config/validate.go:243`) explicitly rejects
 > `batch-size`/`flush-interval`/`retry-count`/`buffer-size`/`fallback` if they
 > appear inside `settings` (silent misconfiguration guard).
 

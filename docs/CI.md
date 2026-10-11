@@ -18,7 +18,7 @@
 
 | 文件 | 触发条件 | 覆盖平台 | 是否自动发布 | 备注 |
 |---|---|---|---|---|
-| `.github/workflows/ci.yml` | push 到 `main` + PR 到 `main`（`paths-ignore: docs/**, README.md, deploy-docs.yml`） | ubuntu-latest（test/vet/lint/gates/doc-gate/coverage/version-check）；build-check matrix: linux/darwin/windows × amd64/arm64（排除 windows/arm64） | 否 | `go test -race -short`、`go vet`、`golangci-lint v2.13.2`、多平台 `go build`；**阶段 3 新增**：archtest(T7)/tastetest(T1/T6)/doc-gate(T9)/coverage(T10 ≥75%)/version-check(D3) |
+| `.github/workflows/ci.yml` | push 到 `main` + PR 到 `main`（`paths-ignore: docs/**, README.md, deploy-docs.yml`） | ubuntu-latest（test/vet/lint/gates/doc-gate/coverage/version-check）；build-check matrix: linux/darwin/windows × amd64/arm64（排除 windows/arm64） | 否 | `go test -race -short`、`go vet`、`golangci-lint v2.14.0`、多平台 `go build`；**阶段 3 新增**：archtest(T7)/tastetest(T1/T6)/doc-gate(T9)/coverage(T10 ≥75%)/version-check(D3) |
 | `.github/workflows/release.yml` | push tag `v*` | ubuntu-latest；build matrix: linux{amd64,arm64,armv7}、darwin{amd64,arm64}、windows{amd64,arm64} | **是**（直接正式 Release，非 draft） | test→build（ldflags 注入版本号到 `main.version` 与 `hub/route.Version`）→打包 tar.gz/zip+checksums→`softprops/action-gh-release@v3`（`generate_release_notes: true`） |
 | `.github/workflows/deploy-docs.yml` | push 到 `main` 且 `paths: docs/**`；`workflow_dispatch` | ubuntu-latest | 否（部署 GitHub Pages） | VitePress 构建（`docs/package.json`，Node 24）→ GitHub Pages |
 
@@ -27,7 +27,7 @@
 - 版本声明点（§6.1 相关）：共 3 处——
   1. Git tag（`v*`，版本来源）
   2. `cmd/corec/main.go:24` — `version = "dev"`（ldflags `-X main.version=<tag>` 注入）
-  3. `hub/route/server.go:119` — `Version = "dev"`（ldflags `-X github.com/CoreC-Dev/CoreC/hub/route.Version=<tag>` 注入）
+  3. `hub/route/server.go:110` — `Version = "dev"`（ldflags `-X github.com/CoreC-Dev/CoreC/hub/route.Version=<tag>` 注入）
 - **签名密钥**：未配置（Release 资产无签名/校验密钥；仅有 sha256 checksums）。
 - **版本一致性 guard**：`release.yml` 从 tag 提取版本并注入两处 ldflags 变量。**阶段 3 已新增 `version-check` guard job**（仅 tag push 触发）：校验 tag 符合 semver + release.yml 含 ldflags 注入 `main.version` 与 `hub/route.Version`（D3 决策落地）。
 

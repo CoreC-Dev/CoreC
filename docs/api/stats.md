@@ -62,7 +62,8 @@ GET /stats
       "failed": 0,
       "received": 0,
       "last_publish": "2024-09-08T10:30:00.1Z",
-      "queue_size": 3
+      "queue_size": 3,
+      "dropped_commands": 0
     }
   }
 }
@@ -152,6 +153,7 @@ GET /stats
 | `received` | uint64 | 入站数据点计数 |
 | `last_publish` | string (RFC 3339) | 最近一次发布时间 |
 | `queue_size` | int | 当前待发送队列长度 |
+| `dropped_commands` | uint64 | 命令通道满时丢弃的写命令数（非零表示持续命令背压） |
 
 ## 示例
 
