@@ -78,12 +78,13 @@
 
 - **状态**：已采纳
 - **上下文**：原规则引擎采用首次匹配即生效（first-match-wins）语义——`Match` 返回单个 `*RuleMatchResult`，第一条命中规则执行后立即停止。这无法表达"告警后继续正常转发"等复合场景：要么用 alert 规则"吃掉"数据点（下游收不到），要么不告警。用户需在一条数据点上触发多个动作（告警 + 转发、变换 + 路由、多级告警），但旧语义下只能选一个。
-- **决策**：为 `RuleConfig` 增加 `Continue bool` 字段（YAML `continue`，默认 `false`）。`Match` 返回类型改为 `[]*RuleMatchResult`——引擎按优先级遍历，命中规则加入结果集，若 `!r.Continue()` 则终止并返回全部结果，否则继续评估。`engine/processing.go` 逐条执行结果集中的动作；`transform` 动作对 `point` 的修改对后续规则可见。配置校验拒绝 `drop` + `continue: true`（丢弃意味着停止，继续评估矛盾）。
+- **决策**：为 `RuleConfig` 增加 `Continue bool` 字段（YAML `continue`，默认 `false`）。`Match` 返回类型改为 `[]*RuleMatchResult`——引擎按优先级遍历，命中规则加入结果集，若 `!r.Continue()` 则终止并返回全部结果，否则继续评估。`engine/processing.go` 逐条执行结果集中的动作；`transform` 动作对 `point` 的修改对后续规则的**发布数据**可见（但不影响匹配，见下）。配置校验拒绝 `drop` + `continue: true`（丢弃意味着停止，继续评估矛盾）。
 - **后果**：
   - **向后兼容**：`continue` 默认 `false` → 所有规则均为终止规则 → 结果集至多 1 个元素 → 与旧的 first-match-wins 完全等价。现有配置无需修改。
   - **接口变更**：`core.RuleEngine.Match` 签名从 `*RuleMatchResult` 改为 `[]*RuleMatchResult`，`core.Rule` 接口新增 `Continue() bool` 方法。`core.RuleManager`（hub 使用的子集）不含 `Match`，故 hub mock 不受影响。
   - **统计语义**：miss 统计基于"最后一条终止规则的优先级"——若所有命中规则均 `continue: true`（无终止），则所有其他驱动的规则记 miss；否则仅优先级低于终止规则的规则记 miss。
   - **性能**：`continue: true` 规则增多时单点评估次数上升，但工业场景规则数小（<100），无感知。
+  - **局限性（transform 不影响后续匹配）**：`Match()` 对所有规则求值时使用的是**原始** `DataPoint`，`transform` 动作在结果集遍历时才修改 `point`——因此 transform 后续规则的**发布数据**看到变换后的值，但后续规则的**匹配条件**已在原始值上求值完毕。例如 `transform(tag: temp_c→temp_f, continue: true)` 后跟 `match: tag == 'temp_f'` 不会命中。这是"批量匹配 + 事后执行"设计的固有取舍：将匹配与执行交错可解决，但会模糊规则引擎与处理流水线的边界并绕过驱动索引优化。当前设计支持所有常见场景（alert+forward、多级告警、transform+兜底转发），transform-then-conditional-route 可用 `match: ALL` 规避。
 
 ---
 

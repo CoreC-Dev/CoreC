@@ -69,6 +69,9 @@ func (e *CoreCEngine) processPoint(point core.DataPoint) {
 
 	// Match rules — returns all matching rules in priority order, up to
 	// and including the first terminal match (Continue() == false).
+	// All rules are matched against the ORIGINAL point; transforms in the
+	// action loop below mutate the point for publishing but do not affect
+	// which rules matched (see ADR-010 § Limitations).
 	results := e.ruleEngine.Match(point)
 	if len(results) == 0 {
 		return
@@ -88,8 +91,10 @@ func (e *CoreCEngine) processPoint(point core.DataPoint) {
 			alerted = true
 			e.publishToTargets(point, result.Targets)
 		case core.ActionTransform:
-			// Transform mutates the point for subsequent rules: a later
-			// rule sees the transformed value, not the original.
+			// Transform mutates the point for subsequent action publishing:
+			// a later rule's publishToTargets sees the transformed value.
+			// However, the later rule's MATCH was already evaluated against
+			// the original point — transforms do not re-trigger matching.
 			point = e.applyTransform(point, result.Transform)
 			e.publishToTargets(point, result.Targets)
 		case core.ActionForward, core.ActionMirror:

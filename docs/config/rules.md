@@ -325,8 +325,12 @@ rules:
     transform:
       expression: "value / 65535 * 150 - 20"
       tag-rename: temp_celsius
-    continue: true            # 变换后继续，后续规则看到 °C
+    continue: true            # 变换后继续，后续规则发布的是 °C 值
 ```
+
+::: warning transform + continue 的匹配限制
+`continue: true` 的 transform 规则修改 `point` 后，后续规则的**发布数据**看到变换后的值，但后续规则的**匹配条件**已在原始值上求值完毕。例如 transform 将 `tag` 改为 `temp_celsius` 后，`match: "tag == 'temp_celsius'"` 的规则**不会**因此命中——它在原始 `tag` 上求值。需要基于变换后值路由时，后续规则用 `match: "ALL"` 兜底即可。
+:::
 
 ---
 
