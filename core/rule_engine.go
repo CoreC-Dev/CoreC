@@ -26,9 +26,17 @@ type RuleEngine interface {
 	// SetSubRules parses named sub-rule groups for SUB-RULE references.
 	SetSubRules(groups map[string][]RuleConfig) error
 
-	// Match finds the first matching rule for a DataPoint in priority
-	// order. Returns nil if no rule matches.
-	Match(point DataPoint) *RuleMatchResult
+	// Match returns all matching rules in priority order, up to and
+	// including the first terminal match (a rule with Continue() == false).
+	// Non-terminal matches (Continue() == true) before the terminal match
+	// are also included so the caller can apply their side-effects (alert,
+	// transform) before the terminal action. If no terminal rule matches,
+	// all matching rules are returned. Returns nil if no rule matches.
+	//
+	// When every rule has Continue() == false (the default, and the
+	// pre-existing behavior), the slice contains at most one element —
+	// exactly the former first-match-wins semantics.
+	Match(point DataPoint) []*RuleMatchResult
 
 	// RuleStats returns runtime statistics for all rules.
 	RuleStats() []RuleStat

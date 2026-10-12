@@ -91,9 +91,13 @@ func (e *Engine) ProviderCount() int {
 // any conversion at the call site.
 type MatchResult = core.RuleMatchResult
 
-// Match finds the first matching rule for a DataPoint.
-// Rules are evaluated in priority order (lower priority = higher precedence).
+// Match returns all matching rules for a DataPoint in priority order, up
+// to and including the first terminal match (Continue() == false).
+// Non-terminal matches before the terminal match are also included.
 // Returns nil if no rule matches.
+//
+// When every rule is terminal (the default), the slice contains at most
+// one element — the former first-match-wins semantics.
 //
 // Match uses a driver index to reduce the per-data-point scan cost.
 // Rules with a detectable driver == 'X' filter are only evaluated for
@@ -102,11 +106,11 @@ type MatchResult = core.RuleMatchResult
 // expression. Universal rules (ALL, complex expressions, rule-set/sub-rule
 // refs) are always evaluated. Both groups are priority-sorted, and the
 // two sorted lists are merged on the fly to preserve global priority
-// order — the first match across both groups is returned, exactly as a
-// full linear scan would produce. Miss statistics for rules scoped to
-// other drivers are recorded via RecordMiss, preserving the invariant
-// that every non-matching, non-disabled rule records a miss.
-func (e *Engine) Match(point core.DataPoint) *MatchResult {
+// order. Miss statistics for rules scoped to other drivers are recorded
+// via RecordMiss, preserving the invariant that every non-matching,
+// non-disabled rule that would have been reached in a linear scan records
+// a miss.
+func (e *Engine) Match(point core.DataPoint) []*MatchResult {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
@@ -118,25 +122,29 @@ func (e *Engine) Match(point core.DataPoint) *MatchResult {
 	}
 
 	// Merge universalRules and driverRules (both priority-sorted) on the
-	// fly, evaluating in global priority order. Record misses for rules
-	// scoped to other drivers.
-	result := e.matchMerged(point, e.universalRules, driverRules)
+	// fly, evaluating in global priority order. Collect matches until a
+	// terminal rule (Continue() == false) is hit.
+	results := e.matchMerged(point, e.universalRules, driverRules)
 
-	// Record misses for rules scoped to other drivers. In the original
-	// linear scan, rules after the first match are NOT evaluated, so we
-	// only record misses for rules with strictly lower priority than the
-	// match. If no match, all rules would have been evaluated.
-	var matchPriority int
-	matched := result != nil
-	if matched {
-		matchPriority = result.Rule.Priority()
+	// Record misses for rules scoped to other drivers. In a linear scan,
+	// rules after the terminal match are NOT evaluated, so we only record
+	// misses for rules with strictly lower priority than the terminal
+	// match. If no terminal match, all rules would have been evaluated.
+	var terminalPriority int
+	hasTerminal := false
+	if len(results) > 0 {
+		last := results[len(results)-1]
+		if !last.Rule.Continue() {
+			terminalPriority = last.Rule.Priority()
+			hasTerminal = true
+		}
 	}
 	for driver, rules := range e.driverIndex {
 		if driver == point.Driver {
 			continue
 		}
 		for _, r := range rules {
-			if matched && r.Priority() >= matchPriority {
+			if hasTerminal && r.Priority() >= terminalPriority {
 				continue // would not have been reached in the linear scan
 			}
 			if mr, ok := r.(missRecorder); ok {
@@ -145,5 +153,5 @@ func (e *Engine) Match(point core.DataPoint) *MatchResult {
 		}
 	}
 
-	return result
+	return results
 }

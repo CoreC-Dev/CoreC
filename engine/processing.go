@@ -67,30 +67,41 @@ func (e *CoreCEngine) processPoint(point core.DataPoint) {
 	// Broadcast to subscribers
 	e.dataBus.Broadcast(point)
 
-	// Match rules
-	result := e.ruleEngine.Match(point)
-	if result == nil {
+	// Match rules — returns all matching rules in priority order, up to
+	// and including the first terminal match (Continue() == false).
+	results := e.ruleEngine.Match(point)
+	if len(results) == 0 {
 		return
 	}
 
-	// Execute action
+	// Execute actions for each matched rule in priority order. Non-terminal
+	// rules (Continue() == true) apply their side-effect and continue;
+	// the last result is always terminal (or the loop ends naturally when
+	// no terminal rule matches).
 	alerted := false
-	switch result.Rule.Action() {
-	case core.ActionDrop:
-		return
-	case core.ActionAlert:
-		e.fireAlert(point, result.Rule)
-		alerted = true
-		e.publishToTargets(point, result.Targets)
-	case core.ActionTransform:
-		e.publishToTargets(e.applyTransform(point, result.Transform), result.Targets)
-	case core.ActionForward, core.ActionMirror:
-		e.publishToTargets(point, result.Targets)
+	for _, result := range results {
+		switch result.Rule.Action() {
+		case core.ActionDrop:
+			return
+		case core.ActionAlert:
+			e.fireAlert(point, result.Rule)
+			alerted = true
+			e.publishToTargets(point, result.Targets)
+		case core.ActionTransform:
+			// Transform mutates the point for subsequent rules: a later
+			// rule sees the transformed value, not the original.
+			point = e.applyTransform(point, result.Transform)
+			e.publishToTargets(point, result.Targets)
+		case core.ActionForward, core.ActionMirror:
+			e.publishToTargets(point, result.Targets)
+		}
 	}
 
 	// Bad-quality alert: fire alert in addition to the normal action,
-	// but skip if the rule action already fired an alert above.
+	// but skip if a rule already fired an alert above. Use the last
+	// matched rule (the terminal rule) for the alert context.
 	if point.Quality == core.QualityBad && e.badQualityPolicy == badQualityAlert && !alerted {
-		e.fireAlert(point, result.Rule)
+		last := results[len(results)-1]
+		e.fireAlert(point, last.Rule)
 	}
 }

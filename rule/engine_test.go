@@ -6,6 +6,16 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
+// firstMatch extracts the first result from a Match call, returning nil
+// if no rule matched. This preserves the pre-continue-flag test idiom
+// where Match returned a single *MatchResult.
+func firstMatch(res []*MatchResult) *MatchResult {
+	if len(res) == 0 {
+		return nil
+	}
+	return res[0]
+}
+
 func TestEngineMatch(t *testing.T) {
 	eng := NewEngine()
 
@@ -36,7 +46,7 @@ func TestEngineMatch(t *testing.T) {
 		Tag:    "temperature",
 		Value:  65.5,
 	}
-	res1 := eng.Match(p1)
+	res1 := firstMatch(eng.Match(p1))
 	if res1 == nil {
 		t.Fatalf("expected match for p1, got nil")
 	}
@@ -53,7 +63,7 @@ func TestEngineMatch(t *testing.T) {
 		Tag:    "temperature",
 		Value:  25.0,
 	}
-	res2 := eng.Match(p2)
+	res2 := firstMatch(eng.Match(p2))
 	if res2 == nil {
 		t.Fatalf("expected match for p2, got nil")
 	}
@@ -112,9 +122,9 @@ func TestRuleStats(t *testing.T) {
 	}
 
 	// Match: rule-a hits, rule-b hits
-	eng.Match(core.DataPoint{Tag: "temp", Value: 25.0})
+	firstMatch(eng.Match(core.DataPoint{Tag: "temp", Value: 25.0}))
 	// Match: rule-a misses, rule-b hits
-	eng.Match(core.DataPoint{Tag: "pressure", Value: 30.0})
+	firstMatch(eng.Match(core.DataPoint{Tag: "pressure", Value: 30.0}))
 
 	stats := eng.RuleStats()
 	if len(stats) != 2 {
@@ -156,7 +166,7 @@ func TestRuleDisable(t *testing.T) {
 	}
 
 	// rule-a should be skipped, rule-b should match
-	res := eng.Match(core.DataPoint{Tag: "temp", Value: 25.0})
+	res := firstMatch(eng.Match(core.DataPoint{Tag: "temp", Value: 25.0}))
 	if res == nil {
 		t.Fatal("expected match from rule-b")
 	}
@@ -178,7 +188,7 @@ func TestRuleDisable(t *testing.T) {
 		t.Fatalf("SetRuleDisabled failed: %v", err)
 	}
 
-	res2 := eng.Match(core.DataPoint{Tag: "temp", Value: 25.0})
+	res2 := firstMatch(eng.Match(core.DataPoint{Tag: "temp", Value: 25.0}))
 	if res2 == nil || res2.Rule.Name() != "rule-a" {
 		t.Errorf("expected rule-a to match after re-enable, got %v", res2)
 	}
@@ -207,37 +217,37 @@ func TestCELExpressions(t *testing.T) {
 	}
 
 	// value == true
-	res := eng.Match(core.DataPoint{Tag: "x", Value: true})
+	res := firstMatch(eng.Match(core.DataPoint{Tag: "x", Value: true}))
 	if res == nil || res.Rule.Name() != "bool-eq" {
 		t.Errorf("bool-eq failed: %v", res)
 	}
 
 	// quality != 'good'
-	res = eng.Match(core.DataPoint{Tag: "x", Value: 1, Quality: core.QualityBad})
+	res = firstMatch(eng.Match(core.DataPoint{Tag: "x", Value: 1, Quality: core.QualityBad}))
 	if res == nil || res.Rule.Name() != "neq" {
 		t.Errorf("neq failed: %v", res)
 	}
 
 	// tag == 'temp' || tag == 'humidity'
-	res = eng.Match(core.DataPoint{Tag: "humidity", Value: 1, Quality: core.QualityGood})
+	res = firstMatch(eng.Match(core.DataPoint{Tag: "humidity", Value: 1, Quality: core.QualityGood}))
 	if res == nil || res.Rule.Name() != "or" {
 		t.Errorf("or failed: %v", res)
 	}
 
 	// !(tag == 'temp')
-	res = eng.Match(core.DataPoint{Tag: "pressure", Value: 1, Quality: core.QualityGood})
+	res = firstMatch(eng.Match(core.DataPoint{Tag: "pressure", Value: 1, Quality: core.QualityGood}))
 	if res == nil || res.Rule.Name() != "not" {
 		t.Errorf("not failed: %v", res)
 	}
 
 	// value == 42
-	res = eng.Match(core.DataPoint{Tag: "x", Value: int32(42), Quality: core.QualityGood})
+	res = firstMatch(eng.Match(core.DataPoint{Tag: "x", Value: int32(42), Quality: core.QualityGood}))
 	if res == nil || res.Rule.Name() != "num-eq" {
 		t.Errorf("num-eq failed: %v", res)
 	}
 
 	// (value > 50 && value < 100) || tag == 'override'
-	res = eng.Match(core.DataPoint{Tag: "x", Value: 75.0, Quality: core.QualityGood})
+	res = firstMatch(eng.Match(core.DataPoint{Tag: "x", Value: 75.0, Quality: core.QualityGood}))
 	if res == nil || res.Rule.Name() != "paren" {
 		t.Errorf("paren failed: %v", res)
 	}
@@ -257,19 +267,19 @@ func TestDriverIndexMatch(t *testing.T) {
 	}
 
 	// Data point from plc driver → should match plc-rule (priority 10)
-	res := eng.Match(core.DataPoint{Driver: "plc", Tag: "temp", Value: 25.0})
+	res := firstMatch(eng.Match(core.DataPoint{Driver: "plc", Tag: "temp", Value: 25.0}))
 	if res == nil || res.Rule.Name() != "plc-rule" {
 		t.Errorf("expected plc-rule, got %v", res)
 	}
 
 	// Data point from modbus driver → should match modbus-rule (priority 10)
-	res = eng.Match(core.DataPoint{Driver: "modbus", Tag: "humidity", Value: 30.0})
+	res = firstMatch(eng.Match(core.DataPoint{Driver: "modbus", Tag: "humidity", Value: 30.0}))
 	if res == nil || res.Rule.Name() != "modbus-rule" {
 		t.Errorf("expected modbus-rule, got %v", res)
 	}
 
 	// Data point from unknown driver → should match catchall (priority 100)
-	res = eng.Match(core.DataPoint{Driver: "opcua", Tag: "x", Value: 1.0})
+	res = firstMatch(eng.Match(core.DataPoint{Driver: "opcua", Tag: "x", Value: 1.0}))
 	if res == nil || res.Rule.Name() != "catchall" {
 		t.Errorf("expected catchall, got %v", res)
 	}
@@ -320,7 +330,7 @@ func TestDriverIndexNoMatchStats(t *testing.T) {
 	}
 
 	// No match for any driver — all rules should record misses.
-	res := eng.Match(core.DataPoint{Driver: "plc", Tag: "pressure", Value: 1.0})
+	res := firstMatch(eng.Match(core.DataPoint{Driver: "plc", Tag: "pressure", Value: 1.0}))
 	if res != nil {
 		t.Errorf("expected no match, got %v", res)
 	}

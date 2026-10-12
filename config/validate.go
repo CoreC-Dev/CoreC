@@ -270,6 +270,11 @@ func validateRules(cfg *core.Config, transportNames map[string]bool) error {
 		if r.Match == "" {
 			return fmt.Errorf("rule %s: match cannot be empty", r.Name)
 		}
+		// drop + continue is contradictory: drop means "discard and stop",
+		// continue means "keep evaluating" — the combination is nonsensical.
+		if strings.EqualFold(r.Action, "drop") && r.Continue {
+			return fmt.Errorf("rule %s: drop action cannot set continue: true", r.Name)
+		}
 		if r.Target != "" && !transportNames[r.Target] {
 			return fmt.Errorf("rule %s: target transport %q not found", r.Name, r.Target)
 		}

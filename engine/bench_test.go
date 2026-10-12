@@ -516,8 +516,8 @@ func BenchmarkProcessingPipeline(b *testing.B) {
 					p := points[i%len(points)]
 					cache.Update(p)
 					bus.Broadcast(p)
-					result := ruleEng.Match(p)
-					if result != nil {
+					results := ruleEng.Match(p)
+					if len(results) > 0 {
 						publish(p)
 					}
 				}

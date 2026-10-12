@@ -574,6 +574,88 @@ rules:
 	}
 }
 
+// TestLoadDropWithContinueRejected verifies that a drop rule with
+// continue: true is rejected by validation.
+func TestLoadDropWithContinueRejected(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bad-continue.yaml")
+	content := `
+drivers:
+  - name: d1
+    type: modbus-tcp
+    tags:
+      - name: t1
+        address: "40001"
+        type: float32
+transports:
+  - name: mqtt1
+    type: mqtt
+rules:
+  - name: drop-and-continue
+    match: ALL
+    action: drop
+    continue: true
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write temp config: %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for drop + continue: true, got nil")
+	}
+	if !contains(err.Error(), "drop action cannot set continue: true") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// TestLoadContinueFlag verifies that the continue flag is parsed correctly.
+func TestLoadContinueFlag(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "continue.yaml")
+	content := `
+drivers:
+  - name: d1
+    type: modbus-tcp
+    tags:
+      - name: t1
+        address: "40001"
+        type: float32
+transports:
+  - name: mqtt1
+    type: mqtt
+rules:
+  - name: alert-then-continue
+    match: "value > 95"
+    action: alert
+    target: mqtt1
+    priority: 1
+    continue: true
+  - name: default
+    match: ALL
+    action: forward
+    target: mqtt1
+    priority: 999
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write temp config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if len(cfg.Rules) != 2 {
+		t.Fatalf("expected 2 rules, got %d", len(cfg.Rules))
+	}
+	if !cfg.Rules[0].Continue {
+		t.Error("expected rule 0 to have Continue=true")
+	}
+	if cfg.Rules[1].Continue {
+		t.Error("expected rule 1 to have Continue=false")
+	}
+}
+
 // contains is a helper to check substring containment.
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || indexOf(s, substr) >= 0)

@@ -13,6 +13,7 @@ type Rule interface {
 	Payload() string             // match expression or reference
 	RuleType() string            // "simple", "rule-set", "sub-rule"
 	Transform() *TransformConfig // transform config (nil unless action == transform)
+	Continue() bool              // if true, keep evaluating lower-priority rules after this match
 	String() string
 }
 
@@ -46,6 +47,7 @@ type RuleConfig struct {
 	Targets   []string         `yaml:"targets,omitempty"`
 	Priority  int              `yaml:"priority,omitempty"`
 	Transform *TransformConfig `yaml:"transform,omitempty"`
+	Continue  bool             `yaml:"continue,omitempty"` // if true, keep evaluating after this rule matches
 }
 
 // RuleProviderConfig defines an external rule-set provider.
@@ -72,6 +74,7 @@ type RuleStat struct {
 	Target    string    `json:"target"`
 	Targets   []string  `json:"targets"`
 	Priority  int       `json:"priority"`
+	Continue  bool      `json:"continue"`
 	Disabled  bool      `json:"disabled"`
 	HitCount  uint64    `json:"hit_count"`
 	HitAt     time.Time `json:"hit_at"`

@@ -159,6 +159,7 @@ func (e *Engine) RuleStats() []core.RuleStat {
 			Target:    inner.Target(),
 			Targets:   inner.Targets(),
 			Priority:  inner.Priority(),
+			Continue:  inner.Continue(),
 			Disabled:  w.IsDisabled(),
 			HitCount:  w.HitCount(),
 			HitAt:     w.HitAt(),
@@ -246,6 +247,7 @@ type simpleRule struct {
 	expr         exprNode
 	transform    *core.TransformConfig
 	driverFilter string // extracted driver name if match is driver-scoped; "" otherwise
+	continue_    bool   // if true, keep evaluating lower-priority rules after this match
 }
 
 // driverFilterRe detects a top-level driver equality constraint at the
@@ -275,6 +277,7 @@ func newSimpleRule(cfg core.RuleConfig) (*simpleRule, error) {
 		priority:     cfg.Priority,
 		transform:    cfg.Transform,
 		driverFilter: extractDriverFilter(cfg.Match),
+		continue_:    cfg.Continue,
 	}
 
 	// Compile expression (ALL is handled separately at eval time)
@@ -334,6 +337,7 @@ func (r *simpleRule) Name() string                     { return r.name }
 func (r *simpleRule) Payload() string                  { return r.matchExpr }
 func (r *simpleRule) RuleType() string                 { return "simple" }
 func (r *simpleRule) Transform() *core.TransformConfig { return r.transform }
+func (r *simpleRule) Continue() bool                   { return r.continue_ }
 func (r *simpleRule) String() string {
 	return fmt.Sprintf("Rule{name=%s, match=%s, action=%d, target=%s, priority=%d}",
 		r.name, r.matchExpr, r.action, r.target, r.priority)
@@ -341,12 +345,13 @@ func (r *simpleRule) String() string {
 
 // ruleSetRule delegates matching to a RuleProvider.
 type ruleSetRule struct {
-	name     string
-	provider core.RuleProvider
-	action   core.Action
-	target   string
-	targets  []string
-	priority int
+	name      string
+	provider  core.RuleProvider
+	action    core.Action
+	target    string
+	targets   []string
+	priority  int
+	continue_ bool
 }
 
 func newRuleSetRule(cfg core.RuleConfig, p core.RuleProvider) (*ruleSetRule, error) {
@@ -359,12 +364,13 @@ func newRuleSetRule(cfg core.RuleConfig, p core.RuleProvider) (*ruleSetRule, err
 		targets = []string{cfg.Target}
 	}
 	return &ruleSetRule{
-		name:     cfg.Name,
-		provider: p,
-		action:   action,
-		target:   cfg.Target,
-		targets:  targets,
-		priority: cfg.Priority,
+		name:      cfg.Name,
+		provider:  p,
+		action:    action,
+		target:    cfg.Target,
+		targets:   targets,
+		priority:  cfg.Priority,
+		continue_: cfg.Continue,
 	}, nil
 }
 
@@ -379,6 +385,7 @@ func (r *ruleSetRule) Name() string                     { return r.name }
 func (r *ruleSetRule) Payload() string                  { return fmt.Sprintf("RULE-SET:%s", r.provider.Name()) }
 func (r *ruleSetRule) RuleType() string                 { return "rule-set" }
 func (r *ruleSetRule) Transform() *core.TransformConfig { return nil }
+func (r *ruleSetRule) Continue() bool                   { return r.continue_ }
 func (r *ruleSetRule) String() string {
 	return fmt.Sprintf("RuleSet{name=%s, provider=%s, action=%d, target=%s}",
 		r.name, r.provider.Name(), r.action, r.target)
@@ -392,6 +399,7 @@ type subRuleRef struct {
 	target    string
 	targets   []string
 	priority  int
+	continue_ bool
 }
 
 func newSubRuleRef(cfg core.RuleConfig, sub *Engine) (*subRuleRef, error) {
@@ -410,12 +418,13 @@ func newSubRuleRef(cfg core.RuleConfig, sub *Engine) (*subRuleRef, error) {
 		target:    cfg.Target,
 		targets:   targets,
 		priority:  cfg.Priority,
+		continue_: cfg.Continue,
 	}, nil
 }
 
 func (r *subRuleRef) Match(point core.DataPoint) bool {
 	res := r.subEngine.Match(point)
-	return res != nil
+	return len(res) > 0
 }
 func (r *subRuleRef) Action() core.Action { return r.action }
 func (r *subRuleRef) Target() string      { return r.target }
@@ -427,6 +436,7 @@ func (r *subRuleRef) Payload() string {
 }
 func (r *subRuleRef) RuleType() string                 { return "sub-rule" }
 func (r *subRuleRef) Transform() *core.TransformConfig { return nil }
+func (r *subRuleRef) Continue() bool                   { return r.continue_ }
 func (r *subRuleRef) String() string {
 	return fmt.Sprintf("SubRule{name=%s, action=%d, target=%s}", r.name, r.action, r.target)
 }
