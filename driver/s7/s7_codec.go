@@ -37,7 +37,7 @@ func s7RequiredSize(dt core.DataType) int {
 		return 2
 	case core.TypeUint32, core.TypeInt32, core.TypeFloat32:
 		return 4
-	case core.TypeFloat64:
+	case core.TypeUint64, core.TypeInt64, core.TypeFloat64:
 		return 8
 	default:
 		return 0

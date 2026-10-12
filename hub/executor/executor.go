@@ -210,6 +210,14 @@ func Reload(path, payload string) error {
 				slog.Warn("config applied in memory but failed to persist to disk",
 					"path", p, "error", err)
 			} else {
+				// os.WriteFile only applies perm on file creation; for an
+				// existing file it truncates in place without changing mode.
+				// Chmod explicitly so a previously world-readable config is
+				// tightened to 0o600 and credentials are not leaked.
+				if cerr := os.Chmod(p, 0o600); cerr != nil {
+					slog.Warn("config persisted but failed to tighten file permissions",
+						"path", p, "error", cerr)
+				}
 				slog.Info("config persisted to disk", "path", p)
 			}
 		}
