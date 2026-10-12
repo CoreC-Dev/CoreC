@@ -509,12 +509,13 @@ transports:
       # target: cloud-mqtt
 
 rules:
-  ## High Temperature Alert -> Forward immediately to Cloud MQTT
+  ## High Temperature Alert -> Forward to Cloud MQTT, then continue to normal routing
   - name: high-temp-alert
     match: "tag == 'temperature' && value > 95"
     action: alert
     target: cloud-mqtt
     priority: 1
+    continue: true          # alert then keep evaluating (data still flows to MES)
 
   ## Emergency Stop -> High-priority Alert
   # - name: emergency-stop-alert

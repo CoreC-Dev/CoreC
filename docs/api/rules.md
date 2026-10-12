@@ -72,6 +72,7 @@ GET /rules
 | `target` | string | 目标传输名称（`forward`/`alert`/`transform` 动作使用） |
 | `targets` | string[] | 多目标传输名称列表（`mirror` 动作使用） |
 | `priority` | int | 优先级（数值越小优先级越高，按升序排列后 first-match-wins） |
+| `continue` | bool | 命中后是否继续评估后续规则（默认 `false` = 终止） |
 | `disabled` | bool | 是否已禁用 |
 | `hit_count` | uint64 | 累计命中次数 |
 | `hit_at` | string (RFC 3339) | 最近一次命中时间 |

@@ -28,10 +28,11 @@ rules:
 | `target` | string | 条件必填 | — | 单目标动作的目标传输名 |
 | `targets` | string[] | 条件必填 | — | `mirror` 动作的多个目标传输名列表 |
 | `priority` | int | 否 | `0` | 优先级，数值越小优先级越高 |
+| `continue` | bool | 否 | `false` | 命中后是否继续评估后续规则（见[continue 标记](#continue-标记)） |
 | `transform` | object | 否 | — | 数据变换配置，仅 `transform` 动作使用 |
 
 ::: info
-规则按 `priority` **升序**求值（数值小 = 优先级高）。首个命中的规则执行其动作后，数据点即结束本次规则求值流程，不再继续匹配后续规则。因此请将高优先级、强条件的规则放在前面。
+规则按 `priority` **升序**求值（数值小 = 优先级高）。默认情况下（`continue: false`），首个命中的规则执行其动作后，数据点即结束本次规则求值流程。设置 `continue: true` 后，规则命中执行动作但**不停止**，继续评估后续规则——这使得一个数据点可以触发多条规则（如"告警后继续正常转发"）。
 :::
 
 ---
@@ -264,6 +265,71 @@ rules:
 
 ---
 
+## continue 标记
+
+`continue` 控制规则命中后是否继续评估后续规则：
+
+| `continue` | 行为 |
+| --- | --- |
+| `false`（默认） | 命中即终止，不再评估后续规则（首次匹配即生效） |
+| `true` | 命中后执行动作，然后**继续**按优先级评估后续规则 |
+
+::: warning
+`drop` 动作不可设置 `continue: true`——丢弃意味着停止处理，继续评估是矛盾的。配置校验会拒绝此组合。
+:::
+
+### 典型用法
+
+**告警 + 正常转发**（最常见）：alert 规则设 `continue: true`，数据告警后仍走兜底转发：
+
+```yaml
+rules:
+  - name: high-temp-alert
+    match: "tag == 'temperature' && value > 95"
+    action: alert
+    target: cloud-mqtt
+    priority: 1
+    continue: true            # 告警后继续
+
+  - name: default-catch-all
+    match: "ALL"
+    action: forward
+    target: mes-http-push
+    priority: 999
+```
+
+**告警 + 丢弃**（告警但不污染下游）：
+
+```yaml
+  - name: bad-quality-alert
+    match: "quality == 'bad'"
+    action: alert
+    target: ops-notify
+    priority: 1
+    continue: true            # 先告警
+
+  - name: bad-quality-drop
+    match: "quality == 'bad'"
+    action: drop
+    priority: 2               # 再丢弃，终止
+```
+
+**变换后继续路由**（后续规则看到变换后的值）：
+
+```yaml
+  - name: adc-to-celsius
+    match: "tag == 'temp_adc'"
+    action: transform
+    target: cloud-mqtt
+    priority: 10
+    transform:
+      expression: "value / 65535 * 150 - 20"
+      tag-rename: temp_celsius
+    continue: true            # 变换后继续，后续规则看到 °C
+```
+
+---
+
 ## transform（数据变换）
 
 `transform` 子对象定义数据变换规则，对应核心 `TransformConfig` 结构。仅 `action: transform` 时生效。
@@ -317,12 +383,13 @@ transform:
 
 ```yaml
 rules:
-  # 1. 高温告警：立即转发到云 MQTT 并触发告警
+  # 1. 高温告警：转发到云 MQTT 并触发告警，然后继续正常转发
   - name: high-temp-alert
     match: "tag == 'temperature' && value > 95"
     action: alert
     target: cloud-mqtt
     priority: 1
+    continue: true            # 告警后继续评估后续规则
 
   # 2. 急停告警：高优先级
   - name: emergency-stop-alert

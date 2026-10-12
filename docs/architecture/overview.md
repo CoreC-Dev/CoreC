@@ -51,7 +51,7 @@ type Driver interface {
 - **LatestCache** — 64 分片（shard）设计，按 driver 名做 FNV 哈希分片，每片独立 `sync.RWMutex`，降低多 worker 并发更新时的锁竞争；供 API 读取最新值
 - **Batcher** — 每个传输可选的批量缓冲器，按 batch-size 或 flush-interval 触发刷新，带指数退避重试；启用全局 buffer 时，重试耗尽后数据落盘缓存，传输恢复后自动回放
 - **Parser** — 传输入站数据解析器，支持 `default`/`jsonpath`/`raw` 三种模式，将 MQTT/HTTP 载荷解析为 `DataPoint`
-- **Rule Engine** — 优先级排序的规则链（用 `sort.Slice`，**非稳定排序**），`RWMutex` 保护，first-match-wins，支持 5 种动作：forward / drop / alert / transform / mirror
+- **Rule Engine** — 优先级排序的规则链（用 `sort.Slice`，**非稳定排序**），`RWMutex` 保护，默认 first-match-wins（`continue: true` 规则命中后继续评估后续规则，见 ADR-010），支持 5 种动作：forward / drop / alert / transform / mirror
 - **Dead Letter Queue** — 写入指令重试耗尽后进入内存死信队列（上限 1000 条），供 `GET /write/failed` 查询
 
 ### 北向层 — Transports

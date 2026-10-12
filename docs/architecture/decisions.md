@@ -74,6 +74,17 @@
   - **DataPoint trace context 贯穿**：延迟实施。在 `core.DataPoint` 增加 trace 字段属 core 契约变更（虽为新增可选字段、非破坏性，但需评估序列化影响和 hexagonal 边界）。当前 trace 主要在 HTTP 入口（`hub/route` middleware 解析 traceparent），未从采集端贯穿到 Publish 端。
 - **后果**：用户最关心的"数据有多新鲜"已可通过 `corec_data_age_seconds` 直方图量化回答（p50/p99/p999）。全链路 trace 可视化需待 OTLP 基础设施部署。
 
+## ADR-010 规则引擎 `continue` 标记：多规则匹配（iptables 风格）
+
+- **状态**：已采纳
+- **上下文**：原规则引擎采用首次匹配即生效（first-match-wins）语义——`Match` 返回单个 `*RuleMatchResult`，第一条命中规则执行后立即停止。这无法表达"告警后继续正常转发"等复合场景：要么用 alert 规则"吃掉"数据点（下游收不到），要么不告警。用户需在一条数据点上触发多个动作（告警 + 转发、变换 + 路由、多级告警），但旧语义下只能选一个。
+- **决策**：为 `RuleConfig` 增加 `Continue bool` 字段（YAML `continue`，默认 `false`）。`Match` 返回类型改为 `[]*RuleMatchResult`——引擎按优先级遍历，命中规则加入结果集，若 `!r.Continue()` 则终止并返回全部结果，否则继续评估。`engine/processing.go` 逐条执行结果集中的动作；`transform` 动作对 `point` 的修改对后续规则可见。配置校验拒绝 `drop` + `continue: true`（丢弃意味着停止，继续评估矛盾）。
+- **后果**：
+  - **向后兼容**：`continue` 默认 `false` → 所有规则均为终止规则 → 结果集至多 1 个元素 → 与旧的 first-match-wins 完全等价。现有配置无需修改。
+  - **接口变更**：`core.RuleEngine.Match` 签名从 `*RuleMatchResult` 改为 `[]*RuleMatchResult`，`core.Rule` 接口新增 `Continue() bool` 方法。`core.RuleManager`（hub 使用的子集）不含 `Match`，故 hub mock 不受影响。
+  - **统计语义**：miss 统计基于"最后一条终止规则的优先级"——若所有命中规则均 `continue: true`（无终止），则所有其他驱动的规则记 miss；否则仅优先级低于终止规则的规则记 miss。
+  - **性能**：`continue: true` 规则增多时单点评估次数上升，但工业场景规则数小（<100），无感知。
+
 ---
 
 *新增决策请追加至本文件，遵循"上下文 / 决策 / 后果"三段式，并标注状态。*

@@ -5,7 +5,7 @@ description: 规则引擎概念 —— 匹配表达式、动作类型、优先�
 
 # 规则引擎（Rules）
 
-规则引擎是 CoreC 的**路由中枢**，决定每个数据点发往何处。它采用规则链设计：一组按优先级排序的规则，**首次匹配即生效**（first-match-wins）。本章详解匹配表达式、动作类型、优先级机制与运行时管理。
+规则引擎是 CoreC 的**路由中枢**，决定每个数据点发往何处。它采用规则链设计：一组按优先级排序的规则，默认**首次匹配即生效**（first-match-wins），但可通过 `continue: true` 标记让规则命中后继续评估后续规则，实现"告警 + 转发"等复合场景。本章详解匹配表达式、动作类型、优先级机制、`continue` 标记与运行时管理。
 
 ## 核心思想
 
@@ -264,25 +264,52 @@ rules:
     priority: 999        # 兜底，最后匹配
 ```
 
-### 首次匹配即生效（First-Match-Wins）
+### 首次匹配即生效（First-Match-Wins）与 `continue` 标记
 
-引擎遍历排序后的规则链，**第一条匹配的规则生效后立即返回**，不再评估后续规则：
+默认情况下，引擎遍历排序后的规则链，**第一条匹配的规则生效后立即返回**，不再评估后续规则。这是 `continue` 省略（默认 `false`）时的行为：
 
 ```go
-func (e *Engine) Match(point DataPoint) *MatchResult {
-    for _, r := range e.rules {  // 已按 priority 升序
-        if r.Match(point) {
-            return &MatchResult{Rule: r, Targets: r.Targets()}
-        }
+// continue: false（默认）→ 命中即终止，等价于旧的 first-match-wins
+for _, r := range e.rules {
+    if r.Match(point) {
+        results = append(results, r)
+        if !r.Continue() { return results }  // 终止
     }
-    return nil  // 无匹配
 }
 ```
+
+设置 `continue: true` 后，规则命中执行动作后**不停止**，继续评估后续规则。这使得一个数据点可以触发多条规则——例如"告警后继续正常转发"：
+
+```yaml
+rules:
+  - name: high-temp-alert
+    match: "tag == 'temperature' && value > 95"
+    action: alert
+    target: cloud-mqtt
+    priority: 1
+    continue: true            # 告警后继续往下走
+
+  - name: default-catch-all
+    match: "ALL"
+    action: forward
+    target: mes-http-push
+    priority: 999              # continue 省略 = false = 终止
+```
+
+高温数据点先命中 alert 规则（告警 + 转发到 cloud-mqtt），因 `continue: true` 不停止，继续命中 default 规则（转发到 mes-http-push）。**告警和正常转发都生效。**
+
+::: tip `continue` 的典型用途
+- **告警 + 正常转发**：alert 规则设 `continue: true`，数据照常走兜底转发
+- **告警 + 丢弃**：alert(continue) + drop，通知运维但不污染下游
+- **变换后继续路由**：transform(continue) 后续规则看到变换后的值
+- **多级告警**：多条 alert(continue) 串联，各级别独立触发
+:::
 
 ::: warning 优先级设计要点
 1. **顺序不保证**：规则使用 `sort.Slice`（非稳定排序）按 `priority` 排序，相同 `priority` 的规则之间的相对顺序**不保证**与配置文件顺序一致。建议显式设置不同优先级避免歧义
 2. **兜底放最后**：`match: "ALL"` 的规则务必设置最大 priority，否则会"吃掉"所有后续规则
 3. **过滤放最前**：`drop` 类规则设最小 priority，尽早过滤避免无效转发
+4. **drop 不可 continue**：`drop` + `continue: true` 是矛盾的（丢弃意味着停止），配置校验会拒绝
 :::
 
 ### 推荐的优先级分层
@@ -315,6 +342,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
       "action": "drop",
       "target": "",
       "priority": 1,
+      "continue": false,
       "disabled": false,
       "hit_count": 23,
       "hit_at": "2024-01-15T10:30:15Z",
@@ -328,6 +356,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
       "action": "alert",
       "target": "cloud-mqtt",
       "priority": 2,
+      "continue": true,
       "disabled": false,
       "hit_count": 3,
       "miss_count": 15231
@@ -339,6 +368,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 | 字段 | 说明 |
 |:---|:---|
 | `index` | 规则在排序链中的位置 |
+| `continue` | 是否在命中后继续评估后续规则 |
 | `disabled` | 是否被运行时禁用 |
 | `hit_count` | 累计命中次数 |
 | `hit_at` | 最后命中时刻 |

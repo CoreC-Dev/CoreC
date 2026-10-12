@@ -77,7 +77,7 @@ cmd/corec/main.go
 |------|--------|------|
 | `core.Driver` | 11 | 南向设备读写：Connect/Close/Read/Write/Health/Reconnect 等 |
 | `core.Transport` | 10 | 北向推送：Init/Start/Stop/Publish/PublishBatch/HandleCommand 等 |
-| `core.Rule` | 10 | 规则求值：Match/Apply/Compile 等 |
+| `core.Rule` | 11 | 规则求值：Match/Apply/Compile/Continue 等 |
 | `core.RuleEngine` | 9 | 规则集管理：AddRule/RemoveRule/MatchAll 等 |
 
 接口方法数均 ≤ 12（合理领域抽象，非 God Interface）。
