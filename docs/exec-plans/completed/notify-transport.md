@@ -54,7 +54,7 @@ transport/notify/
 | **Webhook** | 可配 method/headers/body 模板，接任意系统（钉钉/飞书/自建） | `net/http` |
 
 - **限频**：Slack 限 1 msg/sec/channel，内置令牌桶；遇 HTTP 429 读 `Retry-After` 退避。
-- **模板**：Go `text/template`（标准库），可用 `{{.Tag}} {{.Value}} {{.Driver}} {{.Device}} {{.Group}} {{.Timestamp}} {{.Quality}}`。规则名经 `DataPoint.Metadata["rule"]` 传入（forward 路径需在 publish 时注入 rule 名，见 3.5）。
+- **模板**：Go `text/template`（标准库），可用 <code v-pre>{{.Tag}} {{.Value}} {{.Driver}} {{.Device}} {{.Group}} {{.Timestamp}} {{.Quality}}</code>。规则名经 `DataPoint.Metadata["rule"]` 传入（forward 路径需在 publish 时注入 rule 名，见 3.5）。
 
 ### 3.4 配置 schema
 
