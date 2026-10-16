@@ -119,6 +119,11 @@ type CoreCEngine struct {
 	// nil when node config is not set (auto-discovery disabled).
 	discovery *Discovery
 
+	// derivedEvaluator periodically computes derived tags from the latest
+	// cache and pushes results into the data bus. nil when no derived tags
+	// are configured.
+	derivedEvaluator *derivedTagEvaluator
+
 	// deadLetterQueue holds write commands that failed after all retries.
 	// Bounded by deadLetterMaxLen; oldest entries are evicted when full.
 	deadLetterMu     sync.Mutex

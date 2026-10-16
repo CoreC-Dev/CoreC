@@ -83,22 +83,23 @@ func (e *CoreCEngine) processPoint(point core.DataPoint) {
 	// no terminal rule matches).
 	alerted := false
 	for _, result := range results {
+		ruleName := result.Rule.Name()
 		switch result.Rule.Action() {
 		case core.ActionDrop:
 			return
 		case core.ActionAlert:
 			e.fireAlert(point, result.Rule)
 			alerted = true
-			e.publishToTargets(point, result.Targets)
+			e.publishToTargets(pointWithRule(point, ruleName), result.Targets)
 		case core.ActionTransform:
 			// Transform mutates the point for subsequent action publishing:
 			// a later rule's publishToTargets sees the transformed value.
 			// However, the later rule's MATCH was already evaluated against
 			// the original point — transforms do not re-trigger matching.
 			point = e.applyTransform(point, result.Transform)
-			e.publishToTargets(point, result.Targets)
+			e.publishToTargets(pointWithRule(point, ruleName), result.Targets)
 		case core.ActionForward, core.ActionMirror:
-			e.publishToTargets(point, result.Targets)
+			e.publishToTargets(pointWithRule(point, ruleName), result.Targets)
 		}
 	}
 
@@ -109,4 +110,18 @@ func (e *CoreCEngine) processPoint(point core.DataPoint) {
 		last := results[len(results)-1]
 		e.fireAlert(point, last.Rule)
 	}
+}
+
+// pointWithRule returns a shallow copy of point with the rule name injected
+// into Metadata["rule"]. A new Metadata map is allocated so the original
+// point is not mutated (avoids races when multiple rules forward the same
+// point to different targets via async batchers).
+func pointWithRule(point core.DataPoint, ruleName string) core.DataPoint {
+	p := point
+	p.Metadata = make(map[string]string, len(point.Metadata)+1)
+	for k, v := range point.Metadata {
+		p.Metadata[k] = v
+	}
+	p.Metadata["rule"] = ruleName
+	return p
 }
