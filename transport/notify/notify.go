@@ -140,8 +140,8 @@ func (t *NotifyTransport) Publish(ctx context.Context, point core.DataPoint) err
 // abort the batch; the last error is returned.
 func (t *NotifyTransport) PublishBatch(ctx context.Context, points []core.DataPoint) error {
 	var lastErr error
-	for _, p := range points {
-		if err := t.Publish(ctx, p); err != nil {
+	for i := range points {
+		if err := t.Publish(ctx, points[i]); err != nil {
 			lastErr = err
 		}
 	}

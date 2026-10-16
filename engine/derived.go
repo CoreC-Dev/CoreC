@@ -83,7 +83,7 @@ type derivedTagEvaluator struct {
 // error) when the config is empty — the engine simply has no evaluator.
 func newDerivedTagEvaluator(configs []core.DerivedTagConfig, cache *LatestCache, dataBus *DataBus) (*derivedTagEvaluator, error) {
 	if len(configs) == 0 {
-		return nil, nil
+		return &derivedTagEvaluator{}, nil
 	}
 	tags := make([]*compiledDerivedTag, 0, len(configs))
 	for _, cfg := range configs {
@@ -111,7 +111,7 @@ func compileDerivedTag(cfg core.DerivedTagConfig) (*compiledDerivedTag, error) {
 			return nil, fmt.Errorf("parse stale-guard %q: %w", cfg.StaleGuard, err)
 		}
 	}
-	onMissing := onMissingSkip
+	var onMissing onMissingPolicy
 	switch cfg.OnMissing {
 	case "", "skip":
 		onMissing = onMissingSkip

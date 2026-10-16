@@ -159,8 +159,11 @@ func TestNewDerivedTagEvaluatorEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if ev != nil {
-		t.Fatal("expected nil evaluator for empty config")
+	if ev == nil {
+		t.Fatal("expected non-nil evaluator for empty config")
+	}
+	if len(ev.tags) != 0 {
+		t.Fatalf("expected 0 tags, got %d", len(ev.tags))
 	}
 }
 

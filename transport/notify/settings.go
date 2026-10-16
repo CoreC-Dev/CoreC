@@ -101,12 +101,12 @@ func optStringList(settings map[string]any, key string) ([]string, error) {
 func optStringMap(settings map[string]any, key string) (map[string]string, error) {
 	v, ok := settings[key]
 	if !ok {
-		return nil, nil
+		return map[string]string{}, nil
 	}
 	// JSON string form (from Dashboard text field).
 	if s, ok := v.(string); ok {
 		if s == "" {
-			return nil, nil
+			return map[string]string{}, nil
 		}
 		var m map[string]string
 		if err := json.Unmarshal([]byte(s), &m); err != nil {
