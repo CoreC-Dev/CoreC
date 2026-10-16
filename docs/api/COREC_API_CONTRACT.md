@@ -113,6 +113,7 @@ decode with an error.
 | `GET` | `/drivers/{name}/tags` | `getDriverTags` | Latest cached values for a driver's tags |
 | `GET` | `/transports` | `getTransports` | All transport statuses |
 | `GET` | `/transports/{name}` | `getTransport` | One transport status |
+| `POST` | `/transports/{name}/test` | `testTransport` | Publish a test data point to verify connectivity |
 | `GET` | `/tags` | `getAllTags` | Latest cached values across all drivers |
 | `POST` | `/write` | `writeTag` | Write a value to a device tag |
 | `GET` | `/write/failed` | `getFailedWrites` | Dead-letter queue of failed writes |
@@ -452,7 +453,24 @@ Handler `getTransport` (`transports.go:17`). Auth required. Path param `name`.
 Returns the matching `core.TransportStatus` **directly** (no wrapper).
 **`404`** `{"error":"transport not found"}` when no match.
 
-### 3.13 `GET /tags`
+### 3.13 `POST /transports/{name}/test`
+
+Handler `testTransport` (`transports.go:33`). Auth required. Path param `name`.
+
+Publishes a synthetic `core.DataPoint` (`driver="test"`, `device="test"`,
+`tag="test-notification"`, `value=1`, `quality=QualityGood`,
+`metadata={"rule":"test"}`) to the named transport via `Transport.Publish`.
+Primarily intended for notify transports (Slack/Teams/email/webhook) to verify
+connectivity from the Dashboard without waiting for a real alert.
+
+**Response `200`:**
+```json
+{ "ok": true,  "message": "test notification sent" }
+{ "ok": false, "message": "<error from Publish>" }
+```
+**`404`** `{"error":"transport not found"}` when no match.
+
+### 3.14 `GET /tags`
 
 Handler `getAllTags` (`tags.go:37`). Auth required. No query params.
 
@@ -463,7 +481,7 @@ carries its own `Driver` field. Staleness annotation applied as in §3.10.
 
 **Response `200`:** `{"tags": { "<tag-name>": <DataPoint>, ... }}` (see §6).
 
-### 3.14 `POST /write`
+### 3.15 `POST /write`
 
 Handler `writeTag` (`tags.go:46`). Auth required. Body limited to 1 MiB.
 
@@ -500,7 +518,7 @@ Handler `writeTag` (`tags.go:46`). Auth required. Body limited to 1 MiB.
   the audit log records `driver`, `tag`, `success` but **never the value**, which
   may carry process-sensitive data).
 
-### 3.15 `GET /write/failed` — dead-letter queue
+### 3.16 `GET /write/failed` — dead-letter queue
 
 Handler `getFailedWrites` (`tags.go:88`). Auth required. No query params.
 
@@ -541,7 +559,7 @@ commands that failed after all retries.
 | `FailedAt` | `time.Time` | `"failed_at"` | RFC3339 string | |
 | `Attempts` | `int` | `"attempts"` | number | total attempt count = `write-retry-count + 1` |
 
-### 3.16 `GET /rules`
+### 3.17 `GET /rules`
 
 Handler `getRules` (`rules.go:12`). Auth required. No query params.
 Returns `{"rules": rm.GetRuleStats()}` → `[]core.RuleStat` (built by
@@ -591,7 +609,7 @@ Returns `{"rules": rm.GetRuleStats()}` → `[]core.RuleStat` (built by
 `Action` values come from `actionToString` (`rule/rule_build.go:191`):
 `forward|drop|alert|transform|mirror`.
 
-### 3.17 `PATCH /rules/disable`
+### 3.18 `PATCH /rules/disable`
 
 Handler `disableRule` (`rules.go:23`). Auth required. Body limited to 1 MiB.
 
@@ -610,7 +628,7 @@ Calls `rm.SetRuleDisabled(index, disabled)` (`rule/rule_build.go:173`).
 **`400`** `{"error":"<message>"}` on bad JSON or out-of-range index
 (`"rule index out of range: <n>"` or `"rule at index <n> is not a RuleWrapper"`).
 
-### 3.18 `GET /stats`
+### 3.19 `GET /stats`
 
 Handler `getStats` (`stats.go:10`). Auth required. No query params.
 Returns `sp.Stats()` directly → `core.EngineStats` (`core/engine.go:315`).

@@ -87,6 +87,13 @@ func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error {
 
 	e.startProcessingWorkers()
 
+	// Start derived tag evaluator if configured.
+	if len(config.DerivedTags) > 0 {
+		if err := e.startDerivedTags(config); err != nil {
+			return err
+		}
+	}
+
 	// Start topology auto-discovery if node config is present.
 	e.startDiscovery(config)
 
@@ -106,6 +113,25 @@ func (e *CoreCEngine) startScheduler() error {
 	if err := e.scheduler.Start(e.ctx); err != nil {
 		return fmt.Errorf("failed to start scheduler: %w", err)
 	}
+	return nil
+}
+
+// startDerivedTags compiles and launches the derived tag evaluator. The
+// evaluator reads the latest cache and pushes computed points into the data
+// bus. Each derived tag runs in its own goroutine bound to e.ctx/e.wg.
+func (e *CoreCEngine) startDerivedTags(config *core.Config) error {
+	if err := validateDerivedTags(config.DerivedTags); err != nil {
+		return fmt.Errorf("derived tags config: %w", err)
+	}
+	ev, err := newDerivedTagEvaluator(config.DerivedTags, e.cache, e.dataBus)
+	if err != nil {
+		return fmt.Errorf("derived tags: %w", err)
+	}
+	e.mu.Lock()
+	e.derivedEvaluator = ev
+	e.mu.Unlock()
+	ev.start(e.ctx, &e.wg)
+	slog.Info("derived tag evaluator started", "count", len(config.DerivedTags))
 	return nil
 }
 
@@ -207,6 +233,7 @@ func (e *CoreCEngine) Stop() error {
 	e.wg.Wait()
 	e.mu.Lock()
 	e.status = core.EngineStatusStopped
+	e.derivedEvaluator = nil
 	e.mu.Unlock()
 	slog.Info("CoreC engine stopped")
 	return nil

@@ -573,3 +573,73 @@ rules:
     action: forward
     target: mes-http-push
     priority: 999
+
+# ============================================================
+# Derived Tags (computed KPIs)
+# ============================================================
+# Derived tags are computed from other tags' latest cached values via
+# arithmetic expressions. They are evaluated on their own interval and
+# flow through the pipeline like any other data point (rules, transports).
+#
+# Identifiers in `expr` are resolved to tag names in the latest cache.
+# `on-missing` controls behavior when a referenced tag is absent:
+#   skip (default)        — emit nothing
+#   bad-quality           — emit a QualityBad point
+#   zero                  — treat missing as 0 and evaluate
+# `stale-guard` marks the derived point stale if any referenced tag is
+# older than the given duration (0 = disabled).
+#
+# derived-tags:
+#   - name: efficiency
+#     expr: "output_power / input_power * 100"
+#     type: float32
+#     group: kpi
+#     interval: 5s
+#     unit: "%"
+#     on-missing: skip
+#     stale-guard: 30s
+#   - name: temp_diff
+#     expr: "temp_inlet - temp_outlet"
+#     type: float32
+#     interval: 10s
+#     unit: "°C"
+
+# ============================================================
+# Notify Transport (alert notifications)
+# ============================================================
+# The notify transport forwards data points to external alerting channels.
+# Use with a rule `action: forward, target: notify-xxx` to send alerts.
+# Channels: slack, teams, email, webhook.
+# Cooldown suppresses repeated notifications for the same rule within a window.
+#
+# transports:
+#   - name: notify-slack
+#     type: notify
+#     settings:
+#       channel: slack
+#       webhook-url: ${SLACK_WEBHOOK_URL}
+#       template: "🚨 [{{.Rule}}] {{.Tag}} = {{.Value}} ({{.Driver}})"
+#       cooldown: 5m
+#   - name: notify-email
+#     type: notify
+#     settings:
+#       channel: email
+#       smtp-host: smtp.example.com
+#       smtp-port: 587
+#       smtp-user: ${SMTP_USER}
+#       smtp-pass: ${SMTP_PASS}
+#       from: corec@example.com
+#       to: ["oncall@example.com"]
+#       subject: "[CoreC] {{.Rule}}"
+#       body: "Tag {{.Tag}} on {{.Driver}}/{{.Device}} = {{.Value}} at {{.Timestamp}}"
+#       cooldown: 5m
+#   - name: notify-generic
+#     type: notify
+#     settings:
+#       channel: webhook
+#       url: ${CUSTOM_WEBHOOK_URL}
+#       method: POST
+#       headers:
+#         Authorization: "Bearer ${WH_TOKEN}"
+#       body-template: '{"tag":"{{.Tag}}","value":{{.Value}}}'
+#       cooldown: 1m

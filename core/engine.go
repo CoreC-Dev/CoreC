@@ -147,6 +147,7 @@ type Config struct {
 	Rules         []RuleConfig            `yaml:"rules"`
 	RuleProviders []RuleProviderConfig    `yaml:"rule-providers,omitempty"`
 	RuleGroups    map[string][]RuleConfig `yaml:"rule-groups,omitempty"`
+	DerivedTags   []DerivedTagConfig      `yaml:"derived-tags,omitempty"`
 }
 
 // NodeConfig holds node-level configuration for topology auto-discovery.

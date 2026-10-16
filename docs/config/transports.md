@@ -431,3 +431,67 @@ transports:
 ::: tip
 对关键数据建议同时配置 MQTT 与 HTTP 两个传输，并通过规则 `mirror` 动作双发，实现传输层冗余。
 :::
+
+## Notify 传输（告警通知）
+
+`type: notify` 将规则触发的事件通过 Slack、Microsoft Teams、邮件或自定义 Webhook 发送通知。通常与规则引擎的 `forward` 或 `alert` 动作配合使用。
+
+```yaml
+transports:
+  - name: alert-slack
+    type: notify
+    settings:
+      channel: slack                    # slack | teams | email | webhook
+      webhook-url: "https://hooks.slack.com/services/T.../B.../..."
+      cooldown: 5m                      # 同一规则在冷却窗口内抑制重复通知
+      template: "[{{.Rule}}] {{.Tag}} = {{.Value}} ({{.Driver}})"
+```
+
+### 通道配置
+
+| 通道 | 必需字段 | 可选字段 |
+|------|----------|----------|
+| `slack` | `webhook-url` | `template`, `cooldown` |
+| `teams` | `webhook-url` | `template`, `cooldown` |
+| `email` | `smtp-host`, `from`, `to` | `smtp-port`, `smtp-user`, `smtp-pass`, `subject`, `body`, `cooldown` |
+| `webhook` | `url` | `method`, `headers`, `body-template`, `cooldown` |
+
+### 模板变量
+
+`template`（Slack/Teams）和 `body`/`body-template`（email/webhook）使用 Go `text/template` 语法，可用变量：
+
+| 变量 | 说明 |
+|------|------|
+| `.Rule` | 触发通知的规则名 |
+| `.Tag` | 数据点标签名 |
+| `.Value` | 数据点值 |
+| `.Driver` | 驱动名 |
+| `.Device` | 设备名 |
+| `.Group` | 标签组 |
+| `.Quality` | 数据质量 |
+| `.Timestamp` | 时间戳 |
+
+### 邮件示例
+
+```yaml
+transports:
+  - name: alert-email
+    type: notify
+    settings:
+      channel: email
+      smtp-host: smtp.example.com
+      smtp-port: 587
+      smtp-user: corec
+      smtp-pass: ${SMTP_PASS}
+      from: corec@example.com
+      to:
+        - oncall@example.com
+        - backup@example.com
+      subject: "[CoreC] {{.Rule}}"
+      body: "Tag {{.Tag}} on {{.Driver}}/{{.Device}} = {{.Value}}"
+      cooldown: 10m
+```
+
+::: tip
+`to` 字段支持 YAML 列表或逗号分隔字符串两种形式。`headers` 支持 YAML map 或 JSON 字符串。
+:::

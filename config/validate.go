@@ -50,6 +50,9 @@ func validate(cfg *core.Config, drivers DriverRegistry, transports TransportRegi
 	if err := validateRules(cfg, transportNames); err != nil {
 		return err
 	}
+	if err := validateDerivedTags(cfg); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -306,4 +309,27 @@ func hasInboundTransport(transports []core.TransportConfig) bool {
 // (node.id is set) and the node declares upstream subscriptions.
 func hasAutoDiscoveryInbound(cfg *core.Config) bool {
 	return cfg.Node.ID != "" && len(cfg.Node.Subscribe) > 0
+}
+
+// validateDerivedTags checks structural invariants for derived tag configs:
+// unique names, non-empty expr and interval. Expression compilation and
+// semantic validation happen in the engine at start time.
+func validateDerivedTags(cfg *core.Config) error {
+	names := make(map[string]bool)
+	for _, dt := range cfg.DerivedTags {
+		if strings.TrimSpace(dt.Name) == "" {
+			return fmt.Errorf("derived tag has empty name")
+		}
+		if names[dt.Name] {
+			return fmt.Errorf("duplicate derived tag name %q", dt.Name)
+		}
+		names[dt.Name] = true
+		if strings.TrimSpace(dt.Expr) == "" {
+			return fmt.Errorf("derived tag %q has empty expr", dt.Name)
+		}
+		if strings.TrimSpace(dt.Interval) == "" {
+			return fmt.Errorf("derived tag %q has empty interval", dt.Name)
+		}
+	}
+	return nil
 }
