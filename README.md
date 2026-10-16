@@ -61,10 +61,11 @@
 | CoreC 组件 | 说明 |
 |:---|:---|
 | `Driver` (南向驱动) | 支持 Modbus 全家族 (TCP/RTU/UDP/TLS), Siemens S7, OPC UA 等 |
-| `Transport` (北向传输) | 支持 MQTT、HTTP Push/Webhook（Kafka、gRPC 规划中） |
-| `Engine` (核心引擎) | 数据总线消费、生命周期管理、双向指令调度 |
+| `Transport` (北向传输) | 支持 MQTT、HTTP Push/Webhook、Notify（Slack/Teams/Email/Webhook 通知） |
+| `Engine` (核心引擎) | 数据总线消费、生命周期管理、双向指令调度、派生标签计算 |
 | `Scheduler` (主动调度器) | 按点位采集周期主动触发读取 |
 | `Rule` (规则引擎) | 优先级规则链匹配，支持 `forward`, `drop`, `alert`, `mirror`, `transform` |
+| `Derived Tags` (派生标签) | 从已采集标签的缓存值经算术表达式计算 KPI（效率/OEE/温差），自动流入管线 |
 | `DataPoint` (统一数据点) | 包含测点名、类型、时间戳、质量戳 (Quality)、值 |
 
 ---

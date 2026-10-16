@@ -65,6 +65,7 @@ export default defineConfig({
             { text: '驱动配置', link: '/config/drivers' },
             { text: '传输配置', link: '/config/transports' },
             { text: '规则配置', link: '/config/rules' },
+            { text: '派生标签配置', link: '/config/derived-tags' },
             { text: '完整示例', link: '/config/example' },
           ],
         },
