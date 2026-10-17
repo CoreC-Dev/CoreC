@@ -90,15 +90,25 @@ func (e *Engine) SetRules(configs []core.RuleConfig) error {
 		rules = append(rules, r)
 	}
 
-	// Sort by priority (lower = higher priority)
-	sort.Slice(rules, func(i, j int) bool {
+	// Sort by priority (lower = higher priority). Stable so rules that
+	// share a priority keep their configuration order — the documented
+	// tie-break (stage-B audit finding B7-1). Previously sort.Slice was
+	// non-stable and the driver-index merge implicitly evaluated
+	// universal rules before driver rules on equal priority, so a
+	// universal rule could systematically shadow same-priority driver
+	// rules with no way for configuration order to intervene.
+	sort.SliceStable(rules, func(i, j int) bool {
 		return rules[i].Priority() < rules[j].Priority()
 	})
 
-	// Wrap each rule with statistics wrapper
+	// Wrap each rule with statistics wrapper. seq records the position
+	// in the sorted list so the matcher can tie-break equal priorities
+	// by configuration order (B7-1).
 	wrapped := make([]core.Rule, len(rules))
 	for i, r := range rules {
-		wrapped[i] = newRuleWrapper(r)
+		w := newRuleWrapper(r)
+		w.seq = i
+		wrapped[i] = w
 	}
 
 	// Build driver index: rules with a detectable driver filter go into

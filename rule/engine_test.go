@@ -340,17 +340,17 @@ func TestDriverIndexMatch(t *testing.T) {
 		statMap[s.Name] = s
 	}
 
-	// plc-rule: hit on plc/temp, miss on modbus/humidity (priority 10 < 10? no, equal)
-	// Actually, modbus-rule has priority 10 too. When modbus/humidity arrives,
-	// the merged list evaluates plc-rule (universal? no, it's driver-scoped to plc)
-	// and modbus-rule (driver-scoped to modbus). The merged list for modbus driver
-	// is: universalRules=[catchall] + driverRules=[modbus-rule]. modbus-rule matches.
-	// plc-rule is in driverIndex["plc"], so RecordMiss is called if priority < 10.
-	// plc-rule priority is 10, which is NOT < 10, so no miss recorded.
-	// For opcua/x: merged list is universalRules=[catchall]. catchall matches at priority 100.
-	// plc-rule priority 10 < 100 → RecordMiss. modbus-rule priority 10 < 100 → RecordMiss.
-	if statMap["plc-rule"].MissCount != 1 {
-		t.Errorf("plc-rule miss count: expected 1 (from opcua point), got %d", statMap["plc-rule"].MissCount)
+	// plc-rule: hit on plc/temp. Misses from the modbus and opcua data
+	// points. The modbus point's evaluation order is [plc-rule(seq0)@10,
+	// modbus-rule(seq1)@10, ...]: with the config-order tie-break (B7-1),
+	// plc-rule is reached (and misses) before modbus-rule terminates, so
+	// it records a miss there too — plus one from the opcua point where
+	// it is evaluated before catchall matches. Total: 2.
+	// modbus-rule misses only on the opcua point: on the plc point its
+	// config position (seq1) is at/after the terminal (seq0), so a linear
+	// scan would not reach it.
+	if statMap["plc-rule"].MissCount != 2 {
+		t.Errorf("plc-rule miss count: expected 2 (reached before terminal on modbus point + opcua point), got %d", statMap["plc-rule"].MissCount)
 	}
 	if statMap["modbus-rule"].MissCount != 1 {
 		t.Errorf("modbus-rule miss count: expected 1 (from opcua point), got %d", statMap["modbus-rule"].MissCount)

@@ -11,12 +11,22 @@ import (
 // enable/disable control, without modifying the underlying rule's logic.
 type ruleWrapper struct {
 	core.Rule
+	// seq is the rule's position in the engine's build order (the
+	// priority-sorted rule list). sort.SliceStable keeps configuration
+	// order within equal priorities, so seq is exactly the configuration
+	// order among same-priority rules; the matcher exposes it as the
+	// same-priority tie-break (stage-B audit finding B7-1).
+	seq       int
 	disabled  atomic.Bool
 	hitCount  atomic.Uint64
 	hitAt     atomicTime
 	missCount atomic.Uint64
 	missAt    atomicTime
 }
+
+// Seq returns the rule's position in the engine's build order, used as
+// the tie-break when two rules share a priority (B7-1).
+func (r *ruleWrapper) Seq() int { return r.seq }
 
 func (r *ruleWrapper) IsDisabled() bool {
 	return r.disabled.Load()

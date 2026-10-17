@@ -99,6 +99,10 @@ type MatchResult = core.RuleMatchResult
 // When every rule is terminal (the default), the slice contains at most
 // one element — the former first-match-wins semantics.
 //
+// Rules with equal priority evaluate in configuration order (the
+// stable-sort tie-break, stage-B audit finding B7-1): a universal rule no
+// longer implicitly shadows a same-priority driver rule.
+//
 // Match uses a driver index to reduce the per-data-point scan cost.
 // Rules with a detectable driver == 'X' filter are only evaluated for
 // data points from driver X; for data points from other drivers, their
@@ -126,16 +130,20 @@ func (e *Engine) Match(point core.DataPoint) []*MatchResult {
 	// terminal rule (Continue() == false) is hit.
 	results := e.matchMerged(point, e.universalRules, driverRules)
 
-	// Record misses for rules scoped to other drivers. In a linear scan,
-	// rules after the terminal match are NOT evaluated, so we only record
-	// misses for rules with strictly lower priority than the terminal
-	// match. If no terminal match, all rules would have been evaluated.
+	// Record misses for rules scoped to other drivers. In a linear scan
+	// over the global (priority, config-order) evaluation sequence, rules
+	// after the terminal match are NOT evaluated, so we only record
+	// misses for rules that precede it: strictly lower priority, or equal
+	// priority with an earlier build position (B7-1 tie-break). If no
+	// terminal match, all rules would have been evaluated.
 	var terminalPriority int
+	var terminalSeq int
 	hasTerminal := false
 	if len(results) > 0 {
 		last := results[len(results)-1]
 		if !last.Rule.Continue() {
 			terminalPriority = last.Rule.Priority()
+			terminalSeq = ruleSeq(last.Rule)
 			hasTerminal = true
 		}
 	}
@@ -144,8 +152,13 @@ func (e *Engine) Match(point core.DataPoint) []*MatchResult {
 			continue
 		}
 		for _, r := range rules {
-			if hasTerminal && r.Priority() >= terminalPriority {
-				continue // would not have been reached in the linear scan
+			if hasTerminal {
+				if r.Priority() > terminalPriority {
+					continue // would not have been reached in the linear scan
+				}
+				if r.Priority() == terminalPriority && ruleSeq(r) >= terminalSeq {
+					continue // same priority, at or after the terminal in config order
+				}
 			}
 			if mr, ok := r.(missRecorder); ok {
 				mr.RecordMiss()
