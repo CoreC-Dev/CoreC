@@ -352,8 +352,14 @@ const (
 	// maximum number of reconnect failures is exceeded, before retrying.
 	DefaultCircuitBreakerBackoff = 5 * time.Minute
 
-	// DefaultOfflineBufferMaxEntries is the maximum number of data points
-	// retained in the offline buffer when transport backends are unavailable.
+	// DefaultOfflineBufferMaxEntries is the maximum number of BATCHES
+	// (not data points) retained in the offline buffer when transport
+	// backends are unavailable. Each buffered file holds one publish
+	// batch of up to the transport's batch-size points (default 100), so
+	// the point capacity is max-entries × batch-size, and the bound is
+	// on batch count — not on bytes and not on points (stage-B audit
+	// finding B2.1: this comment previously claimed "data points",
+	// overstating the semantic by the batch size).
 	DefaultOfflineBufferMaxEntries = 10000
 
 	// DefaultDeadLetterMaxLen is the maximum number of entries in the

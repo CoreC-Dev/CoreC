@@ -46,6 +46,15 @@ type OfflineBuffer struct {
 	// success so it can be read lock-free by DrainCount() for
 	// observability (Prometheus counter) without contending on mu.
 	drainCount atomic.Uint64
+
+	// evictCount tracks the total number of batches evicted because the
+	// buffer was full (oldest dropped to make room for newer ones —
+	// newest data wins by design). It is incremented inside evictIfNeeded
+	// on every successful eviction and read lock-free by EvictedCount().
+	// Until now evictions were completely silent: no log, no counter —
+	// operators could only infer sustained eviction from the pending
+	// gauge pinned at max-size (stage-B audit finding B2.1).
+	evictCount atomic.Uint64
 }
 
 // offlineEntry is the on-disk JSON representation of a buffered batch.
@@ -214,9 +223,24 @@ func (ob *OfflineBuffer) evictIfNeeded() {
 		oldest := seqs[0]
 		seqs = seqs[1:]
 		path := filepath.Join(ob.dir, seqFileName(oldest))
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			slog.Warn("offline buffer: failed to evict", "file", path, "error", err)
+		if err := os.Remove(path); err != nil {
+			if !os.IsNotExist(err) {
+				slog.Warn("offline buffer: failed to evict", "file", path, "error", err)
+			}
+			// Nothing was actually removed; do not count a phantom eviction.
+			continue
 		}
+		// The eviction dropped real data: surface it. Capacity-based
+		// eviction is a designed trade-off (newest data wins), but it
+		// must not be silent — every other drop path in the pipeline
+		// (DataBus pushDropped, batcher flushBatchesDropped) is counted
+		// and logged (stage-B audit finding B2.1).
+		ob.evictCount.Add(1)
+		slog.Warn("offline buffer full: evicted oldest batch",
+			"file", path,
+			"max_entries", ob.maxEntries,
+			"evicted_total", ob.evictCount.Load(),
+		)
 	}
 }
 
@@ -353,6 +377,17 @@ func (ob *OfflineBuffer) PendingCount() int {
 // Prometheus counter (e.g. corec_offline_buffer_drained_total).
 func (ob *OfflineBuffer) DrainCount() uint64 {
 	return ob.drainCount.Load()
+}
+
+// EvictedCount returns the total number of batches evicted from the
+// buffer because it was full (the oldest batch is dropped to make room
+// for newer ones — newest data wins by design). It is a monotonically
+// increasing counter, read atomically and lock-free, suitable for
+// observability exposure (e.g. a corec_offline_buffer_evicted_total
+// Prometheus counter; stage-B audit finding B2.1 — until now evictions
+// were completely unobservable).
+func (ob *OfflineBuffer) EvictedCount() uint64 {
+	return ob.evictCount.Load()
 }
 
 // Close is a no-op for the file-based buffer; files remain on disk

@@ -104,6 +104,10 @@ func TestOfflineBufferEviction(t *testing.T) {
 
 	points := []core.DataPoint{{Driver: "plc1", Tag: "temp", Value: 1.0}}
 
+	if got := ob.EvictedCount(); got != 0 {
+		t.Fatalf("EvictedCount = %d, want 0 on fresh buffer", got)
+	}
+
 	// Push 5 batches, capacity is 3
 	for i := 0; i < 5; i++ {
 		if err := ob.Push(points, "mqtt"); err != nil {
@@ -113,6 +117,12 @@ func TestOfflineBufferEviction(t *testing.T) {
 
 	if got := ob.Len(); got != 3 {
 		t.Fatalf("Len = %d, want 3 (after eviction)", got)
+	}
+
+	// B2.1: every eviction must be observable, not silent. 5 pushes into
+	// a capacity-3 buffer evict exactly 2 oldest batches.
+	if got := ob.EvictedCount(); got != 2 {
+		t.Fatalf("EvictedCount = %d, want 2 (5 pushes into capacity 3)", got)
 	}
 
 	// Drain should get the 3 newest (seq 3, 4, 5)
