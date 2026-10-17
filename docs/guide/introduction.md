@@ -88,10 +88,10 @@ rules:          # 路由 —— 哪些数据走哪条路
 
 提供完整的控制面 API（chi 路由器，需在配置中显式设置 `api.listen`，不设置则不启动 API 服务；Bearer Token 鉴权），支持：
 
-- 配置热重载（`PUT /configs`）、局部补丁（`PATCH /configs`）
+- 配置热重载（`PUT /configs`）、局部补丁（`PATCH /configs`）、服务端配置备份与一键恢复（`/configs/backups`——每次覆盖前自动快照，详见 [API 文档](../api/config.md)）
 - 驱动 / 传输 / 规则运行时查询与规则禁用
 - 实时日志、数据流、流量与内存监控的 WebSocket 推送（`/tags/stream`、`/logs`、`/traffic`、`/memory`）
-- 即时读写点位（`POST /write`）、最新值缓存查询（`/tags`）
+- 即时读写点位（`POST /write`）、最新值缓存查询（`/tags`）、写入审计历史（`GET /write/history`）、驱动连通性预检（`POST /drivers/test`）、规则表达式试算（`POST /rules/preview`）
 
 ## 核心组件
 
