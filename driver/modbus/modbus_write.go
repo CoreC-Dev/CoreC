@@ -47,6 +47,13 @@ func (b *modbusBase) Write(ctx context.Context, commands []core.WriteCommand) ([
 			b.RecordError()
 			results[i] = core.WriteResult{Success: false, Error: err.Error()}
 			b.Logger().Error("modbus write failed", "tag", cmd.Tag, "error", err)
+			// Connection-class write failures tear the connection down
+			// for reconnection, mirroring the Read path (stage-B audit
+			// finding B4-2). The B4-1 guard keeps a stale client from
+			// tearing down a connection that has already been replaced.
+			if util.IsConnectionError(err) {
+				b.handleConnLostIfCurrent(client)
+			}
 		} else {
 			results[i] = core.WriteResult{Success: true}
 			b.Logger().Info("modbus write success", "tag", cmd.Tag, "value", cmd.Value)

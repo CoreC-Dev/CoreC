@@ -469,6 +469,83 @@ func TestModbusStaleConnectionErrorIgnored(t *testing.T) {
 	}
 }
 
+// TestModbusWriteConnectionErrorTriggersReconnect is the stage-B audit
+// finding B4-2 regression test: a connection-class Write failure must tear
+// the connection down for reconnection just like the Read path, while a
+// non-connection write failure (read-only area) must not.
+func TestModbusWriteConnectionErrorTriggersReconnect(t *testing.T) {
+	handler := &testModbusHandler{
+		coils:          map[uint16]bool{},
+		discreteInputs: map[uint16]bool{},
+		holding:        map[uint16]uint16{0: 42},
+		inputRegs:      map[uint16]uint16{0: 7},
+	}
+	server, port := startTestServer(t, handler)
+	cfg := core.DriverConfig{
+		Name: "write-reconnect",
+		Type: "modbus-tcp",
+		Settings: map[string]any{
+			"host":                   "127.0.0.1",
+			"port":                   port,
+			"slave-id":               1,
+			"timeout":                "1s",
+			"reconnect-interval":     "50ms",
+			"reconnect-max-interval": "100ms",
+		},
+		Tags: []core.TagConfig{
+			{Name: "rw", Address: "40001", Type: "uint16"},
+			{Name: "ro", Address: "30001", Type: "uint16"},
+		},
+	}
+	drv, err := NewModbusTCPDriver(cfg)
+	if err != nil {
+		t.Fatalf("NewModbusTCPDriver: %v", err)
+	}
+	if err := drv.Init(context.Background(), cfg); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	// Non-connection write failure (read-only area): must NOT tear the
+	// connection down.
+	results, err := drv.Write(context.Background(), []core.WriteCommand{
+		{Tag: "ro", Value: uint16(1), Type: core.TypeUint16},
+	})
+	if err != nil {
+		t.Fatalf("Write should not return a top-level error: %v", err)
+	}
+	if results[0].Success {
+		t.Fatal("write to read-only area must fail")
+	}
+	if got := drv.Status().State; got != core.StateConnected {
+		t.Fatalf("read-only write failure tore down the connection: state = %v", got)
+	}
+
+	// Stop the server so the next write hits a dead TCP connection.
+	if err := server.Stop(); err != nil {
+		t.Fatalf("server.Stop: %v", err)
+	}
+
+	// Connection-class write failure: must tear the connection down
+	// (state transitions to StateError) and start the reconnect loop,
+	// like the Read path.
+	results, err = drv.Write(context.Background(), []core.WriteCommand{
+		{Tag: "rw", Value: uint16(1), Type: core.TypeUint16},
+	})
+	if err != nil {
+		t.Fatalf("Write should not return a top-level error: %v", err)
+	}
+	if results[0].Success {
+		t.Fatal("write to a dead server must fail")
+	}
+	if got := drv.Status().State; got != core.StateError {
+		t.Fatalf("connection-class write failure must trigger reconnect teardown, state = %v", got)
+	}
+}
+
 // TestModbusConnectFailureRTU verifies that the RTU connect path returns an
 // error when the serial device does not exist.
 func TestModbusConnectFailureRTU(t *testing.T) {

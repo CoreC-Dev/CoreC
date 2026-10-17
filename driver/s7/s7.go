@@ -324,6 +324,13 @@ func (d *S7Driver) Write(ctx context.Context, commands []core.WriteCommand) ([]c
 			d.RecordError()
 			results[i] = core.WriteResult{Success: false, Error: err.Error()}
 			slog.Error("s7 write failed", "tag", cmd.Tag, "error", err)
+			// Connection-class write failures tear the connection down
+			// for reconnection, mirroring the Read path (stage-B audit
+			// finding B4-2). The B4-1 guard keeps a stale client from
+			// tearing down a connection that has already been replaced.
+			if util.IsConnectionError(err) {
+				d.handleConnLostIfCurrent(client)
+			}
 		} else {
 			results[i] = core.WriteResult{Success: true}
 			slog.Info("s7 write success", "tag", cmd.Tag, "value", cmd.Value)

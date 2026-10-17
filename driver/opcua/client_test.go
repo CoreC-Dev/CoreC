@@ -2,6 +2,7 @@ package opcua
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -626,5 +627,83 @@ func variantValueEqual(a, b any) bool { //nolint:gocyclo // deep-equality helper
 		return true
 	default:
 		return a == b
+	}
+}
+
+// TestOPCUAWriteConnectionErrorTriggersReconnect is the stage-B audit
+// finding B4-2 regression test: a connection-class write failure must tear
+// the connection down for reconnection just like the Read path, while a
+// non-connection write failure must not. The unconnected client used here
+// surfaces StatusBadServerNotConnected — which is NOT connection-class —
+// so the full-Write case covers the non-connection branch, and the
+// connection-class branch is exercised through handleWriteError, the exact
+// hook the Write path calls.
+func TestOPCUAWriteConnectionErrorTriggersReconnect(t *testing.T) {
+	cfg := validConfig("write-reconnect")
+	cfg.Settings["endpoint"] = "opc.tcp://127.0.0.1:1" // dead port
+	cfg.Settings["timeout"] = "200ms"
+	cfg.Settings["reconnect-interval"] = "1h"
+	d := mustInit(t, cfg)
+	if err := d.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := d.Stop(); err != nil {
+			t.Errorf("Stop: %v", err)
+		}
+	})
+
+	client, err := opcua.NewClient("opc.tcp://127.0.0.1:1")
+	if err != nil {
+		t.Fatalf("opcua.NewClient: %v", err)
+	}
+	d.Lock()
+	d.client = client
+	d.SetStateLocked(core.StateConnected)
+	d.Unlock()
+
+	// Full Write path on an unconnected client: the request-level error
+	// (StatusBadServerNotConnected) is not connection-class, so the
+	// driver must stay connected.
+	_, err = d.Write(context.Background(), []core.WriteCommand{
+		{Tag: "tag1", Value: 42.0, Type: core.TypeFloat64},
+	})
+	if err == nil {
+		t.Fatal("expected a top-level error from the unconnected client")
+	}
+	if !strings.Contains(err.Error(), "opcua batch write failed") {
+		t.Errorf("error = %q, want substring 'opcua batch write failed'", err.Error())
+	}
+	if got := d.GetState(); got != core.StateConnected {
+		t.Fatalf("non-connection write failure tore down the connection: state = %v", got)
+	}
+
+	// Connection-class failure through handleWriteError (the exact hook
+	// the Write path calls): must tear the connection down.
+	d.handleWriteError(errors.New("write tcp: connection reset by peer"), client)
+	if got := d.GetState(); got != core.StateError {
+		t.Fatalf("connection-class write failure must trigger reconnect teardown, state = %v", got)
+	}
+	d.RLock()
+	current := d.client
+	d.RUnlock()
+	if current != nil {
+		t.Fatal("teardown must close out the current client")
+	}
+
+	// Non-connection failure through handleWriteError: must not tear
+	// down a connected driver.
+	client2, err := opcua.NewClient("opc.tcp://127.0.0.1:1")
+	if err != nil {
+		t.Fatalf("opcua.NewClient (2nd): %v", err)
+	}
+	d.Lock()
+	d.client = client2
+	d.SetStateLocked(core.StateConnected)
+	d.Unlock()
+
+	d.handleWriteError(errors.New("opcua write status: StatusBadTypeMismatch"), client2)
+	if got := d.GetState(); got != core.StateConnected {
+		t.Fatalf("non-connection write failure must not tear down: state = %v", got)
 	}
 }

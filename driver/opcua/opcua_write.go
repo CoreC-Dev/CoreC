@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/CoreC-Dev/CoreC/common/util"
 	"github.com/CoreC-Dev/CoreC/core"
+	"github.com/gopcua/opcua"
 	"github.com/gopcua/opcua/ua"
 )
 
@@ -70,6 +72,7 @@ func (d *OPCUADriver) Write(ctx context.Context, commands []core.WriteCommand) (
 
 	resp, err := client.Write(ctx, req)
 	if err != nil {
+		d.handleWriteError(err, client)
 		return nil, fmt.Errorf("opcua batch write failed: %w", err)
 	}
 
@@ -86,4 +89,19 @@ func (d *OPCUADriver) Write(ctx context.Context, commands []core.WriteCommand) (
 	}
 
 	return results, nil
+}
+
+// handleWriteError records a failed batch write and, when the failure is
+// connection-class, tears the connection down so the reconnect loop
+// restores it — mirroring the Read path (stage-B audit finding B4-2).
+// The B4-1 guard keeps a stale client from tearing down a connection
+// that has already been replaced.
+func (d *OPCUADriver) handleWriteError(err error, client *opcua.Client) {
+	d.RecordError()
+	d.Lock()
+	d.SetLastErrorLocked(err.Error())
+	d.Unlock()
+	if util.IsConnectionError(err) {
+		d.handleConnLostIfCurrent(client)
+	}
 }

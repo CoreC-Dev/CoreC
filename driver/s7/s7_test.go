@@ -3,6 +3,7 @@ package s7
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"math"
 	"strings"
 	"testing"
@@ -972,5 +973,81 @@ func TestS7StaleConnectionErrorIgnored(t *testing.T) {
 	d.handleConnLostIfCurrent(freshClient)
 	if got := d.GetState(); got != core.StateError {
 		t.Fatalf("current-client error must tear down: state = %v", got)
+	}
+}
+
+// TestS7WriteConnectionErrorTriggersReconnect is the stage-B audit finding
+// B4-2 regression test: a connection-class Write failure must tear the
+// connection down for reconnection just like the Read path, while a
+// non-connection write failure must not. The driver points at a dead
+// loopback port with a long reconnect interval so the background loop
+// from Start stays quiet; the mock client is swapped in directly.
+func TestS7WriteConnectionErrorTriggersReconnect(t *testing.T) {
+	cfg := core.DriverConfig{
+		Name: "write-reconnect",
+		Type: "s7",
+		Settings: map[string]any{
+			"host":               "127.0.0.1",
+			"port":               1, // dead loopback port: instant refusal
+			"reconnect-interval": "1h",
+		},
+		Tags: []core.TagConfig{{Name: "a", Address: "MW0", Type: "uint16"}},
+	}
+	drv, err := NewS7Driver(cfg)
+	if err != nil {
+		t.Fatalf("NewS7Driver: %v", err)
+	}
+	if err := drv.Init(context.Background(), cfg); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	// Start fails to connect (dead port) but sets the lifecycle context
+	// so the reconnect loop launched by the teardown is valid.
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := drv.Stop(); err != nil {
+			t.Errorf("cleanup Stop: %v", err)
+		}
+	})
+	d := drv.(*S7Driver)
+
+	// Non-connection write failure: must NOT tear the connection down.
+	d.Lock()
+	d.client = &mockS7Client{writeErr: errMockPlc}
+	d.SetStateLocked(core.StateConnected)
+	d.Unlock()
+
+	results, err := drv.Write(context.Background(), []core.WriteCommand{
+		{Tag: "a", Value: uint16(1), Type: core.TypeUint16},
+	})
+	if err != nil {
+		t.Fatalf("Write should not return a top-level error: %v", err)
+	}
+	if results[0].Success {
+		t.Fatal("write must fail when the client errors")
+	}
+	if got := d.GetState(); got != core.StateConnected {
+		t.Fatalf("non-connection write failure tore down the connection: state = %v", got)
+	}
+
+	// Connection-class write failure: must tear the connection down
+	// (state transitions to StateError), mirroring the Read path.
+	d.Lock()
+	d.client = &mockS7Client{writeErr: errors.New("s7 write: connection reset by peer")}
+	d.SetStateLocked(core.StateConnected)
+	d.Unlock()
+
+	results, err = drv.Write(context.Background(), []core.WriteCommand{
+		{Tag: "a", Value: uint16(1), Type: core.TypeUint16},
+	})
+	if err != nil {
+		t.Fatalf("Write should not return a top-level error: %v", err)
+	}
+	if results[0].Success {
+		t.Fatal("write must fail when the connection is reset")
+	}
+	if got := d.GetState(); got != core.StateError {
+		t.Fatalf("connection-class write failure must trigger reconnect teardown, state = %v", got)
 	}
 }
