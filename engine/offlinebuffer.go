@@ -338,7 +338,16 @@ func (ob *OfflineBuffer) Drain(source string, tryPublish func([]core.DataPoint) 
 		}
 
 		ob.mu.Lock()
-		_ = os.Remove(path)
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			// The batch stays on disk and will be replayed again on the
+			// next drain round — a duplicate delivery under the
+			// documented at-least-once semantics (see
+			// docs/architecture/dataflow.md). The previously ignored
+			// error made this repeat silent (stage-B audit B2.4 note,
+			// folded into finding B1.4).
+			slog.Warn("offline buffer: failed to remove replayed batch, it will be re-published on the next drain (duplicate delivery)",
+				"file", path, "error", err)
+		}
 		ob.mu.Unlock()
 		drained++
 	}
