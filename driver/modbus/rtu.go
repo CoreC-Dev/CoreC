@@ -59,7 +59,11 @@ func (d *ModbusRTUDriver) Init(ctx context.Context, config core.DriverConfig) er
 	d.dataBits = uint(util.GetIntSetting(settings, "data-bits", 8))
 
 	// Parse parity (default "none")
-	d.parity = parseParity(settings)
+	p, err := parseParity(settings)
+	if err != nil {
+		return err
+	}
+	d.parity = p
 
 	// Parse stop bits (default 0 → library auto-selects based on parity)
 	d.stopBits = uint(util.GetIntSetting(settings, "stop-bits", 0))
@@ -95,18 +99,22 @@ func (d *ModbusRTUDriver) connect() error {
 
 // parseParity converts a parity setting string ("none"/"even"/"odd") to the
 // corresponding simonvetter/modbus constant.  Defaults to PARITY_NONE.
-func parseParity(settings map[string]any) uint {
-	if v, ok := settings["parity"].(string); ok {
-		switch strings.ToLower(v) {
-		case "even":
-			return mb.PARITY_EVEN
-		case "odd":
-			return mb.PARITY_ODD
-		default:
-			return mb.PARITY_NONE
-		}
+// Returns an error for unrecognized non-empty values (fail-fast on typos).
+func parseParity(settings map[string]any) (uint, error) {
+	v, ok := settings["parity"].(string)
+	if !ok || v == "" {
+		return mb.PARITY_NONE, nil
 	}
-	return mb.PARITY_NONE
+	switch strings.ToLower(v) {
+	case "none", "":
+		return mb.PARITY_NONE, nil
+	case "even":
+		return mb.PARITY_EVEN, nil
+	case "odd":
+		return mb.PARITY_ODD, nil
+	default:
+		return mb.PARITY_NONE, fmt.Errorf("modbus-rtu: invalid parity %q (want none|even|odd)", v)
+	}
 }
 
 // parityString returns a human-readable parity label for log output.

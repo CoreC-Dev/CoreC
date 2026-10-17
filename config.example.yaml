@@ -104,7 +104,7 @@ global:
 #     shutdown-timeout: 30s        # graceful shutdown deadline (default 30s)
 #     error-throttle-window: 10s   # suppress repeated error logs within this window (default 10s)
 #     default-tag-interval: 1s     # fallback interval for tags without explicit interval (default 1s)
-#     # on-bad-quality: mark-and-publish  # bad quality policy: publish|drop|mark-and-publish|alert (default: publish)
+#     # on-bad-quality: mark-and-publish  # bad quality policy: publish|drop|mark-and-publish|alert (default: publish; invalid → startup error)
 #     # stale-threshold: 30s              # mark cached values as is_stale if not updated within this duration (default: disabled)
 #     # write-retry-count: 3              # write command retry count before entering dead letter queue (default 3)
 #     # command-concurrency: 16           # max parallel write commands; excess applies backpressure→dead-letter (default 16; set 1 for serial)
@@ -168,11 +168,14 @@ global:
 #       # serial-device: /dev/ttyUSB0   # Linux serial port (use COM3 on Windows)
 #       # baud-rate: 9600               # default 9600
 #       # data-bits: 8                  # default 8
-#       # parity: none                  # none | even | odd (default none)
+#       # parity: none                  # none | even | odd (default none; invalid → startup error)
 #       # stop-bits: 1                  # 1 | 2, 0 = auto (default 0)
 #       # slave-id: 1
 #       # timeout: 3s
 #       # retry: 3
+#       # reconnect-interval: 2s
+#       # reconnect-max-interval: 30s
+#       # max-reconnect-failures: 20  # circuit breaker: after N consecutive failures, switch to 5-minute low-frequency retry
 #     # tags:
 #       # - name: humidity
 #         # address: "40001"      # Holding register 0
@@ -193,6 +196,10 @@ global:
 #       # port: 502
 #       # slave-id: 1
 #       # timeout: 3s
+#       # retry: 3
+#       # reconnect-interval: 2s
+#       # reconnect-max-interval: 30s
+#       # max-reconnect-failures: 20
 #     # tags:
 #       # - name: flow_rate
 #         # address: "40001"
@@ -208,6 +215,10 @@ global:
 #       # port: 502
 #       # slave-id: 1
 #       # timeout: 3s
+#       # retry: 3
+#       # reconnect-interval: 2s
+#       # reconnect-max-interval: 30s
+#       # max-reconnect-failures: 20
 #     # tags:
 #       # - name: status
 #         # address: "40001"
@@ -223,6 +234,10 @@ global:
 #       # port: 502
 #       # slave-id: 1
 #       # timeout: 3s
+#       # retry: 3
+#       # reconnect-interval: 2s
+#       # reconnect-max-interval: 30s
+#       # max-reconnect-failures: 20
 #     # tags:
 #       # - name: level
 #         # address: "40001"
@@ -241,6 +256,10 @@ global:
 #       # ca-file: /etc/corec/certs/ca.crt         # CA / server certificate PEM
 #       # slave-id: 1
 #       # timeout: 3s
+#       # retry: 3
+#       # reconnect-interval: 2s
+#       # reconnect-max-interval: 30s
+#       # max-reconnect-failures: 20
 #     # tags:
 #       # - name: secure_temp
 #         # address: "40001"
@@ -311,7 +330,7 @@ global:
 
 # ============================================================
 # Northbound Transports
-# Supports: mqtt, http
+# Supports: mqtt, http, notify
 #
 # IMPORTANT — field placement: batch-size, flush-interval, retry-count,
 # buffer-size, and fallback are TOP-LEVEL transport fields (siblings of
@@ -464,8 +483,25 @@ global:
 #       ## back to plaintext rather than failing to start.
 #       # tls-cert-file: /etc/corec/certs/webhook.crt   # server certificate PEM
 #       # tls-key-file: /etc/corec/certs/webhook.key    # server private key PEM
+#       ## --- Chained Core Inbound Parser (same three types as MQTT) ---
 #       # parser:
-#         # type: default          # json.Unmarshal(DataPoint), for CoreC→CoreC
+#       #   type: default          # json.Unmarshal(DataPoint), for CoreC→CoreC
+#       ## Parser type 2: "jsonpath" — for third-party JSON with different field names
+#       # parser:
+#       #   type: jsonpath
+#       #   driver: "mes-system"
+#       #   tag: "{{ .payload.metric }}"
+#       #   value: "{{ .payload.reading }}"
+#       #   data-type: "float32"
+#       #   group: "production"
+#       #   timestamp: "{{ .payload.ts }}"
+#       #   timestamp-format: "unix"
+#       ## Parser type 3: "raw" — payload is the scalar value, tag from header/path
+#       # parser:
+#       #   type: raw
+#       #   driver: "factory"
+#       #   tag: "temperature"       # fixed tag name (no topic-derived segment)
+#       #   data-type: "float32"
 #       ## HTTP connection pool (optional, defaults shown)
 #       # max-idle-conns: 100
 #       # max-idle-conns-per-host: 20

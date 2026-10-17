@@ -8,19 +8,32 @@ import (
 
 func TestParseBadQualityPolicy(t *testing.T) {
 	tests := []struct {
-		input string
-		want  badQualityPolicy
+		input    string
+		want     badQualityPolicy
+		wantErr  bool
 	}{
-		{"", badQualityPublish},
-		{"publish", badQualityPublish},
-		{"drop", badQualityDrop},
-		{"mark-and-publish", badQualityMarkAndPublish},
-		{"alert", badQualityAlert},
-		{"unknown", badQualityPublish}, // unknown defaults to publish
-		{"PUBLISH", badQualityPublish}, // case-sensitive, unknown defaults to publish
+		{"", badQualityPublish, false},
+		{"publish", badQualityPublish, false},
+		{"drop", badQualityDrop, false},
+		{"mark-and-publish", badQualityMarkAndPublish, false},
+		{"alert", badQualityAlert, false},
+		{"PUBLISH", badQualityPublish, false},   // case-insensitive
+		{"Drop", badQualityDrop, false},         // case-insensitive
+		{"unknown", badQualityPublish, true},    // invalid → error
+		{"pubish", badQualityPublish, true},     // typo → error
 	}
 	for _, tc := range tests {
-		got := parseBadQualityPolicy(tc.input)
+		got, err := parseBadQualityPolicy(tc.input)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("parseBadQualityPolicy(%q) expected error, got nil", tc.input)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("parseBadQualityPolicy(%q) unexpected error: %v", tc.input, err)
+			continue
+		}
 		if got != tc.want {
 			t.Errorf("parseBadQualityPolicy(%q) = %d, want %d", tc.input, got, tc.want)
 		}

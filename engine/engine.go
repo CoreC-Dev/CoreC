@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"strings"
 	"sync"
@@ -155,16 +156,18 @@ const (
 	badQualityAlert                                  // forward + trigger alert callback
 )
 
-func parseBadQualityPolicy(s string) badQualityPolicy {
+func parseBadQualityPolicy(s string) (badQualityPolicy, error) {
 	switch strings.ToLower(s) {
+	case "", "publish":
+		return badQualityPublish, nil
 	case "drop":
-		return badQualityDrop
+		return badQualityDrop, nil
 	case "mark-and-publish":
-		return badQualityMarkAndPublish
+		return badQualityMarkAndPublish, nil
 	case "alert":
-		return badQualityAlert
+		return badQualityAlert, nil
 	default:
-		return badQualityPublish
+		return badQualityPublish, fmt.Errorf("invalid on-bad-quality %q (want publish|drop|mark-and-publish|alert)", s)
 	}
 }
 

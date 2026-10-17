@@ -120,24 +120,39 @@ func TestModbusRTUInitMissingDevice(t *testing.T) {
 
 func TestModbusRTUParityParsing(t *testing.T) {
 	tests := []struct {
-		input string
-		want  uint
+		input   string
+		want    uint
+		wantErr bool
 	}{
-		{"none", mb.PARITY_NONE},
-		{"even", mb.PARITY_EVEN},
-		{"odd", mb.PARITY_ODD},
-		{"EVEN", mb.PARITY_EVEN}, // case-insensitive
-		{"bogus", mb.PARITY_NONE},
+		{"none", mb.PARITY_NONE, false},
+		{"even", mb.PARITY_EVEN, false},
+		{"odd", mb.PARITY_ODD, false},
+		{"EVEN", mb.PARITY_EVEN, false},   // case-insensitive
+		{"bogus", mb.PARITY_NONE, true},   // invalid → error
 	}
 	for _, tt := range tests {
-		got := parseParity(map[string]any{"parity": tt.input})
+		got, err := parseParity(map[string]any{"parity": tt.input})
+		if tt.wantErr {
+			if err == nil {
+				t.Errorf("parseParity(%q): expected error, got nil", tt.input)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("parseParity(%q): unexpected error: %v", tt.input, err)
+			continue
+		}
 		if got != tt.want {
 			t.Errorf("parseParity(%q): expected %d, got %d", tt.input, tt.want, got)
 		}
 	}
 
-	// Missing parity key → default none
-	if got := parseParity(map[string]any{}); got != mb.PARITY_NONE {
+	// Missing parity key → default none, no error
+	got, err := parseParity(map[string]any{})
+	if err != nil {
+		t.Fatalf("parseParity(missing): unexpected error: %v", err)
+	}
+	if got != mb.PARITY_NONE {
 		t.Errorf("parseParity(missing): expected PARITY_NONE, got %d", got)
 	}
 }

@@ -10,7 +10,7 @@ import (
 
 // applyEngineConfig overrides engine tuning parameters from the global
 // config. Zero/empty values fall back to the defaults already set in New().
-func (e *CoreCEngine) applyEngineConfig(cfg *core.EngineConfig) {
+func (e *CoreCEngine) applyEngineConfig(cfg *core.EngineConfig) error {
 	if cfg.DataBusSize > 0 {
 		e.dataBusSize = cfg.DataBusSize
 	}
@@ -27,7 +27,11 @@ func (e *CoreCEngine) applyEngineConfig(cfg *core.EngineConfig) {
 		e.defaultTagInterval = d
 	}
 	if cfg.OnBadQuality != "" {
-		e.badQualityPolicy = parseBadQualityPolicy(cfg.OnBadQuality)
+		p, err := parseBadQualityPolicy(cfg.OnBadQuality)
+		if err != nil {
+			return err
+		}
+		e.badQualityPolicy = p
 	}
 	if d, err := time.ParseDuration(cfg.StaleThreshold); err == nil && d > 0 {
 		e.staleThreshold.Store(int64(d))
@@ -41,6 +45,7 @@ func (e *CoreCEngine) applyEngineConfig(cfg *core.EngineConfig) {
 	if cfg.HighPriorityWorkers > 0 {
 		e.numHighPriorityWorkers = cfg.HighPriorityWorkers
 	}
+	return nil
 }
 
 // autoFillNodeConfig auto-generates configuration fields that are omitted

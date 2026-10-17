@@ -25,7 +25,9 @@ func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error {
 	e.mu.Unlock()
 
 	// Apply engine tuning from global config (overrides defaults).
-	e.applyEngineConfig(&config.Global.Engine)
+	if err := e.applyEngineConfig(&config.Global.Engine); err != nil {
+		return err
+	}
 
 	// Create the command-execution semaphore. This bounds the number of
 	// write commands processed in parallel (IMPROVEMENTS #2). Must be

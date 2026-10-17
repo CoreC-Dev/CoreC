@@ -221,7 +221,8 @@ type EngineConfig struct {
 	//   "drop"            — discard bad-quality points before rule matching.
 	//   "mark-and-publish" — publish but set Value to nil, keeping quality=bad.
 	//   "alert"           — forward and trigger alert callback.
-	// An empty/unrecognized value defaults to "publish".
+	// An empty value defaults to "publish". An unrecognized value returns
+	// a startup error (fail-fast to catch typos).
 	OnBadQuality string `yaml:"on-bad-quality,omitempty"`
 
 	// StaleThreshold is the duration after which a cached data point is
