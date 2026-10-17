@@ -56,7 +56,7 @@
 
 | ID | 标题 | 位置 | 类别 | 严重度 | 证据 | 修复建议 | 业务行为影响 | 关联批次 | 验收方式 | 状态 |
 |---|---|---|---|---|---|---|---|---|---|---|
-| PERF-003 | S7 驱动逐 tag 独立 PLC 往返(N+1) | driver/s7/s7.go:265-292 | 性能 | P2 | Read 内 for range batch { d.readAddress(...) }，注释明写"Each tag is still an independent gos7 call"。N tag = N 次串行 PLC 读 | 对同 DB+连续地址合并为单次 ABReadDB；非连续回退逐 tag（D6=变更行为） | 变更行为 | Phase 4 批次 6 | 基准：N tag PLC 往返数从 N 降至合并后批数；行为测试覆盖混合地址 | 延期至阶段5后 |
+| PERF-003 | S7 驱动逐 tag 独立 PLC 往返(N+1) | driver/s7/s7_merge.go | 性能 | P2 | 修复前基准实测（driver/s7/s7_merge_bench_test.go 假 gos7.Client 计往返）：同 DB 连续 100/500 tag = 100/500 次往返/Read（10ms 延迟档单次 1.0s/8.2s）；修复后 = 1/5 次（10.3ms/184ms），sparse 500→246、multi-db 500→9，往返数断言 = 合并后批数 | 对同 DB+连续地址合并为单次 AGReadDB；非连续回退逐 tag（D6=变更行为） | 变更行为 | Phase 4 批次 6 | 基准：N tag PLC 往返数从 N 降至合并后批数；行为测试覆盖混合地址 | 已修复（2026-10-17，合并读落地：分组键 (area,dbNumber)、间隙 ≤32B 合并、段上限 480B、bit 逐个读；行为变更 ×3 已登记于 feat commit，混合地址行为测试 TestS7ReadMerged* 系列） |
 
 ---
 

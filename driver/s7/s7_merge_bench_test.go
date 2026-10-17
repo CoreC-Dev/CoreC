@@ -146,6 +146,13 @@ func (s *simS7Client) tripCount() int {
 	return s.trips
 }
 
+// recordedCalls returns a copy of the read-call history.
+func (s *simS7Client) recordedCalls() []simReadCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]simReadCall(nil), s.calls...)
+}
+
 // ============================================================
 // Scenario builders: the PERF-003 design matrix.
 //
@@ -344,47 +351,57 @@ func contigSpans(n int) []s7Span {
 	return spans
 }
 
-// TestS7ReadTagPerTripRoundTrips proves the current implementation's N+1
-// cost (PERF-003): one Read of N tags issues exactly N PLC round trips —
-// one AGReadDB per tag — regardless of how mergeable the addresses are.
-// It also logs the round-trip count the merged algorithm would need, so
-// the expected collapse factor is on record in CI logs.
-func TestS7ReadTagPerTripRoundTrips(t *testing.T) {
-	for _, scen := range benchScenarios() {
-		t.Run(scen.name, func(t *testing.T) {
-			sim := &simS7Client{images: map[string][]byte{}}
-			d := initSimDriver(t, scen.name, scen.tags, sim)
+// projectedScenarioTrips computes the round trips the merged reader needs
+// for a whole scenario: the driver first chunks the tag list at
+// s7MaxBatchSize (its advertised batch contract) and merges within each
+// chunk, so the projection must chunk the spans the same way.
+func projectedScenarioTrips(scen benchScenario) int {
+	total := 0
+	for start := 0; start < len(scen.spans); start += s7MaxBatchSize {
+		end := start + s7MaxBatchSize
+		if end > len(scen.spans) {
+			end = len(scen.spans)
+		}
+		total += projectedSegments(scen.spans[start:end])
+	}
+	return total
+}
 
-			vals, err := d.Read(context.Background(), scen.names)
+// TestS7ReadScenarioCoverageInvariants verifies the scenario matrix feeds
+// the driver exactly what the projection assumes: every scenario tag
+// resolves to the span recorded alongside it.
+func TestS7ReadScenarioCoverageInvariants(t *testing.T) {
+	for _, scen := range benchScenarios() {
+		if len(scen.tags) != len(scen.spans) || len(scen.names) != len(scen.spans) {
+			t.Errorf("%s: %d tags, %d names, %d spans — must match", scen.name, len(scen.tags), len(scen.names), len(scen.spans))
+		}
+		for i, cfg := range scen.tags {
+			dt, ok := core.ParseDataType(cfg.Type)
+			if !ok || dt != core.TypeFloat32 {
+				t.Errorf("%s: tag %s type = %q, want float32", scen.name, cfg.Name, cfg.Type)
+			}
+			addr, err := parseS7Address(cfg.Address, dt)
 			if err != nil {
-				t.Fatalf("Read error: %v", err)
+				t.Errorf("%s: tag %s address %q: %v", scen.name, cfg.Name, cfg.Address, err)
+				continue
 			}
-			if len(vals) != len(scen.names) {
-				t.Fatalf("got %d values, want %d", len(vals), len(scen.names))
+			want := scen.spans[i]
+			if addr.area != want.area || addr.dbNumber != want.dbNumber ||
+				addr.start != want.start || addr.size != want.size {
+				t.Errorf("%s: tag %s parsed %+v, span says %+v", scen.name, cfg.Name, addr, want)
 			}
-			for _, v := range vals {
-				if v.Quality != core.QualityGood {
-					t.Fatalf("tag %s quality = %v, err = %v", v.Tag, v.Quality, v.Error)
-				}
-			}
-			if got, want := sim.tripCount(), len(scen.names); got != want {
-				t.Errorf("round trips = %d, want %d (one per tag)", got, want)
-			}
-			t.Logf("%s: %d tags -> %d round trips (current) vs %d projected (collapse %.1fx)",
-				scen.name, len(scen.names), sim.tripCount(),
-				projectedSegments(scen.spans),
-				float64(len(scen.names))/float64(projectedSegments(scen.spans)))
-		})
+		}
 	}
 }
 
 // BenchmarkS7ReadTripCost measures Read on the full PERF-003 scenario
 // matrix at simulated PLC latencies of 0/1/5/10 ms per round trip. The
 // custom metrics report the measured round trips per Read, the merge
-// projection's round trips, and the collapse factor between them. With the
-// tag-per-trip implementation the round-trip count equals the tag count,
-// so Read cost scales as O(tags × latency); the projection shows the
-// round-trip floor the merged implementation targets.
+// projection's round trips, and the ratio between them. With the merged
+// implementation the measured count must equal the projection (ratio
+// 1.0); a higher ratio means the merge regressed toward tag-per-trip
+// reads. Baseline numbers for the old tag-per-trip implementation (one
+// AGReadDB per tag) are recorded in the PERF-003 tracker entry.
 func BenchmarkS7ReadTripCost(b *testing.B) {
 	for _, scen := range benchScenarios() {
 		for _, delay := range []time.Duration{0, time.Millisecond, 5 * time.Millisecond, 10 * time.Millisecond} {
@@ -412,7 +429,7 @@ func BenchmarkS7ReadTripCost(b *testing.B) {
 				b.StopTimer()
 
 				trips := float64(sim.tripCount()) / float64(b.N)
-				projected := float64(projectedSegments(scen.spans))
+				projected := float64(projectedScenarioTrips(scen))
 				b.ReportMetric(trips, "trips/read")
 				b.ReportMetric(projected, "projected-trips/read")
 				b.ReportMetric(trips/projected, "collapse-x")

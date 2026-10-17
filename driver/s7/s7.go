@@ -202,68 +202,17 @@ func (d *S7Driver) Read(ctx context.Context, tags []string) ([]core.TagValue, er
 	now := time.Now()
 
 	// Process tags in batches of s7MaxBatchSize (the PDU limit advertised
-	// via Capabilities().MaxBatchSize). Each tag is still an independent
-	// gos7 call, but chunking enforces the advertised batch contract so a
-	// single Read never silently exceeds the declared limit.
+	// via Capabilities().MaxBatchSize). Within a batch, contiguous tags in
+	// the same (area, DB) are merged into single area reads (PERF-003);
+	// bit tags and sparse tags fall back to one read per tag. See
+	// s7_merge.go for the planner and the registered behavior changes.
 	for start := 0; start < len(tags); start += s7MaxBatchSize {
 		end := start + s7MaxBatchSize
 		if end > len(tags) {
 			end = len(tags)
 		}
-		batch := tags[start:end]
-
-		for _, tagName := range batch {
-			d.RLock()
-			tagCfg, tagOk := d.tags[tagName]
-			addr, addrOk := d.addrs[tagName]
-			d.RUnlock()
-
-			if !tagOk || !addrOk {
-				results = append(results, core.TagValue{
-					Tag:       tagName,
-					Quality:   core.QualityBad,
-					Timestamp: now,
-					Error:     fmt.Errorf("tag not found: %s", tagName),
-				})
-				continue
-			}
-
-			dt, _ := core.ParseDataType(tagCfg.Type)
-			val, err := d.readAddress(client, addr, dt)
-			if err != nil {
-				d.RecordError()
-				d.Lock()
-				d.SetLastErrorLocked(err.Error())
-				d.Unlock()
-
-				results = append(results, core.TagValue{
-					Tag:       tagName,
-					Quality:   core.QualityBad,
-					Timestamp: now,
-					Error:     err,
-				})
-
-				// Check if connection is lost and trigger reconnect. The
-				// guard ignores errors from a client that has already
-				// been replaced by a reconnect (B4-1).
-				if util.IsConnectionError(err) {
-					d.handleConnLostIfCurrent(client)
-				}
-				continue
-			}
-
-			// Apply scale and offset
-			val = util.ApplyTransform(val, tagCfg.Scale, tagCfg.Offset)
-
-			results = append(results, core.TagValue{
-				Tag:       tagName,
-				Value:     val,
-				Type:      dt,
-				Quality:   core.QualityGood,
-				Timestamp: now,
-			})
-		}
-		d.AddReadCount(uint64(len(batch)))
+		results = append(results, d.readS7Batch(client, tags[start:end], now)...)
+		d.AddReadCount(uint64(end - start))
 	}
 
 	d.Lock()
@@ -273,22 +222,12 @@ func (d *S7Driver) Read(ctx context.Context, tags []string) ([]core.TagValue, er
 	return results, nil
 }
 
+// readAddress reads one tag with its own PLC round trip. The merged Read
+// path uses it only for bit tags (never merged in the first version);
+// non-bit tags are read through merged segments in s7_merge.go.
 func (d *S7Driver) readAddress(client gos7.Client, addr s7Address, dt core.DataType) (any, error) {
 	buf := make([]byte, addr.size)
-	var err error
-
-	switch addr.area {
-	case areaDB:
-		err = client.AGReadDB(addr.dbNumber, addr.start, addr.size, buf)
-	case areaM:
-		err = client.AGReadMB(addr.start, addr.size, buf)
-	case areaI:
-		err = client.AGReadEB(addr.start, addr.size, buf)
-	case areaQ:
-		err = client.AGReadAB(addr.start, addr.size, buf)
-	}
-
-	if err != nil {
+	if err := readS7Area(client, addr.area, addr.dbNumber, addr.start, buf); err != nil {
 		return nil, fmt.Errorf("s7 read error: %w", err)
 	}
 
