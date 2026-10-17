@@ -725,10 +725,15 @@ func TestReconnectJitterDoesNotBreakBreaker(t *testing.T) {
 	// and the base backoff becomes 5min (jittered to [4min, 6min]).
 	go ReconnectLoopWithBreaker(ctx, "test", connectFn, 10*time.Millisecond, 50*time.Millisecond, 3)
 
-	// Wait long enough for the 3 pre-breaker attempts (worst case
-	// ~12+24+48ms ≈ 84ms) but far short of the jittered 5min breaker
-	// interval.
-	time.Sleep(300 * time.Millisecond)
+	// Poll until the 3 pre-breaker attempts complete (worst case
+	// ~12+24+48ms ≈ 84ms of backoff) or the deadline passes. A fixed
+	// 300ms sleep here was flaky under CPU oversubscription: goroutine
+	// scheduling delays pushed the 3rd call past the window
+	// (stage-A audit finding #4: "expected >= 3 calls, got 2").
+	deadline := time.Now().Add(5 * time.Second)
+	for atomic.LoadInt32(&calls) < 3 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
 	callsAtBreaker := atomic.LoadInt32(&calls)
 	if callsAtBreaker < 3 {
 		t.Fatalf("expected >= 3 calls before breaker trips, got %d", callsAtBreaker)
