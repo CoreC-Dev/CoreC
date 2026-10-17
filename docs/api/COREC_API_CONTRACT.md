@@ -118,7 +118,7 @@ decode with an error.
 | `POST` | `/write` | `writeTag` | Write a value to a device tag |
 | `GET` | `/write/failed` | `getFailedWrites` | Dead-letter queue of failed writes |
 | `GET` | `/rules` | `getRules` | Rule list with hit/miss stats + disabled flag |
-| `PATCH` | `/rules/disable` | `disableRule` | Enable/disable a rule by index |
+| `PATCH` | `/rules/disable` | `disableRule` | Enable/disable a rule by name (recommended) or index |
 | `GET` | `/stats` | `getStats` | Aggregate engine statistics |
 | `GET` | `/metrics` | `promMetrics` | Prometheus text-format metrics |
 | `GET` | `/logs` | `getLogs` | **WebSocket** — real-time log stream |
@@ -615,18 +615,22 @@ Handler `disableRule` (`rules.go:23`). Auth required. Body limited to 1 MiB.
 
 **Request body** (struct `disableRuleRequest`, `rules.go:17`):
 ```json
-{"index": 0, "disabled": true}
+{"name": "overtemp-alarm", "disabled": true}
 ```
 | Field | Go type | json tag | JSON type | Required | Notes |
 |---|---|---|---|---|---|
-| `index` | `int` | `"index"` | number | yes | rule index (from `GET /rules` `[].index`) |
+| `name` | `string` | `"name"` | string | with `index` (choose one) | rule name (from `GET /rules` `[].name`). **Recommended**: names are unique (enforced by config validation) and stable across config reloads. Wins when both `name` and `index` are present |
+| `index` | `int` | `"index"` | number | with `name` (choose one) | rule index (from `GET /rules` `[].index`). Kept for backward compatibility; shifts when rules are reordered or removed |
 | `disabled` | `bool` | `"disabled"` | boolean | yes | `true` = disable, `false` = re-enable |
 
-Calls `rm.SetRuleDisabled(index, disabled)` (`rule/rule_build.go:173`).
+Calls `rm.SetRuleDisabledByName(name, disabled)` (`rule/rule_build.go`) when
+`name` is set, otherwise `rm.SetRuleDisabled(index, disabled)`
+(`rule/rule_build.go`) for legacy index addressing.
 
 **Response:** `204 No Content` on success.
-**`400`** `{"error":"<message>"}` on bad JSON or out-of-range index
-(`"rule index out of range: <n>"` or `"rule at index <n> is not a RuleWrapper"`).
+**`400`** `{"error":"<message>"}` on bad JSON, unknown rule name
+(`"rule not found: \"<name>\""`) or out-of-range index
+(`"rule index out of range: <n>"` / `"rule at index <n> is not a RuleWrapper"`).
 
 ### 3.19 `GET /stats`
 

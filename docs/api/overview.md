@@ -121,7 +121,7 @@ API 内置 CORS 中间件，用于支持浏览器端仪表盘跨域访问。行�
 | `POST` | `/write` | 是 | 向设备写入标签值 |
 | `GET` | `/write/failed` | 是 | 查询死信队列中失败的写入指令 |
 | `GET` | `/rules` | 是 | 列出所有规则统计 |
-| `PATCH` | `/rules/disable` | 是 | 启用/禁用指定规则 |
+| `PATCH` | `/rules/disable` | 是 | 启用/禁用指定规则（按 name 推荐，index 向后兼容） |
 | `GET` | `/stats` | 是 | 获取引擎运行统计 |
 | `GET` | `/metrics` | 是 | Prometheus 文本格式指标 |
 | `GET` | `/debug/pprof/*` | 是 | pprof 性能分析端点（可配置关闭或独立端口） |

@@ -189,6 +189,26 @@ func (e *Engine) SetRuleDisabled(index int, disabled bool) error {
 	return nil
 }
 
+// SetRuleDisabledByName enables or disables a rule by its configured name.
+// Unlike an index, a name is stable across config reloads and rule
+// reordering. Config validation guarantees rule names are non-empty and
+// unique, so the first match is unambiguous.
+func (e *Engine) SetRuleDisabledByName(name string, disabled bool) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	for i, r := range e.rules {
+		w, ok := r.(core.RuleWrapper)
+		if !ok || w.Name() != name {
+			continue
+		}
+		w.SetDisabled(disabled)
+		slog.Info("rule disabled state changed", "name", name, "index", i, "disabled", disabled)
+		return nil
+	}
+	return fmt.Errorf("rule not found: %q", name)
+}
+
 func actionToString(a core.Action) string {
 	switch a {
 	case core.ActionForward:

@@ -14,9 +14,10 @@ import (
 
 type mockEngine struct {
 	core.Engine
-	ruleStats   []core.RuleStat
-	disabledIdx int
-	disabledVal bool
+	ruleStats    []core.RuleStat
+	disabledIdx  int
+	disabledVal  bool
+	disabledName string
 }
 
 func (m *mockEngine) Stats() core.EngineStats {
@@ -64,6 +65,12 @@ func (m *mockEngine) GetRuleStats() []core.RuleStat {
 
 func (m *mockEngine) SetRuleDisabled(index int, disabled bool) error {
 	m.disabledIdx = index
+	m.disabledVal = disabled
+	return nil
+}
+
+func (m *mockEngine) SetRuleDisabledByName(name string, disabled bool) error {
+	m.disabledName = name
 	m.disabledVal = disabled
 	return nil
 }
@@ -309,6 +316,60 @@ func TestDisableRule(t *testing.T) {
 	}
 	if me.disabledIdx != 1 || !me.disabledVal {
 		t.Errorf("expected index=1 disabled=true, got index=%d disabled=%v", me.disabledIdx, me.disabledVal)
+	}
+}
+
+func TestDisableRuleByName(t *testing.T) {
+	me := &mockEngine{}
+	SetEngine(me)
+
+	handler := router(context.Background(), "", nil, 0, true)
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	body, _ := json.Marshal(map[string]any{"name": "overtemp-alarm", "disabled": true})
+	req, _ := http.NewRequest("PATCH", ts.URL+"/rules/disable", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatalf("PATCH /rules/disable failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", resp.StatusCode)
+	}
+	if me.disabledName != "overtemp-alarm" || !me.disabledVal {
+		t.Errorf("expected name=overtemp-alarm disabled=true, got name=%q disabled=%v", me.disabledName, me.disabledVal)
+	}
+	if me.disabledIdx != 0 {
+		t.Errorf("index path should not be taken when name is set, got index=%d", me.disabledIdx)
+	}
+}
+
+func TestDisableRuleNameWinsOverIndex(t *testing.T) {
+	me := &mockEngine{}
+	SetEngine(me)
+
+	handler := router(context.Background(), "", nil, 0, true)
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	// Both fields present: name must win (index may be stale after reload).
+	body, _ := json.Marshal(map[string]any{"name": "rule-a", "index": 7, "disabled": false})
+	req, _ := http.NewRequest("PATCH", ts.URL+"/rules/disable", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatalf("PATCH /rules/disable failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", resp.StatusCode)
+	}
+	if me.disabledName != "rule-a" {
+		t.Errorf("expected name addressing to win, got name=%q idx=%d", me.disabledName, me.disabledIdx)
 	}
 }
 

@@ -64,6 +64,11 @@ type RuleManager interface {
 	SetRules(rules []RuleConfig) error
 	GetRuleStats() []RuleStat
 	SetRuleDisabled(index int, disabled bool) error
+	// SetRuleDisabledByName enables or disables a rule by its configured
+	// name. Names are unique (enforced by config validation), so a name is
+	// a stable identifier across config reloads — unlike an index, which
+	// shifts when rules are reordered or removed.
+	SetRuleDisabledByName(name string, disabled bool) error
 }
 
 // DataAccessor covers synchronous read/write operations and cached

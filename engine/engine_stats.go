@@ -30,6 +30,10 @@ func (e *CoreCEngine) SetRuleDisabled(index int, disabled bool) error {
 	return e.ruleEngine.SetRuleDisabled(index, disabled)
 }
 
+func (e *CoreCEngine) SetRuleDisabledByName(name string, disabled bool) error {
+	return e.ruleEngine.SetRuleDisabledByName(name, disabled)
+}
+
 // --- Stats ---
 
 // --- Stats ---

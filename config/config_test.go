@@ -72,6 +72,20 @@ func TestValidateConfigErrors(t *testing.T) {
 			wantErr: "duplicate driver name: d1",
 		},
 		{
+			name: "duplicate rule name",
+			cfg: &core.Config{
+				Drivers: []core.DriverConfig{
+					{Name: "d1", Type: "modbus-tcp", Tags: []core.TagConfig{validTag}},
+				},
+				Transports: []core.TransportConfig{{Name: "t1", Type: "mqtt"}},
+				Rules: []core.RuleConfig{
+					{Name: "r1", Match: "ALL", Action: "forward", Target: "t1"},
+					{Name: "r1", Match: "ALL", Action: "drop"},
+				},
+			},
+			wantErr: "duplicate rule name: r1",
+		},
+		{
 			name: "invalid rule target",
 			cfg: &core.Config{
 				Drivers: []core.DriverConfig{

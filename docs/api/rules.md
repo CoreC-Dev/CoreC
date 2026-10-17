@@ -100,7 +100,9 @@ curl http://localhost:9090/rules \
 
 ## 启用/禁用规则
 
-动态启用或禁用指定索引的规则，无需重载配置。禁用的规则不再参与匹配，但保留其统计计数。
+动态启用或禁用指定规则，无需重载配置。禁用的规则不再参与匹配，但保留其统计计数。
+
+推荐按 `name` 寻址：规则名唯一（配置校验强制），在配置 reload / 重排后保持稳定；`index` 会随规则增删或重排漂移，仅为向后兼容保留。
 
 ### 请求
 
@@ -113,14 +115,15 @@ Content-Type: application/json
 
 ```json
 {
-  "index": 1,
+  "name": "overtemp-alarm",
   "disabled": true
 }
 ```
 
 | 字段 | 类型 | 必填 | 说明 |
 |:---|:---|:---|:---|
-| `index` | int | 是 | 规则索引（对应 `GET /rules` 返回的 `index` 字段） |
+| `name` | string | 与 `index` 二选一 | 规则名（对应 `GET /rules` 返回的 `name` 字段）。**推荐**，reload 后仍稳定。同时传入 `name` 与 `index` 时以 `name` 为准 |
+| `index` | int | 与 `name` 二选一 | 规则索引（对应 `GET /rules` 返回的 `index` 字段）。向后兼容保留；注意 reload 或重排后索引会漂移 |
 | `disabled` | bool | 是 | `true` 为禁用，`false` 为启用 |
 
 ::: warning 请求体限制
@@ -133,7 +136,15 @@ Content-Type: application/json
 
 无响应体。
 
-#### 索引越界 — `400 Bad Request`
+#### 规则不存在 — `400 Bad Request`
+
+```json
+{
+  "error": "rule not found: \"overtemp-alarm\""
+}
+```
+
+#### 索引越界 — `400 Bad Request`（index 寻址时）
 
 ```json
 {
@@ -153,18 +164,25 @@ Content-Type: application/json
 
 ::: code-group
 
-```bash [禁用规则]
+```bash [禁用规则（按名）]
+curl -X PATCH http://localhost:9090/rules/disable \
+  -H "Authorization: Bearer corec-secret-token" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "overtemp-alarm", "disabled": true}'
+```
+
+```bash [启用规则（按名）]
+curl -X PATCH http://localhost:9090/rules/disable \
+  -H "Authorization: Bearer corec-secret-token" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "overtemp-alarm", "disabled": false}'
+```
+
+```bash [禁用规则（index，向后兼容）]
 curl -X PATCH http://localhost:9090/rules/disable \
   -H "Authorization: Bearer corec-secret-token" \
   -H "Content-Type: application/json" \
   -d '{"index": 1, "disabled": true}'
-```
-
-```bash [启用规则]
-curl -X PATCH http://localhost:9090/rules/disable \
-  -H "Authorization: Bearer corec-secret-token" \
-  -H "Content-Type: application/json" \
-  -d '{"index": 1, "disabled": false}'
 ```
 
 :::
@@ -172,19 +190,19 @@ curl -X PATCH http://localhost:9090/rules/disable \
 ### 典型用法
 
 ```bash
-# 1. 查看当前规则列表，获取目标规则的 index
+# 1. 查看当前规则列表，获取目标规则的 name
 curl http://localhost:9090/rules \
   -H "Authorization: Bearer corec-secret-token"
 
-# 2. 临时禁用高优先级的 drop 规则以排查问题
+# 2. 临时禁用高优先级的 drop 规则以排查问题（按 name，reload 后仍指向同一条规则）
 curl -X PATCH http://localhost:9090/rules/disable \
   -H "Authorization: Bearer corec-secret-token" \
   -H "Content-Type: application/json" \
-  -d '{"index": 1, "disabled": true}'
+  -d '{"name": "overtemp-alarm", "disabled": true}'
 
 # 3. 排查完成后重新启用
 curl -X PATCH http://localhost:9090/rules/disable \
   -H "Authorization: Bearer corec-secret-token" \
   -H "Content-Type: application/json" \
-  -d '{"index": 1, "disabled": false}'
+  -d '{"name": "overtemp-alarm", "disabled": false}'
 ```

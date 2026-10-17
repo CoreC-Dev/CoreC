@@ -260,10 +260,17 @@ func validateRules(cfg *core.Config, transportNames map[string]bool) error {
 		"transform": true, "mirror": true,
 	}
 
+	ruleNames := make(map[string]bool, len(cfg.Rules))
 	for _, r := range cfg.Rules {
 		if r.Name == "" {
 			return fmt.Errorf("rule name cannot be empty")
 		}
+		// Rule names must be unique: PATCH /rules/disable and other
+		// name-addressed operations rely on names as stable identifiers.
+		if ruleNames[r.Name] {
+			return fmt.Errorf("duplicate rule name: %s", r.Name)
+		}
+		ruleNames[r.Name] = true
 		if r.Action == "" {
 			return fmt.Errorf("rule %s: action cannot be empty", r.Name)
 		}

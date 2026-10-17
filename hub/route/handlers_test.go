@@ -26,6 +26,8 @@ type mockEngineV2 struct {
 	ruleStats    []core.RuleStat
 	disabledIdx  int
 	disabledVal  bool
+	disabledName string
+	disabledErr  error
 }
 
 func (m *mockEngineV2) Stats() core.EngineStats { return m.stats }
@@ -58,7 +60,19 @@ func (m *mockEngineV2) WriteTag(ctx context.Context, cmd core.WriteCommand) (*co
 func (m *mockEngineV2) GetRuleStats() []core.RuleStat { return m.ruleStats }
 
 func (m *mockEngineV2) SetRuleDisabled(index int, disabled bool) error {
+	if m.disabledErr != nil {
+		return m.disabledErr
+	}
 	m.disabledIdx = index
+	m.disabledVal = disabled
+	return nil
+}
+
+func (m *mockEngineV2) SetRuleDisabledByName(name string, disabled bool) error {
+	if m.disabledErr != nil {
+		return m.disabledErr
+	}
+	m.disabledName = name
 	m.disabledVal = disabled
 	return nil
 }

@@ -44,6 +44,10 @@ type RuleEngine interface {
 	// SetRuleDisabled enables or disables a rule by index.
 	SetRuleDisabled(index int, disabled bool) error
 
+	// SetRuleDisabledByName enables or disables a rule by its configured
+	// name (stable across reloads; uniqueness enforced by config validation).
+	SetRuleDisabledByName(name string, disabled bool) error
+
 	// AddProvider registers a rule provider for RULE-SET references.
 	AddProvider(p RuleProvider)
 

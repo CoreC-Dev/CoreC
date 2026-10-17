@@ -199,6 +199,52 @@ func TestRuleDisable(t *testing.T) {
 	}
 }
 
+func TestRuleDisableByName(t *testing.T) {
+	eng := NewEngine()
+
+	configs := []core.RuleConfig{
+		{Name: "rule-a", Match: "tag == 'temp'", Action: "forward", Target: "mqtt1", Priority: 10},
+		{Name: "rule-b", Match: "ALL", Action: "forward", Target: "mqtt2", Priority: 100},
+	}
+
+	if err := eng.SetRules(configs); err != nil {
+		t.Fatalf("SetRules failed: %v", err)
+	}
+
+	// Disable by name — the stable identifier across reloads.
+	if err := eng.SetRuleDisabledByName("rule-b", true); err != nil {
+		t.Fatalf("SetRuleDisabledByName failed: %v", err)
+	}
+
+	stats := eng.RuleStats()
+	if stats[1].Name != "rule-b" || !stats[1].Disabled {
+		t.Errorf("expected rule-b disabled, got name=%s disabled=%v", stats[1].Name, stats[1].Disabled)
+	}
+	if stats[0].Disabled {
+		t.Error("rule-a must remain enabled")
+	}
+
+	// Matching skips the disabled rule even though it has the higher priority.
+	res := firstMatch(eng.Match(core.DataPoint{Tag: "temp", Value: 25.0}))
+	if res == nil || res.Rule.Name() != "rule-a" {
+		t.Errorf("expected rule-a to match, got %v", res)
+	}
+
+	// Re-enable by name.
+	if err := eng.SetRuleDisabledByName("rule-b", false); err != nil {
+		t.Fatalf("re-enable failed: %v", err)
+	}
+	if eng.RuleStats()[1].Disabled {
+		t.Error("expected rule-b enabled after re-enable")
+	}
+
+	// Unknown name errors — unlike index, an unknown name can never
+	// silently address a different rule.
+	if err := eng.SetRuleDisabledByName("no-such-rule", true); err == nil {
+		t.Error("expected error for unknown rule name")
+	}
+}
+
 func TestCELExpressions(t *testing.T) {
 	eng := NewEngine()
 

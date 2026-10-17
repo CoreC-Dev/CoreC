@@ -15,6 +15,13 @@ func getRules(w http.ResponseWriter, r *http.Request) {
 }
 
 type disableRuleRequest struct {
+	// Name addresses the rule by its configured name (preferred). Rule
+	// names are unique (enforced by config validation) and stable across
+	// config reloads, unlike an index which shifts when rules are
+	// reordered or removed.
+	Name string `json:"name"`
+	// Index addresses the rule by position; kept for backward
+	// compatibility with clients that predate name addressing.
 	Index    int  `json:"index"`
 	Disabled bool `json:"disabled"`
 }
@@ -33,10 +40,21 @@ func disableRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var rm core.RuleManager = getEngine()
-	if err := rm.SetRuleDisabled(req.Index, req.Disabled); err != nil {
+
+	var err error
+	if req.Name != "" {
+		// Name addressing wins when both fields are present: it is the
+		// stable identifier and the index may be stale.
+		err = rm.SetRuleDisabledByName(req.Name, req.Disabled)
+	} else {
+		// Legacy index addressing: index defaults to 0 when omitted.
+		err = rm.SetRuleDisabled(req.Index, req.Disabled)
+	}
+	if err != nil {
 		slog.Error("rule disable failed",
 			"method", r.Method,
 			"path", r.URL.Path,
+			"rule", req.Name,
 			"rule_index", req.Index,
 			"disabled", req.Disabled,
 			"remote", r.RemoteAddr,
@@ -45,9 +63,13 @@ func disableRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve the rule name for a friendlier audit trail. The index is
+	// Resolve the rule name for a friendlier audit trail. When the request
+	// used name addressing it is already known; otherwise the index is
 	// valid here (SetRuleDisabled succeeded), so the lookup is safe.
-	ruleName := ruleNameAt(rm, req.Index)
+	ruleName := req.Name
+	if ruleName == "" {
+		ruleName = ruleNameAt(rm, req.Index)
+	}
 	msg := "rule disabled"
 	if !req.Disabled {
 		msg = "rule enabled"

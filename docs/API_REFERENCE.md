@@ -478,18 +478,22 @@ Response `200`:
 
 #### `PATCH /rules/disable`  — enable/disable a rule at runtime (authenticated)
 
-Purpose: toggle a rule without a full config reload. Index is the rule's
-position in the `GET /rules` array.
+Purpose: toggle a rule without a full config reload. Prefer name addressing:
+rule names are unique (enforced by config validation) and stable across
+config reloads. Index (the rule's position in the `GET /rules` array) is kept
+for backward compatibility but shifts when rules are reordered or removed.
+When both fields are sent, `name` wins.
 
 Request body:
 
 ```json
-{ "index": 0, "disabled": true }
+{ "name": "overtemp-alarm", "disabled": true }
 ```
 
 Response:
 - `204 No Content` — toggle applied.
-- `400` — `{ "error": "<message>" }` (bad JSON or index out of range).
+- `400` — `{ "error": "<message>" }` (bad JSON, unknown rule name, or index
+  out of range).
 
 ---
 
@@ -825,7 +829,7 @@ counters — no external Prometheus client library is used.
 | POST | `/write` | ✓ | Write control command to device |
 | GET | `/write/failed` | ✓ | Dead-letter queue (failed writes) |
 | GET | `/rules` | ✓ | Rules + hit/miss statistics |
-| PATCH | `/rules/disable` | ✓ | Enable/disable a rule by index |
+| PATCH | `/rules/disable` | ✓ | Enable/disable a rule by name (recommended) or index |
 | GET | `/stats` | ✓ | Engine runtime statistics |
 | GET | `/memory` | ✓ | **WebSocket** — memory/GC/goroutine stream |
 | GET | `/logs` | ✓ | **WebSocket** — real-time log stream |
