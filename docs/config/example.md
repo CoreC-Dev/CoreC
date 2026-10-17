@@ -328,7 +328,7 @@ CoreC 支持以**空配置或仅含 `global.api` 的最小配置**启动——�
 
 ### 最小配置
 
-仓库提供 [`config.minimal.yaml`](https://github.com/CoreC-Dev/CoreC/blob/main/config.minimal.yaml)：
+[`config.example.yaml`](https://github.com/CoreC-Dev/CoreC/blob/main/config.example.yaml) 的活动内容即为最小配置（其余示例全部注释掉）：
 
 ```yaml
 global:
@@ -341,7 +341,7 @@ global:
 启动：
 
 ```bash
-COREC_API_SECRET=change-me-please ./corec -c config.minimal.yaml
+COREC_API_SECRET=change-me-please ./corec -c config.example.yaml
 ```
 
 ### 启动告警

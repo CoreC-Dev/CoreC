@@ -3,15 +3,28 @@
 # IIoT Data Collection and Distribution Core
 # ============================================================
 #
-# This is a fully working demo config (1 Modbus driver, 2 transports,
-# 2 rules). To start CoreC with NO business config and build everything
-# via the Dashboard instead, use config.minimal.yaml:
+# This file serves a dual purpose:
 #
-#   COREC_API_SECRET=change-me-please ./corec -c config.minimal.yaml
+# 1. Minimal / Bootstrap config (ACTIVE, uncommented below):
+#    The smallest config that starts CoreC and exposes the Dashboard API.
+#    No drivers, transports, or rules are defined — CoreC starts in idle
+#    mode and the operator builds the full configuration entirely through
+#    the Dashboard (Config Center → PUT /configs, or the driver/transport/
+#    rule wizards).
 #
-# CoreC starts in idle mode (empty pipeline) and the operator adds
-# drivers, transports, and rules through the Dashboard. An empty or
-# API-only config is a valid startup state.
+#      COREC_API_SECRET=change-me-please ./corec -c config.example.yaml
+#
+#    At startup CoreC logs non-blocking warnings:
+#      - "no data source configured — running in idle mode ..."
+#      - "no transport configured — running in idle mode ..."
+#    These are expected: the engine runs with an empty pipeline until the
+#    first configuration is applied via the Dashboard.
+#
+# 2. Full working example (COMMENTED OUT below):
+#    A complete demo config (1 Modbus driver, 2 transports, 2 rules) plus
+#    all driver/transport/rule variants, derived tags, and notify transport.
+#    Uncomment any block to enable it. An empty or API-only config is a
+#    valid startup state.
 
 # --- Environment Variable Substitution ---
 # Any ${ENV_VAR} placeholder in the YAML (including tags-file contents)
@@ -40,12 +53,12 @@
 #   - subscribe lists upstream nodes to auto-connect when they come online
 # When omitted entirely, all auto-discovery is disabled (backward compatible).
 # See docs/guide/chained-core.md → "拓扑自动发现" for details.
-node:
-  id: edge-A                    # unique node identifier
-  role: collector               # informational only: collector | relay | aggregator | sink
-                                # included in heartbeat/discovery metadata; not enforced by the engine
-  # subscribe: [upstream-1]     # upstream node IDs to receive from (relay/sink only)
-  # topic-prefix: topo          # default "topo"; auto topics use {prefix}/{node-id}/data/...
+# node:
+#   id: edge-A                    # unique node identifier
+#   role: collector               # informational only: collector | relay | aggregator | sink
+#                                 # included in heartbeat/discovery metadata; not enforced by the engine
+#   # subscribe: [upstream-1]     # upstream node IDs to receive from (relay/sink only)
+#   # topic-prefix: topo          # default "topo"; auto topics use {prefix}/{node-id}/data/...
 
 global:
   log-level: info
@@ -85,17 +98,17 @@ global:
     ## No OTLP export backend is configured; spans are log-based only.
 
   ## Engine tuning (optional — all fields have built-in defaults; uncomment to override)
-  engine:
-    data-bus-size: 8192          # internal data bus channel capacity (default 8192)
-    # workers: 0                 # worker goroutines for processing (default: 0 = runtime.NumCPU())
-    shutdown-timeout: 30s        # graceful shutdown deadline (default 30s)
-    error-throttle-window: 10s   # suppress repeated error logs within this window (default 10s)
-    default-tag-interval: 1s     # fallback interval for tags without explicit interval (default 1s)
-    # on-bad-quality: mark-and-publish  # bad quality policy: publish|drop|mark-and-publish|alert (default: publish)
-    # stale-threshold: 30s              # mark cached values as is_stale if not updated within this duration (default: disabled)
-    # write-retry-count: 3              # write command retry count before entering dead letter queue (default 3)
-    # command-concurrency: 16           # max parallel write commands; excess applies backpressure→dead-letter (default 16; set 1 for serial)
-    # high-priority-workers: 2          # dedicated workers for fast-interval tags (interval≤1s); isolated from bulk-read workers (default 2)
+#   engine:
+#     data-bus-size: 8192          # internal data bus channel capacity (default 8192)
+#     # workers: 0                 # worker goroutines for processing (default: 0 = runtime.NumCPU())
+#     shutdown-timeout: 30s        # graceful shutdown deadline (default 30s)
+#     error-throttle-window: 10s   # suppress repeated error logs within this window (default 10s)
+#     default-tag-interval: 1s     # fallback interval for tags without explicit interval (default 1s)
+#     # on-bad-quality: mark-and-publish  # bad quality policy: publish|drop|mark-and-publish|alert (default: publish)
+#     # stale-threshold: 30s              # mark cached values as is_stale if not updated within this duration (default: disabled)
+#     # write-retry-count: 3              # write command retry count before entering dead letter queue (default 3)
+#     # command-concurrency: 16           # max parallel write commands; excess applies backpressure→dead-letter (default 16; set 1 for serial)
+#     # high-priority-workers: 2          # dedicated workers for fast-interval tags (interval≤1s); isolated from bulk-read workers (default 2)
 
   ## Offline buffer (optional): persists failed publish batches to disk
   ## for replay after transport recovery. Enabled per-engine, applies to all
@@ -109,192 +122,192 @@ global:
 # Southbound Drivers
 # Supports: modbus-tcp, modbus-rtu, modbus-rtuovertcp, modbus-udp, modbus-rtuoverudp, modbus-tls, s7, opcua
 # ============================================================
-drivers:
-  ## 1. Modbus TCP Driver (PLC / Sensor Gateway)
-  - name: plc-modbus
-    type: modbus-tcp
-    settings:
-      host: 192.168.1.100
-      port: 502
-      slave-id: 1
-      timeout: 3s
-      retry: 3
-      ## Reconnect backoff (optional, defaults shown)
-      reconnect-interval: 2s
-      reconnect-max-interval: 30s
-      max-reconnect-failures: 20  # circuit breaker: after N consecutive failures, switch to 5-minute low-frequency retry
-    ## tags-file: load tags from an external YAML file (useful for hundreds of points)
-    ## tags-interval: hot-reload interval, e.g. "30s" (empty = load once, no auto-reload)
-    # tags-file: ./tags/plc-modbus-tags.yaml
-    # tags-interval: 30s
-    tags:                      # inline tags (appended after file tags if both set)
-      - name: temperature
-        address: "40001"      # Holding register 0
-        type: float32
-        group: sensors
-        interval: 1s
-        deadband: 0.2
-        read-timeout: 500ms   # per-tag read timeout (optional, default = interval)
-        scale: 0.1            # linear scaling: published = raw * scale + offset
-        offset: -50.0         # e.g. raw=1000 → published=50.0 (optional, default 0)
-      - name: pressure
-        address: "40003"      # Holding register 2
-        type: float32
-        group: sensors
-        interval: 1s
-      - name: pump_status
-        address: "00001"      # Coil 0
-        type: bool
-        group: actuators
-        interval: 2s
+# drivers:
+#   ## 1. Modbus TCP Driver (PLC / Sensor Gateway)
+#   - name: plc-modbus
+#     type: modbus-tcp
+#     settings:
+#       host: 192.168.1.100
+#       port: 502
+#       slave-id: 1
+#       timeout: 3s
+#       retry: 3
+#       ## Reconnect backoff (optional, defaults shown)
+#       reconnect-interval: 2s
+#       reconnect-max-interval: 30s
+#       max-reconnect-failures: 20  # circuit breaker: after N consecutive failures, switch to 5-minute low-frequency retry
+#     ## tags-file: load tags from an external YAML file (useful for hundreds of points)
+#     ## tags-interval: hot-reload interval, e.g. "30s" (empty = load once, no auto-reload)
+#     # tags-file: ./tags/plc-modbus-tags.yaml
+#     # tags-interval: 30s
+#     tags:                      # inline tags (appended after file tags if both set)
+#       - name: temperature
+#         address: "40001"      # Holding register 0
+#         type: float32
+#         group: sensors
+#         interval: 1s
+#         deadband: 0.2
+#         read-timeout: 500ms   # per-tag read timeout (optional, default = interval)
+#         scale: 0.1            # linear scaling: published = raw * scale + offset
+#         offset: -50.0         # e.g. raw=1000 → published=50.0 (optional, default 0)
+#       - name: pressure
+#         address: "40003"      # Holding register 2
+#         type: float32
+#         group: sensors
+#         interval: 1s
+#       - name: pump_status
+#         address: "00001"      # Coil 0
+#         type: bool
+#         group: actuators
+#         interval: 2s
 
-  ## 1b. Modbus RTU Driver (Serial line, e.g. RS-485 sensor)
-  # - name: sensor-rtu
-    # type: modbus-rtu
-    # settings:
-      # serial-device: /dev/ttyUSB0   # Linux serial port (use COM3 on Windows)
-      # baud-rate: 9600               # default 9600
-      # data-bits: 8                  # default 8
-      # parity: none                  # none | even | odd (default none)
-      # stop-bits: 1                  # 1 | 2, 0 = auto (default 0)
-      # slave-id: 1
-      # timeout: 3s
-      # retry: 3
-    # tags:
-      # - name: humidity
-        # address: "40001"      # Holding register 0
-        # type: float32
-        # group: sensors
-        # interval: 2s
-      # - name: valve
-        # address: "00001"      # Coil 0
-        # type: bool
-        # group: actuators
-        # interval: 2s
+#   ## 1b. Modbus RTU Driver (Serial line, e.g. RS-485 sensor)
+#   # - name: sensor-rtu
+#     # type: modbus-rtu
+#     # settings:
+#       # serial-device: /dev/ttyUSB0   # Linux serial port (use COM3 on Windows)
+#       # baud-rate: 9600               # default 9600
+#       # data-bits: 8                  # default 8
+#       # parity: none                  # none | even | odd (default none)
+#       # stop-bits: 1                  # 1 | 2, 0 = auto (default 0)
+#       # slave-id: 1
+#       # timeout: 3s
+#       # retry: 3
+#     # tags:
+#       # - name: humidity
+#         # address: "40001"      # Holding register 0
+#         # type: float32
+#         # group: sensors
+#         # interval: 2s
+#       # - name: valve
+#         # address: "00001"      # Coil 0
+#         # type: bool
+#         # group: actuators
+#         # interval: 2s
 
-  ## 1c. Modbus RTU over TCP (serial-to-Ethernet gateway, RTU framing in TCP)
-  # - name: rtu-gateway
-    # type: modbus-rtuovertcp
-    # settings:
-      # host: 192.168.1.80
-      # port: 502
-      # slave-id: 1
-      # timeout: 3s
-    # tags:
-      # - name: flow_rate
-        # address: "40001"
-        # type: float32
-        # group: sensors
-        # interval: 1s
+#   ## 1c. Modbus RTU over TCP (serial-to-Ethernet gateway, RTU framing in TCP)
+#   # - name: rtu-gateway
+#     # type: modbus-rtuovertcp
+#     # settings:
+#       # host: 192.168.1.80
+#       # port: 502
+#       # slave-id: 1
+#       # timeout: 3s
+#     # tags:
+#       # - name: flow_rate
+#         # address: "40001"
+#         # type: float32
+#         # group: sensors
+#         # interval: 1s
 
-  ## 1d. Modbus UDP (Modbus TCP over UDP)
-  # - name: modbus-udp
-    # type: modbus-udp
-    # settings:
-      # host: 192.168.1.90
-      # port: 502
-      # slave-id: 1
-      # timeout: 3s
-    # tags:
-      # - name: status
-        # address: "40001"
-        # type: uint16
-        # group: sensors
-        # interval: 1s
+#   ## 1d. Modbus UDP (Modbus TCP over UDP)
+#   # - name: modbus-udp
+#     # type: modbus-udp
+#     # settings:
+#       # host: 192.168.1.90
+#       # port: 502
+#       # slave-id: 1
+#       # timeout: 3s
+#     # tags:
+#       # - name: status
+#         # address: "40001"
+#         # type: uint16
+#         # group: sensors
+#         # interval: 1s
 
-  ## 1e. Modbus RTU over UDP
-  # - name: rtu-udp
-    # type: modbus-rtuoverudp
-    # settings:
-      # host: 192.168.1.91
-      # port: 502
-      # slave-id: 1
-      # timeout: 3s
-    # tags:
-      # - name: level
-        # address: "40001"
-        # type: float32
-        # group: sensors
-        # interval: 1s
+#   ## 1e. Modbus RTU over UDP
+#   # - name: rtu-udp
+#     # type: modbus-rtuoverudp
+#     # settings:
+#       # host: 192.168.1.91
+#       # port: 502
+#       # slave-id: 1
+#       # timeout: 3s
+#     # tags:
+#       # - name: level
+#         # address: "40001"
+#         # type: float32
+#         # group: sensors
+#         # interval: 1s
 
-  ## 1f. Modbus TCP over TLS (encrypted, requires mutual-TLS certificates)
-  # - name: modbus-tls
-    # type: modbus-tls
-    # settings:
-      # host: 192.168.1.100
-      # port: 802                    # often 802 for Modbus TLS
-      # cert-file: /etc/corec/certs/client.crt   # client certificate PEM
-      # key-file: /etc/corec/certs/client.key    # client private key PEM
-      # ca-file: /etc/corec/certs/ca.crt         # CA / server certificate PEM
-      # slave-id: 1
-      # timeout: 3s
-    # tags:
-      # - name: secure_temp
-        # address: "40001"
-        # type: float32
-        # group: sensors
-        # interval: 1s
+#   ## 1f. Modbus TCP over TLS (encrypted, requires mutual-TLS certificates)
+#   # - name: modbus-tls
+#     # type: modbus-tls
+#     # settings:
+#       # host: 192.168.1.100
+#       # port: 802                    # often 802 for Modbus TLS
+#       # cert-file: /etc/corec/certs/client.crt   # client certificate PEM
+#       # key-file: /etc/corec/certs/client.key    # client private key PEM
+#       # ca-file: /etc/corec/certs/ca.crt         # CA / server certificate PEM
+#       # slave-id: 1
+#       # timeout: 3s
+#     # tags:
+#       # - name: secure_temp
+#         # address: "40001"
+#         # type: float32
+#         # group: sensors
+#         # interval: 1s
 
-  ## 2. Siemens S7 Driver (S7-300 / S7-1200 / S7-1500)
-  # - name: siemens-s7-300
-    # type: s7
-    # settings:
-      # host: 192.168.1.200
-      # port: 102
-      # rack: 0
-      # slot: 2                 # Rack 0 Slot 2 for S7-300, Slot 1 for S7-1200/1500
-      # timeout: 3s
-      # idle-timeout: 60s     # connection idle timeout (default 60s)
-      # reconnect-interval: 2s
-      # reconnect-max-interval: 30s
-      # max-reconnect-failures: 20  # circuit breaker: after N consecutive failures, switch to 5-minute low-frequency retry
-    # tags:
-      # - name: reactor_temp
-        # address: "DB1.DBD0"   # DB 1 Double Word 0 (Float32)
-        # type: float32
-        # group: reactor
-        # interval: 500ms
-      # - name: motor_speed
-        # address: "DB1.DBW4"   # DB 1 Word 4 (Uint16)
-        # type: uint16
-        # group: motors
-        # interval: 1s
-      # - name: emergency_stop
-        # address: "I0.0"       # Input Bit 0.0
-        # type: bool
-        # group: safety
-        # interval: 200ms
+#   ## 2. Siemens S7 Driver (S7-300 / S7-1200 / S7-1500)
+#   # - name: siemens-s7-300
+#     # type: s7
+#     # settings:
+#       # host: 192.168.1.200
+#       # port: 102
+#       # rack: 0
+#       # slot: 2                 # Rack 0 Slot 2 for S7-300, Slot 1 for S7-1200/1500
+#       # timeout: 3s
+#       # idle-timeout: 60s     # connection idle timeout (default 60s)
+#       # reconnect-interval: 2s
+#       # reconnect-max-interval: 30s
+#       # max-reconnect-failures: 20  # circuit breaker: after N consecutive failures, switch to 5-minute low-frequency retry
+#     # tags:
+#       # - name: reactor_temp
+#         # address: "DB1.DBD0"   # DB 1 Double Word 0 (Float32)
+#         # type: float32
+#         # group: reactor
+#         # interval: 500ms
+#       # - name: motor_speed
+#         # address: "DB1.DBW4"   # DB 1 Word 4 (Uint16)
+#         # type: uint16
+#         # group: motors
+#         # interval: 1s
+#       # - name: emergency_stop
+#         # address: "I0.0"       # Input Bit 0.0
+#         # type: bool
+#         # group: safety
+#         # interval: 200ms
 
-  ## 3. OPC UA Client Driver (SCADA / MES / OPC Servers)
-  # - name: opc-server
-    # type: opcua
-    # settings:
-      # endpoint: "opc.tcp://192.168.1.50:4840"
-      # mode: polling           # polling or subscription
-      # security-policy: None    # None | Basic256Sha256 | ... (可选)
-      # security-mode: None      # None | Sign | SignAndEncrypt (可选)
-      # username: "opc-user"     # 用户名认证（可选，未设置时匿名连接）
-      # password: "opc-pass"     # 密码认证（可选）
-      # cert-file: /etc/corec/opcua/client.crt   # client certificate PEM (enables mTLS/SignAndEncrypt)
-      # key-file: /etc/corec/opcua/client.key    # client private key PEM (must pair with cert-file)
-      # timeout: 5s
-      # subscription-interval: 500ms    # subscription publish interval (default 500ms, mode=subscription only)
-      # subscription-buffer: 1024  # subscriber channel buffer (default 1024)
-      # max-batch-size: 1000       # max nodes per read request (default 1000)
-      # reconnect-interval: 2s
-      # reconnect-max-interval: 30s
-      # max-reconnect-failures: 20  # circuit breaker: after N consecutive failures, switch to 5-minute low-frequency retry
-    # tags:
-      # - name: conveyor_speed
-        # address: "ns=2;s=Conveyor.Speed"
-        # type: float64
-        # group: conveyor
-        # interval: 1s
-      # - name: batch_count
-        # address: "ns=1;i=1001"
-        # type: uint32
-        # group: production
-        # interval: 2s
+#   ## 3. OPC UA Client Driver (SCADA / MES / OPC Servers)
+#   # - name: opc-server
+#     # type: opcua
+#     # settings:
+#       # endpoint: "opc.tcp://192.168.1.50:4840"
+#       # mode: polling           # polling or subscription
+#       # security-policy: None    # None | Basic256Sha256 | ... (可选)
+#       # security-mode: None      # None | Sign | SignAndEncrypt (可选)
+#       # username: "opc-user"     # 用户名认证（可选，未设置时匿名连接）
+#       # password: "opc-pass"     # 密码认证（可选）
+#       # cert-file: /etc/corec/opcua/client.crt   # client certificate PEM (enables mTLS/SignAndEncrypt)
+#       # key-file: /etc/corec/opcua/client.key    # client private key PEM (must pair with cert-file)
+#       # timeout: 5s
+#       # subscription-interval: 500ms    # subscription publish interval (default 500ms, mode=subscription only)
+#       # subscription-buffer: 1024  # subscriber channel buffer (default 1024)
+#       # max-batch-size: 1000       # max nodes per read request (default 1000)
+#       # reconnect-interval: 2s
+#       # reconnect-max-interval: 30s
+#       # max-reconnect-failures: 20  # circuit breaker: after N consecutive failures, switch to 5-minute low-frequency retry
+#     # tags:
+#       # - name: conveyor_speed
+#         # address: "ns=2;s=Conveyor.Speed"
+#         # type: float64
+#         # group: conveyor
+#         # interval: 1s
+#       # - name: batch_count
+#         # address: "ns=1;i=1001"
+#         # type: uint32
+#         # group: production
+#         # interval: 2s
 
 # ============================================================
 # Northbound Transports
@@ -315,152 +328,152 @@ drivers:
 # and being re-published to downstream transports — enabling multi-hop
 # relay topologies (edge → gateway → cloud).
 # ============================================================
-transports:
-  ## 1. MQTT Cloud Transport (Publish + Command Writeback + Chained Inbound)
-  - name: cloud-mqtt
-    type: mqtt
-    settings:
-      broker: tcp://broker.emqx.io:1883
-      client-id: factory-edge-01
-      # username: "your-username"     # broker 认证用户名（可选，公共 broker 不需要）
-      # password: ${MQTT_PASSWORD}     # broker 认证密码（可选，支持环境变量替换）
-      ## --- TLS / mutual TLS (optional) ---
-      ## Use a TLS scheme in the broker URL to enable encryption, e.g.:
-      ##   broker: mqtts://broker.emqx.io:8883   # also: tls:// ssl:// mqtt+ssl:// tcps:// wss://
-      ## Then optionally configure certificate files:
-      ##   tls-ca-file:   CA certificate PEM for server verification.
-      ##                  When omitted, the system root certificates are used.
-      ##   tls-cert-file: client certificate PEM (enables mutual TLS / mTLS).
-      ##   tls-key-file:  client private key PEM (must be set together with tls-cert-file).
-      ## When no TLS scheme is used and no tls-* file is set, the connection
-      ## stays plaintext (backward compatible).
-      ## If TLS files are set but the broker scheme is plaintext (tcp://), Init
-      ## returns an ERROR rather than silently sending credentials in plaintext.
-      ## Use a TLS scheme (mqtts://, ssl://, ...) to actually enable TLS.
-      # tls-ca-file: /etc/corec/certs/ca.crt
-      # tls-cert-file: /etc/corec/certs/client.crt
-      # tls-key-file: /etc/corec/certs/client.key
-      qos: 1
-      topic-template: "factory/{{.Driver}}/{{.Group}}/{{.Tag}}"
-      # command-topic: "factory/commands/#"
-      ## Command authentication (recommended for production): when set, command
-      ## messages must carry hex(HMAC-SHA256(secret, payload)) in the
-      ## "X-Signature" header or a "signature" JSON field. Empty = accept all
-      ## commands (insecure, backward-compatible).
-      # command-secret: "your-hmac-secret-here"
-      ## --- Replay protection (optional, requires command-secret) ---
-      ## When a command message includes a "timestamp" field (Unix milliseconds),
-      ## the signature is verified over the payload (signature excluded, timestamp
-      ## included) and the timestamp must fall within ±command-max-skew of the
-      ## current time; otherwise the command is rejected as stale.
-      ## A bounded replay cache (10,000 entries, auto-expiring after 2× the skew
-      ## window) records the hash of each authenticated command, preventing true
-      ## replay: the same message cannot be accepted twice within the window.
-      ##   command-max-skew:     allowed timestamp drift (default 5m).
-      ##   command-strict-replay: when true, authenticated commands WITHOUT a
-      ##     timestamp are rejected outright. When false (default), they are
-      ##     accepted with a warning for backward compatibility with senders
-      ##     that predate timestamp enforcement.
-      # command-max-skew: 5m
-      # command-strict-replay: false
-      ## --- Chained Core Command Passthrough (relay nodes) ---
-      ## When a relay node receives a command via command-topic but has no
-      ## local driver for the target, it forwards the command to downstream
-      ## nodes via command-forward-topic. This enables multi-hop command
-      ## relay: cloud → gateway → edge.
-      ## When command-forward-secret is set, forwarded commands are signed
-      ## with HMAC-SHA256 and include a fresh timestamp so downstream nodes
-      ## can authenticate and replay-protect them. Empty = unsigned.
-      # command-forward-topic: "downstream/commands"
-      # command-forward-secret: ${COREC_FORWARD_SECRET}
-      ## --- Chained Core Inbound ---
-      ## Subscribe to data from upstream CoreC instances or third-party MQTT publishers.
-      ## The parser converts each message body into a DataPoint.
-      ## Three parser types are available — uncomment ONE block:
-      # data-topic: "upstream/factory/#"
+# transports:
+#   ## 1. MQTT Cloud Transport (Publish + Command Writeback + Chained Inbound)
+#   - name: cloud-mqtt
+#     type: mqtt
+#     settings:
+#       broker: tcp://broker.emqx.io:1883
+#       client-id: factory-edge-01
+#       # username: "your-username"     # broker 认证用户名（可选，公共 broker 不需要）
+#       # password: ${MQTT_PASSWORD}     # broker 认证密码（可选，支持环境变量替换）
+#       ## --- TLS / mutual TLS (optional) ---
+#       ## Use a TLS scheme in the broker URL to enable encryption, e.g.:
+#       ##   broker: mqtts://broker.emqx.io:8883   # also: tls:// ssl:// mqtt+ssl:// tcps:// wss://
+#       ## Then optionally configure certificate files:
+#       ##   tls-ca-file:   CA certificate PEM for server verification.
+#       ##                  When omitted, the system root certificates are used.
+#       ##   tls-cert-file: client certificate PEM (enables mutual TLS / mTLS).
+#       ##   tls-key-file:  client private key PEM (must be set together with tls-cert-file).
+#       ## When no TLS scheme is used and no tls-* file is set, the connection
+#       ## stays plaintext (backward compatible).
+#       ## If TLS files are set but the broker scheme is plaintext (tcp://), Init
+#       ## returns an ERROR rather than silently sending credentials in plaintext.
+#       ## Use a TLS scheme (mqtts://, ssl://, ...) to actually enable TLS.
+#       # tls-ca-file: /etc/corec/certs/ca.crt
+#       # tls-cert-file: /etc/corec/certs/client.crt
+#       # tls-key-file: /etc/corec/certs/client.key
+#       qos: 1
+#       topic-template: "factory/{{.Driver}}/{{.Group}}/{{.Tag}}"
+#       # command-topic: "factory/commands/#"
+#       ## Command authentication (recommended for production): when set, command
+#       ## messages must carry hex(HMAC-SHA256(secret, payload)) in the
+#       ## "X-Signature" header or a "signature" JSON field. Empty = accept all
+#       ## commands (insecure, backward-compatible).
+#       # command-secret: "your-hmac-secret-here"
+#       ## --- Replay protection (optional, requires command-secret) ---
+#       ## When a command message includes a "timestamp" field (Unix milliseconds),
+#       ## the signature is verified over the payload (signature excluded, timestamp
+#       ## included) and the timestamp must fall within ±command-max-skew of the
+#       ## current time; otherwise the command is rejected as stale.
+#       ## A bounded replay cache (10,000 entries, auto-expiring after 2× the skew
+#       ## window) records the hash of each authenticated command, preventing true
+#       ## replay: the same message cannot be accepted twice within the window.
+#       ##   command-max-skew:     allowed timestamp drift (default 5m).
+#       ##   command-strict-replay: when true, authenticated commands WITHOUT a
+#       ##     timestamp are rejected outright. When false (default), they are
+#       ##     accepted with a warning for backward compatibility with senders
+#       ##     that predate timestamp enforcement.
+#       # command-max-skew: 5m
+#       # command-strict-replay: false
+#       ## --- Chained Core Command Passthrough (relay nodes) ---
+#       ## When a relay node receives a command via command-topic but has no
+#       ## local driver for the target, it forwards the command to downstream
+#       ## nodes via command-forward-topic. This enables multi-hop command
+#       ## relay: cloud → gateway → edge.
+#       ## When command-forward-secret is set, forwarded commands are signed
+#       ## with HMAC-SHA256 and include a fresh timestamp so downstream nodes
+#       ## can authenticate and replay-protect them. Empty = unsigned.
+#       # command-forward-topic: "downstream/commands"
+#       # command-forward-secret: ${COREC_FORWARD_SECRET}
+#       ## --- Chained Core Inbound ---
+#       ## Subscribe to data from upstream CoreC instances or third-party MQTT publishers.
+#       ## The parser converts each message body into a DataPoint.
+#       ## Three parser types are available — uncomment ONE block:
+#       # data-topic: "upstream/factory/#"
 
-      ## Parser type 1: "default" — json.Unmarshal(DataPoint), for CoreC→CoreC
-      # parser:
-      #   type: default
+#       ## Parser type 1: "default" — json.Unmarshal(DataPoint), for CoreC→CoreC
+#       # parser:
+#       #   type: default
 
-      ## Parser type 2: "jsonpath" — for third-party JSON with different field names
-      # parser:
-      #   type: jsonpath
-      #   driver: "lora-gateway"
-      #   tag: "{{ .payload.dev_id }}"
-      #   value: "{{ .payload.temp }}"
-      #   data-type: "float32"
-      #   group: "sensors"
-      #   timestamp: "{{ .payload.ts }}"
-      #   timestamp-format: "unix"
+#       ## Parser type 2: "jsonpath" — for third-party JSON with different field names
+#       # parser:
+#       #   type: jsonpath
+#       #   driver: "lora-gateway"
+#       #   tag: "{{ .payload.dev_id }}"
+#       #   value: "{{ .payload.temp }}"
+#       #   data-type: "float32"
+#       #   group: "sensors"
+#       #   timestamp: "{{ .payload.ts }}"
+#       #   timestamp-format: "unix"
 
-      ## Parser type 3: "raw" — payload is the scalar value, tag derived from topic
-      # parser:
-      #   type: raw
-      #   driver: "factory"
-      #   tag-from-topic: 2    # use 2nd segment of MQTT topic as tag
-      #   data-type: "float32"
-      ## MQTT session and publish options (optional, defaults shown)
-      # clean-session: true       # MQTT clean session flag (default true)
-      # retained: false           # publish messages with MQTT retain flag (default false)
-      ## MQTT operation timeouts (optional, defaults shown)
-      # keep-alive: 60s
-      # connect-timeout: 10s
-      # publish-timeout: 5s
-      # subscribe-timeout: 5s
-      # disconnect-quiesce: 1s
-      # connect-retry-interval: 5s   ## ±20% jitter applied at init to prevent thundering-herd
-      ## Reconnect: paho's built-in auto-reconnect is enabled by default.
-      ## These control paho's reconnect behavior (settable in settings):
-      # auto-reconnect: true         # enable automatic reconnect (default true)
-      # connect-retry: true          # retry connection on failure (default true)
-      ## A ±20% jitter is applied to connect-retry-interval at init time to
-      ## prevent thundering-herd when multiple transports reconnect after a
-      ## broker outage. The circuit breaker that applies to DRIVERS does NOT apply
-      ## to the MQTT transport.
-    # buffer-size: 100           # command/data channel capacity (default 100) — TOP-LEVEL field, not inside settings
-    # batch-size: 50             # TOP-LEVEL field — must be a sibling of `settings`, not nested inside it
-    # flush-interval: 1s         # TOP-LEVEL field
-    # retry-count: 3             # TOP-LEVEL field — publish retry count before offline-buffer/drop (default 0 = no retry)
-    # fallback: mes-http-push     # fallback transport name (optional, used when this transport fails)
+#       ## Parser type 3: "raw" — payload is the scalar value, tag derived from topic
+#       # parser:
+#       #   type: raw
+#       #   driver: "factory"
+#       #   tag-from-topic: 2    # use 2nd segment of MQTT topic as tag
+#       #   data-type: "float32"
+#       ## MQTT session and publish options (optional, defaults shown)
+#       # clean-session: true       # MQTT clean session flag (default true)
+#       # retained: false           # publish messages with MQTT retain flag (default false)
+#       ## MQTT operation timeouts (optional, defaults shown)
+#       # keep-alive: 60s
+#       # connect-timeout: 10s
+#       # publish-timeout: 5s
+#       # subscribe-timeout: 5s
+#       # disconnect-quiesce: 1s
+#       # connect-retry-interval: 5s   ## ±20% jitter applied at init to prevent thundering-herd
+#       ## Reconnect: paho's built-in auto-reconnect is enabled by default.
+#       ## These control paho's reconnect behavior (settable in settings):
+#       # auto-reconnect: true         # enable automatic reconnect (default true)
+#       # connect-retry: true          # retry connection on failure (default true)
+#       ## A ±20% jitter is applied to connect-retry-interval at init time to
+#       ## prevent thundering-herd when multiple transports reconnect after a
+#       ## broker outage. The circuit breaker that applies to DRIVERS does NOT apply
+#       ## to the MQTT transport.
+#     # buffer-size: 100           # command/data channel capacity (default 100) — TOP-LEVEL field, not inside settings
+#     # batch-size: 50             # TOP-LEVEL field — must be a sibling of `settings`, not nested inside it
+#     # flush-interval: 1s         # TOP-LEVEL field
+#     # retry-count: 3             # TOP-LEVEL field — publish retry count before offline-buffer/drop (default 0 = no retry)
+#     # fallback: mes-http-push     # fallback transport name (optional, used when this transport fails)
 
-  ## 2. HTTP Webhook / REST Push (MES / Data Lake API + Chained Inbound)
-  - name: mes-http-push
-    type: http
-    settings:
-      url: "http://localhost:8080/api/v1/telemetry"
-      method: POST
-      # headers:
-        # Authorization: "Bearer mes-secret-key"
-      timeout: 3s                                      # HTTP request timeout (default 5s)
-      ## --- Chained Core Inbound ---
-      ## Start a webhook server to receive data from upstream CoreC instances
-      ## or third-party HTTP POST sources.  Each POST body is parsed into
-      ## DataPoint(s) and fed into the engine's DataBus.
-      # webhook-addr: "0.0.0.0:9091"
-      # webhook-path: "/ingest"                        # URL path for webhook (default "/data")
-      ## Webhook authentication (recommended for production): when set, requests
-      ## must carry "Authorization: Bearer <secret>" or "X-Webhook-Secret: <secret>".
-      ## Empty = accept all requests (insecure, backward-compatible).
-      # webhook-secret: "your-webhook-secret-here"
-      ## --- Webhook TLS (optional) ---
-      ## When both tls-cert-file and tls-key-file are set, the webhook server
-      ## listens over HTTPS (ListenAndServeTLS) instead of plaintext HTTP.
-      ## When either is empty the webhook stays plaintext (backward-compatible).
-      ## A partial config (only one of the two set) logs a warning and falls
-      ## back to plaintext rather than failing to start.
-      # tls-cert-file: /etc/corec/certs/webhook.crt   # server certificate PEM
-      # tls-key-file: /etc/corec/certs/webhook.key    # server private key PEM
-      # parser:
-        # type: default          # json.Unmarshal(DataPoint), for CoreC→CoreC
-      ## HTTP connection pool (optional, defaults shown)
-      # max-idle-conns: 100
-      # max-idle-conns-per-host: 20
-      # idle-conn-timeout: 90s
-    # buffer-size: 100           # TOP-LEVEL field — sibling of `settings`, not inside it
-    # batch-size: 100            # TOP-LEVEL field
-    # flush-interval: 5s         # TOP-LEVEL field
-    # retry-count: 3             # TOP-LEVEL field — publish retry count before offline-buffer/drop (default 0 = no retry)
+#   ## 2. HTTP Webhook / REST Push (MES / Data Lake API + Chained Inbound)
+#   - name: mes-http-push
+#     type: http
+#     settings:
+#       url: "http://localhost:8080/api/v1/telemetry"
+#       method: POST
+#       # headers:
+#         # Authorization: "Bearer mes-secret-key"
+#       timeout: 3s                                      # HTTP request timeout (default 5s)
+#       ## --- Chained Core Inbound ---
+#       ## Start a webhook server to receive data from upstream CoreC instances
+#       ## or third-party HTTP POST sources.  Each POST body is parsed into
+#       ## DataPoint(s) and fed into the engine's DataBus.
+#       # webhook-addr: "0.0.0.0:9091"
+#       # webhook-path: "/ingest"                        # URL path for webhook (default "/data")
+#       ## Webhook authentication (recommended for production): when set, requests
+#       ## must carry "Authorization: Bearer <secret>" or "X-Webhook-Secret: <secret>".
+#       ## Empty = accept all requests (insecure, backward-compatible).
+#       # webhook-secret: "your-webhook-secret-here"
+#       ## --- Webhook TLS (optional) ---
+#       ## When both tls-cert-file and tls-key-file are set, the webhook server
+#       ## listens over HTTPS (ListenAndServeTLS) instead of plaintext HTTP.
+#       ## When either is empty the webhook stays plaintext (backward-compatible).
+#       ## A partial config (only one of the two set) logs a warning and falls
+#       ## back to plaintext rather than failing to start.
+#       # tls-cert-file: /etc/corec/certs/webhook.crt   # server certificate PEM
+#       # tls-key-file: /etc/corec/certs/webhook.key    # server private key PEM
+#       # parser:
+#         # type: default          # json.Unmarshal(DataPoint), for CoreC→CoreC
+#       ## HTTP connection pool (optional, defaults shown)
+#       # max-idle-conns: 100
+#       # max-idle-conns-per-host: 20
+#       # idle-conn-timeout: 90s
+#     # buffer-size: 100           # TOP-LEVEL field — sibling of `settings`, not inside it
+#     # batch-size: 100            # TOP-LEVEL field
+#     # flush-interval: 5s         # TOP-LEVEL field
+#     # retry-count: 3             # TOP-LEVEL field — publish retry count before offline-buffer/drop (default 0 = no retry)
 
 # ============================================================
 # Rules
@@ -491,88 +504,88 @@ transports:
 
 # ── External Rule Providers (hot-reloadable) ──────────────────────
 # rule-providers:
-  # - name: safety-rules
-    # type: file
-    # path: ./rules/safety.yaml
-    # interval: 30s          # auto-reload every 30s
+#   # - name: safety-rules
+#     # type: file
+#     # path: ./rules/safety.yaml
+#     # interval: 30s          # auto-reload every 30s
 
 # ── Sub-Rule Groups (named, reusable) ─────────────────────────────
 # rule-groups:
-  # high-priority-alert:
-    # - name: bad-quality
-      # match: "quality != 'good'"
-      # action: alert
-      # target: cloud-mqtt
-    # - name: emergency-tag
-      # match: "tag suffix 'emergency'"
-      # action: alert
-      # target: cloud-mqtt
+#   # high-priority-alert:
+#     # - name: bad-quality
+#       # match: "quality != 'good'"
+#       # action: alert
+#       # target: cloud-mqtt
+#     # - name: emergency-tag
+#       # match: "tag suffix 'emergency'"
+#       # action: alert
+#       # target: cloud-mqtt
 
-rules:
-  ## High Temperature Alert -> Forward to Cloud MQTT, then continue to normal routing
-  - name: high-temp-alert
-    match: "tag == 'temperature' && value > 95"
-    action: alert
-    target: cloud-mqtt
-    priority: 1
-    continue: true          # alert then keep evaluating (data still flows to MES)
+# rules:
+#   ## High Temperature Alert -> Forward to Cloud MQTT, then continue to normal routing
+#   - name: high-temp-alert
+#     match: "tag == 'temperature' && value > 95"
+#     action: alert
+#     target: cloud-mqtt
+#     priority: 1
+#     continue: true          # alert then keep evaluating (data still flows to MES)
 
-  ## Emergency Stop -> High-priority Alert
-  # - name: emergency-stop-alert
-    # match: "tag == 'emergency_stop' && value == true"
-    # action: alert
-    # target: cloud-mqtt
-    # priority: 2
+#   ## Emergency Stop -> High-priority Alert
+#   # - name: emergency-stop-alert
+#     # match: "tag == 'emergency_stop' && value == true"
+#     # action: alert
+#     # target: cloud-mqtt
+#     # priority: 2
 
-  ## Reactor data with regex matching -> Mirror to both
-  # - name: reactor-mirror
-    # match: "tag =~ '^reactor_.*' && value in 50..200"
-    # action: mirror
-    # targets:
-      # - cloud-mqtt
-      # - mes-http-push
-    # priority: 10
+#   ## Reactor data with regex matching -> Mirror to both
+#   # - name: reactor-mirror
+#     # match: "tag =~ '^reactor_.*' && value in 50..200"
+#     # action: mirror
+#     # targets:
+#       # - cloud-mqtt
+#       # - mes-http-push
+#     # priority: 10
 
-  ## Safety data via external rule provider
-  # - name: use-safety-rules
-    # match: "RULE-SET:safety-rules"
-    # action: alert
-    # target: cloud-mqtt
-    # priority: 15
+#   ## Safety data via external rule provider
+#   # - name: use-safety-rules
+#     # match: "RULE-SET:safety-rules"
+#     # action: alert
+#     # target: cloud-mqtt
+#     # priority: 15
 
-  ## Sub-rule group for high-priority alerts
-  # - name: use-alert-group
-    # match: "SUB-RULE:high-priority-alert"
-    # action: alert
-    # target: cloud-mqtt
-    # priority: 20
+#   ## Sub-rule group for high-priority alerts
+#   # - name: use-alert-group
+#     # match: "SUB-RULE:high-priority-alert"
+#     # action: alert
+#     # target: cloud-mqtt
+#     # priority: 20
 
-  ## Motor data with suffix/contains matching
-  # - name: motor-data
-    # match: "tag contains 'motor' && driver prefix 'siemens'"
-    # action: forward
-    # target: mes-http-push
-    # priority: 50
+#   ## Motor data with suffix/contains matching
+#   # - name: motor-data
+#     # match: "tag contains 'motor' && driver prefix 'siemens'"
+#     # action: forward
+#     # target: mes-http-push
+#     # priority: 50
 
-  ## Transform rule: apply arithmetic expression + rename tag before forwarding.
-  ## `expression` supports +, -, *, /, parentheses, and the variable `value`
-  ## (the tag's numeric value). Non-numeric values are passed through unchanged.
-  ## `tag-rename` (optional) replaces the tag name with a literal string.
-  # - name: celsius-to-fahrenheit
-    # match: "tag suffix '_c'"
-    # action: transform
-    # target: cloud-mqtt
-    # priority: 30
-    # transform:
-      # expression: "value * 9 / 5 + 32"
-      # tag-rename: temperature_f     # optional: literal new tag name (not a template)
+#   ## Transform rule: apply arithmetic expression + rename tag before forwarding.
+#   ## `expression` supports +, -, *, /, parentheses, and the variable `value`
+#   ## (the tag's numeric value). Non-numeric values are passed through unchanged.
+#   ## `tag-rename` (optional) replaces the tag name with a literal string.
+#   # - name: celsius-to-fahrenheit
+#     # match: "tag suffix '_c'"
+#     # action: transform
+#     # target: cloud-mqtt
+#     # priority: 30
+#     # transform:
+#       # expression: "value * 9 / 5 + 32"
+#       # tag-rename: temperature_f     # optional: literal new tag name (not a template)
 
-  ## Default rule: Forward all remaining points to MES HTTP Push
-  - name: default-catch-all
-    match: "ALL"
-    action: forward
-    target: mes-http-push
-    priority: 999
+#   ## Default rule: Forward all remaining points to MES HTTP Push
+#   - name: default-catch-all
+#     match: "ALL"
+#     action: forward
+#     target: mes-http-push
+#     priority: 999
 
 # ============================================================
 # Derived Tags (computed KPIs)

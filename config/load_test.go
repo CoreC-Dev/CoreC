@@ -443,23 +443,28 @@ rules:
 }
 
 // TestLoadExampleConfig verifies that the project's own config.example.yaml
-// loads and validates successfully. The example ships with one active driver
-// (plc-modbus), two active transports (cloud-mqtt, mes-http-push) and two
-// active rules (high-temp-alert, default-catch-all) whose targets resolve to
-// those transports, so it must be a fully valid, runnable configuration.
+// loads and validates successfully. The file's active content is the minimal
+// bootstrap config (global.api only — no drivers, transports, or rules); all
+// full-example blocks are commented out and can be uncommented by the operator.
+// An empty/API-only config is a valid, runnable startup state (idle mode).
 func TestLoadExampleConfig(t *testing.T) {
 	cfg, err := Load("../config.example.yaml")
 	if err != nil {
 		t.Fatalf("config.example.yaml must load successfully, got: %v", err)
 	}
-	if len(cfg.Drivers) == 0 {
-		t.Fatal("expected at least one driver in example config")
+	// Minimal bootstrap: no business entities — the engine starts in idle mode.
+	if len(cfg.Drivers) != 0 {
+		t.Fatalf("expected no drivers in minimal example config, got %d", len(cfg.Drivers))
 	}
-	if len(cfg.Transports) == 0 {
-		t.Fatal("expected at least one transport in example config")
+	if len(cfg.Transports) != 0 {
+		t.Fatalf("expected no transports in minimal example config, got %d", len(cfg.Transports))
 	}
-	if len(cfg.Rules) == 0 {
-		t.Fatal("expected at least one rule in example config")
+	if len(cfg.Rules) != 0 {
+		t.Fatalf("expected no rules in minimal example config, got %d", len(cfg.Rules))
+	}
+	// Must expose the Dashboard API.
+	if cfg.Global.API.Listen == "" {
+		t.Fatal("expected global.api.listen to be set in minimal example config")
 	}
 }
 
