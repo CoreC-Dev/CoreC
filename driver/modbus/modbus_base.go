@@ -197,6 +197,25 @@ func (b *modbusBase) openClient(cfg *mb.ClientConfiguration) error {
 	return nil
 }
 
+// handleConnLostIfCurrent tears the connection down for reconnection only
+// when the connection that reported the error is still the driver's
+// current connection. Parallel Read tasks hold the client pointer they
+// captured at entry; when a reconnect completes while such a task is still
+// draining its retries, the task's error belongs to a client that has
+// already been replaced and must not tear down the fresh one (stage-B
+// audit finding B4-1).
+func (b *modbusBase) handleConnLostIfCurrent(captured *mb.ModbusClient) {
+	b.RLock()
+	current := b.client
+	b.RUnlock()
+	if current != captured {
+		b.Logger().Debug("ignoring connection error from a stale client",
+			"type", b.Type(), "name", b.Name())
+		return
+	}
+	b.HandleConnectionLost()
+}
+
 // Start, Stop, Restart, Status, Name, Type, reconnectLoop, startReconnectLoop,
 // and HandleConnectionLost are provided by the embedded driverbase.BaseDriver.
 

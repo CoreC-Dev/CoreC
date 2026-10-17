@@ -895,3 +895,82 @@ func valuesEqual(a, b any) bool {
 		return a == b
 	}
 }
+
+// ============================================================
+// Stale-error connection guard (stage-B audit finding B4-1).
+// ============================================================
+
+// TestS7StaleConnectionErrorIgnored is the B4-1 regression test: an error
+// reported against a client that has already been replaced by a completed
+// reconnect must NOT tear down the fresh connection, while an error from
+// the current client still must. The driver is pointed at a dead loopback
+// port (instant refusal) with a long reconnect interval so the background
+// loop started by Start stays quiet; the client generations are swapped in
+// directly, exactly as a completed reconnect would.
+func TestS7StaleConnectionErrorIgnored(t *testing.T) {
+	cfg := core.DriverConfig{
+		Name: "stale-guard",
+		Type: "s7",
+		Settings: map[string]any{
+			"host": "127.0.0.1",
+			"port": 1, // dead loopback port: instant refusal
+			// Keep the background reconnect loop from Start quiet so it
+			// cannot interfere with the state assertions below.
+			"reconnect-interval": "1h",
+		},
+		Tags: []core.TagConfig{{Name: "t", Address: "DB1.DBD0", Type: "float32"}},
+	}
+	drv, err := NewS7Driver(cfg)
+	if err != nil {
+		t.Fatalf("NewS7Driver: %v", err)
+	}
+	if err := drv.Init(context.Background(), cfg); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	// Start fails to connect (dead port) but sets the lifecycle context
+	// so the reconnect loop launched by HandleConnectionLost is valid.
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := drv.Stop(); err != nil {
+			t.Errorf("cleanup Stop: %v", err)
+		}
+	})
+	d := drv.(*S7Driver)
+
+	staleClient := &mockS7Client{}
+	freshClient := &mockS7Client{}
+
+	// Generation 1: a "connected" driver holding staleClient.
+	d.Lock()
+	d.client = staleClient
+	d.SetStateLocked(core.StateConnected)
+	d.Unlock()
+
+	// Simulate a reconnect that completed while a parallel task was
+	// still holding the old client: freshClient replaces staleClient.
+	d.Lock()
+	d.client = freshClient
+	d.Unlock()
+
+	// A stale error from the first client must be ignored: the driver
+	// stays connected and the fresh client is untouched.
+	d.handleConnLostIfCurrent(staleClient)
+	if got := d.GetState(); got != core.StateConnected {
+		t.Fatalf("stale error tore down the fresh connection: state = %v", got)
+	}
+	d.RLock()
+	current := d.client
+	d.RUnlock()
+	if current != freshClient {
+		t.Fatal("stale error must not close or replace the current client")
+	}
+
+	// An error from the current client must still tear the connection
+	// down and start the reconnect loop.
+	d.handleConnLostIfCurrent(freshClient)
+	if got := d.GetState(); got != core.StateError {
+		t.Fatalf("current-client error must tear down: state = %v", got)
+	}
+}

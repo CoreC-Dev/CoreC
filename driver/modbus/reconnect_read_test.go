@@ -377,6 +377,98 @@ func TestModbusHandleConnectionLostNoOpWhenError(t *testing.T) {
 	}
 }
 
+// TestModbusStaleConnectionErrorIgnored is the stage-B audit finding B4-1
+// regression test: an error reported against a client that has already
+// been replaced by a completed reconnect must NOT tear down the fresh
+// connection, while an error from the current client still must.
+func TestModbusStaleConnectionErrorIgnored(t *testing.T) {
+	handler := &testModbusHandler{
+		coils:          map[uint16]bool{},
+		discreteInputs: map[uint16]bool{},
+		holding:        map[uint16]uint16{0: 42},
+		inputRegs:      map[uint16]uint16{},
+	}
+	server, port := startTestServer(t, handler)
+	defer server.Stop()
+
+	cfg := core.DriverConfig{
+		Name: "stale-guard",
+		Type: "modbus-tcp",
+		Settings: map[string]any{
+			"host":                   "127.0.0.1",
+			"port":                   port,
+			"slave-id":               1,
+			"timeout":                "1s",
+			"reconnect-interval":     "50ms",
+			"reconnect-max-interval": "100ms",
+		},
+		Tags: []core.TagConfig{{Name: "v", Address: "40001", Type: "uint16"}},
+	}
+	drv, err := NewModbusTCPDriver(cfg)
+	if err != nil {
+		t.Fatalf("NewModbusTCPDriver: %v", err)
+	}
+	if err := drv.Init(context.Background(), cfg); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+	d := drv.(*ModbusTCPDriver)
+
+	// Capture the current (generation-1) client.
+	d.RLock()
+	first := d.client
+	d.RUnlock()
+	if first == nil {
+		t.Fatal("expected a connected client after Start")
+	}
+
+	// Simulate a reconnect that completed while a parallel task was
+	// still holding the old client: connect() installs a fresh client.
+	if err := d.connect(); err != nil {
+		t.Fatalf("test setup reconnect: %v", err)
+	}
+	d.RLock()
+	second := d.client
+	d.RUnlock()
+	if second == nil || second == first {
+		t.Fatal("expected a fresh client after the setup reconnect")
+	}
+
+	// A stale error from the first client must be ignored: the driver
+	// stays connected and the fresh client is untouched.
+	d.handleConnLostIfCurrent(first)
+	if got := drv.Status().State; got != core.StateConnected {
+		t.Fatalf("stale error tore down the fresh connection: state = %v", got)
+	}
+	d.RLock()
+	stillCurrent := d.client
+	d.RUnlock()
+	if stillCurrent != second {
+		t.Fatal("stale error must not close or replace the current client")
+	}
+
+	// An error from the current client must still tear the connection
+	// down and start the reconnect loop, which restores the connection
+	// because the server is still up.
+	d.handleConnLostIfCurrent(second)
+	if got := drv.Status().State; got != core.StateError {
+		t.Fatalf("current-client error must tear down: state = %v", got)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if drv.Status().State == core.StateConnected {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := drv.Status().State; got != core.StateConnected {
+		t.Errorf("expected StateConnected after reconnect, got %v", got)
+	}
+}
+
 // TestModbusConnectFailureRTU verifies that the RTU connect path returns an
 // error when the serial device does not exist.
 func TestModbusConnectFailureRTU(t *testing.T) {

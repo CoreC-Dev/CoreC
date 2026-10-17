@@ -231,6 +231,24 @@ func (d *OPCUADriver) Capabilities() core.DriverCapabilities {
 	}
 }
 
+// handleConnLostIfCurrent tears the connection down for reconnection only
+// when the connection that reported the error is still the driver's
+// current connection. Parallel Read/Write tasks hold the client pointer
+// they captured at entry; when a reconnect completes while such a task is
+// still failing, the task's error belongs to a client that has already
+// been replaced and must not tear down the fresh one (stage-B audit
+// finding B4-1).
+func (d *OPCUADriver) handleConnLostIfCurrent(captured *opcua.Client) {
+	d.RLock()
+	current := d.client
+	d.RUnlock()
+	if current != captured {
+		slog.Debug("ignoring connection error from a stale client", "name", d.Name())
+		return
+	}
+	d.HandleConnectionLost()
+}
+
 // HandleConnectionLost is provided by the embedded driverbase.BaseDriver.
 
 // ============================================================

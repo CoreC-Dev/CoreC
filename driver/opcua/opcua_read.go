@@ -57,9 +57,11 @@ func (d *OPCUADriver) Read(ctx context.Context, tags []string) ([]core.TagValue,
 		d.SetLastErrorLocked(err.Error())
 		d.Unlock()
 
-		// Check if connection is lost and trigger reconnect
+		// Check if connection is lost and trigger reconnect. The guard
+		// ignores errors from a client that has already been replaced by
+		// a reconnect (B4-1).
 		if util.IsConnectionError(err) {
-			d.HandleConnectionLost()
+			d.handleConnLostIfCurrent(client)
 		}
 		return nil, fmt.Errorf("opcua batch read failed: %w", err)
 	}

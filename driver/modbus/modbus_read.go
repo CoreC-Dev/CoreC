@@ -109,9 +109,10 @@ func (b *modbusBase) Read(ctx context.Context, tags []string) ([]core.TagValue, 
 				Error:     err,
 			})
 
-			// Check if connection is lost
+			// Check if connection is lost. The guard ignores errors from
+			// a client that has already been replaced by a reconnect (B4-1).
 			if util.IsConnectionError(err) {
-				b.HandleConnectionLost()
+				b.handleConnLostIfCurrent(client)
 			}
 			continue
 		}

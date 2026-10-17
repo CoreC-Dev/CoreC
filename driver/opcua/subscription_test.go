@@ -350,3 +350,76 @@ func TestOPCUAHandleConnectionLost(t *testing.T) {
 		t.Errorf("expected StateError to persist, got %v", d.GetState())
 	}
 }
+
+// TestOPCUAStaleConnectionErrorIgnored is the stage-B audit finding B4-1
+// regression test: an error reported against a client that has already
+// been replaced by a completed reconnect must NOT tear down the fresh
+// connection, while an error from the current client still must. The
+// endpoint is a dead loopback port and the reconnect interval is long, so
+// the background loop started by Start stays quiet; client generations
+// are swapped in directly, exactly as a completed reconnect would.
+func TestOPCUAStaleConnectionErrorIgnored(t *testing.T) {
+	cfg := validConfig("stale-guard")
+	cfg.Settings["endpoint"] = "opc.tcp://127.0.0.1:1" // dead port
+	cfg.Settings["timeout"] = "200ms"
+	cfg.Settings["reconnect-interval"] = "1h"
+	d := mustInit(t, cfg)
+
+	// Start fails against the dead port but sets the lifecycle context
+	// so the reconnect loop launched by HandleConnectionLost is valid.
+	if err := d.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := d.Stop(); err != nil {
+			t.Errorf("Stop: %v", err)
+		}
+	})
+
+	staleClient, err := opcua.NewClient("opc.tcp://127.0.0.1:1")
+	if err != nil {
+		t.Fatalf("opcua.NewClient (stale): %v", err)
+	}
+	freshClient, err := opcua.NewClient("opc.tcp://127.0.0.1:1")
+	if err != nil {
+		t.Fatalf("opcua.NewClient (fresh): %v", err)
+	}
+
+	// Generation 1: a "connected" driver holding staleClient.
+	d.Lock()
+	d.client = staleClient
+	d.SetStateLocked(core.StateConnected)
+	d.Unlock()
+
+	// Simulate a reconnect that completed while a parallel task was
+	// still holding the old client: freshClient replaces staleClient.
+	d.Lock()
+	d.client = freshClient
+	d.Unlock()
+
+	// A stale error from the first client must be ignored: the driver
+	// stays connected and the fresh client is untouched.
+	d.handleConnLostIfCurrent(staleClient)
+	if got := d.GetState(); got != core.StateConnected {
+		t.Fatalf("stale error tore down the fresh connection: state = %v", got)
+	}
+	d.RLock()
+	current := d.client
+	d.RUnlock()
+	if current != freshClient {
+		t.Fatal("stale error must not close or replace the current client")
+	}
+
+	// An error from the current client must still tear the connection
+	// down: state goes to StateError and the client is closed out.
+	d.handleConnLostIfCurrent(freshClient)
+	if got := d.GetState(); got != core.StateError {
+		t.Fatalf("current-client error must tear down: state = %v", got)
+	}
+	d.RLock()
+	current = d.client
+	d.RUnlock()
+	if current != nil {
+		t.Fatal("teardown must close out the current client")
+	}
+}

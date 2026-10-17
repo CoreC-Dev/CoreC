@@ -141,6 +141,24 @@ func (d *S7Driver) Init(ctx context.Context, config core.DriverConfig) error {
 	return nil
 }
 
+// handleConnLostIfCurrent tears the connection down for reconnection only
+// when the connection that reported the error is still the driver's
+// current connection. Parallel Read tasks hold the client pointer they
+// captured at entry; when a reconnect completes while such a task is still
+// draining its retries, the task's error belongs to a client that has
+// already been replaced and must not tear down the fresh one (stage-B
+// audit finding B4-1).
+func (d *S7Driver) handleConnLostIfCurrent(captured gos7.Client) {
+	d.RLock()
+	current := d.client
+	d.RUnlock()
+	if current != captured {
+		slog.Debug("ignoring connection error from a stale client", "name", d.Name())
+		return
+	}
+	d.HandleConnectionLost()
+}
+
 // Start, Stop, Restart, Status, Name, Type, reconnectLoop, startReconnectLoop,
 // and HandleConnectionLost are provided by the embedded driverbase.BaseDriver.
 
@@ -225,9 +243,11 @@ func (d *S7Driver) Read(ctx context.Context, tags []string) ([]core.TagValue, er
 					Error:     err,
 				})
 
-				// Check if connection is lost and trigger reconnect
+				// Check if connection is lost and trigger reconnect. The
+				// guard ignores errors from a client that has already
+				// been replaced by a reconnect (B4-1).
 				if util.IsConnectionError(err) {
-					d.HandleConnectionLost()
+					d.handleConnLostIfCurrent(client)
 				}
 				continue
 			}
