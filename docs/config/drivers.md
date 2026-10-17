@@ -482,7 +482,7 @@ tags:
 ```
 
 ::: info
-`deadband` 仅对数值类型（int*/uint*/float*）生效，`bool`、`string`、`bytes` 类型忽略该设置。设为 `0` 表示禁用死区，每次采集都输出。
+`deadband` 仅对数值类型（int*/uint*/float*）生效，`bool`、`string`、`bytes` 类型忽略该设置——非数值类型的每次采集值都会照常输出，且不参与基线比较。设为 `0` 表示禁用死区，每次采集都输出。
 :::
 
 ### read-timeout

@@ -356,6 +356,12 @@ func handleRecovery(runner *taskRunner, task core.ScheduleTask, interval time.Du
 // delta could be swallowed as well — silently freezing the data stream.
 // This matches the industrial convention that quality degradation
 // penetrates the deadband: the operator must see the tag went bad.
+//
+// Non-numeric values (bool, string, bytes) also bypass the deadband and
+// never update the baseline (stage-B audit finding B5-3): the documented
+// behaviour says deadband only applies to numeric types, and coercing
+// non-numeric values through ToFloat64 (bool→0/1, string→0) would compare
+// fabricated zeros — freezing the tag at its first sample forever.
 func applyDeadbandFilter(runner *taskRunner, values []core.TagValue) []core.TagValue {
 	if len(runner.task.DeadBands) == 0 {
 		return values
@@ -373,7 +379,14 @@ func applyDeadbandFilter(runner *taskRunner, values []core.TagValue) []core.TagV
 			filtered = append(filtered, v)
 			continue
 		}
-		numVal := util.ToFloat64(v.Value)
+		numVal, numeric := util.ToFloat64OK(v.Value)
+		if !numeric {
+			// Deadband is a numeric-only filter: non-numeric values
+			// pass through on every sample without touching the
+			// baseline.
+			filtered = append(filtered, v)
+			continue
+		}
 		lastVal, hasLast := runner.lastValues[v.Tag]
 		if !hasLast || math.Abs(numVal-lastVal) >= threshold {
 			filtered = append(filtered, v)
