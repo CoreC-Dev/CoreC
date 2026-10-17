@@ -25,6 +25,7 @@ type mockOfflineBufferEngine struct {
 	drained      uint64
 	pushed       uint64
 	flushDropped uint64
+	evicted      uint64
 }
 
 func (m *mockOfflineBufferEngine) OfflineBufferStats() (pending int, drained, pushed uint64) {
@@ -33,6 +34,10 @@ func (m *mockOfflineBufferEngine) OfflineBufferStats() (pending int, drained, pu
 
 func (m *mockOfflineBufferEngine) FlushBatchesDropped() uint64 {
 	return m.flushDropped
+}
+
+func (m *mockOfflineBufferEngine) OfflineBufferEvictions() uint64 {
+	return m.evicted
 }
 
 // ─── writeOfflineBufferMetrics (direct) ────────────────────────────
@@ -46,6 +51,7 @@ func TestWriteOfflineBufferMetricsDirect(t *testing.T) {
 		pending: 3,
 		drained: 10,
 		pushed:  2,
+		evicted: 7,
 	}
 	SetEngine(eng)
 
@@ -63,6 +69,10 @@ func TestWriteOfflineBufferMetricsDirect(t *testing.T) {
 		"# HELP corec_offline_buffer_pushed_total",
 		"# TYPE corec_offline_buffer_pushed_total counter",
 		"corec_offline_buffer_pushed_total 2",
+		// B2.1: eviction counter must be emitted alongside the others.
+		"# HELP corec_offline_buffer_evicted_total",
+		"# TYPE corec_offline_buffer_evicted_total counter",
+		"corec_offline_buffer_evicted_total 7",
 	}
 	for _, s := range checks {
 		if !strings.Contains(out, s) {

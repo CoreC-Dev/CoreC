@@ -150,6 +150,24 @@ func (e *CoreCEngine) OfflineBufferStats() (pending int, drained, pushed uint64)
 	return pending, drained, pushed
 }
 
+// OfflineBufferEvictions returns the total number of batches evicted
+// from the offline buffer because it was full (oldest dropped, newest
+// data wins). The buffer is a single shared instance (see
+// OfflineBufferStats), so the count is read once. Backs the
+// corec_offline_buffer_evicted_total Prometheus counter via the
+// hub/route optional-role assertion (stage-B audit finding B2.1:
+// capacity-based evictions drop real data and must be observable, not
+// just logged).
+func (e *CoreCEngine) OfflineBufferEvictions() uint64 {
+	e.mu.RLock()
+	buf := e.offlineBuffer
+	e.mu.RUnlock()
+	if buf == nil {
+		return 0
+	}
+	return buf.EvictedCount()
+}
+
 // FlushBatchesDropped returns the total number of full batches that were
 // evicted or dropped from batcher flush queues because the async flush
 // consumer fell behind a sustained burst (IMPROVEMENTS #1: async batcher

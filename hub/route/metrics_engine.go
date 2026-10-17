@@ -27,6 +27,19 @@ func writeOfflineBufferMetrics(b *strings.Builder) {
 
 	writePromHeader(b, "corec_offline_buffer_pushed_total", "counter", "Total batches persisted to the offline buffer after retries exhausted")
 	fmt.Fprintf(b, "corec_offline_buffer_pushed_total %d\n", pushed)
+
+	// Capacity-based eviction observability (stage-B audit finding B2.1):
+	// a full buffer drops its oldest batches (newest data wins), and
+	// those drops must be visible to operators, not just logged. The
+	// engine optionally provides the eviction count; the role is
+	// asserted locally rather than added to core because it is a single
+	// consumer's concern.
+	if ep, ok := eng.(interface {
+		OfflineBufferEvictions() uint64
+	}); ok && ep != nil {
+		writePromHeader(b, "corec_offline_buffer_evicted_total", "counter", "Total batches evicted from the offline buffer when full (oldest dropped, newest wins)")
+		fmt.Fprintf(b, "corec_offline_buffer_evicted_total %d\n", ep.OfflineBufferEvictions())
+	}
 }
 
 // writeFlushBatchesDropped emits the total number of full batches evicted
