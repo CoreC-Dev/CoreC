@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/CoreC-Dev/CoreC/core"
 )
@@ -50,9 +51,13 @@ func (e *CoreCEngine) AddTransport(config core.TransportConfig) error {
 	if oldCancel != nil {
 		oldCancel()
 	}
-	// Stop the old transport and batcher outside the lock.
+	// Stop the old transport and batcher outside the lock. The batcher
+	// stop is bounded by the engine's shutdown timeout (stopBatcherWithTimeout):
+	// a batcher stuck in a long flush retry chain must not block the
+	// management API indefinitely (stage-B audit findings B3.1/B3.6 —
+	// previously this was an unbounded b.stop()).
 	if oldBatcher != nil {
-		oldBatcher.stop()
+		e.stopBatcherWithTimeout(oldBatcher, config.Name, "transport replacement")
 	}
 	if oldTransport != nil {
 		if err := oldTransport.Stop(); err != nil {
@@ -71,8 +76,10 @@ func (e *CoreCEngine) AddTransport(config core.TransportConfig) error {
 	// latency and data age (IMPROVEMENTS #1 regression fix). The
 	// onBatchPublish callback is injected so the batcher counts real
 	// publishes (not just enqueues) on the async flush path (Finding 4
-	// fix: previously publish.go counted prematurely).
-	if b := newTransportBatcher(transport, config, e.offlineBuffer, e.publishLatency, e.dataAge, e.onBatchPublish); b != nil {
+	// fix: previously publish.go counted prematurely). The engine's
+	// shutdownTimeout is threaded through as the batcher's flushFinal
+	// budget so the shutdown flush cannot outlive shutdown (B3.1).
+	if b := newTransportBatcher(transport, config, e.offlineBuffer, e.publishLatency, e.dataAge, e.onBatchPublish, e.shutdownTimeout); b != nil {
 		b.start(e.ctx)
 		e.batchers[config.Name] = b
 		slog.Info("transport batching enabled",
@@ -145,9 +152,43 @@ func (e *CoreCEngine) RemoveTransport(name string) error {
 	}
 
 	if batcher != nil {
-		batcher.stop()
+		// Bounded by the engine's shutdown timeout (stage-B audit
+		// findings B3.1/B3.6): RemoveTransport is a management API call
+		// and must not hang behind a batcher stuck in a long flush retry
+		// chain. On timeout the stop goroutine is abandoned; the
+		// batcher's flushFinal runs on its own shutdown budget and
+		// terminates by publishing or persisting to the offline buffer.
+		e.stopBatcherWithTimeout(batcher, name, "transport removal")
 	}
 	return transport.Stop()
+}
+
+// stopBatcherWithTimeout stops a batcher, waiting at most the engine's
+// shutdown timeout. batcher.stop() flushes remaining data and can
+// legitimately take seconds (retry chains, offline-buffer persistence),
+// but it must never block the caller indefinitely: the transport
+// removal/replacement paths run on management API goroutines, and an
+// unbounded stop behind a transport with an oversized retry-count could
+// hang them (stage-B audit findings B3.1/B3.6). On timeout the stop
+// goroutine is abandoned; flushFinal's own budget (shutdownBudget)
+// ensures the in-flight flush terminates by publishing the batch or
+// persisting it to the offline buffer.
+func (e *CoreCEngine) stopBatcherWithTimeout(b *transportBatcher, name, reason string) {
+	done := make(chan struct{}, 1)
+	go func() {
+		b.stop()
+		done <- struct{}{}
+	}()
+	select {
+	case <-done:
+		slog.Info("batcher stopped", "name", name)
+	case <-time.After(e.shutdownTimeout):
+		slog.Error("timed out stopping batcher",
+			"name", name,
+			"reason", reason,
+			"timeout", e.shutdownTimeout,
+		)
+	}
 }
 
 func (e *CoreCEngine) GetTransport(name string) (core.Transport, bool) {

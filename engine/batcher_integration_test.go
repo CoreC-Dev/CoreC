@@ -78,7 +78,7 @@ func TestBatcherPublishFlush(t *testing.T) {
 		BatchSize:     3,
 		FlushInterval: "10s", // long interval; we trigger flush via batch size
 	}
-	b := newTransportBatcher(tr, cfg, nil, nil, nil, nil)
+	b := newTransportBatcher(tr, cfg, nil, nil, nil, nil, time.Second)
 	if b == nil {
 		t.Fatal("expected non-nil batcher")
 	}
@@ -130,7 +130,7 @@ func TestBatcherFlushInterval(t *testing.T) {
 		BatchSize:     100, // large; won't fill
 		FlushInterval: "50ms",
 	}
-	b := newTransportBatcher(tr, cfg, nil, nil, nil, nil)
+	b := newTransportBatcher(tr, cfg, nil, nil, nil, nil, time.Second)
 	if b == nil {
 		t.Fatal("expected non-nil batcher")
 	}
@@ -172,7 +172,7 @@ func TestBatcherRetryThenSucceed(t *testing.T) {
 		FlushInterval: "10s",
 		RetryCount:    2,
 	}
-	b := newTransportBatcher(tr, cfg, nil, nil, nil, nil)
+	b := newTransportBatcher(tr, cfg, nil, nil, nil, nil, time.Second)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -222,7 +222,7 @@ func TestBatcherRetryExhaustedBuffersToOffline(t *testing.T) {
 		FlushInterval: "10s",
 		RetryCount:    1, // 1 retry = 2 total attempts
 	}
-	b := newTransportBatcher(tr, cfg, ob, nil, nil, nil)
+	b := newTransportBatcher(tr, cfg, ob, nil, nil, nil, time.Second)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -285,7 +285,7 @@ func TestBatcherDrainReplaysOfflineBuffer(t *testing.T) {
 		BatchSize:     10,
 		FlushInterval: "10s",
 	}
-	b := newTransportBatcher(tr, cfg, ob, nil, nil, nil)
+	b := newTransportBatcher(tr, cfg, ob, nil, nil, nil, time.Second)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -319,7 +319,7 @@ func TestBatcherFlushFinalPublishesRemaining(t *testing.T) {
 		BatchSize:     100,   // large; won't fill
 		FlushInterval: "10s", // long; won't tick
 	}
-	b := newTransportBatcher(tr, cfg, nil, nil, nil, nil)
+	b := newTransportBatcher(tr, cfg, nil, nil, nil, nil, time.Second)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -352,7 +352,7 @@ func TestBatcherOfflineBufferPendingNil(t *testing.T) {
 		BatchSize:     10,
 		FlushInterval: "10s",
 	}
-	b := newTransportBatcher(tr, cfg, nil, nil, nil, nil)
+	b := newTransportBatcher(tr, cfg, nil, nil, nil, nil, time.Second)
 	if b == nil {
 		t.Fatal("expected non-nil batcher")
 	}
@@ -385,7 +385,7 @@ func TestBatcherOfflineBufferPendingWithBuffer(t *testing.T) {
 		BatchSize:     10,
 		FlushInterval: "10s",
 	}
-	b := newTransportBatcher(tr, cfg, ob, nil, nil, nil)
+	b := newTransportBatcher(tr, cfg, ob, nil, nil, nil, time.Second)
 	if b == nil {
 		t.Fatal("expected non-nil batcher")
 	}
@@ -439,7 +439,7 @@ func TestBatcherOfflineBufferPushedIncremented(t *testing.T) {
 		FlushInterval: "10s",
 		RetryCount:    1,
 	}
-	b := newTransportBatcher(tr, cfg, ob, nil, nil, nil)
+	b := newTransportBatcher(tr, cfg, ob, nil, nil, nil, time.Second)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -604,7 +604,7 @@ func TestBatcherPublishAsyncNonBlocking(t *testing.T) {
 		Name:      "slow",
 		BatchSize: 1, // every point triggers a flush
 	}
-	b := newTransportBatcher(tr, cfg, nil, nil, nil, nil)
+	b := newTransportBatcher(tr, cfg, nil, nil, nil, nil, time.Second)
 	if b == nil {
 		t.Fatal("expected non-nil batcher")
 	}
@@ -658,7 +658,7 @@ func TestBatcherOnPublishCallback(t *testing.T) {
 	var publishedCount atomic.Int64
 	b := newTransportBatcher(tr, cfg, nil, nil, nil, func(n int) {
 		publishedCount.Add(int64(n))
-	})
+	}, time.Second)
 	if b == nil {
 		t.Fatal("expected non-nil batcher")
 	}
@@ -720,7 +720,7 @@ func TestBatcherOnPublishCallbackDrain(t *testing.T) {
 	}
 	b := newTransportBatcher(tr, cfg, ob, nil, nil, func(n int) {
 		publishedCount.Add(int64(n))
-	})
+	}, time.Second)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -748,7 +748,7 @@ func TestBatcherPublishDropsWhenFlushQueueFull(t *testing.T) {
 		Name:      "test",
 		BatchSize: 1, // every point fills a batch and goes to flushBatches
 	}
-	b := newTransportBatcher(tr, cfg, nil, nil, nil, nil)
+	b := newTransportBatcher(tr, cfg, nil, nil, nil, nil, time.Second)
 	if b == nil {
 		t.Fatal("expected non-nil batcher")
 	}

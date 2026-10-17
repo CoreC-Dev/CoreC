@@ -91,6 +91,16 @@ type transportBatcher struct {
 	// OfflineBufferStats. Atomic so it can be read lock-free.
 	offlineBufferPushes atomic.Uint64
 
+	// shutdownBudget bounds flushFinal, the shutdown flush: the fresh
+	// context it publishes under carries this timeout, so a slow retry
+	// chain cannot outlive shutdown and abandon the batch mid-retry
+	// when the engine stops waiting (or main exits). When the budget
+	// expires, publishWithRetryAndBuffer stops retrying and persists
+	// the remaining batch to the offline buffer instead (stage-B audit
+	// finding B3.1). Threading: set from the engine's shutdownTimeout
+	// by newTransportBatcher; <= 0 defaults to core.DefaultShutdownTimeout.
+	shutdownBudget time.Duration
+
 	// flushBatches is a bounded channel carrying full batches dequeued by
 	// publish() for asynchronous flush. publish() never calls flush()
 	// synchronously: when the buffer fills it moves the batch here and
@@ -117,7 +127,11 @@ type transportBatcher struct {
 // They may be nil (tests that don't check histograms).
 // onPublish is called with the point count when a batch is actually
 // published (not just enqueued). It may be nil (tests).
-func newTransportBatcher(t core.Transport, cfg core.TransportConfig, offlineBuffer *OfflineBuffer, publishLatency, dataAge *metrics.LatencyHistogram, onPublish func(int)) *transportBatcher {
+// shutdownBudget bounds the shutdown flush (flushFinal); pass the
+// engine's shutdownTimeout so the final flush cannot outlive the
+// engine's own stop timeout. <= 0 defaults to
+// core.DefaultShutdownTimeout (stage-B audit finding B3.1).
+func newTransportBatcher(t core.Transport, cfg core.TransportConfig, offlineBuffer *OfflineBuffer, publishLatency, dataAge *metrics.LatencyHistogram, onPublish func(int), shutdownBudget time.Duration) *transportBatcher {
 	if cfg.BatchSize <= 0 && cfg.FlushInterval == "" && cfg.RetryCount <= 0 && offlineBuffer == nil {
 		return nil
 	}
@@ -130,6 +144,12 @@ func newTransportBatcher(t core.Transport, cfg core.TransportConfig, offlineBuff
 		publishLatency: publishLatency,
 		dataAge:        dataAge,
 		onPublish:      onPublish,
+	}
+
+	if shutdownBudget > 0 {
+		b.shutdownBudget = shutdownBudget
+	} else {
+		b.shutdownBudget = core.DefaultShutdownTimeout
 	}
 
 	if cfg.FlushInterval != "" {
@@ -262,7 +282,19 @@ func (b *transportBatcher) drainOnce() {
 	// all batchers and replaying a foreign batch through the wrong
 	// transport would misroute the data (stage-B audit finding B2.3).
 	drained, err := b.offlineBuffer.Drain(b.transport.Name(), func(points []core.DataPoint) error {
-		timeoutCtx, cancel := context.WithTimeout(context.Background(), defaultPublishTimeout)
+		// Inherit b.ctx (cancelled by stop()) so an in-flight replay can
+		// be aborted promptly during shutdown instead of running to the
+		// full per-batch timeout against a transport that may already be
+		// gone (stage-B audit finding B3.1). The per-batch timeout still
+		// bounds each attempt during normal operation.
+		baseCtx := b.ctx
+		if baseCtx == nil {
+			// drainOnce is only wired to drainLoop, which start()
+			// launches; tests may invoke it on an unstarted batcher,
+			// where no shutdown can race the replay.
+			baseCtx = context.Background()
+		}
+		timeoutCtx, cancel := context.WithTimeout(baseCtx, defaultPublishTimeout)
 		defer cancel()
 		err := b.transport.PublishBatch(timeoutCtx, points)
 		if err == nil && b.onPublish != nil {
@@ -361,11 +393,17 @@ func (b *transportBatcher) flush() {
 	b.publishWithRetryAndBuffer(b.ctx, batch)
 }
 
-// flushFinal is the shutdown flush. It uses a fresh background context
-// because b.ctx has been cancelled by stop(). This ensures buffered data
-// is actually published instead of being silently dropped. If the
-// publish fails and an offline buffer is configured, the batch is
-// persisted for replay after restart.
+// flushFinal is the shutdown flush. It uses a fresh context (b.ctx has
+// been cancelled by stop()) so buffered data is actually published
+// instead of being silently dropped. The fresh context carries a
+// shutdownBudget timeout: without it, a transport with a large
+// retry-count and a slow or unreachable broker could keep the final
+// flush retrying long after the engine gave up waiting (or after main
+// called os.Exit), silently losing the batch (stage-B audit finding
+// B3.1). With the budget, when the deadline fires the retry loop's
+// backoff select observes ctx.Done and falls through to persisting the
+// batch to the offline buffer (or logging the drop when no buffer is
+// configured) instead of abandoning it mid-retry.
 func (b *transportBatcher) flushFinal() {
 	b.mu.Lock()
 	if len(b.buffer) == 0 {
@@ -376,8 +414,11 @@ func (b *transportBatcher) flushFinal() {
 	b.buffer = make([]core.DataPoint, 0, b.batchSize)
 	b.mu.Unlock()
 
+	ctx, cancel := context.WithTimeout(context.Background(), b.shutdownBudget)
+	defer cancel()
+
 	// Result is ignored: on success the batch is published; on failure
 	// publishWithRetryAndBuffer already persisted it to the offline
 	// buffer (or logged the drop when no buffer is configured).
-	b.publishWithRetryAndBuffer(context.Background(), batch)
+	b.publishWithRetryAndBuffer(ctx, batch)
 }

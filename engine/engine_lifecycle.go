@@ -308,13 +308,7 @@ func (e *CoreCEngine) rollbackStart() {
 		stopWithErrorTimeout("rollback", "driver", stopTimeout, d.Stop)
 	}
 	for _, b := range batchers {
-		done := make(chan struct{}, 1)
-		go func() { b.stop(); done <- struct{}{} }()
-		select {
-		case <-done:
-		case <-time.After(stopTimeout):
-			slog.Error("rollback: timed out stopping batcher", "timeout", stopTimeout)
-		}
+		e.stopBatcherWithTimeout(b, "rollback", "engine start rollback")
 	}
 	for _, t := range transports {
 		stopWithErrorTimeout("rollback", "transport", stopTimeout, t.Stop)
@@ -384,16 +378,10 @@ func (e *CoreCEngine) stopComponents() {
 	// Stop all batchers with timeout (flush remaining buffered data).
 	// Without a timeout, a batcher whose transport ignores context
 	// cancellation or has an oversized retry config could hang Stop
-	// indefinitely (PERF-008).
+	// indefinitely (PERF-008). The shared helper also caps the batcher's
+	// own flushFinal budget at the same shutdownTimeout (B3.1).
 	for i, b := range batchers {
-		done := make(chan struct{}, 1)
-		go func() { b.stop(); done <- struct{}{} }()
-		select {
-		case <-done:
-			slog.Info("batcher stopped", "name", batcherNames[i])
-		case <-time.After(stopTimeout):
-			slog.Error("timed out stopping batcher", "name", batcherNames[i], "timeout", stopTimeout)
-		}
+		e.stopBatcherWithTimeout(b, batcherNames[i], "engine shutdown")
 	}
 
 	// Stop all transports with timeout
