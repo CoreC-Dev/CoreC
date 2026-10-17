@@ -148,7 +148,7 @@ func (t *plainTransport) Status() core.TransportStatus        { return t.status 
 func newTestEngine(t *testing.T) *CoreCEngine {
 	t.Helper()
 	e := newEngineShell()
-	e.drivers = make(map[string]core.Driver)
+	e.driverReg.drivers = make(map[string]core.Driver)
 	e.transports = make(map[string]core.Transport)
 	e.writeRetryCount = 0 // single attempt: keeps failure tests fast
 	e.deadLetterMaxLen = 1000
@@ -182,12 +182,12 @@ var (
 // TestHasDriver reports whether a driver is registered under the given name.
 func TestHasDriver(t *testing.T) {
 	e := newTestEngine(t)
-	e.drivers["opc"] = newRecordingDriver("opc")
+	e.driverReg.drivers["opc"] = newRecordingDriver("opc")
 
-	if !e.hasDriver("opc") {
+	if !e.driverReg.hasDriver("opc") {
 		t.Error("hasDriver(opc) = false, want true")
 	}
-	if e.hasDriver("missing") {
+	if e.driverReg.hasDriver("missing") {
 		t.Error("hasDriver(missing) = true, want false")
 	}
 }
@@ -327,7 +327,7 @@ func TestExecuteWriteForwarderFailureFallsBackToDeadLetter(t *testing.T) {
 func TestExecuteWriteLocalDriverNotForwarded(t *testing.T) {
 	e := newTestEngine(t)
 	drv := newRecordingDriver("opc")
-	e.drivers["opc"] = drv
+	e.driverReg.drivers["opc"] = drv
 	fwd := newForwarderTransport("relay-fwd", nil)
 	e.transports["relay-fwd"] = fwd
 
@@ -357,7 +357,7 @@ func TestExecuteWriteLocalDriverFailureRetriesAndDeadLetters(t *testing.T) {
 	e.writeRetryCount = 1 // 2 attempts total
 	drv := &failingDriver{}
 	drv.name = "opc"
-	e.drivers["opc"] = drv
+	e.driverReg.drivers["opc"] = drv
 	fwd := newForwarderTransport("relay-fwd", nil)
 	e.transports["relay-fwd"] = fwd
 
@@ -472,7 +472,7 @@ func TestCommandListenerDispatchesConcurrently(t *testing.T) {
 	}
 	d.name = "plc"
 	d.status = core.DriverStatus{Name: "plc", State: core.StateConnected}
-	e.drivers["plc"] = d
+	e.driverReg.drivers["plc"] = d
 
 	tr := &mockTransport{name: "cmd-tr"}
 	tr.cmdCh = make(chan core.WriteCommand, 10)
@@ -532,7 +532,7 @@ func TestCommandListenerSerialWhenConcurrencyOne(t *testing.T) {
 	}
 	d.name = "plc"
 	d.status = core.DriverStatus{Name: "plc", State: core.StateConnected}
-	e.drivers["plc"] = d
+	e.driverReg.drivers["plc"] = d
 
 	tr := &mockTransport{name: "cmd-tr-serial"}
 	tr.cmdCh = make(chan core.WriteCommand, 10)

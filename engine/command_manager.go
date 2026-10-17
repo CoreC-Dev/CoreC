@@ -28,17 +28,9 @@ func (e *CoreCEngine) ReadTag(ctx context.Context, driver, tag string) (*core.Ta
 	return e.reads.ReadTag(ctx, driver, tag)
 }
 
-// hasDriver reports whether a driver with the given name is registered.
-func (e *CoreCEngine) hasDriver(name string) bool {
-	e.mu.RLock()
-	_, ok := e.drivers[name]
-	e.mu.RUnlock()
-	return ok
-}
-
 func (e *CoreCEngine) WriteTag(ctx context.Context, cmd core.WriteCommand) (*core.WriteResult, error) {
 	e.mu.RLock()
-	d, ok := e.drivers[cmd.Driver]
+	d, ok := e.driverReg.drivers[cmd.Driver]
 	e.mu.RUnlock()
 	if !ok {
 		err := fmt.Errorf("driver not found: %s", cmd.Driver)
@@ -278,7 +270,7 @@ func (e *CoreCEngine) executeWriteWithRetry(cmd core.WriteCommand) {
 	// forwarding (chained-core command passthrough). Relay nodes have
 	// drivers: [] and receive commands via command-topic; without
 	// forwarding, commands dead-end in the dead letter queue.
-	if !e.hasDriver(cmd.Driver) {
+	if !e.driverReg.hasDriver(cmd.Driver) {
 		if e.forwardCommand(e.ctx, cmd) {
 			slog.Info("command forwarded to downstream node",
 				"driver", cmd.Driver, "tag", cmd.Tag)

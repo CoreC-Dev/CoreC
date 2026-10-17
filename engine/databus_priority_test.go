@@ -178,7 +178,7 @@ func TestScheduleDriverTagsSetsPriority(t *testing.T) {
 
 	// Fast interval (200ms) → high priority (priority=1)
 	// Slow interval (5s) → normal priority (priority=0)
-	e.scheduleDriverTags(core.DriverConfig{
+	e.driverReg.scheduleDriverTags(core.DriverConfig{
 		Name: "plc",
 		Type: "mock",
 		Tags: []core.TagConfig{

@@ -59,7 +59,7 @@ func runFailingWrite(t *testing.T, errMsg string, retryCount int) (*erroringDriv
 	drv := &erroringDriver{}
 	drv.name = "opc"
 	drv.err = errMsg
-	e.drivers["opc"] = drv
+	e.driverReg.drivers["opc"] = drv
 
 	cmd := core.WriteCommand{Driver: "opc", Tag: "setpoint", Value: 1.0}
 	e.executeWriteWithRetry(cmd)

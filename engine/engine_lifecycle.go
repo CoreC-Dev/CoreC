@@ -16,11 +16,11 @@ func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error {
 	e.stats.startTime = time.Now()
 	e.status = core.EngineStatusRunning
 	// Clear stale state from any previous run (e.g. after Reload→Stop→Start).
-	e.drivers = make(map[string]core.Driver)
+	e.driverReg.drivers = make(map[string]core.Driver)
 	e.transports = make(map[string]core.Transport)
 	e.batchers = make(map[string]*transportBatcher)
 	e.transportCancels = make(map[string]context.CancelFunc)
-	e.tagGroups = make(map[string]map[string]string)
+	e.driverReg.tagGroups = make(map[string]map[string]string)
 	e.mu.Unlock()
 
 	// Apply engine tuning from global config (overrides defaults).
@@ -82,7 +82,7 @@ func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error {
 		return err
 	}
 
-	if err := e.startDrivers(config); err != nil {
+	if err := e.driverReg.startDrivers(config); err != nil {
 		return err
 	}
 
@@ -142,17 +142,6 @@ func (e *CoreCEngine) startTransports(config *core.Config) error {
 		if err := e.AddTransport(tc); err != nil {
 			slog.Error("failed to add transport", "name", tc.Name, "error", err)
 			return fmt.Errorf("failed to add transport %s: %w", tc.Name, err)
-		}
-	}
-	return nil
-}
-
-// startDrivers initializes and starts all configured drivers.
-func (e *CoreCEngine) startDrivers(config *core.Config) error {
-	for _, dc := range config.Drivers {
-		if err := e.AddDriver(dc); err != nil {
-			slog.Error("failed to add driver", "name", dc.Name, "error", err)
-			return fmt.Errorf("failed to add driver %s: %w", dc.Name, err)
 		}
 	}
 	return nil
@@ -265,8 +254,8 @@ func (e *CoreCEngine) rollbackStart() {
 
 	// Snapshot under RLock, then release before blocking Stop() calls.
 	e.mu.RLock()
-	drivers := make([]core.Driver, 0, len(e.drivers))
-	for _, d := range e.drivers {
+	drivers := make([]core.Driver, 0, len(e.driverReg.drivers))
+	for _, d := range e.driverReg.drivers {
 		drivers = append(drivers, d)
 	}
 	batchers := make([]*transportBatcher, 0, len(e.batchers))
@@ -295,14 +284,14 @@ func (e *CoreCEngine) rollbackStart() {
 	if e.ruleSet.ruleEngine != nil {
 		e.ruleSet.ruleEngine.CloseProviders()
 	}
-	e.stopAllTagFileWatchers()
+	e.driverReg.stopAllTagFileWatchers()
 
 	if e.dataBus != nil {
 		e.dataBus.Close()
 	}
 
 	e.mu.Lock()
-	e.drivers = make(map[string]core.Driver)
+	e.driverReg.drivers = make(map[string]core.Driver)
 	e.transports = make(map[string]core.Transport)
 	e.batchers = make(map[string]*transportBatcher)
 	e.status = core.EngineStatusStopped
@@ -324,9 +313,9 @@ func (e *CoreCEngine) stopComponents() {
 	// the lock before calling Stop() on each. This prevents blocking I/O
 	// from holding the lock and stalling all management API calls (M13).
 	e.mu.RLock()
-	drivers := make([]core.Driver, 0, len(e.drivers))
-	driverNames := make([]string, 0, len(e.drivers))
-	for name, d := range e.drivers {
+	drivers := make([]core.Driver, 0, len(e.driverReg.drivers))
+	driverNames := make([]string, 0, len(e.driverReg.drivers))
+	for name, d := range e.driverReg.drivers {
 		drivers = append(drivers, d)
 		driverNames = append(driverNames, name)
 	}
@@ -395,7 +384,7 @@ func (e *CoreCEngine) stopComponents() {
 	}
 
 	// Stop all tag-file watchers to prevent goroutine leaks on reload.
-	e.stopAllTagFileWatchers()
+	e.driverReg.stopAllTagFileWatchers()
 }
 
 // stopWithErrorTimeout runs stopFn in a goroutine and waits up to timeout for

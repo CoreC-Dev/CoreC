@@ -56,7 +56,7 @@ func (s *statsCollector) Stats() core.EngineStats {
 	defer s.eng.mu.RUnlock()
 
 	driverStats := make(map[string]core.DriverStatus)
-	for name, d := range s.eng.drivers {
+	for name, d := range s.eng.driverReg.drivers {
 		driverStats[name] = d.Status()
 	}
 
@@ -82,7 +82,7 @@ func (s *statsCollector) Stats() core.EngineStats {
 	return core.EngineStats{
 		Status:         s.eng.status,
 		Uptime:         uptime,
-		Drivers:        len(s.eng.drivers),
+		Drivers:        len(s.eng.driverReg.drivers),
 		Transports:     len(s.eng.transports),
 		Rules:          len(s.eng.ruleSet.ruleEngine.Rules()),
 		TotalRead:      totalRead,

@@ -25,9 +25,41 @@ type metricsInjector interface {
 	SetMetrics(core.Metrics)
 }
 
+// driverRegistry groups the southbound driver concern: the live driver
+// map, the last-applied driver configs (for tag-file watcher rebuilds),
+// the per-driver tag-file watchers, and the tag-group enrichment map.
+// Extracted from CoreCEngine in the CPLX-020 God Object split;
+// CoreCEngine keeps thin forwarders so the core.DriverManager method
+// set is unchanged.
+type driverRegistry struct {
+	drivers map[string]core.Driver
+
+	// driverConfigs stores the last-applied DriverConfig per driver name,
+	// so tag-file watchers can rebuild the config with updated tags.
+	driverConfigs map[string]core.DriverConfig
+
+	// tagFileWatchers tracks per-driver hot-reload watchers for tags-file.
+	// Keyed by driver name; nil entry means no watcher for that driver.
+	tagFileWatchers map[string]*tagFileWatcher
+
+	// tagGroups maps driver name -> tag name -> group.
+	// Populated from TagConfig.Group in AddDriver and consulted in
+	// onDriverData to enrich DataPoint.Group. The scheduler only forwards
+	// []TagValue (which carries the tag name but not its group), so
+	// without this map the Group would always be empty — breaking rules
+	// like "group == 'reactor'" and MQTT topic templates like
+	// ".../{{.Group}}/...".
+	tagGroups map[string]map[string]string
+
+	// eng is the owning engine: AddDriver/RemoveDriver reach the shared
+	// lock, lifecycle context, scheduler, and default tag interval
+	// through it.
+	eng *CoreCEngine
+}
+
 // --- Driver Management ---
 
-func (e *CoreCEngine) AddDriver(config core.DriverConfig) error {
+func (r *driverRegistry) AddDriver(config core.DriverConfig) error {
 	driver, err := core.CreateDriver(config)
 	if err != nil {
 		return fmt.Errorf("failed to create driver %s: %w", config.Name, err)
@@ -45,31 +77,31 @@ func (e *CoreCEngine) AddDriver(config core.DriverConfig) error {
 		mi.SetMetrics(core.NoopMetrics{})
 	}
 
-	if err := driver.Init(e.ctx, config); err != nil {
+	if err := driver.Init(r.eng.ctx, config); err != nil {
 		return fmt.Errorf("failed to init driver %s: %w", config.Name, err)
 	}
 
-	if err := driver.Start(e.ctx); err != nil {
+	if err := driver.Start(r.eng.ctx); err != nil {
 		return fmt.Errorf("failed to start driver %s: %w", config.Name, err)
 	}
 
-	e.mu.Lock()
+	r.eng.mu.Lock()
 	// If a driver with the same name already exists (e.g. via direct API call),
 	// remove it from the map now so concurrent callers don't see a stopping
 	// driver. The actual Stop() happens after Unlock to avoid blocking the lock.
 	var oldDriver core.Driver
-	if d, exists := e.drivers[config.Name]; exists {
+	if d, exists := r.drivers[config.Name]; exists {
 		oldDriver = d
-		delete(e.drivers, config.Name)
-		delete(e.tagGroups, config.Name)
+		delete(r.drivers, config.Name)
+		delete(r.tagGroups, config.Name)
 	}
-	e.mu.Unlock()
+	r.eng.mu.Unlock()
 
 	// Stop the old driver outside the lock — it's already removed from the
 	// map, so no concurrent caller can interact with it.
 	if oldDriver != nil {
-		if e.scheduler != nil {
-			if err := e.scheduler.PauseDriver(config.Name); err != nil {
+		if r.eng.scheduler != nil {
+			if err := r.eng.scheduler.PauseDriver(config.Name); err != nil {
 				slog.Error("failed to pause old driver in scheduler", "name", config.Name, "error", err)
 			}
 		}
@@ -78,8 +110,8 @@ func (e *CoreCEngine) AddDriver(config core.DriverConfig) error {
 		}
 	}
 
-	e.mu.Lock()
-	e.drivers[config.Name] = driver
+	r.eng.mu.Lock()
+	r.drivers[config.Name] = driver
 
 	// Build tag -> group map for DataPoint.Group enrichment in onDriverData.
 	// Only tags that declare a group are stored, keeping the map small.
@@ -89,61 +121,61 @@ func (e *CoreCEngine) AddDriver(config core.DriverConfig) error {
 			tagGroups[t.Name] = t.Group
 		}
 	}
-	e.tagGroups[config.Name] = tagGroups
-	e.mu.Unlock()
+	r.tagGroups[config.Name] = tagGroups
+	r.eng.mu.Unlock()
 
 	// Schedule collection tasks based on tag intervals
-	e.scheduleDriverTags(config)
+	r.scheduleDriverTags(config)
 
 	// Store config for tag-file watcher rebuilds.
-	e.mu.Lock()
-	e.driverConfigs[config.Name] = config
-	e.mu.Unlock()
+	r.eng.mu.Lock()
+	r.driverConfigs[config.Name] = config
+	r.eng.mu.Unlock()
 
 	// Start tag-file watcher if configured.
-	e.startTagFileWatcher(config)
+	r.startTagFileWatcher(config)
 
 	slog.Info("driver added", "name", config.Name, "type", config.Type, "tags", len(config.Tags))
 	return nil
 }
 
-func (e *CoreCEngine) RemoveDriver(name string) error {
+func (r *driverRegistry) RemoveDriver(name string) error {
 	// Stop tag-file watcher first so it doesn't try to reload a
 	// driver that's being removed.
-	e.stopTagFileWatcher(name)
+	r.stopTagFileWatcher(name)
 
-	e.mu.Lock()
-	driver, ok := e.drivers[name]
+	r.eng.mu.Lock()
+	driver, ok := r.drivers[name]
 	if !ok {
-		e.mu.Unlock()
+		r.eng.mu.Unlock()
 		return fmt.Errorf("driver not found: %s", name)
 	}
-	delete(e.drivers, name)
-	delete(e.tagGroups, name)
-	delete(e.driverConfigs, name)
-	e.mu.Unlock()
+	delete(r.drivers, name)
+	delete(r.tagGroups, name)
+	delete(r.driverConfigs, name)
+	r.eng.mu.Unlock()
 
-	if e.scheduler != nil {
+	if r.eng.scheduler != nil {
 		// Remove all scheduler tasks for this driver so their goroutines
 		// actually exit, instead of just pausing them and leaving the
 		// goroutines running forever (problem 3).
-		e.scheduler.RemoveDriverTasks(name)
+		r.eng.scheduler.RemoveDriverTasks(name)
 	}
 	return driver.Stop()
 }
 
-func (e *CoreCEngine) GetDriver(name string) (core.Driver, bool) {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	d, ok := e.drivers[name]
+func (r *driverRegistry) GetDriver(name string) (core.Driver, bool) {
+	r.eng.mu.RLock()
+	defer r.eng.mu.RUnlock()
+	d, ok := r.drivers[name]
 	return d, ok
 }
 
-func (e *CoreCEngine) ListDrivers() []core.DriverStatus {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	result := make([]core.DriverStatus, 0, len(e.drivers))
-	for _, d := range e.drivers {
+func (r *driverRegistry) ListDrivers() []core.DriverStatus {
+	r.eng.mu.RLock()
+	defer r.eng.mu.RUnlock()
+	result := make([]core.DriverStatus, 0, len(r.drivers))
+	for _, d := range r.drivers {
 		result = append(result, d.Status())
 	}
 	return result
@@ -156,7 +188,7 @@ func (e *CoreCEngine) readFromDriver(ctx context.Context, driver string, tags []
 	span.SetAttr("tag_count", len(tags))
 
 	e.mu.RLock()
-	d, ok := e.drivers[driver]
+	d, ok := e.driverReg.drivers[driver]
 	e.mu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("driver not found: %s", driver)
@@ -179,7 +211,7 @@ func (e *CoreCEngine) onDriverData(driver string, values []core.TagValue, priori
 	// field to DriverConfig (driver-wide) or TagConfig (per-tag) and store
 	// it alongside tagGroups, then set point.Device below.
 	e.mu.RLock()
-	groups := e.tagGroups[driver]
+	groups := e.driverReg.tagGroups[driver]
 	e.mu.RUnlock()
 
 	// Route to the high-priority channel when the task's priority is > 0
@@ -211,7 +243,7 @@ func (e *CoreCEngine) onDriverData(driver string, values []core.TagValue, priori
 	}
 }
 
-func (e *CoreCEngine) scheduleDriverTags(config core.DriverConfig) {
+func (r *driverRegistry) scheduleDriverTags(config core.DriverConfig) {
 	// Group tags by their parsed interval so that equivalent spellings
 	// (e.g. "1s" and "1000ms") collapse into a single task instead of
 	// creating duplicate tasks with the same cadence.
@@ -222,7 +254,7 @@ func (e *CoreCEngine) scheduleDriverTags(config core.DriverConfig) {
 	// so the effective timeout is the most generous one requested.
 	readTimeouts := make(map[time.Duration]time.Duration)
 	for _, tag := range config.Tags {
-		interval := e.defaultTagInterval
+		interval := r.eng.defaultTagInterval
 		if tag.Interval != "" {
 			if d, err := time.ParseDuration(tag.Interval); err == nil && d > 0 {
 				interval = d
@@ -253,7 +285,7 @@ func (e *CoreCEngine) scheduleDriverTags(config core.DriverConfig) {
 		if interval > 0 && interval <= core.DefaultHighPriorityInterval {
 			priority = 1
 		}
-		if err := e.scheduler.AddTask(core.ScheduleTask{
+		if err := r.eng.scheduler.AddTask(core.ScheduleTask{
 			ID:          taskID,
 			Driver:      config.Name,
 			Tags:        tags,
@@ -265,4 +297,41 @@ func (e *CoreCEngine) scheduleDriverTags(config core.DriverConfig) {
 			slog.Error("failed to add schedule task", "task", taskID, "error", err)
 		}
 	}
+}
+
+// hasDriver reports whether a driver with the given name is registered.
+func (r *driverRegistry) hasDriver(name string) bool {
+	r.eng.mu.RLock()
+	defer r.eng.mu.RUnlock()
+	_, ok := r.drivers[name]
+	return ok
+}
+
+// startDrivers initializes and starts all configured drivers.
+func (r *driverRegistry) startDrivers(config *core.Config) error {
+	for _, dc := range config.Drivers {
+		if err := r.AddDriver(dc); err != nil {
+			slog.Error("failed to add driver", "name", dc.Name, "error", err)
+			return fmt.Errorf("failed to add driver %s: %w", dc.Name, err)
+		}
+	}
+	return nil
+}
+
+// --- CoreCEngine forwarders (core.DriverManager) ---
+
+func (e *CoreCEngine) AddDriver(config core.DriverConfig) error {
+	return e.driverReg.AddDriver(config)
+}
+
+func (e *CoreCEngine) RemoveDriver(name string) error {
+	return e.driverReg.RemoveDriver(name)
+}
+
+func (e *CoreCEngine) GetDriver(name string) (core.Driver, bool) {
+	return e.driverReg.GetDriver(name)
+}
+
+func (e *CoreCEngine) ListDrivers() []core.DriverStatus {
+	return e.driverReg.ListDrivers()
 }

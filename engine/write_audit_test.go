@@ -18,7 +18,7 @@ import (
 
 func TestWriteTagAuditsSuccessfulWrite(t *testing.T) {
 	e := newTestEngine(t)
-	e.drivers["plc"] = newRecordingDriver("plc")
+	e.driverReg.drivers["plc"] = newRecordingDriver("plc")
 
 	res, err := e.WriteTag(context.Background(), core.WriteCommand{
 		Driver: "plc",
@@ -58,7 +58,7 @@ func TestWriteTagAuditsFailedWrite(t *testing.T) {
 	e := newTestEngine(t)
 	drv := &failingDriver{}
 	drv.name = "plc"
-	e.drivers["plc"] = drv
+	e.driverReg.drivers["plc"] = drv
 
 	res, err := e.WriteTag(context.Background(), core.WriteCommand{Driver: "plc", Tag: "setpoint", Value: 1})
 	if err != nil || res == nil {
@@ -108,7 +108,7 @@ func TestWriteHistoryEmptyIsNonNil(t *testing.T) {
 
 func TestWriteHistoryNewestFirstAndRingEviction(t *testing.T) {
 	e := newTestEngine(t)
-	e.drivers["plc"] = newRecordingDriver("plc")
+	e.driverReg.drivers["plc"] = newRecordingDriver("plc")
 
 	const total = writeAuditCapacity + 5
 	for i := 0; i < total; i++ {
@@ -147,7 +147,7 @@ func TestCommandListenerStampsAuditSource(t *testing.T) {
 	e.commandSem = make(chan struct{}, 1)
 
 	drv := newRecordingDriver("plc")
-	e.drivers["plc"] = drv
+	e.driverReg.drivers["plc"] = drv
 
 	tr := &mockTransport{name: "cmd-tr"}
 	tr.cmdCh = make(chan core.WriteCommand, 1)

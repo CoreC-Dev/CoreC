@@ -11,7 +11,7 @@ import (
 
 // startTagFileWatcher starts a hot-reload watcher for a driver's tags-file
 // if both TagsFile and TagsInterval are configured.
-func (e *CoreCEngine) startTagFileWatcher(config core.DriverConfig) {
+func (r *driverRegistry) startTagFileWatcher(config core.DriverConfig) {
 	if config.TagsFile == "" || config.TagsInterval == "" {
 		return
 	}
@@ -35,9 +35,9 @@ func (e *CoreCEngine) startTagFileWatcher(config core.DriverConfig) {
 	// keeps running, and no new watcher is started — so no goroutine leaks.
 	driverName := config.Name
 	onReload := func(newTags []core.TagConfig) error {
-		e.mu.RLock()
-		baseCfg, ok := e.driverConfigs[driverName]
-		e.mu.RUnlock()
+		r.eng.mu.RLock()
+		baseCfg, ok := r.driverConfigs[driverName]
+		r.eng.mu.RUnlock()
 		if !ok {
 			return fmt.Errorf("driver %s config not found during tag-file reload", driverName)
 		}
@@ -50,7 +50,7 @@ func (e *CoreCEngine) startTagFileWatcher(config core.DriverConfig) {
 		slog.Info("reloading driver from tags-file",
 			"driver", driverName, "old_tags", len(baseCfg.Tags), "new_tags", len(newTags))
 
-		if err := e.reloadDriverTags(updatedCfg); err != nil {
+		if err := r.reloadDriverTags(updatedCfg); err != nil {
 			return fmt.Errorf("failed to reload driver with new tags: %w", err)
 		}
 		return nil
@@ -63,9 +63,9 @@ func (e *CoreCEngine) startTagFileWatcher(config core.DriverConfig) {
 		return
 	}
 
-	e.mu.Lock()
-	e.tagFileWatchers[config.Name] = w
-	e.mu.Unlock()
+	r.eng.mu.Lock()
+	r.tagFileWatchers[config.Name] = w
+	r.eng.mu.Unlock()
 }
 
 // reloadDriverTags swaps a driver's tags in place without starting a new
@@ -76,17 +76,17 @@ func (e *CoreCEngine) startTagFileWatcher(config core.DriverConfig) {
 // It mirrors AddDriver but deliberately skips startTagFileWatcher and
 // never touches the tagFileWatchers map. The existing watcher continues
 // to poll the same file and will fire this same swap on the next change.
-func (e *CoreCEngine) reloadDriverTags(config core.DriverConfig) error {
+func (r *driverRegistry) reloadDriverTags(config core.DriverConfig) error {
 	// Create and start the new driver first. If this fails, the old
 	// driver is left untouched in the maps.
 	driver, err := core.CreateDriver(config)
 	if err != nil {
 		return fmt.Errorf("failed to create driver %s: %w", config.Name, err)
 	}
-	if err := driver.Init(e.ctx, config); err != nil {
+	if err := driver.Init(r.eng.ctx, config); err != nil {
 		return fmt.Errorf("failed to init driver %s: %w", config.Name, err)
 	}
-	if err := driver.Start(e.ctx); err != nil {
+	if err := driver.Start(r.eng.ctx); err != nil {
 		return fmt.Errorf("failed to start driver %s: %w", config.Name, err)
 	}
 
@@ -96,17 +96,17 @@ func (e *CoreCEngine) reloadDriverTags(config core.DriverConfig) error {
 	// remain in the map so Stop() can still reach it and so it can
 	// detect future changes. Calling w.stop() here would deadlock
 	// (w.stop() waits for loop(), which is blocked in us).
-	e.mu.Lock()
-	oldDriver, ok := e.drivers[config.Name]
+	r.eng.mu.Lock()
+	oldDriver, ok := r.drivers[config.Name]
 	if ok {
-		delete(e.drivers, config.Name)
-		delete(e.tagGroups, config.Name)
+		delete(r.drivers, config.Name)
+		delete(r.tagGroups, config.Name)
 	}
-	e.mu.Unlock()
+	r.eng.mu.Unlock()
 
 	if ok {
-		if e.scheduler != nil {
-			e.scheduler.RemoveDriverTasks(config.Name)
+		if r.eng.scheduler != nil {
+			r.eng.scheduler.RemoveDriverTasks(config.Name)
 		}
 		if err := oldDriver.Stop(); err != nil {
 			slog.Error("failed to stop old driver for tag reload",
@@ -115,20 +115,20 @@ func (e *CoreCEngine) reloadDriverTags(config core.DriverConfig) error {
 	}
 
 	// Install the new driver and refresh its config + tag-group map.
-	e.mu.Lock()
-	e.drivers[config.Name] = driver
+	r.eng.mu.Lock()
+	r.drivers[config.Name] = driver
 	tagGroups := make(map[string]string, len(config.Tags))
 	for _, t := range config.Tags {
 		if t.Group != "" {
 			tagGroups[t.Name] = t.Group
 		}
 	}
-	e.tagGroups[config.Name] = tagGroups
-	e.driverConfigs[config.Name] = config
-	e.mu.Unlock()
+	r.tagGroups[config.Name] = tagGroups
+	r.driverConfigs[config.Name] = config
+	r.eng.mu.Unlock()
 
 	// Schedule collection tasks for the new tags.
-	e.scheduleDriverTags(config)
+	r.scheduleDriverTags(config)
 
 	slog.Info("driver reloaded from tags-file",
 		"name", config.Name, "type", config.Type, "tags", len(config.Tags))
@@ -136,27 +136,27 @@ func (e *CoreCEngine) reloadDriverTags(config core.DriverConfig) error {
 }
 
 // stopTagFileWatcher stops the watcher for a specific driver if one exists.
-func (e *CoreCEngine) stopTagFileWatcher(name string) {
-	e.mu.Lock()
-	w, ok := e.tagFileWatchers[name]
+func (r *driverRegistry) stopTagFileWatcher(name string) {
+	r.eng.mu.Lock()
+	w, ok := r.tagFileWatchers[name]
 	if ok {
-		delete(e.tagFileWatchers, name)
+		delete(r.tagFileWatchers, name)
 	}
-	e.mu.Unlock()
+	r.eng.mu.Unlock()
 	if ok {
 		w.stop()
 	}
 }
 
 // stopAllTagFileWatchers stops all active tag-file watchers.
-func (e *CoreCEngine) stopAllTagFileWatchers() {
-	e.mu.Lock()
-	watchers := make([]*tagFileWatcher, 0, len(e.tagFileWatchers))
-	for name, w := range e.tagFileWatchers {
+func (r *driverRegistry) stopAllTagFileWatchers() {
+	r.eng.mu.Lock()
+	watchers := make([]*tagFileWatcher, 0, len(r.tagFileWatchers))
+	for name, w := range r.tagFileWatchers {
 		watchers = append(watchers, w)
-		delete(e.tagFileWatchers, name)
+		delete(r.tagFileWatchers, name)
 	}
-	e.mu.Unlock()
+	r.eng.mu.Unlock()
 	for _, w := range watchers {
 		w.stop()
 	}

@@ -25,7 +25,6 @@ type CoreCEngine struct {
 	status core.EngineStatus
 
 	// Components
-	drivers      map[string]core.Driver
 	transports   map[string]core.Transport
 	transportCfg map[string]core.TransportConfig // for fallback lookups
 	batchers     map[string]*transportBatcher
@@ -42,17 +41,10 @@ type CoreCEngine struct {
 	ruleSet          *ruleRole
 	reads            *readAccessor
 	stats            *statsCollector
+	driverReg        *driverRegistry
 	scheduler        *scheduler
 	dataBus          *DataBus
 	cache            *LatestCache
-
-	// tagGroups maps driver name -> tag name -> group.
-	// Populated from TagConfig.Group in AddDriver and consulted in
-	// onDriverData to enrich DataPoint.Group. The scheduler only forwards
-	// []TagValue (which carries the tag name but not its group), so without
-	// this map the Group would always be empty — breaking rules like
-	// "group == 'reactor'" and MQTT topic templates like ".../{{.Group}}/...".
-	tagGroups map[string]map[string]string
 
 	// Alert handlers
 	alertHandlers []func(point core.DataPoint, rule core.Rule)
@@ -111,14 +103,6 @@ type CoreCEngine struct {
 	writeAuditMu      sync.Mutex
 	writeAuditHistory []core.WriteAuditEntry
 
-	// tagFileWatchers tracks per-driver hot-reload watchers for tags-file.
-	// Keyed by driver name; nil entry means no watcher for that driver.
-	tagFileWatchers map[string]*tagFileWatcher
-
-	// driverConfigs stores the last-applied DriverConfig per driver name,
-	// so tag-file watchers can rebuild the config with updated tags.
-	driverConfigs map[string]core.DriverConfig
-
 	// Lifecycle
 	ctx       context.Context
 	parentCtx context.Context // saved from Start() for Reload()
@@ -158,12 +142,14 @@ func parseBadQualityPolicy(s string) (badQualityPolicy, error) {
 // nil, or the forwarders would dereference them).
 func newEngineShell() *CoreCEngine {
 	e := &CoreCEngine{
-		ruleSet: &ruleRole{},
-		reads:   &readAccessor{},
-		stats:   &statsCollector{},
+		ruleSet:   &ruleRole{},
+		reads:     &readAccessor{},
+		stats:     &statsCollector{},
+		driverReg: &driverRegistry{},
 	}
 	e.reads.eng = e
 	e.stats.eng = e
+	e.driverReg.eng = e
 	return e
 }
 
@@ -171,12 +157,12 @@ func newEngineShell() *CoreCEngine {
 func New() core.Engine {
 	e := newEngineShell()
 	e.status = core.EngineStatusStopped
-	e.drivers = make(map[string]core.Driver)
+	e.driverReg.drivers = make(map[string]core.Driver)
 	e.transports = make(map[string]core.Transport)
 	e.transportCfg = make(map[string]core.TransportConfig)
 	e.transportCancels = make(map[string]context.CancelFunc)
 	e.batchers = make(map[string]*transportBatcher)
-	e.tagGroups = make(map[string]map[string]string)
+	e.driverReg.tagGroups = make(map[string]map[string]string)
 	e.ruleSet.ruleEngine = rule.NewEngine()
 	e.cache = NewLatestCache()
 	e.numWorkers = runtime.NumCPU()
@@ -190,8 +176,8 @@ func New() core.Engine {
 	e.numHighPriorityWorkers = core.DefaultHighPriorityWorkers
 	e.stats.statManager = statistic.NewManager()
 	e.deadLetterMaxLen = core.DefaultDeadLetterMaxLen
-	e.tagFileWatchers = make(map[string]*tagFileWatcher)
-	e.driverConfigs = make(map[string]core.DriverConfig)
+	e.driverReg.tagFileWatchers = make(map[string]*tagFileWatcher)
+	e.driverReg.driverConfigs = make(map[string]core.DriverConfig)
 	e.stats.readLatency = metrics.NewLatencyHistogram(metrics.DefaultReadLatencyBuckets)
 	e.stats.publishLatency = metrics.NewLatencyHistogram(metrics.DefaultPublishLatencyBuckets)
 	e.stats.dataAge = metrics.NewLatencyHistogram(metrics.DefaultDataAgeBuckets)

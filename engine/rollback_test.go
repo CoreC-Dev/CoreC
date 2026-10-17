@@ -44,7 +44,7 @@ var (
 // populate with components.
 func newRollbackEngine() *CoreCEngine {
 	e := newEngineShell()
-	e.drivers = make(map[string]core.Driver)
+	e.driverReg.drivers = make(map[string]core.Driver)
 	e.transports = make(map[string]core.Transport)
 	e.batchers = make(map[string]*transportBatcher)
 	e.ctx, e.cancel = context.WithCancel(context.Background())
@@ -71,7 +71,7 @@ func TestRollbackStartWithComponents(t *testing.T) {
 	// A started mock driver and transport in the component maps.
 	d := &mockDriverWithState{}
 	d.name = "d1"
-	e.drivers["d1"] = d
+	e.driverReg.drivers["d1"] = d
 
 	tr := &mockTransportWithData{}
 	tr.name = "t1"
@@ -84,8 +84,8 @@ func TestRollbackStartWithComponents(t *testing.T) {
 
 	e.rollbackStart()
 
-	if len(e.drivers) != 0 {
-		t.Errorf("drivers map not cleared: got %d entries", len(e.drivers))
+	if len(e.driverReg.drivers) != 0 {
+		t.Errorf("drivers map not cleared: got %d entries", len(e.driverReg.drivers))
 	}
 	if len(e.transports) != 0 {
 		t.Errorf("transports map not cleared: got %d entries", len(e.transports))
@@ -117,9 +117,9 @@ func TestRollbackStartNilSchedulerAndDataBus(t *testing.T) {
 	if e.ctx.Err() == nil {
 		t.Error("engine context was not cancelled by rollback")
 	}
-	if len(e.drivers) != 0 || len(e.transports) != 0 || len(e.batchers) != 0 {
+	if len(e.driverReg.drivers) != 0 || len(e.transports) != 0 || len(e.batchers) != 0 {
 		t.Errorf("component maps not empty after rollback: drivers=%d transports=%d batchers=%d",
-			len(e.drivers), len(e.transports), len(e.batchers))
+			len(e.driverReg.drivers), len(e.transports), len(e.batchers))
 	}
 }
 
@@ -128,7 +128,7 @@ func TestRollbackStartNilSchedulerAndDataBus(t *testing.T) {
 // does not panic and leaves the status stopped.
 func TestRollbackStartEmpty(t *testing.T) {
 	e := newEngineShell()
-	e.drivers = make(map[string]core.Driver)
+	e.driverReg.drivers = make(map[string]core.Driver)
 	e.transports = make(map[string]core.Transport)
 	e.batchers = make(map[string]*transportBatcher)
 	// e.cancel, e.scheduler, e.dataBus all nil.
@@ -146,13 +146,13 @@ func TestRollbackStartEmpty(t *testing.T) {
 func TestRollbackStartWithErroringComponents(t *testing.T) {
 	e := newRollbackEngine()
 
-	e.drivers["bad-d"] = &rollbackErrDriver{}
+	e.driverReg.drivers["bad-d"] = &rollbackErrDriver{}
 	e.transports["bad-t"] = &rollbackErrTransport{}
 
 	e.rollbackStart()
 
-	if len(e.drivers) != 0 {
-		t.Errorf("drivers map not cleared: got %d entries", len(e.drivers))
+	if len(e.driverReg.drivers) != 0 {
+		t.Errorf("drivers map not cleared: got %d entries", len(e.driverReg.drivers))
 	}
 	if len(e.transports) != 0 {
 		t.Errorf("transports map not cleared: got %d entries", len(e.transports))

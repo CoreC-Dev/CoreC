@@ -30,7 +30,7 @@ type readAccessor struct {
 // ReadTag reads a single tag value synchronously from its driver.
 func (a *readAccessor) ReadTag(ctx context.Context, driver, tag string) (*core.TagValue, error) {
 	a.eng.mu.RLock()
-	d, ok := a.eng.drivers[driver]
+	d, ok := a.eng.driverReg.drivers[driver]
 	a.eng.mu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("driver not found: %s", driver)
