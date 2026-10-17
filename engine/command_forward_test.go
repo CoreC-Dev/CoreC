@@ -147,12 +147,11 @@ func (t *plainTransport) Status() core.TransportStatus        { return t.status 
 // e.transports directly.
 func newTestEngine(t *testing.T) *CoreCEngine {
 	t.Helper()
-	e := &CoreCEngine{
-		drivers:          make(map[string]core.Driver),
-		transports:       make(map[string]core.Transport),
-		writeRetryCount:  0, // single attempt: keeps failure tests fast
-		deadLetterMaxLen: 1000,
-	}
+	e := newEngineShell()
+	e.drivers = make(map[string]core.Driver)
+	e.transports = make(map[string]core.Transport)
+	e.writeRetryCount = 0 // single attempt: keeps failure tests fast
+	e.deadLetterMaxLen = 1000
 	e.ctx, e.cancel = context.WithCancel(context.Background())
 	t.Cleanup(e.cancel)
 	return e

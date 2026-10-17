@@ -111,7 +111,7 @@ func TestEngineHighPriorityWorkersProcessData(t *testing.T) {
 
 	e.dataBus = NewDataBus(4096)
 	e.cache = NewLatestCache()
-	e.ruleEngine = rule.NewEngine() // empty: Match returns nil → processPoint returns after cache update
+	e.ruleSet.ruleEngine = rule.NewEngine() // empty: Match returns nil → processPoint returns after cache update
 
 	// Start one normal worker and one high-priority worker.
 	e.wg.Add(2)

@@ -150,7 +150,7 @@ func TestReloadClosesRuleProviders(t *testing.T) {
 	e := eng.(*CoreCEngine)
 
 	// Verify provider exists
-	if count := e.ruleEngine.ProviderCount(); count != 1 {
+	if count := e.ruleSet.ruleEngine.ProviderCount(); count != 1 {
 		t.Fatalf("expected 1 provider, got %d", count)
 	}
 
@@ -167,7 +167,7 @@ func TestReloadClosesRuleProviders(t *testing.T) {
 	}
 
 	// Verify old providers are closed and removed
-	if count := e.ruleEngine.ProviderCount(); count != 0 {
+	if count := e.ruleSet.ruleEngine.ProviderCount(); count != 0 {
 		t.Errorf("expected 0 providers after reload with no providers, got %d", count)
 	}
 }

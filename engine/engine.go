@@ -40,7 +40,7 @@ type CoreCEngine struct {
 	// RemoveTransport (MQTTTransport.Stop deliberately does not close its
 	// command/data channels).
 	transportCancels map[string]context.CancelFunc
-	ruleEngine       core.RuleEngine
+	ruleSet          *ruleRole
 	scheduler        *scheduler
 	dataBus          *DataBus
 	cache            *LatestCache
@@ -179,33 +179,44 @@ func parseBadQualityPolicy(s string) (badQualityPolicy, error) {
 	}
 }
 
+// newEngineShell allocates the engine composition: the CoreCEngine with
+// every role struct created (zero-valued) and wired. New() applies the
+// production defaults on top; tests use it to build bare engines with
+// partial state instead of a struct literal (the roles must never be
+// nil, or the forwarders would dereference them).
+func newEngineShell() *CoreCEngine {
+	return &CoreCEngine{
+		ruleSet: &ruleRole{},
+	}
+}
+
 // New creates a new CoreC Engine instance.
 func New() core.Engine {
-	return &CoreCEngine{
-		status:                 core.EngineStatusStopped,
-		drivers:                make(map[string]core.Driver),
-		transports:             make(map[string]core.Transport),
-		transportCfg:           make(map[string]core.TransportConfig),
-		transportCancels:       make(map[string]context.CancelFunc),
-		batchers:               make(map[string]*transportBatcher),
-		tagGroups:              make(map[string]map[string]string),
-		ruleEngine:             rule.NewEngine(),
-		cache:                  NewLatestCache(),
-		numWorkers:             runtime.NumCPU(),
-		dataBusSize:            core.DefaultDataBusSize,
-		shutdownTimeout:        core.DefaultShutdownTimeout,
-		errorThrottleWin:       core.DefaultErrorThrottleWindow,
-		defaultTagInterval:     core.DefaultTagInterval,
-		badQualityPolicy:       badQualityPublish,
-		writeRetryCount:        3,
-		commandConcurrency:     core.DefaultCommandConcurrency,
-		numHighPriorityWorkers: core.DefaultHighPriorityWorkers,
-		statManager:            statistic.NewManager(),
-		deadLetterMaxLen:       core.DefaultDeadLetterMaxLen,
-		tagFileWatchers:        make(map[string]*tagFileWatcher),
-		driverConfigs:          make(map[string]core.DriverConfig),
-		readLatency:            metrics.NewLatencyHistogram(metrics.DefaultReadLatencyBuckets),
-		publishLatency:         metrics.NewLatencyHistogram(metrics.DefaultPublishLatencyBuckets),
-		dataAge:                metrics.NewLatencyHistogram(metrics.DefaultDataAgeBuckets),
-	}
+	e := newEngineShell()
+	e.status = core.EngineStatusStopped
+	e.drivers = make(map[string]core.Driver)
+	e.transports = make(map[string]core.Transport)
+	e.transportCfg = make(map[string]core.TransportConfig)
+	e.transportCancels = make(map[string]context.CancelFunc)
+	e.batchers = make(map[string]*transportBatcher)
+	e.tagGroups = make(map[string]map[string]string)
+	e.ruleSet.ruleEngine = rule.NewEngine()
+	e.cache = NewLatestCache()
+	e.numWorkers = runtime.NumCPU()
+	e.dataBusSize = core.DefaultDataBusSize
+	e.shutdownTimeout = core.DefaultShutdownTimeout
+	e.errorThrottleWin = core.DefaultErrorThrottleWindow
+	e.defaultTagInterval = core.DefaultTagInterval
+	e.badQualityPolicy = badQualityPublish
+	e.writeRetryCount = 3
+	e.commandConcurrency = core.DefaultCommandConcurrency
+	e.numHighPriorityWorkers = core.DefaultHighPriorityWorkers
+	e.statManager = statistic.NewManager()
+	e.deadLetterMaxLen = core.DefaultDeadLetterMaxLen
+	e.tagFileWatchers = make(map[string]*tagFileWatcher)
+	e.driverConfigs = make(map[string]core.DriverConfig)
+	e.readLatency = metrics.NewLatencyHistogram(metrics.DefaultReadLatencyBuckets)
+	e.publishLatency = metrics.NewLatencyHistogram(metrics.DefaultPublishLatencyBuckets)
+	e.dataAge = metrics.NewLatencyHistogram(metrics.DefaultDataAgeBuckets)
+	return e
 }

@@ -43,11 +43,10 @@ var (
 // context/cancel, in the Running state, ready for rollbackStart tests to
 // populate with components.
 func newRollbackEngine() *CoreCEngine {
-	e := &CoreCEngine{
-		drivers:    make(map[string]core.Driver),
-		transports: make(map[string]core.Transport),
-		batchers:   make(map[string]*transportBatcher),
-	}
+	e := newEngineShell()
+	e.drivers = make(map[string]core.Driver)
+	e.transports = make(map[string]core.Transport)
+	e.batchers = make(map[string]*transportBatcher)
 	e.ctx, e.cancel = context.WithCancel(context.Background())
 	e.status = core.EngineStatusRunning
 	return e
@@ -128,11 +127,10 @@ func TestRollbackStartNilSchedulerAndDataBus(t *testing.T) {
 // components at all (no cancel, no scheduler, no data bus, empty maps)
 // does not panic and leaves the status stopped.
 func TestRollbackStartEmpty(t *testing.T) {
-	e := &CoreCEngine{
-		drivers:    make(map[string]core.Driver),
-		transports: make(map[string]core.Transport),
-		batchers:   make(map[string]*transportBatcher),
-	}
+	e := newEngineShell()
+	e.drivers = make(map[string]core.Driver)
+	e.transports = make(map[string]core.Transport)
+	e.batchers = make(map[string]*transportBatcher)
 	// e.cancel, e.scheduler, e.dataBus all nil.
 
 	e.rollbackStart()

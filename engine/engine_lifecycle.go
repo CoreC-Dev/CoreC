@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/CoreC-Dev/CoreC/core"
-	"github.com/CoreC-Dev/CoreC/rule"
 )
 
 func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error {
@@ -79,7 +78,7 @@ func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error {
 		return err
 	}
 
-	if err := e.initRules(config); err != nil {
+	if err := e.ruleSet.initRules(config); err != nil {
 		return err
 	}
 
@@ -144,29 +143,6 @@ func (e *CoreCEngine) startTransports(config *core.Config) error {
 			slog.Error("failed to add transport", "name", tc.Name, "error", err)
 			return fmt.Errorf("failed to add transport %s: %w", tc.Name, err)
 		}
-	}
-	return nil
-}
-
-// initRules sets up rule providers, sub-rule groups, and top-level rules.
-func (e *CoreCEngine) initRules(config *core.Config) error {
-	for _, pc := range config.RuleProviders {
-		p, err := rule.NewFileProvider(pc.Name, pc.Path, pc.Interval)
-		if err != nil {
-			slog.Error("failed to create rule provider", "name", pc.Name, "error", err)
-			return fmt.Errorf("failed to create rule provider %s: %w", pc.Name, err)
-		}
-		e.ruleEngine.AddProvider(p)
-	}
-
-	if len(config.RuleGroups) > 0 {
-		if err := e.ruleEngine.SetSubRules(config.RuleGroups); err != nil {
-			return fmt.Errorf("failed to set sub-rules: %w", err)
-		}
-	}
-
-	if err := e.SetRules(config.Rules); err != nil {
-		return fmt.Errorf("failed to set rules: %w", err)
 	}
 	return nil
 }
@@ -316,8 +292,8 @@ func (e *CoreCEngine) rollbackStart() {
 
 	// Close rule providers and tag-file watchers — without these, a partial
 	// start leaks reload-loop and watcher goroutines (BE-1).
-	if e.ruleEngine != nil {
-		e.ruleEngine.CloseProviders()
+	if e.ruleSet.ruleEngine != nil {
+		e.ruleSet.ruleEngine.CloseProviders()
 	}
 	e.stopAllTagFileWatchers()
 
@@ -414,8 +390,8 @@ func (e *CoreCEngine) stopComponents() {
 	}
 
 	// Close rule providers to stop their reload-loop goroutines.
-	if e.ruleEngine != nil {
-		e.ruleEngine.CloseProviders()
+	if e.ruleSet.ruleEngine != nil {
+		e.ruleSet.ruleEngine.CloseProviders()
 	}
 
 	// Stop all tag-file watchers to prevent goroutine leaks on reload.

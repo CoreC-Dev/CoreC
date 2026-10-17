@@ -133,7 +133,7 @@ func TestBadQualityAlertPolicyFiresWithoutRuleMatch(t *testing.T) {
 	})
 	e.dataBus = NewDataBus(4096)
 	e.cache = NewLatestCache()
-	e.ruleEngine = rule.NewEngine() // zero rules: the B5-1 minimal repro
+	e.ruleSet.ruleEngine = rule.NewEngine() // zero rules: the B5-1 minimal repro
 	e.badQualityPolicy = badQualityAlert
 
 	type alertEvent struct {
@@ -180,10 +180,10 @@ func TestBadQualityAlertPolicyNoDuplicateWithAlertRule(t *testing.T) {
 	})
 	e.dataBus = NewDataBus(4096)
 	e.cache = NewLatestCache()
-	e.ruleEngine = rule.NewEngine()
+	e.ruleSet.ruleEngine = rule.NewEngine()
 	e.badQualityPolicy = badQualityAlert
 
-	if err := e.ruleEngine.SetRules([]core.RuleConfig{
+	if err := e.ruleSet.ruleEngine.SetRules([]core.RuleConfig{
 		{Name: "alert-on-bad", Match: "quality == 'bad'", Action: "alert", Priority: 1},
 	}); err != nil {
 		t.Fatalf("SetRules: %v", err)

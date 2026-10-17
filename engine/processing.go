@@ -84,7 +84,7 @@ func (e *CoreCEngine) processPoint(point core.DataPoint) {
 	// All rules are matched against the ORIGINAL point; transforms in the
 	// action loop below mutate the point for publishing but do not affect
 	// which rules matched (see ADR-010 § Limitations).
-	results := e.ruleEngine.Match(point)
+	results := e.ruleSet.ruleEngine.Match(point)
 	if len(results) == 0 {
 		return
 	}
