@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/CoreC-Dev/CoreC/core"
@@ -350,6 +351,78 @@ func TestIdleWarnings(t *testing.T) {
 	t.Run("nil config — no panic", func(t *testing.T) {
 		if w := IdleWarnings(nil); w != nil {
 			t.Fatalf("expected nil for nil config, got %v", w)
+		}
+	})
+}
+
+// TestIdleWarningsBatchTailRetention asserts the stage-B audit finding
+// B1.1 warning: batching enabled with no effective flush interval and no
+// offline buffer means the trailing partial batch can be held
+// indefinitely (until the batch fills or the process exits).
+func TestIdleWarningsBatchTailRetention(t *testing.T) {
+	hasFlushWarn := func(ws []string) bool {
+		for _, s := range ws {
+			if strings.Contains(s, "flush-interval") {
+				return true
+			}
+		}
+		return false
+	}
+
+	t.Run("batch-size without flush-interval warns", func(t *testing.T) {
+		cfg := &core.Config{
+			Transports: []core.TransportConfig{{Name: "mqtt1", BatchSize: 100}},
+		}
+		w := IdleWarnings(cfg)
+		if !hasFlushWarn(w) {
+			t.Fatalf("expected a tail-batch retention warning, got %v", w)
+		}
+	})
+
+	t.Run("retry-count without flush-interval warns", func(t *testing.T) {
+		cfg := &core.Config{
+			Transports: []core.TransportConfig{{Name: "mqtt1", RetryCount: 2}},
+		}
+		if !hasFlushWarn(IdleWarnings(cfg)) {
+			t.Fatal("expected a tail-batch retention warning for retry-count without flush-interval")
+		}
+	})
+
+	t.Run("invalid flush-interval warns as ignored", func(t *testing.T) {
+		cfg := &core.Config{
+			Transports: []core.TransportConfig{{Name: "mqtt1", BatchSize: 10, FlushInterval: "not-a-duration"}},
+		}
+		w := IdleWarnings(cfg)
+		if !hasFlushWarn(w) {
+			t.Fatalf("expected an ignored flush-interval warning, got %v", w)
+		}
+	})
+
+	t.Run("valid flush-interval does not warn", func(t *testing.T) {
+		cfg := &core.Config{
+			Transports: []core.TransportConfig{{Name: "mqtt1", BatchSize: 100, FlushInterval: "5s"}},
+		}
+		if hasFlushWarn(IdleWarnings(cfg)) {
+			t.Fatal("unexpected flush warning for a valid flush-interval")
+		}
+	})
+
+	t.Run("offline buffer enabled does not warn (default flush)", func(t *testing.T) {
+		cfg := &core.Config{
+			Global:     core.GlobalConfig{Buffer: core.BufferConfig{Enabled: true}},
+			Transports: []core.TransportConfig{{Name: "mqtt1", BatchSize: 100}},
+		}
+		if hasFlushWarn(IdleWarnings(cfg)) {
+			t.Fatal("unexpected flush warning with offline buffer enabled (batcher defaults to a periodic flush)")
+		}
+	})
+
+	t.Run("transport without batching does not warn", func(t *testing.T) {
+		cfg := &core.Config{
+			Transports: []core.TransportConfig{{Name: "mqtt1"}},
+		}
+		if hasFlushWarn(IdleWarnings(cfg)) {
+			t.Fatal("unexpected flush warning for a transport without batching")
 		}
 	})
 }

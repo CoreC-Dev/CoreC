@@ -73,6 +73,10 @@ transports:
 若数据稀疏且未设置 `flush-interval`，点会长期滞留队列，**不建议**用于实时场景。建议显式设置一个合理的刷新间隔。
 :::
 
+::: warning 尾批滞留（tail-batch retention）
+仅配置 `batch-size`（或 `retry-count`）而未设置 `flush-interval`、且未启用全局 `buffer` 时，不足一批的尾部数据会**无限期滞留**——直到攒满一批或 CoreC 退出才发送。低速 tag + 大 `batch-size` 下，单点延迟可达 `batch-size × 采集间隔`（如 1 点/分钟 + `batch-size: 100` ≈ 100 分钟）。配置校验（`POST /configs/validate` 响应的 `warnings` 字段）与启动/重载日志都会对此给出非阻塞 warning。启用全局 `buffer` 时批量器会自动补默认 5s 定时刷新，不受此影响；无法解析为正 duration 的 `flush-interval` 会被批量器静默忽略，同样触发该 warning。
+:::
+
 ### retry-count
 
 发送失败后的重试次数。每次重试间隔采用指数退避（base × 2^n）。**默认 `0` 表示不重试**。重试耗尽后，若启用了全局 `buffer`，数据批次写入本地磁盘缓冲待后续回放；否则数据点丢弃并累加 `failed` 计数。

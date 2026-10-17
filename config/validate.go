@@ -97,11 +97,16 @@ func validateDataSources(cfg *core.Config) error {
 	return nil
 }
 
-// IdleWarnings returns human-readable, non-blocking warnings for a config
-// that has no data source and/or no transport. These are logged at startup
-// (cmd/corec) and on reload (hub/executor) so an operator sees that the
-// core is running in idle mode and can configure it via the Dashboard.
-// Returns nil for a config that has both a data source and a transport.
+// IdleWarnings returns human-readable, non-blocking warnings for a
+// config, surfaced through every existing warning channel: logged at
+// startup (cmd/corec) and on reload (hub/executor), and returned by
+// POST /configs/validate. Historically these covered only idle mode
+// (no data source / no transport / no control plane); they now also
+// cover configuration foot-guns that do not block startup but degrade
+// data freshness — e.g. transport batching with no effective flush
+// interval, whose trailing partial batch can then be held indefinitely
+// (stage-B audit finding B1.1). Returns nil for a config with nothing
+// to warn about.
 func IdleWarnings(cfg *core.Config) []string {
 	if cfg == nil {
 		return nil
@@ -115,6 +120,43 @@ func IdleWarnings(cfg *core.Config) []string {
 	}
 	if len(cfg.Transports) == 0 {
 		warnings = append(warnings, "no transport configured — running in idle mode; add a northbound transport via the Dashboard")
+	}
+	warnings = append(warnings, batchingWarnings(cfg)...)
+	return warnings
+}
+
+// batchingWarnings warns for every transport that would run a batcher
+// with no effective flush interval while the offline buffer is
+// disabled. In that combination the trailing partial batch can be held
+// indefinitely — it is only sent when the batch fills or the process
+// exits (stage-B audit finding B1.1: a low-rate tag with a large
+// batch-size and no flush-interval can sit ~batch-size × tag-interval
+// before being published; newTransportBatcher only defaults to a
+// periodic flush when an offline buffer exists). A flush-interval that
+// fails to parse as a positive duration is silently ignored by the
+// batcher and therefore triggers the same warning.
+func batchingWarnings(cfg *core.Config) []string {
+	if cfg.Global.Buffer.Enabled {
+		// With an offline buffer the batcher defaults to a 5s periodic
+		// flush, so tail batches cannot be held indefinitely.
+		return nil
+	}
+	var warnings []string
+	for _, t := range cfg.Transports {
+		// A batcher is created when any of batch-size / flush-interval /
+		// retry-count is set (mirrors newTransportBatcher's nil check).
+		if t.BatchSize <= 0 && t.FlushInterval == "" && t.RetryCount <= 0 {
+			continue
+		}
+		if t.FlushInterval == "" {
+			warnings = append(warnings, fmt.Sprintf(
+				"transport %s: batching is enabled but no flush-interval is set and the offline buffer is disabled — the trailing partial batch may be held indefinitely (until the batch fills or CoreC stops); set flush-interval (e.g. \"5s\") to bound its latency", t.Name))
+			continue
+		}
+		if d, err := time.ParseDuration(t.FlushInterval); err != nil || d <= 0 {
+			warnings = append(warnings, fmt.Sprintf(
+				"transport %s: flush-interval %q is not a positive duration and will be ignored — the trailing partial batch may be held indefinitely; use a value like \"5s\"", t.Name, t.FlushInterval))
+		}
 	}
 	return warnings
 }
