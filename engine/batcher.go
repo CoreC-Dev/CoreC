@@ -257,7 +257,11 @@ func (b *transportBatcher) drainOnce() {
 	if b.offlineBuffer == nil {
 		return
 	}
-	drained, err := b.offlineBuffer.Drain(func(points []core.DataPoint) error {
+	// Pass this batcher's transport name so Drain only replays batches
+	// this transport originally accepted — the buffer is shared across
+	// all batchers and replaying a foreign batch through the wrong
+	// transport would misroute the data (stage-B audit finding B2.3).
+	drained, err := b.offlineBuffer.Drain(b.transport.Name(), func(points []core.DataPoint) error {
 		timeoutCtx, cancel := context.WithTimeout(context.Background(), defaultPublishTimeout)
 		defer cancel()
 		err := b.transport.PublishBatch(timeoutCtx, points)

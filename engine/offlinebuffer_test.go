@@ -36,7 +36,7 @@ func TestOfflineBufferPushDrain(t *testing.T) {
 
 	// Drain both
 	var drainedPoints [][]core.DataPoint
-	drained, err := ob.Drain(func(pts []core.DataPoint) error {
+	drained, err := ob.Drain("mqtt", func(pts []core.DataPoint) error {
 		drainedPoints = append(drainedPoints, pts)
 		return nil
 	})
@@ -71,7 +71,7 @@ func TestOfflineBufferDrainStopsOnError(t *testing.T) {
 
 	// Drain should stop after first failure
 	callCount := 0
-	drained, _ := ob.Drain(func(pts []core.DataPoint) error {
+	drained, _ := ob.Drain("mqtt", func(pts []core.DataPoint) error {
 		callCount++
 		if callCount == 2 {
 			return errMockPublish
@@ -117,7 +117,7 @@ func TestOfflineBufferEviction(t *testing.T) {
 
 	// Drain should get the 3 newest (seq 3, 4, 5)
 	var seqs []uint64
-	ob.Drain(func(pts []core.DataPoint) error {
+	ob.Drain("mqtt", func(pts []core.DataPoint) error {
 		return nil
 	})
 	// After drain, all should be removed
@@ -288,7 +288,7 @@ func TestOfflineBufferDrainCount(t *testing.T) {
 			t.Fatalf("Push %d: %v", i, err)
 		}
 	}
-	drained, err := ob.Drain(func([]core.DataPoint) error { return nil })
+	drained, err := ob.Drain("mqtt", func([]core.DataPoint) error { return nil })
 	if err != nil {
 		t.Fatalf("Drain: %v", err)
 	}
@@ -311,7 +311,7 @@ func TestOfflineBufferDrainCount(t *testing.T) {
 		}
 	}
 	callCount := 0
-	drained, err = ob.Drain(func([]core.DataPoint) error {
+	drained, err = ob.Drain("mqtt", func([]core.DataPoint) error {
 		callCount++
 		if callCount == 2 {
 			return errMockPublish
@@ -332,7 +332,7 @@ func TestOfflineBufferDrainCount(t *testing.T) {
 	}
 
 	// Drain the remaining 2 — DrainCount reaches 6.
-	drained, err = ob.Drain(func([]core.DataPoint) error { return nil })
+	drained, err = ob.Drain("mqtt", func([]core.DataPoint) error { return nil })
 	if err != nil {
 		t.Fatalf("Drain: %v", err)
 	}
@@ -341,5 +341,68 @@ func TestOfflineBufferDrainCount(t *testing.T) {
 	}
 	if got := ob.DrainCount(); got != 6 {
 		t.Fatalf("DrainCount = %d, want 6 after final drain", got)
+	}
+}
+
+// TestOfflineBufferDrainFiltersBySource verifies the B2.3 ownership
+// filter: the buffer is shared across all transport batchers, so a
+// drain for transport B must leave transport A's batches on disk —
+// replaying them through B would misroute the data and delete the
+// file before A ever replays it.
+func TestOfflineBufferDrainFiltersBySource(t *testing.T) {
+	dir := t.TempDir()
+	ob, err := NewOfflineBuffer(dir, 100)
+	if err != nil {
+		t.Fatalf("NewOfflineBuffer: %v", err)
+	}
+	defer ob.Close()
+
+	points := []core.DataPoint{
+		{Driver: "plc", Tag: "temp", Value: 1.0, Timestamp: time.Now()},
+	}
+
+	// Two transports' batches in one shared buffer.
+	if err := ob.Push(points, "mqtt-a"); err != nil {
+		t.Fatalf("Push mqtt-a: %v", err)
+	}
+	if err := ob.Push(points, "http-b"); err != nil {
+		t.Fatalf("Push http-b: %v", err)
+	}
+
+	// Drain as http-b: must replay only http-b's batch and leave
+	// mqtt-a's on disk untouched.
+	var publishedTags []string
+	drainedB, err := ob.Drain("http-b", func(pts []core.DataPoint) error {
+		for _, p := range pts {
+			publishedTags = append(publishedTags, p.Tag)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Drain http-b: %v", err)
+	}
+	if drainedB != 1 {
+		t.Fatalf("drainedB = %d, want 1", drainedB)
+	}
+	if got := ob.Len(); got != 1 {
+		t.Fatalf("Len after http-b drain = %d, want 1 (mqtt-a's batch must remain)", got)
+	}
+
+	// mqtt-a's batch still replays through ITS OWN drain afterwards.
+	drainedA, err := ob.Drain("mqtt-a", func(pts []core.DataPoint) error { return nil })
+	if err != nil {
+		t.Fatalf("Drain mqtt-a: %v", err)
+	}
+	if drainedA != 1 {
+		t.Fatalf("drainedA = %d, want 1 (own batch must still replay)", drainedA)
+	}
+	if got := ob.Len(); got != 0 {
+		t.Fatalf("Len after mqtt-a drain = %d, want 0", got)
+	}
+
+	// A drain for a transport with nothing buffered is a no-op that
+	// leaves the disk empty.
+	if n, err := ob.Drain("nobody", func([]core.DataPoint) error { return nil }); err != nil || n != 0 {
+		t.Fatalf("Drain nobody = (%d, %v), want (0, nil)", n, err)
 	}
 }

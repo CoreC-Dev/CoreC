@@ -30,6 +30,12 @@ type OfflineBuffer struct {
 	maxEntries int
 
 	mu sync.Mutex
+	// drainMu serializes Drain calls. The buffer instance is shared by
+	// all transport batchers (transport_manager.go), so several
+	// background drain loops can run concurrently; without this lock two
+	// of them could read the same entry before either removes it and
+	// double-publish the batch (stage-B audit finding B2.3).
+	drainMu sync.Mutex
 	// nextSeq is the next sequence number to assign. It is persisted
 	// by scanning the directory on startup so that sequence numbers
 	// remain monotonic across restarts.
@@ -217,8 +223,23 @@ func (ob *OfflineBuffer) evictIfNeeded() {
 // Drain attempts to replay all buffered batches. For each batch, it
 // calls tryPublish; if that returns nil the batch is deleted from
 // disk, otherwise draining stops (the transport is likely still down).
+//
+// Only batches whose recorded Source equals the source argument are
+// replayed; batches buffered by other transports are left on disk for
+// their own drain loops. The buffer is shared across all batchers, and
+// each batch must be republished only through the transport that
+// originally accepted it — replaying it through a different transport
+// would misroute the data (e.g. deliver a data-lake batch to MES) and
+// delete the file before the owning transport ever replays it
+// (stage-B audit finding B2.3).
+//
+// Concurrent Drain calls are serialized by drainMu so two transports
+// cannot read the same entry before either removes it.
 // Returns the number of batches successfully drained.
-func (ob *OfflineBuffer) Drain(tryPublish func([]core.DataPoint) error) (int, error) {
+func (ob *OfflineBuffer) Drain(source string, tryPublish func([]core.DataPoint) error) (int, error) {
+	ob.drainMu.Lock()
+	defer ob.drainMu.Unlock()
+
 	ob.mu.Lock()
 	entries, err := os.ReadDir(ob.dir)
 	ob.mu.Unlock()
@@ -239,6 +260,7 @@ func (ob *OfflineBuffer) Drain(tryPublish func([]core.DataPoint) error) (int, er
 	sort.Slice(seqs, func(i, j int) bool { return seqs[i] < seqs[j] })
 
 	drained := 0
+	foreignSkipped := 0
 	// Tally successfully replayed batches into drainCount for metrics
 	// exposure. The closure captures `drained` by reference, so it
 	// observes the final value regardless of which return path is
@@ -246,6 +268,10 @@ func (ob *OfflineBuffer) Drain(tryPublish func([]core.DataPoint) error) (int, er
 	defer func() {
 		if drained > 0 {
 			ob.drainCount.Add(uint64(drained))
+		}
+		if foreignSkipped > 0 {
+			slog.Debug("offline buffer: left batches owned by other transports on disk",
+				"drain_source", source, "skipped", foreignSkipped)
 		}
 	}()
 
@@ -268,6 +294,14 @@ func (ob *OfflineBuffer) Drain(tryPublish func([]core.DataPoint) error) (int, er
 			ob.mu.Lock()
 			_ = os.Remove(path)
 			ob.mu.Unlock()
+			continue
+		}
+
+		// Ownership filter (B2.3): only replay batches this transport
+		// originally accepted. Foreign batches stay on disk untouched
+		// for their owning transport's drain loop.
+		if entry.Source != source {
+			foreignSkipped++
 			continue
 		}
 

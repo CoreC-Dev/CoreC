@@ -279,7 +279,7 @@ func TestBatcherDrainReplaysOfflineBuffer(t *testing.T) {
 		t.Fatalf("expected ob.Len=1, got %d", ob.Len())
 	}
 
-	tr := &flakyTransport{} // succeeds now
+	tr := &flakyTransport{name: "test"} // succeeds now; name must match the offline-buffer Push source so drainOnce's ownership filter accepts the batch
 	cfg := core.TransportConfig{
 		Name:          "test",
 		BatchSize:     10,
@@ -379,7 +379,7 @@ func TestBatcherOfflineBufferPendingWithBuffer(t *testing.T) {
 	}
 	defer ob.Close()
 
-	tr := &flakyTransport{}
+	tr := &flakyTransport{name: "test"}
 	cfg := core.TransportConfig{
 		Name:          "test",
 		BatchSize:     10,
@@ -517,7 +517,7 @@ func TestEngineOfflineBufferStats(t *testing.T) {
 
 	// Drain the shared buffer once; drained must reflect the replayed
 	// batches exactly (not doubled by the two batchers).
-	drainedN, err := ob.Drain(func([]core.DataPoint) error { return nil })
+	drainedN, err := ob.Drain("test", func([]core.DataPoint) error { return nil })
 	if err != nil {
 		t.Fatalf("Drain: %v", err)
 	}
@@ -712,7 +712,7 @@ func TestBatcherOnPublishCallbackDrain(t *testing.T) {
 		t.Fatalf("Push: %v", err)
 	}
 
-	tr := &flakyTransport{}
+	tr := &flakyTransport{name: "test"}
 	var publishedCount atomic.Int64
 	cfg := core.TransportConfig{
 		Name:      "test",
