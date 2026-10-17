@@ -127,8 +127,8 @@ func TestModbusRTUParityParsing(t *testing.T) {
 		{"none", mb.PARITY_NONE, false},
 		{"even", mb.PARITY_EVEN, false},
 		{"odd", mb.PARITY_ODD, false},
-		{"EVEN", mb.PARITY_EVEN, false},   // case-insensitive
-		{"bogus", mb.PARITY_NONE, true},   // invalid → error
+		{"EVEN", mb.PARITY_EVEN, false}, // case-insensitive
+		{"bogus", mb.PARITY_NONE, true}, // invalid → error
 	}
 	for _, tt := range tests {
 		got, err := parseParity(map[string]any{"parity": tt.input})

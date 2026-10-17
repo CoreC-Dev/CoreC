@@ -8,19 +8,19 @@ import (
 
 func TestParseBadQualityPolicy(t *testing.T) {
 	tests := []struct {
-		input    string
-		want     badQualityPolicy
-		wantErr  bool
+		input   string
+		want    badQualityPolicy
+		wantErr bool
 	}{
 		{"", badQualityPublish, false},
 		{"publish", badQualityPublish, false},
 		{"drop", badQualityDrop, false},
 		{"mark-and-publish", badQualityMarkAndPublish, false},
 		{"alert", badQualityAlert, false},
-		{"PUBLISH", badQualityPublish, false},   // case-insensitive
-		{"Drop", badQualityDrop, false},         // case-insensitive
-		{"unknown", badQualityPublish, true},    // invalid → error
-		{"pubish", badQualityPublish, true},     // typo → error
+		{"PUBLISH", badQualityPublish, false}, // case-insensitive
+		{"Drop", badQualityDrop, false},       // case-insensitive
+		{"unknown", badQualityPublish, true},  // invalid → error
+		{"pubish", badQualityPublish, true},   // typo → error
 	}
 	for _, tc := range tests {
 		got, err := parseBadQualityPolicy(tc.input)
