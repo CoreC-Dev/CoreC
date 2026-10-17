@@ -146,7 +146,7 @@ global:
 #         type: float32
 #         group: sensors
 #         interval: 1s
-#         deadband: 0.2
+#         deadband: 0.2          # suppress publishing if |value - last_value| < deadband (optional, default 0 = disabled)
 #         read-timeout: 500ms   # per-tag read timeout (optional, default = interval)
 #         scale: 0.1            # linear scaling: published = raw * scale + offset
 #         offset: -50.0         # e.g. raw=1000 → published=50.0 (optional, default 0)
@@ -303,10 +303,10 @@ global:
 #     # settings:
 #       # endpoint: "opc.tcp://192.168.1.50:4840"
 #       # mode: polling           # polling or subscription
-#       # security-policy: None    # None | Basic256Sha256 | ... (可选)
-#       # security-mode: None      # None | Sign | SignAndEncrypt (可选)
-#       # username: "opc-user"     # 用户名认证（可选，未设置时匿名连接）
-#       # password: "opc-pass"     # 密码认证（可选）
+#       # security-policy: None    # None | Basic256Sha256 | ... (optional)
+#       # security-mode: None      # None | Sign | SignAndEncrypt (optional)
+#       # username: "opc-user"     # username auth (optional; anonymous when unset)
+#       # password: "opc-pass"     # password auth (optional)
 #       # cert-file: /etc/corec/opcua/client.crt   # client certificate PEM (enables mTLS/SignAndEncrypt)
 #       # key-file: /etc/corec/opcua/client.key    # client private key PEM (must pair with cert-file)
 #       # timeout: 5s
@@ -354,8 +354,8 @@ global:
 #     settings:
 #       broker: tcp://broker.emqx.io:1883
 #       client-id: factory-edge-01
-#       # username: "your-username"     # broker 认证用户名（可选，公共 broker 不需要）
-#       # password: ${MQTT_PASSWORD}     # broker 认证密码（可选，支持环境变量替换）
+#       # username: "your-username"     # broker auth username (optional; public brokers don't need it)
+#       # password: ${MQTT_PASSWORD}     # broker auth password (optional; supports env var substitution)
 #       ## --- TLS / mutual TLS (optional) ---
 #       ## Use a TLS scheme in the broker URL to enable encryption, e.g.:
 #       ##   broker: mqtts://broker.emqx.io:8883   # also: tls:// ssl:// mqtt+ssl:// tcps:// wss://
