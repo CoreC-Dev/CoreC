@@ -206,8 +206,8 @@ func (e *CoreCEngine) deadLetterStrandedCommands(ch <-chan core.WriteCommand, he
 // nodes that do have the driver.
 func (e *CoreCEngine) forwardCommand(ctx context.Context, cmd core.WriteCommand) bool {
 	e.mu.RLock()
-	transports := make([]core.Transport, 0, len(e.transports))
-	for _, t := range e.transports {
+	transports := make([]core.Transport, 0, len(e.transportMgr.transports))
+	for _, t := range e.transportMgr.transports {
 		transports = append(transports, t)
 	}
 	e.mu.RUnlock()

@@ -43,7 +43,7 @@ func TestRemoveTransportCleansBatcher(t *testing.T) {
 
 	// Verify batcher exists before removal
 	e.mu.RLock()
-	_, hasBatcher := e.batchers["batched-transport"]
+	_, hasBatcher := e.transportMgr.batchers["batched-transport"]
 	e.mu.RUnlock()
 	if !hasBatcher {
 		t.Fatal("expected batcher to exist before removal")
@@ -56,7 +56,7 @@ func TestRemoveTransportCleansBatcher(t *testing.T) {
 
 	// Verify batcher is removed from the map
 	e.mu.RLock()
-	_, hasBatcher = e.batchers["batched-transport"]
+	_, hasBatcher = e.transportMgr.batchers["batched-transport"]
 	e.mu.RUnlock()
 	if hasBatcher {
 		t.Error("BUG: batcher still exists in map after RemoveTransport — should be cleaned up")
@@ -216,7 +216,7 @@ func TestDiffTransportsModifyCleansBatcher(t *testing.T) {
 
 	// Verify no stale batcher remains
 	e.mu.RLock()
-	_, hasBatcher := e.batchers["t1"]
+	_, hasBatcher := e.transportMgr.batchers["t1"]
 	e.mu.RUnlock()
 	if hasBatcher {
 		t.Error("BUG: stale batcher exists after modifying transport to remove batch settings — should be cleaned up")

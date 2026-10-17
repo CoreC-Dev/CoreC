@@ -143,13 +143,13 @@ func (t *plainTransport) Status() core.TransportStatus        { return t.status 
 
 // newTestEngine builds a bare CoreCEngine with the maps and lifecycle
 // context initialised, ready for direct executeWriteWithRetry calls
-// without a full Start(). Tests add drivers/transports to e.drivers /
-// e.transports directly.
+// without a full Start(). Tests add drivers/transports to
+// e.driverReg.drivers / e.transportMgr.transports directly.
 func newTestEngine(t *testing.T) *CoreCEngine {
 	t.Helper()
 	e := newEngineShell()
 	e.driverReg.drivers = make(map[string]core.Driver)
-	e.transports = make(map[string]core.Transport)
+	e.transportMgr.transports = make(map[string]core.Transport)
 	e.writeRetryCount = 0 // single attempt: keeps failure tests fast
 	e.deadLetterMaxLen = 1000
 	e.ctx, e.cancel = context.WithCancel(context.Background())
@@ -197,7 +197,7 @@ func TestHasDriver(t *testing.T) {
 // registered transports implement core.CommandForwarder.
 func TestForwardCommandReturnsFalseWhenNoForwarder(t *testing.T) {
 	e := newTestEngine(t)
-	e.transports["plain"] = &plainTransport{name: "plain"}
+	e.transportMgr.transports["plain"] = &plainTransport{name: "plain"}
 
 	cmd := core.WriteCommand{Driver: "opc", Tag: "setpoint", Value: 1.0}
 	if e.forwardCommand(context.Background(), cmd) {
@@ -217,9 +217,9 @@ func TestForwardCommandTriesAllForwardersUntilSuccess(t *testing.T) {
 	failing := newForwarderTransport("failing", fmt.Errorf("downstream offline"))
 	// A forwarder that succeeds.
 	ok := newForwarderTransport("ok", nil)
-	e.transports["plain"] = plain
-	e.transports["failing"] = failing
-	e.transports["ok"] = ok
+	e.transportMgr.transports["plain"] = plain
+	e.transportMgr.transports["failing"] = failing
+	e.transportMgr.transports["ok"] = ok
 
 	cmd := core.WriteCommand{Driver: "opc", Tag: "setpoint", Value: 2.0}
 	if !e.forwardCommand(context.Background(), cmd) {
@@ -240,8 +240,8 @@ func TestForwardCommandTriesAllForwardersUntilSuccess(t *testing.T) {
 // returns false when every forwarder-capable transport errors.
 func TestForwardCommandAllFailReturnsFalse(t *testing.T) {
 	e := newTestEngine(t)
-	e.transports["f1"] = newForwarderTransport("f1", fmt.Errorf("err1"))
-	e.transports["f2"] = newForwarderTransport("f2", fmt.Errorf("err2"))
+	e.transportMgr.transports["f1"] = newForwarderTransport("f1", fmt.Errorf("err1"))
+	e.transportMgr.transports["f2"] = newForwarderTransport("f2", fmt.Errorf("err2"))
 
 	cmd := core.WriteCommand{Driver: "opc", Tag: "t", Value: 1.0}
 	if e.forwardCommand(context.Background(), cmd) {
@@ -258,7 +258,7 @@ func TestForwardCommandAllFailReturnsFalse(t *testing.T) {
 func TestExecuteWriteForwardsWhenNoLocalDriver(t *testing.T) {
 	e := newTestEngine(t)
 	fwd := newForwarderTransport("relay-fwd", nil)
-	e.transports["relay-fwd"] = fwd
+	e.transportMgr.transports["relay-fwd"] = fwd
 	// No drivers registered — relay node has drivers: [].
 
 	cmd := core.WriteCommand{Driver: "opc", Tag: "setpoint", Value: 42.0, Type: core.TypeFloat64}
@@ -281,7 +281,7 @@ func TestExecuteWriteForwardsWhenNoLocalDriver(t *testing.T) {
 func TestExecuteWriteDeadLettersWhenNoDriverNoForwarder(t *testing.T) {
 	e := newTestEngine(t)
 	// Only a plain (non-forwarder) transport — nothing can forward.
-	e.transports["plain"] = &plainTransport{name: "plain"}
+	e.transportMgr.transports["plain"] = &plainTransport{name: "plain"}
 
 	cmd := core.WriteCommand{Driver: "opc", Tag: "setpoint", Value: 1.0}
 	e.executeWriteWithRetry(cmd)
@@ -305,7 +305,7 @@ func TestExecuteWriteDeadLettersWhenNoDriverNoForwarder(t *testing.T) {
 // is dead-lettered rather than silently dropped.
 func TestExecuteWriteForwarderFailureFallsBackToDeadLetter(t *testing.T) {
 	e := newTestEngine(t)
-	e.transports["broken-fwd"] = newForwarderTransport("broken-fwd", fmt.Errorf("downstream unreachable"))
+	e.transportMgr.transports["broken-fwd"] = newForwarderTransport("broken-fwd", fmt.Errorf("downstream unreachable"))
 
 	cmd := core.WriteCommand{Driver: "opc", Tag: "setpoint", Value: 1.0}
 	e.executeWriteWithRetry(cmd)
@@ -329,7 +329,7 @@ func TestExecuteWriteLocalDriverNotForwarded(t *testing.T) {
 	drv := newRecordingDriver("opc")
 	e.driverReg.drivers["opc"] = drv
 	fwd := newForwarderTransport("relay-fwd", nil)
-	e.transports["relay-fwd"] = fwd
+	e.transportMgr.transports["relay-fwd"] = fwd
 
 	cmd := core.WriteCommand{Driver: "opc", Tag: "setpoint", Value: 7.0, Type: core.TypeFloat64}
 	e.executeWriteWithRetry(cmd)
@@ -359,7 +359,7 @@ func TestExecuteWriteLocalDriverFailureRetriesAndDeadLetters(t *testing.T) {
 	drv.name = "opc"
 	e.driverReg.drivers["opc"] = drv
 	fwd := newForwarderTransport("relay-fwd", nil)
-	e.transports["relay-fwd"] = fwd
+	e.transportMgr.transports["relay-fwd"] = fwd
 
 	cmd := core.WriteCommand{Driver: "opc", Tag: "setpoint", Value: 1.0}
 	e.executeWriteWithRetry(cmd)

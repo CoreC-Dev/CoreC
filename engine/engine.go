@@ -24,27 +24,14 @@ type CoreCEngine struct {
 	// Operational State
 	status core.EngineStatus
 
-	// Components
-	transports   map[string]core.Transport
-	transportCfg map[string]core.TransportConfig // for fallback lookups
-	batchers     map[string]*transportBatcher
-
-	// transportCancels holds the per-transport context cancel func for each
-	// transport's startCommandListener/startDataListener goroutines. Each
-	// listener selects on a child context derived from e.ctx instead of e.ctx
-	// directly, so RemoveTransport can stop just that transport's listeners
-	// without cancelling the whole engine. This fixes the goroutine leak
-	// where MQTT transports' listener goroutines blocked forever after
-	// RemoveTransport (MQTTTransport.Stop deliberately does not close its
-	// command/data channels).
-	transportCancels map[string]context.CancelFunc
-	ruleSet          *ruleRole
-	reads            *readAccessor
-	stats            *statsCollector
-	driverReg        *driverRegistry
-	scheduler        *scheduler
-	dataBus          *DataBus
-	cache            *LatestCache
+	ruleSet      *ruleRole
+	reads        *readAccessor
+	stats        *statsCollector
+	driverReg    *driverRegistry
+	transportMgr *transportManager
+	scheduler    *scheduler
+	dataBus      *DataBus
+	cache        *LatestCache
 
 	// Alert handlers
 	alertHandlers []func(point core.DataPoint, rule core.Rule)
@@ -75,10 +62,6 @@ type CoreCEngine struct {
 	// high-priority channel. This isolates high-frequency collection from
 	// low-frequency bulk-read bursts (IMPROVEMENTS #5).
 	numHighPriorityWorkers int
-
-	// offlineBuffer persists failed publish batches to disk for replay
-	// after transport recovery. nil = disabled (no buffer config).
-	offlineBuffer *OfflineBuffer
 
 	// discovery handles topology auto-discovery via MQTT heartbeats.
 	// nil when node config is not set (auto-discovery disabled).
@@ -142,14 +125,16 @@ func parseBadQualityPolicy(s string) (badQualityPolicy, error) {
 // nil, or the forwarders would dereference them).
 func newEngineShell() *CoreCEngine {
 	e := &CoreCEngine{
-		ruleSet:   &ruleRole{},
-		reads:     &readAccessor{},
-		stats:     &statsCollector{},
-		driverReg: &driverRegistry{},
+		ruleSet:      &ruleRole{},
+		reads:        &readAccessor{},
+		stats:        &statsCollector{},
+		driverReg:    &driverRegistry{},
+		transportMgr: &transportManager{},
 	}
 	e.reads.eng = e
 	e.stats.eng = e
 	e.driverReg.eng = e
+	e.transportMgr.eng = e
 	return e
 }
 
@@ -158,10 +143,10 @@ func New() core.Engine {
 	e := newEngineShell()
 	e.status = core.EngineStatusStopped
 	e.driverReg.drivers = make(map[string]core.Driver)
-	e.transports = make(map[string]core.Transport)
-	e.transportCfg = make(map[string]core.TransportConfig)
-	e.transportCancels = make(map[string]context.CancelFunc)
-	e.batchers = make(map[string]*transportBatcher)
+	e.transportMgr.transports = make(map[string]core.Transport)
+	e.transportMgr.transportCfg = make(map[string]core.TransportConfig)
+	e.transportMgr.transportCancels = make(map[string]context.CancelFunc)
+	e.transportMgr.batchers = make(map[string]*transportBatcher)
 	e.driverReg.tagGroups = make(map[string]map[string]string)
 	e.ruleSet.ruleEngine = rule.NewEngine()
 	e.cache = NewLatestCache()

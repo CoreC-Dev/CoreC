@@ -61,7 +61,7 @@ func (s *statsCollector) Stats() core.EngineStats {
 	}
 
 	transportStats := make(map[string]core.TransportStatus)
-	for name, t := range s.eng.transports {
+	for name, t := range s.eng.transportMgr.transports {
 		transportStats[name] = t.Status()
 	}
 
@@ -83,7 +83,7 @@ func (s *statsCollector) Stats() core.EngineStats {
 		Status:         s.eng.status,
 		Uptime:         uptime,
 		Drivers:        len(s.eng.driverReg.drivers),
-		Transports:     len(s.eng.transports),
+		Transports:     len(s.eng.transportMgr.transports),
 		Rules:          len(s.eng.ruleSet.ruleEngine.Rules()),
 		TotalRead:      totalRead,
 		TotalPublish:   s.totalPublish.Load(),
@@ -115,11 +115,11 @@ func (s *statsCollector) Stats() core.EngineStats {
 // readdir) can never block management API calls that take the write lock.
 func (s *statsCollector) OfflineBufferStats() (pending int, drained, pushed uint64) {
 	s.eng.mu.RLock()
-	batchers := make([]*transportBatcher, 0, len(s.eng.batchers))
-	for _, b := range s.eng.batchers {
+	batchers := make([]*transportBatcher, 0, len(s.eng.transportMgr.batchers))
+	for _, b := range s.eng.transportMgr.batchers {
 		batchers = append(batchers, b)
 	}
-	buf := s.eng.offlineBuffer
+	buf := s.eng.transportMgr.offlineBuffer
 	s.eng.mu.RUnlock()
 
 	// pushed is per-batcher: aggregate it.
@@ -146,7 +146,7 @@ func (s *statsCollector) OfflineBufferStats() (pending int, drained, pushed uint
 // just logged).
 func (s *statsCollector) OfflineBufferEvictions() uint64 {
 	s.eng.mu.RLock()
-	buf := s.eng.offlineBuffer
+	buf := s.eng.transportMgr.offlineBuffer
 	s.eng.mu.RUnlock()
 	if buf == nil {
 		return 0
@@ -162,8 +162,8 @@ func (s *statsCollector) OfflineBufferEvictions() uint64 {
 // corec_flush_batches_dropped_total.
 func (s *statsCollector) FlushBatchesDropped() uint64 {
 	s.eng.mu.RLock()
-	batchers := make([]*transportBatcher, 0, len(s.eng.batchers))
-	for _, b := range s.eng.batchers {
+	batchers := make([]*transportBatcher, 0, len(s.eng.transportMgr.batchers))
+	for _, b := range s.eng.transportMgr.batchers {
 		batchers = append(batchers, b)
 	}
 	s.eng.mu.RUnlock()

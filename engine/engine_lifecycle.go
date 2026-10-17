@@ -17,9 +17,9 @@ func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error {
 	e.status = core.EngineStatusRunning
 	// Clear stale state from any previous run (e.g. after Reload→Stop→Start).
 	e.driverReg.drivers = make(map[string]core.Driver)
-	e.transports = make(map[string]core.Transport)
-	e.batchers = make(map[string]*transportBatcher)
-	e.transportCancels = make(map[string]context.CancelFunc)
+	e.transportMgr.transports = make(map[string]core.Transport)
+	e.transportMgr.batchers = make(map[string]*transportBatcher)
+	e.transportMgr.transportCancels = make(map[string]context.CancelFunc)
 	e.driverReg.tagGroups = make(map[string]map[string]string)
 	e.mu.Unlock()
 
@@ -42,7 +42,7 @@ func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error {
 		if err != nil {
 			slog.Error("failed to initialize offline buffer, continuing without it", "error", err)
 		} else {
-			e.offlineBuffer = ob
+			e.transportMgr.offlineBuffer = ob
 			slog.Info("offline buffer enabled",
 				"path", config.Global.Buffer.Path,
 				"max-size", config.Global.Buffer.MaxSize,
@@ -74,7 +74,7 @@ func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error {
 	// command-topic, parser, and forward rules where not explicitly configured.
 	e.autoFillNodeConfig(config)
 
-	if err := e.startTransports(config); err != nil {
+	if err := e.transportMgr.startTransports(config); err != nil {
 		return err
 	}
 
@@ -133,17 +133,6 @@ func (e *CoreCEngine) startDerivedTags(config *core.Config) error {
 	e.mu.Unlock()
 	ev.start(e.ctx, &e.wg)
 	slog.Info("derived tag evaluator started", "count", len(config.DerivedTags))
-	return nil
-}
-
-// startTransports initializes and adds all configured transports.
-func (e *CoreCEngine) startTransports(config *core.Config) error {
-	for _, tc := range config.Transports {
-		if err := e.AddTransport(tc); err != nil {
-			slog.Error("failed to add transport", "name", tc.Name, "error", err)
-			return fmt.Errorf("failed to add transport %s: %w", tc.Name, err)
-		}
-	}
 	return nil
 }
 
@@ -258,12 +247,12 @@ func (e *CoreCEngine) rollbackStart() {
 	for _, d := range e.driverReg.drivers {
 		drivers = append(drivers, d)
 	}
-	batchers := make([]*transportBatcher, 0, len(e.batchers))
-	for _, b := range e.batchers {
+	batchers := make([]*transportBatcher, 0, len(e.transportMgr.batchers))
+	for _, b := range e.transportMgr.batchers {
 		batchers = append(batchers, b)
 	}
-	transports := make([]core.Transport, 0, len(e.transports))
-	for _, t := range e.transports {
+	transports := make([]core.Transport, 0, len(e.transportMgr.transports))
+	for _, t := range e.transportMgr.transports {
 		transports = append(transports, t)
 	}
 	e.mu.RUnlock()
@@ -273,7 +262,7 @@ func (e *CoreCEngine) rollbackStart() {
 		stopWithErrorTimeout("rollback", "driver", stopTimeout, d.Stop)
 	}
 	for _, b := range batchers {
-		e.stopBatcherWithTimeout(b, "rollback", "engine start rollback")
+		e.transportMgr.stopBatcherWithTimeout(b, "rollback", "engine start rollback")
 	}
 	for _, t := range transports {
 		stopWithErrorTimeout("rollback", "transport", stopTimeout, t.Stop)
@@ -292,8 +281,8 @@ func (e *CoreCEngine) rollbackStart() {
 
 	e.mu.Lock()
 	e.driverReg.drivers = make(map[string]core.Driver)
-	e.transports = make(map[string]core.Transport)
-	e.batchers = make(map[string]*transportBatcher)
+	e.transportMgr.transports = make(map[string]core.Transport)
+	e.transportMgr.batchers = make(map[string]*transportBatcher)
 	e.status = core.EngineStatusStopped
 	e.mu.Unlock()
 
@@ -319,15 +308,15 @@ func (e *CoreCEngine) stopComponents() {
 		drivers = append(drivers, d)
 		driverNames = append(driverNames, name)
 	}
-	batchers := make([]*transportBatcher, 0, len(e.batchers))
-	batcherNames := make([]string, 0, len(e.batchers))
-	for name, b := range e.batchers {
+	batchers := make([]*transportBatcher, 0, len(e.transportMgr.batchers))
+	batcherNames := make([]string, 0, len(e.transportMgr.batchers))
+	for name, b := range e.transportMgr.batchers {
 		batchers = append(batchers, b)
 		batcherNames = append(batcherNames, name)
 	}
-	transports := make([]core.Transport, 0, len(e.transports))
-	transportNames := make([]string, 0, len(e.transports))
-	for name, t := range e.transports {
+	transports := make([]core.Transport, 0, len(e.transportMgr.transports))
+	transportNames := make([]string, 0, len(e.transportMgr.transports))
+	for name, t := range e.transportMgr.transports {
 		transports = append(transports, t)
 		transportNames = append(transportNames, name)
 	}
@@ -365,7 +354,7 @@ func (e *CoreCEngine) stopComponents() {
 	// indefinitely (PERF-008). The shared helper also caps the batcher's
 	// own flushFinal budget at the same shutdownTimeout (B3.1).
 	for i, b := range batchers {
-		e.stopBatcherWithTimeout(b, batcherNames[i], "engine shutdown")
+		e.transportMgr.stopBatcherWithTimeout(b, batcherNames[i], "engine shutdown")
 	}
 
 	// Stop all transports with timeout

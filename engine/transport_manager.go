@@ -9,42 +9,73 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
+// transportManager groups the northbound transport concern: the live
+// transport map, the transport configs (for fallback lookups), the
+// per-transport batchers, the per-transport listener cancellers, and the
+// shared offline buffer. Extracted from CoreCEngine in the CPLX-020 God
+// Object split; CoreCEngine keeps thin forwarders so the
+// core.TransportManager method set is unchanged.
+type transportManager struct {
+	transports   map[string]core.Transport
+	transportCfg map[string]core.TransportConfig // for fallback lookups
+	batchers     map[string]*transportBatcher
+
+	// transportCancels holds the per-transport context cancel func for each
+	// transport's startCommandListener/startDataListener goroutines. Each
+	// listener selects on a child context derived from the engine context
+	// instead of the engine context directly, so RemoveTransport can stop
+	// just that transport's listeners without cancelling the whole engine.
+	// This fixes the goroutine leak where MQTT transports' listener
+	// goroutines blocked forever after RemoveTransport (MQTTTransport.Stop
+	// deliberately does not close its command/data channels).
+	transportCancels map[string]context.CancelFunc
+
+	// offlineBuffer persists failed publish batches to disk for replay
+	// after transport recovery. nil = disabled (no buffer config).
+	offlineBuffer *OfflineBuffer
+
+	// eng is the owning engine: AddTransport/RemoveTransport reach the
+	// shared lock, lifecycle context, stats histograms, and shutdown
+	// timeout through it.
+	eng *CoreCEngine
+}
+
 // --- Transport Management ---
 
-func (e *CoreCEngine) AddTransport(config core.TransportConfig) error {
+func (m *transportManager) AddTransport(config core.TransportConfig) error {
 	transport, err := core.CreateTransport(config)
 	if err != nil {
 		return fmt.Errorf("failed to create transport %s: %w", config.Name, err)
 	}
 
-	if err := transport.Init(e.ctx, config); err != nil {
+	if err := transport.Init(m.eng.ctx, config); err != nil {
 		return fmt.Errorf("failed to init transport %s: %w", config.Name, err)
 	}
 
-	if err := transport.Start(e.ctx); err != nil {
+	if err := transport.Start(m.eng.ctx); err != nil {
 		return fmt.Errorf("failed to start transport %s: %w", config.Name, err)
 	}
 
-	e.mu.Lock()
+	m.eng.mu.Lock()
 	// If a transport with the same name already exists, remove it and its
 	// batcher from the map now so concurrent callers don't see a stopping
 	// transport. The actual Stop() happens after Unlock to avoid blocking.
 	var oldTransport core.Transport
 	var oldBatcher *transportBatcher
 	var oldCancel context.CancelFunc
-	if t, exists := e.transports[config.Name]; exists {
+	if t, exists := m.transports[config.Name]; exists {
 		oldTransport = t
-		delete(e.transports, config.Name)
-		if b, hasBatcher := e.batchers[config.Name]; hasBatcher {
+		delete(m.transports, config.Name)
+		if b, hasBatcher := m.batchers[config.Name]; hasBatcher {
 			oldBatcher = b
-			delete(e.batchers, config.Name)
+			delete(m.batchers, config.Name)
 		}
-		if c, hasCancel := e.transportCancels[config.Name]; hasCancel {
+		if c, hasCancel := m.transportCancels[config.Name]; hasCancel {
 			oldCancel = c
-			delete(e.transportCancels, config.Name)
+			delete(m.transportCancels, config.Name)
 		}
 	}
-	e.mu.Unlock()
+	m.eng.mu.Unlock()
 
 	// Cancel the old transport's listener goroutines before stopping it so
 	// they don't block forever on the (unclosed) MQTT channels.
@@ -57,7 +88,7 @@ func (e *CoreCEngine) AddTransport(config core.TransportConfig) error {
 	// management API indefinitely (stage-B audit findings B3.1/B3.6 —
 	// previously this was an unbounded b.stop()).
 	if oldBatcher != nil {
-		e.stopBatcherWithTimeout(oldBatcher, config.Name, "transport replacement")
+		m.stopBatcherWithTimeout(oldBatcher, config.Name, "transport replacement")
 	}
 	if oldTransport != nil {
 		if err := oldTransport.Stop(); err != nil {
@@ -65,9 +96,9 @@ func (e *CoreCEngine) AddTransport(config core.TransportConfig) error {
 		}
 	}
 
-	e.mu.Lock()
-	e.transports[config.Name] = transport
-	e.transportCfg[config.Name] = config
+	m.eng.mu.Lock()
+	m.transports[config.Name] = transport
+	m.transportCfg[config.Name] = config
 
 	// Create batcher if batch/flush/retry config is set, or if offline
 	// buffering is enabled (so failed publishes are persisted).
@@ -79,9 +110,9 @@ func (e *CoreCEngine) AddTransport(config core.TransportConfig) error {
 	// fix: previously publish.go counted prematurely). The engine's
 	// shutdownTimeout is threaded through as the batcher's flushFinal
 	// budget so the shutdown flush cannot outlive shutdown (B3.1).
-	if b := newTransportBatcher(transport, config, e.offlineBuffer, e.stats.publishLatency, e.stats.dataAge, e.stats.onBatchPublish, e.shutdownTimeout); b != nil {
-		b.start(e.ctx)
-		e.batchers[config.Name] = b
+	if b := newTransportBatcher(transport, config, m.offlineBuffer, m.eng.stats.publishLatency, m.eng.stats.dataAge, m.eng.stats.onBatchPublish, m.eng.shutdownTimeout); b != nil {
+		b.start(m.eng.ctx)
+		m.batchers[config.Name] = b
 		slog.Info("transport batching enabled",
 			"name", config.Name,
 			"batch-size", config.BatchSize,
@@ -90,38 +121,39 @@ func (e *CoreCEngine) AddTransport(config core.TransportConfig) error {
 		)
 	}
 
-	e.mu.Unlock()
+	m.eng.mu.Unlock()
 
 	// Start command and data listeners for this transport if the engine is
 	// already running.  This fixes M29: transports added after Start() now
 	// receive write commands and ingest data.
 	//
-	// Each transport gets its own child context derived from e.ctx so that
-	// RemoveTransport can cancel just this transport's listeners without
-	// tearing down the whole engine. This fixes the goroutine leak where
-	// MQTT listener goroutines blocked forever after RemoveTransport.
-	if e.ctx != nil && e.ctx.Err() == nil {
-		tCtx, tCancel := context.WithCancel(e.ctx)
-		e.mu.Lock()
-		e.transportCancels[config.Name] = tCancel
-		e.mu.Unlock()
-		e.startCommandListener(transport, tCtx)
-		e.startDataListener(transport, tCtx)
+	// Each transport gets its own child context derived from the engine
+	// context so that RemoveTransport can cancel just this transport's
+	// listeners without tearing down the whole engine. This fixes the
+	// goroutine leak where MQTT listener goroutines blocked forever after
+	// RemoveTransport.
+	if m.eng.ctx != nil && m.eng.ctx.Err() == nil {
+		tCtx, tCancel := context.WithCancel(m.eng.ctx)
+		m.eng.mu.Lock()
+		m.transportCancels[config.Name] = tCancel
+		m.eng.mu.Unlock()
+		m.eng.startCommandListener(transport, tCtx)
+		m.startDataListener(transport, tCtx)
 	}
 
 	slog.Info("transport added", "name", config.Name, "type", config.Type)
 	return nil
 }
 
-func (e *CoreCEngine) RemoveTransport(name string) error {
-	e.mu.Lock()
-	transport, ok := e.transports[name]
+func (m *transportManager) RemoveTransport(name string) error {
+	m.eng.mu.Lock()
+	transport, ok := m.transports[name]
 	if !ok {
-		e.mu.Unlock()
+		m.eng.mu.Unlock()
 		return fmt.Errorf("transport not found: %s", name)
 	}
-	delete(e.transports, name)
-	delete(e.transportCfg, name)
+	delete(m.transports, name)
+	delete(m.transportCfg, name)
 
 	// Also remove and stop the associated batcher so its flushLoop
 	// goroutine doesn't keep running and try to publish to the
@@ -129,9 +161,9 @@ func (e *CoreCEngine) RemoveTransport(name string) error {
 	// batcher goroutine and publishToTargets may still route data
 	// through the stale batcher (problem 1+2).
 	var batcher *transportBatcher
-	if b, hasBatcher := e.batchers[name]; hasBatcher {
+	if b, hasBatcher := m.batchers[name]; hasBatcher {
 		batcher = b
-		delete(e.batchers, name)
+		delete(m.batchers, name)
 	}
 
 	// Cancel this transport's listener goroutines so they exit instead of
@@ -141,11 +173,11 @@ func (e *CoreCEngine) RemoveTransport(name string) error {
 	// channels, so without per-transport cancellation the
 	// startCommandListener/startDataListener goroutines would block forever.
 	var tCancel context.CancelFunc
-	if c, hasCancel := e.transportCancels[name]; hasCancel {
+	if c, hasCancel := m.transportCancels[name]; hasCancel {
 		tCancel = c
-		delete(e.transportCancels, name)
+		delete(m.transportCancels, name)
 	}
-	e.mu.Unlock()
+	m.eng.mu.Unlock()
 
 	if tCancel != nil {
 		tCancel()
@@ -158,7 +190,7 @@ func (e *CoreCEngine) RemoveTransport(name string) error {
 		// chain. On timeout the stop goroutine is abandoned; the
 		// batcher's flushFinal runs on its own shutdown budget and
 		// terminates by publishing or persisting to the offline buffer.
-		e.stopBatcherWithTimeout(batcher, name, "transport removal")
+		m.stopBatcherWithTimeout(batcher, name, "transport removal")
 	}
 	return transport.Stop()
 }
@@ -173,7 +205,7 @@ func (e *CoreCEngine) RemoveTransport(name string) error {
 // goroutine is abandoned; flushFinal's own budget (shutdownBudget)
 // ensures the in-flight flush terminates by publishing the batch or
 // persisting it to the offline buffer.
-func (e *CoreCEngine) stopBatcherWithTimeout(b *transportBatcher, name, reason string) {
+func (m *transportManager) stopBatcherWithTimeout(b *transportBatcher, name, reason string) {
 	done := make(chan struct{}, 1)
 	go func() {
 		b.stop()
@@ -182,30 +214,41 @@ func (e *CoreCEngine) stopBatcherWithTimeout(b *transportBatcher, name, reason s
 	select {
 	case <-done:
 		slog.Info("batcher stopped", "name", name)
-	case <-time.After(e.shutdownTimeout):
+	case <-time.After(m.eng.shutdownTimeout):
 		slog.Error("timed out stopping batcher",
 			"name", name,
 			"reason", reason,
-			"timeout", e.shutdownTimeout,
+			"timeout", m.eng.shutdownTimeout,
 		)
 	}
 }
 
-func (e *CoreCEngine) GetTransport(name string) (core.Transport, bool) {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	t, ok := e.transports[name]
+func (m *transportManager) GetTransport(name string) (core.Transport, bool) {
+	m.eng.mu.RLock()
+	defer m.eng.mu.RUnlock()
+	t, ok := m.transports[name]
 	return t, ok
 }
 
-func (e *CoreCEngine) ListTransports() []core.TransportStatus {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	result := make([]core.TransportStatus, 0, len(e.transports))
-	for _, t := range e.transports {
+func (m *transportManager) ListTransports() []core.TransportStatus {
+	m.eng.mu.RLock()
+	defer m.eng.mu.RUnlock()
+	result := make([]core.TransportStatus, 0, len(m.transports))
+	for _, t := range m.transports {
 		result = append(result, t.Status())
 	}
 	return result
+}
+
+// startTransports initializes and adds all configured transports.
+func (m *transportManager) startTransports(config *core.Config) error {
+	for _, tc := range config.Transports {
+		if err := m.AddTransport(tc); err != nil {
+			slog.Error("failed to add transport", "name", tc.Name, "error", err)
+			return fmt.Errorf("failed to add transport %s: %w", tc.Name, err)
+		}
+	}
+	return nil
 }
 
 // startDataListener launches a goroutine that listens for data points from
@@ -215,14 +258,14 @@ func (e *CoreCEngine) ListTransports() []core.TransportStatus {
 // pipeline as driver-sourced data.
 //
 // It is called from AddTransport for every transport (initial and runtime).
-func (e *CoreCEngine) startDataListener(t core.Transport, tCtx context.Context) {
+func (m *transportManager) startDataListener(t core.Transport, tCtx context.Context) {
 	dataCh := t.OnData()
 	if dataCh == nil {
 		return
 	}
-	e.wg.Add(1)
+	m.eng.wg.Add(1)
 	go func(ch <-chan core.DataPoint, transportName string) {
-		defer e.wg.Done()
+		defer m.eng.wg.Done()
 		slog.Info("data listener started", "transport", transportName)
 		for {
 			select {
@@ -232,9 +275,65 @@ func (e *CoreCEngine) startDataListener(t core.Transport, tCtx context.Context) 
 				if !ok {
 					return
 				}
-				e.stats.totalRead.Add(1)
-				e.dataBus.Push(point)
+				m.eng.stats.totalRead.Add(1)
+				m.eng.dataBus.Push(point)
 			}
 		}
 	}(dataCh, t.Name())
+}
+
+// tryFallback attempts to publish a point to the fallback transport
+// configured for the given primary target name. If no fallback is
+// configured or the fallback also fails, the error is logged.
+func (m *transportManager) tryFallback(point core.DataPoint, primaryName string, fallbacks map[string]publishTargetEntry) {
+	fb, ok := fallbacks[primaryName]
+	if !ok {
+		return
+	}
+	slog.Warn("transport failover to fallback", "primary", primaryName, "fallback", fb.name)
+
+	if fb.batcher != nil {
+		// Observations and publish counting happen inside the
+		// batcher's async flush path (see comment in publishToTargets
+		// above). publish() returns an error only when the batch is
+		// dropped from the flush queue.
+		err := fb.batcher.publish(m.eng.ctx, point)
+		if err != nil {
+			slog.Error("fallback batch dropped from flush queue", "fallback", fb.name, "error", err)
+			m.eng.stats.totalErrors.Add(1)
+			m.eng.stats.statManager.PushError()
+		}
+		return
+	}
+
+	start := time.Now()
+	err := fb.transport.Publish(m.eng.ctx, point)
+	m.eng.stats.publishLatency.Observe(time.Since(start))
+	m.eng.stats.dataAge.Observe(time.Since(point.Timestamp))
+	if err != nil {
+		slog.Error("fallback publish also failed", "fallback", fb.name, "error", err)
+		m.eng.stats.totalErrors.Add(1)
+		m.eng.stats.statManager.PushError()
+	} else {
+		m.eng.stats.totalPublish.Add(1)
+		m.eng.stats.statManager.PushPublish(1)
+	}
+}
+
+// --- CoreCEngine forwarders (core.TransportManager) ---
+
+func (e *CoreCEngine) AddTransport(config core.TransportConfig) error {
+	return e.transportMgr.AddTransport(config)
+}
+
+func (e *CoreCEngine) RemoveTransport(name string) error {
+	return e.transportMgr.RemoveTransport(name)
+}
+
+func (e *CoreCEngine) GetTransport(name string) (core.Transport, bool) {
+	return e.transportMgr.GetTransport(name)
+}
+
+func (e *CoreCEngine) ListTransports() []core.TransportStatus {
+	return e.transportMgr.ListTransports()
 }

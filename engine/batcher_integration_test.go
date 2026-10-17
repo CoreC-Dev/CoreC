@@ -485,7 +485,7 @@ func TestEngineOfflineBufferStats(t *testing.T) {
 	defer ob.Close()
 
 	// Two batchers share the SAME offline buffer (mirroring production,
-	// where e.offlineBuffer is passed to every newTransportBatcher). Each
+	// where e.transportMgr.offlineBuffer is passed to every newTransportBatcher). Each
 	// has pushed a distinct number of batches.
 	b1 := &transportBatcher{offlineBuffer: ob}
 	b1.retry.offlineBufferPushes.Add(3)
@@ -501,8 +501,8 @@ func TestEngineOfflineBufferStats(t *testing.T) {
 	}
 
 	eng := New().(*CoreCEngine)
-	eng.offlineBuffer = ob
-	eng.batchers = map[string]*transportBatcher{"t1": b1, "t2": b2}
+	eng.transportMgr.offlineBuffer = ob
+	eng.transportMgr.batchers = map[string]*transportBatcher{"t1": b1, "t2": b2}
 
 	pending, drained, pushed := eng.OfflineBufferStats()
 	if pushed != 8 {

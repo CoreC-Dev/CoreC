@@ -198,8 +198,8 @@ func TestRemoveTransportBoundsBatcherStop(t *testing.T) {
 	}
 
 	eng.mu.Lock()
-	eng.transports["slow"] = tr
-	eng.batchers["slow"] = b
+	eng.transportMgr.transports["slow"] = tr
+	eng.transportMgr.batchers["slow"] = b
 	eng.mu.Unlock()
 
 	// Seed the buffer so stop() has a flushFinal to run.

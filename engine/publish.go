@@ -56,14 +56,14 @@ func (e *CoreCEngine) publishToTargets(point core.DataPoint, targets []string) {
 	e.mu.RLock()
 	snapshot := make([]publishTargetEntry, 0, len(targets))
 	for _, targetName := range targets {
-		transport, ok := e.transports[targetName]
+		transport, ok := e.transportMgr.transports[targetName]
 		if !ok {
 			slog.Warn("target transport not found", "target", targetName)
 			e.stats.totalErrors.Add(1)
 			continue
 		}
 		entry := publishTargetEntry{name: targetName, transport: transport}
-		if batcher, ok := e.batchers[targetName]; ok {
+		if batcher, ok := e.transportMgr.batchers[targetName]; ok {
 			entry.batcher = batcher
 		}
 		snapshot = append(snapshot, entry)
@@ -72,10 +72,10 @@ func (e *CoreCEngine) publishToTargets(point core.DataPoint, targets []string) {
 	// Also snapshot fallback transports for failover.
 	fallbackSnapshot := make(map[string]publishTargetEntry, len(snapshot))
 	for _, entry := range snapshot {
-		if cfg, ok := e.transportCfg[entry.name]; ok && cfg.Fallback != "" {
-			if ft, ok2 := e.transports[cfg.Fallback]; ok2 {
+		if cfg, ok := e.transportMgr.transportCfg[entry.name]; ok && cfg.Fallback != "" {
+			if ft, ok2 := e.transportMgr.transports[cfg.Fallback]; ok2 {
 				fbEntry := publishTargetEntry{name: cfg.Fallback, transport: ft}
-				if batcher, ok2 := e.batchers[cfg.Fallback]; ok2 {
+				if batcher, ok2 := e.transportMgr.batchers[cfg.Fallback]; ok2 {
 					fbEntry.batcher = batcher
 				}
 				fallbackSnapshot[entry.name] = fbEntry
@@ -109,7 +109,7 @@ func (e *CoreCEngine) publishToTargets(point core.DataPoint, targets []string) {
 				slog.Error("batch dropped from flush queue", "target", entry.name, "error", err)
 				e.stats.totalErrors.Add(1)
 				e.stats.statManager.PushError()
-				e.tryFallback(point, entry.name, fallbackSnapshot)
+				e.transportMgr.tryFallback(point, entry.name, fallbackSnapshot)
 			}
 			continue
 		}
@@ -122,49 +122,11 @@ func (e *CoreCEngine) publishToTargets(point core.DataPoint, targets []string) {
 			slog.Error("publish failed", "target", entry.name, "error", err)
 			e.stats.totalErrors.Add(1)
 			e.stats.statManager.PushError()
-			e.tryFallback(point, entry.name, fallbackSnapshot)
+			e.transportMgr.tryFallback(point, entry.name, fallbackSnapshot)
 		} else {
 			e.stats.totalPublish.Add(1)
 			e.stats.statManager.PushPublish(1)
 		}
-	}
-}
-
-// tryFallback attempts to publish a point to the fallback transport
-// configured for the given primary target name. If no fallback is
-// configured or the fallback also fails, the error is logged.
-func (e *CoreCEngine) tryFallback(point core.DataPoint, primaryName string, fallbacks map[string]publishTargetEntry) {
-	fb, ok := fallbacks[primaryName]
-	if !ok {
-		return
-	}
-	slog.Warn("transport failover to fallback", "primary", primaryName, "fallback", fb.name)
-
-	if fb.batcher != nil {
-		// Observations and publish counting happen inside the
-		// batcher's async flush path (see comment in publishToTargets
-		// above). publish() returns an error only when the batch is
-		// dropped from the flush queue.
-		err := fb.batcher.publish(e.ctx, point)
-		if err != nil {
-			slog.Error("fallback batch dropped from flush queue", "fallback", fb.name, "error", err)
-			e.stats.totalErrors.Add(1)
-			e.stats.statManager.PushError()
-		}
-		return
-	}
-
-	start := time.Now()
-	err := fb.transport.Publish(e.ctx, point)
-	e.stats.publishLatency.Observe(time.Since(start))
-	e.stats.dataAge.Observe(time.Since(point.Timestamp))
-	if err != nil {
-		slog.Error("fallback publish also failed", "fallback", fb.name, "error", err)
-		e.stats.totalErrors.Add(1)
-		e.stats.statManager.PushError()
-	} else {
-		e.stats.totalPublish.Add(1)
-		e.stats.statManager.PushPublish(1)
 	}
 }
 

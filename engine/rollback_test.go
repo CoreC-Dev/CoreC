@@ -45,8 +45,8 @@ var (
 func newRollbackEngine() *CoreCEngine {
 	e := newEngineShell()
 	e.driverReg.drivers = make(map[string]core.Driver)
-	e.transports = make(map[string]core.Transport)
-	e.batchers = make(map[string]*transportBatcher)
+	e.transportMgr.transports = make(map[string]core.Transport)
+	e.transportMgr.batchers = make(map[string]*transportBatcher)
 	e.ctx, e.cancel = context.WithCancel(context.Background())
 	e.status = core.EngineStatusRunning
 	return e
@@ -75,23 +75,23 @@ func TestRollbackStartWithComponents(t *testing.T) {
 
 	tr := &mockTransportWithData{}
 	tr.name = "t1"
-	e.transports["t1"] = tr
+	e.transportMgr.transports["t1"] = tr
 
 	// A batcher. It is intentionally not started (no flushLoop goroutine);
 	// stop() is a safe no-op on an unstarted batcher with an empty buffer,
 	// so this exercises the batcher-stop loop without leaking goroutines.
-	e.batchers["t1"] = &transportBatcher{transport: tr, buf: batcherBufferState{batchSize: 10}}
+	e.transportMgr.batchers["t1"] = &transportBatcher{transport: tr, buf: batcherBufferState{batchSize: 10}}
 
 	e.rollbackStart()
 
 	if len(e.driverReg.drivers) != 0 {
 		t.Errorf("drivers map not cleared: got %d entries", len(e.driverReg.drivers))
 	}
-	if len(e.transports) != 0 {
-		t.Errorf("transports map not cleared: got %d entries", len(e.transports))
+	if len(e.transportMgr.transports) != 0 {
+		t.Errorf("transports map not cleared: got %d entries", len(e.transportMgr.transports))
 	}
-	if len(e.batchers) != 0 {
-		t.Errorf("batchers map not cleared: got %d entries", len(e.batchers))
+	if len(e.transportMgr.batchers) != 0 {
+		t.Errorf("batchers map not cleared: got %d entries", len(e.transportMgr.batchers))
 	}
 	if e.status != core.EngineStatusStopped {
 		t.Errorf("status = %v, want %v", e.status, core.EngineStatusStopped)
@@ -117,9 +117,9 @@ func TestRollbackStartNilSchedulerAndDataBus(t *testing.T) {
 	if e.ctx.Err() == nil {
 		t.Error("engine context was not cancelled by rollback")
 	}
-	if len(e.driverReg.drivers) != 0 || len(e.transports) != 0 || len(e.batchers) != 0 {
+	if len(e.driverReg.drivers) != 0 || len(e.transportMgr.transports) != 0 || len(e.transportMgr.batchers) != 0 {
 		t.Errorf("component maps not empty after rollback: drivers=%d transports=%d batchers=%d",
-			len(e.driverReg.drivers), len(e.transports), len(e.batchers))
+			len(e.driverReg.drivers), len(e.transportMgr.transports), len(e.transportMgr.batchers))
 	}
 }
 
@@ -129,8 +129,8 @@ func TestRollbackStartNilSchedulerAndDataBus(t *testing.T) {
 func TestRollbackStartEmpty(t *testing.T) {
 	e := newEngineShell()
 	e.driverReg.drivers = make(map[string]core.Driver)
-	e.transports = make(map[string]core.Transport)
-	e.batchers = make(map[string]*transportBatcher)
+	e.transportMgr.transports = make(map[string]core.Transport)
+	e.transportMgr.batchers = make(map[string]*transportBatcher)
 	// e.cancel, e.scheduler, e.dataBus all nil.
 
 	e.rollbackStart()
@@ -147,15 +147,15 @@ func TestRollbackStartWithErroringComponents(t *testing.T) {
 	e := newRollbackEngine()
 
 	e.driverReg.drivers["bad-d"] = &rollbackErrDriver{}
-	e.transports["bad-t"] = &rollbackErrTransport{}
+	e.transportMgr.transports["bad-t"] = &rollbackErrTransport{}
 
 	e.rollbackStart()
 
 	if len(e.driverReg.drivers) != 0 {
 		t.Errorf("drivers map not cleared: got %d entries", len(e.driverReg.drivers))
 	}
-	if len(e.transports) != 0 {
-		t.Errorf("transports map not cleared: got %d entries", len(e.transports))
+	if len(e.transportMgr.transports) != 0 {
+		t.Errorf("transports map not cleared: got %d entries", len(e.transportMgr.transports))
 	}
 	if e.status != core.EngineStatusStopped {
 		t.Errorf("status = %v, want %v", e.status, core.EngineStatusStopped)
