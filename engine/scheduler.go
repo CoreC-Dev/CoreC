@@ -347,6 +347,15 @@ func handleRecovery(runner *taskRunner, task core.ScheduleTask, interval time.Du
 // applyDeadbandFilter skips values that haven't changed beyond the configured
 // threshold since last report. A fresh slice is allocated so the filter never
 // aliases the driver's returned slice.
+//
+// Bad or uncertain quality always passes through and never updates the
+// baseline (stage-B audit finding B5-2): swallowing the point would hide
+// the quality degradation from the engine's bad-quality policies, and
+// recording its value (bad values decode as 0 via util.ToFloat64) would
+// poison the baseline so that subsequent GOOD values within the old→0
+// delta could be swallowed as well — silently freezing the data stream.
+// This matches the industrial convention that quality degradation
+// penetrates the deadband: the operator must see the tag went bad.
 func applyDeadbandFilter(runner *taskRunner, values []core.TagValue) []core.TagValue {
 	if len(runner.task.DeadBands) == 0 {
 		return values
@@ -355,6 +364,12 @@ func applyDeadbandFilter(runner *taskRunner, values []core.TagValue) []core.TagV
 	for _, v := range values {
 		threshold, ok := runner.task.DeadBands[v.Tag]
 		if !ok || threshold <= 0 {
+			filtered = append(filtered, v)
+			continue
+		}
+		if v.Quality != core.QualityGood {
+			// Quality degradation always passes through; the baseline
+			// is left untouched.
 			filtered = append(filtered, v)
 			continue
 		}
