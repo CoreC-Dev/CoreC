@@ -138,7 +138,7 @@ func (e *CoreCEngine) OfflineBufferStats() (pending int, drained, pushed uint64)
 
 	// pushed is per-batcher: aggregate it.
 	for _, b := range batchers {
-		pushed += b.offlineBufferPushes.Load()
+		pushed += b.retry.offlineBufferPushes.Load()
 	}
 
 	// pending and drained are properties of the shared buffer; read them
@@ -184,7 +184,7 @@ func (e *CoreCEngine) FlushBatchesDropped() uint64 {
 
 	var total uint64
 	for _, b := range batchers {
-		total += b.flushBatchesDropped.Load()
+		total += b.buf.flushBatchesDropped.Load()
 	}
 	return total
 }

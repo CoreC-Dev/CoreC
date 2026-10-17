@@ -242,14 +242,14 @@ func TestBatcherPublishRejectedAfterStop(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected publish() after stop to return an error")
 	}
-	if got := b.publishRejected.Load(); got != 1 {
+	if got := b.buf.publishRejected.Load(); got != 1 {
 		t.Fatalf("publishRejected = %d, want 1", got)
 	}
 
 	// The rejected point must not sit in the buffer.
-	b.mu.Lock()
-	bufLen := len(b.buffer)
-	b.mu.Unlock()
+	b.buf.mu.Lock()
+	bufLen := len(b.buf.buffer)
+	b.buf.mu.Unlock()
 	if bufLen != 0 {
 		t.Fatalf("rejected point stranded in buffer: len=%d", bufLen)
 	}
@@ -284,14 +284,14 @@ func TestBatcherPublishRejectedWhileStopping(t *testing.T) {
 	}()
 
 	// Wait until stop() has begun — the stopped flag is its first step.
-	if !waitFor(time.Second, func() bool { return b.stopped.Load() }) {
+	if !waitFor(time.Second, func() bool { return b.buf.stopped.Load() }) {
 		t.Fatal("stop() did not set the stopped flag")
 	}
 
 	if err := b.publish(ctx, core.DataPoint{Driver: "plc", Tag: "t", Value: 2.0, Timestamp: time.Now()}); err == nil {
 		t.Fatal("expected publish() rejection while stop() is in flight")
 	}
-	if got := b.publishRejected.Load(); got != 1 {
+	if got := b.buf.publishRejected.Load(); got != 1 {
 		t.Fatalf("publishRejected = %d, want 1", got)
 	}
 

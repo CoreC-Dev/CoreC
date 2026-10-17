@@ -81,7 +81,7 @@ func TestRollbackStartWithComponents(t *testing.T) {
 	// A batcher. It is intentionally not started (no flushLoop goroutine);
 	// stop() is a safe no-op on an unstarted batcher with an empty buffer,
 	// so this exercises the batcher-stop loop without leaking goroutines.
-	e.batchers["t1"] = &transportBatcher{transport: tr, batchSize: 10}
+	e.batchers["t1"] = &transportBatcher{transport: tr, buf: batcherBufferState{batchSize: 10}}
 
 	e.rollbackStart()
 

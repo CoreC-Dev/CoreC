@@ -11,11 +11,15 @@ import (
 
 // publishWithRetryAndBuffer sends a batch with exponential backoff. If all
 // retries are exhausted and an offline buffer is configured, the batch is
-// persisted to disk for later replay.
+// persisted to disk for later replay. It is the retry policy's own method
+// (CPLX-025): the attempt count comes from the policy; the transport,
+// histograms, offline buffer, and publish callback are reached through
+// the owning batcher (r.b).
 // Returns true if the batch was published successfully, false if it was
 // buffered to disk (or dropped if no offline buffer is configured).
-func (b *transportBatcher) publishWithRetryAndBuffer(ctx context.Context, batch []core.DataPoint) bool {
-	maxAttempts := b.retryCount + 1
+func (r *batcherRetryPolicy) publishWithRetryAndBuffer(ctx context.Context, batch []core.DataPoint) bool {
+	b := r.b
+	maxAttempts := r.retryCount + 1
 	baseDelay := defaultRetryBaseDelay
 	var lastErr error
 
@@ -93,7 +97,7 @@ exhausted:
 			// Count the persisted batch for observability (Prometheus
 			// counter corec_offline_buffer_pushed_total). Only successful
 			// pushes are counted — a failed Push left nothing on disk.
-			b.offlineBufferPushes.Add(1)
+			r.offlineBufferPushes.Add(1)
 			slog.Warn("batch publish failed, buffered to offline storage",
 				"transport", b.transport.Name(),
 				"batch_size", len(batch),
@@ -139,5 +143,5 @@ func (b *transportBatcher) OfflineBufferDrained() uint64 {
 // per-batcher counter; the engine sums these across batchers via
 // OfflineBufferStats for Prometheus exposure (corec_offline_buffer_pushed_total).
 func (b *transportBatcher) OfflineBufferPushed() uint64 {
-	return b.offlineBufferPushes.Load()
+	return b.retry.offlineBufferPushes.Load()
 }

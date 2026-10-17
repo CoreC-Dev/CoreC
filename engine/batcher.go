@@ -45,51 +45,13 @@ const (
 	defaultFlushBatchQueueSize = 64
 )
 
-// transportBatcher wraps a Transport to provide batch buffering,
-// periodic flush, and retry with exponential backoff. When an
-// OfflineBuffer is configured, batches that exhaust all retries are
-// persisted to disk and replayed by a background drain goroutine
-// once the transport recovers.
-type transportBatcher struct {
-	transport     core.Transport
-	batchSize     int
-	flushInterval time.Duration
-	retryCount    int
-
-	// offlineBuffer stores failed batches for later replay. nil = disabled.
-	offlineBuffer *OfflineBuffer
-
-	// publishLatency records the duration of each PublishBatch attempt
-	// (including retries). Injected from the engine so the batcher's
-	// async flush path can observe the real transport latency, not just
-	// the in-memory enqueue time (IMPROVEMENTS #1 regression fix: after
-	// making publish() async, the observation must move to the async path
-	// where Transport.PublishBatch actually runs). nil = no observation
-	// (used only in tests that don't check histograms).
-	publishLatency *metrics.LatencyHistogram
-
-	// dataAge records the freshness of each data point at publish time.
-	// Injected from the engine so the batcher's async flush path can
-	// observe the real data age (collection-to-publish delay including
-	// batching/retry/offline-replay), not just the enqueue-time age.
-	// nil = no observation.
-	dataAge *metrics.LatencyHistogram
-
-	// onPublish is called with the number of points actually published
-	// when publishWithRetryAndBuffer or drainOnce succeeds. It lets the
-	// engine count real publishes (not just enqueues) on the async flush
-	// path (Finding 4 fix: previously publish.go counted totalPublish/
-	// PushPublish immediately after the near-instant enqueue, which
-	// inflated the publish counter and undercounted errors when batches
-	// later failed). nil = no callback (tests that don't check counters).
-	onPublish func(int)
-
-	// offlineBufferPushes counts the number of batches this batcher has
-	// persisted to the offline buffer (after retries were exhausted). It
-	// is per-batcher because each transport's publish path pushes
-	// independently; the engine aggregates the per-batcher values via
-	// OfflineBufferStats. Atomic so it can be read lock-free.
-	offlineBufferPushes atomic.Uint64
+// batcherRetryPolicy groups the retry/backoff tuning of the batch publish
+// path and its offline-buffer push counter, so transportBatcher itself
+// stays under the CPLX field limit (CPLX-025).
+type batcherRetryPolicy struct {
+	// retryCount is the number of publish retries after the first
+	// attempt (TransportConfig.RetryCount).
+	retryCount int
 
 	// shutdownBudget bounds flushFinal, the shutdown flush: the fresh
 	// context it publishes under carries this timeout, so a slow retry
@@ -100,6 +62,30 @@ type transportBatcher struct {
 	// finding B3.1). Threading: set from the engine's shutdownTimeout
 	// by newTransportBatcher; <= 0 defaults to core.DefaultShutdownTimeout.
 	shutdownBudget time.Duration
+
+	// offlineBufferPushes counts the number of batches this batcher has
+	// persisted to the offline buffer (after retries were exhausted). It
+	// is per-batcher because each transport's publish path pushes
+	// independently; the engine aggregates the per-batcher values via
+	// OfflineBufferStats. Atomic so it can be read lock-free.
+	offlineBufferPushes atomic.Uint64
+
+	// b is the owning batcher: publishWithRetryAndBuffer reaches the
+	// transport, histograms, offline buffer, and onPublish callback
+	// through it.
+	b *transportBatcher
+}
+
+// batcherBufferState groups the batcher's mutable in-memory buffering
+// state — the partial buffer, the bounded flush queue, and their
+// observability counters — so transportBatcher itself stays under the
+// CPLX field limit (CPLX-025). mu guards buffer, stopped, and
+// flushBatches together: publish()'s append+enqueue and stop()'s
+// stopped-flag must form one critical section (stage-B audit findings
+// B1.6/B3.4).
+type batcherBufferState struct {
+	batchSize     int
+	flushInterval time.Duration
 
 	// flushBatches is a bounded channel carrying full batches dequeued by
 	// publish() for asynchronous flush. publish() never calls flush()
@@ -129,6 +115,54 @@ type transportBatcher struct {
 
 	mu     sync.Mutex
 	buffer []core.DataPoint
+}
+
+// transportBatcher wraps a Transport to provide batch buffering,
+// periodic flush, and retry with exponential backoff. When an
+// OfflineBuffer is configured, batches that exhaust all retries are
+// persisted to disk and replayed by a background drain goroutine
+// once the transport recovers. Its state is split into the retry
+// policy (batcherRetryPolicy) and the buffering state
+// (batcherBufferState) sub-structs (CPLX-025).
+type transportBatcher struct {
+	transport core.Transport
+
+	// offlineBuffer stores failed batches for later replay. nil = disabled.
+	offlineBuffer *OfflineBuffer
+
+	// publishLatency records the duration of each PublishBatch attempt
+	// (including retries). Injected from the engine so the batcher's
+	// async flush path can observe the real transport latency, not just
+	// the in-memory enqueue time (IMPROVEMENTS #1 regression fix: after
+	// making publish() async, the observation must move to the async path
+	// where Transport.PublishBatch actually runs). nil = no observation
+	// (used only in tests that don't check histograms).
+	publishLatency *metrics.LatencyHistogram
+
+	// dataAge records the freshness of each data point at publish time.
+	// Injected from the engine so the batcher's async flush path can
+	// observe the real data age (collection-to-publish delay including
+	// batching/retry/offline-replay), not just the enqueue-time age.
+	// nil = no observation.
+	dataAge *metrics.LatencyHistogram
+
+	// onPublish is called with the number of points actually published
+	// when publishWithRetryAndBuffer or drainOnce succeeds. It lets the
+	// engine count real publishes (not just enqueues) on the async flush
+	// path (Finding 4 fix: previously publish.go counted totalPublish/
+	// PushPublish immediately after the near-instant enqueue, which
+	// inflated the publish counter and undercounted errors when batches
+	// later failed). nil = no callback (tests that don't check counters).
+	onPublish func(int)
+
+	// retry holds the retry/backoff tuning and the offline-buffer
+	// push counter.
+	retry batcherRetryPolicy
+
+	// buf holds the mutable buffering state: partial buffer, flush
+	// queue, and their counters.
+	buf batcherBufferState
+
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup // tracks the flushLoop + drainLoop goroutines
@@ -153,35 +187,38 @@ func newTransportBatcher(t core.Transport, cfg core.TransportConfig, offlineBuff
 
 	b := &transportBatcher{
 		transport:      t,
-		batchSize:      cfg.BatchSize,
-		retryCount:     cfg.RetryCount,
 		offlineBuffer:  offlineBuffer,
 		publishLatency: publishLatency,
 		dataAge:        dataAge,
 		onPublish:      onPublish,
 	}
+	// Wire the retry policy's back-pointer so its method can reach the
+	// transport, histograms, and callbacks through the owning batcher.
+	b.retry.b = b
+	b.retry.retryCount = cfg.RetryCount
 
 	if shutdownBudget > 0 {
-		b.shutdownBudget = shutdownBudget
+		b.retry.shutdownBudget = shutdownBudget
 	} else {
-		b.shutdownBudget = core.DefaultShutdownTimeout
+		b.retry.shutdownBudget = core.DefaultShutdownTimeout
 	}
 
 	if cfg.FlushInterval != "" {
 		d, err := time.ParseDuration(cfg.FlushInterval)
 		if err == nil && d > 0 {
-			b.flushInterval = d
+			b.buf.flushInterval = d
 		}
 	}
-	if b.batchSize <= 0 {
-		b.batchSize = core.DefaultBatchSize
+	b.buf.batchSize = cfg.BatchSize
+	if b.buf.batchSize <= 0 {
+		b.buf.batchSize = core.DefaultBatchSize
 	}
 
 	// If an offline buffer is configured but no flush interval is set,
 	// default to a periodic flush so buffered points are actually sent.
 	// Without this, points would accumulate in the buffer indefinitely.
-	if b.offlineBuffer != nil && b.flushInterval <= 0 {
-		b.flushInterval = defaultFlushInterval
+	if b.offlineBuffer != nil && b.buf.flushInterval <= 0 {
+		b.buf.flushInterval = defaultFlushInterval
 	}
 
 	return b
@@ -192,7 +229,7 @@ func (b *transportBatcher) start(ctx context.Context) {
 	// flushBatches carries full batches dequeued by publish() to the
 	// flushLoop. Bounded so a slow transport cannot grow memory without
 	// limit; evictions are counted for observability.
-	b.flushBatches = make(chan []core.DataPoint, defaultFlushBatchQueueSize)
+	b.buf.flushBatches = make(chan []core.DataPoint, defaultFlushBatchQueueSize)
 	// Always start the flushLoop so buffer-full batches are flushed
 	// asynchronously, even when no periodic flush interval is configured.
 	// This keeps publish() non-blocking on the caller's goroutine
@@ -217,13 +254,13 @@ func (b *transportBatcher) stop() {
 	// Mark the batcher stopped BEFORE cancelling the loops so
 	// concurrent publish() calls cannot strand data after the final
 	// flush (stage-B audit findings B1.6/B3.4). The flag is checked
-	// under b.mu inside publish(), and publish() completes its
+	// under b.buf.mu inside publish(), and publish() completes its
 	// append+enqueue within the same critical section, so every point
 	// accepted before this line is covered by the flushes below and
 	// every point after it is rejected, counted and logged.
-	b.mu.Lock()
-	b.stopped.Store(true)
-	b.mu.Unlock()
+	b.buf.mu.Lock()
+	b.buf.stopped.Store(true)
+	b.buf.mu.Unlock()
 
 	// Stop the periodic flush/drain loops first and wait for them to
 	// exit so they don't race with the final flush. On shutdown the
@@ -250,8 +287,8 @@ func (b *transportBatcher) stop() {
 func (b *transportBatcher) flushLoop() {
 	var ticker *time.Ticker
 	var tickerC <-chan time.Time
-	if b.flushInterval > 0 {
-		ticker = time.NewTicker(b.flushInterval)
+	if b.buf.flushInterval > 0 {
+		ticker = time.NewTicker(b.buf.flushInterval)
 		defer ticker.Stop()
 		tickerC = ticker.C
 	}
@@ -263,8 +300,8 @@ func (b *transportBatcher) flushLoop() {
 			// failed batches to the offline buffer when configured.
 			b.drainFlushBatches()
 			return
-		case batch := <-b.flushBatches:
-			b.publishWithRetryAndBuffer(b.ctx, batch)
+		case batch := <-b.buf.flushBatches:
+			b.retry.publishWithRetryAndBuffer(b.ctx, batch)
 		case <-tickerC:
 			// Periodic flush of any partially-filled buffer. Older full
 			// batches still queued in flushBatches are published FIRST:
@@ -288,8 +325,8 @@ func (b *transportBatcher) flushLoop() {
 func (b *transportBatcher) drainFlushBatches() {
 	for {
 		select {
-		case batch := <-b.flushBatches:
-			b.publishWithRetryAndBuffer(b.ctx, batch)
+		case batch := <-b.buf.flushBatches:
+			b.retry.publishWithRetryAndBuffer(b.ctx, batch)
 		default:
 			return
 		}
@@ -359,7 +396,7 @@ func (b *transportBatcher) drainOnce() {
 // #1 option B: previously the buffer-full flush ran synchronously on the
 // caller's goroutine).
 //
-// The append and the flush-queue enqueue happen in one b.mu critical
+// The append and the flush-queue enqueue happen in one b.buf.mu critical
 // section together with the stopped check (stage-B audit findings
 // B1.6/B3.4): stop() sets the stopped flag under the same mutex before
 // cancelling the loops, so a batch can never be enqueued after flushLoop
@@ -378,11 +415,11 @@ func (b *transportBatcher) drainOnce() {
 // returned nil, making the error/fallback branch in publish.go dead
 // code).
 func (b *transportBatcher) publish(ctx context.Context, point core.DataPoint) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	b.buf.mu.Lock()
+	defer b.buf.mu.Unlock()
 
-	if b.stopped.Load() {
-		b.publishRejected.Add(1)
+	if b.buf.stopped.Load() {
+		b.buf.publishRejected.Add(1)
 		slog.Warn("batcher stopped, rejecting publish (point dropped)",
 			"transport", b.transport.Name(),
 			"tag", point.Tag,
@@ -390,12 +427,12 @@ func (b *transportBatcher) publish(ctx context.Context, point core.DataPoint) er
 		return fmt.Errorf("batcher for transport %s already stopped: point dropped", b.transport.Name())
 	}
 
-	b.buffer = append(b.buffer, point)
-	if len(b.buffer) < b.batchSize {
+	b.buf.buffer = append(b.buf.buffer, point)
+	if len(b.buf.buffer) < b.buf.batchSize {
 		return nil
 	}
-	fullBatch := b.buffer
-	b.buffer = make([]core.DataPoint, 0, b.batchSize)
+	fullBatch := b.buf.buffer
+	b.buf.buffer = make([]core.DataPoint, 0, b.buf.batchSize)
 
 	// Non-blocking enqueue. If the queue is full (consumer behind a
 	// sustained burst), evict the oldest pending batch to bound memory
@@ -404,15 +441,15 @@ func (b *transportBatcher) publish(ctx context.Context, point core.DataPoint) er
 	// see pushed counts, but these in-flight evictions are distinct
 	// from retry-exhausted pushes.
 	select {
-	case b.flushBatches <- fullBatch:
+	case b.buf.flushBatches <- fullBatch:
 		// enqueued successfully
 		return nil
 	default:
 	}
 	// queue full; try to evict oldest to make room
 	select {
-	case evicted := <-b.flushBatches:
-		b.flushBatchesDropped.Add(1)
+	case evicted := <-b.buf.flushBatches:
+		b.buf.flushBatchesDropped.Add(1)
 		slog.Warn("batcher flush queue full, evicting oldest pending batch",
 			"transport", b.transport.Name(),
 			"evicted_batch_size", len(evicted),
@@ -423,12 +460,12 @@ func (b *transportBatcher) publish(ctx context.Context, point core.DataPoint) er
 	// (containing the caller's point) is lost — return an error so
 	// the caller can try a fallback transport.
 	select {
-	case b.flushBatches <- fullBatch:
+	case b.buf.flushBatches <- fullBatch:
 		// enqueued after eviction; the evicted batch was lost but
 		// the caller's batch will be published by flushLoop
 		return nil
 	default:
-		b.flushBatchesDropped.Add(1)
+		b.buf.flushBatchesDropped.Add(1)
 		slog.Warn("batcher flush queue still full, dropping new batch",
 			"transport", b.transport.Name(),
 			"batch_size", len(fullBatch),
@@ -444,22 +481,22 @@ func (b *transportBatcher) publish(ctx context.Context, point core.DataPoint) er
 // is deferred (returns without publishing): the points in the partial
 // buffer are newer than every queued batch, so sending them now would
 // reorder batches across the queue (stage-B audit finding B1.3). The
-// queue check and the buffer swap happen in one b.mu critical section —
-// publish() appends and enqueues under the same mutex — so a batch
-// cannot slip in between the check and the swap. The queued batches are
-// consumed by flushLoop's main select, and the partial buffer goes out
-// on a later tick once the backlog is clear.
+// queue check and the buffer swap happen in one b.buf.mu critical
+// section — publish() appends and enqueues under the same mutex — so a
+// batch cannot slip in between the check and the swap. The queued
+// batches are consumed by flushLoop's main select, and the partial
+// buffer goes out on a later tick once the backlog is clear.
 func (b *transportBatcher) flush() {
-	b.mu.Lock()
-	if len(b.buffer) == 0 || len(b.flushBatches) > 0 {
-		b.mu.Unlock()
+	b.buf.mu.Lock()
+	if len(b.buf.buffer) == 0 || len(b.buf.flushBatches) > 0 {
+		b.buf.mu.Unlock()
 		return
 	}
-	batch := b.buffer
-	b.buffer = make([]core.DataPoint, 0, b.batchSize)
-	b.mu.Unlock()
+	batch := b.buf.buffer
+	b.buf.buffer = make([]core.DataPoint, 0, b.buf.batchSize)
+	b.buf.mu.Unlock()
 
-	b.publishWithRetryAndBuffer(b.ctx, batch)
+	b.retry.publishWithRetryAndBuffer(b.ctx, batch)
 }
 
 // flushFinal is the shutdown flush. It uses a fresh context (b.ctx has
@@ -474,20 +511,20 @@ func (b *transportBatcher) flush() {
 // batch to the offline buffer (or logging the drop when no buffer is
 // configured) instead of abandoning it mid-retry.
 func (b *transportBatcher) flushFinal() {
-	b.mu.Lock()
-	if len(b.buffer) == 0 {
-		b.mu.Unlock()
+	b.buf.mu.Lock()
+	if len(b.buf.buffer) == 0 {
+		b.buf.mu.Unlock()
 		return
 	}
-	batch := b.buffer
-	b.buffer = make([]core.DataPoint, 0, b.batchSize)
-	b.mu.Unlock()
+	batch := b.buf.buffer
+	b.buf.buffer = make([]core.DataPoint, 0, b.buf.batchSize)
+	b.buf.mu.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), b.shutdownBudget)
+	ctx, cancel := context.WithTimeout(context.Background(), b.retry.shutdownBudget)
 	defer cancel()
 
 	// Result is ignored: on success the batch is published; on failure
 	// publishWithRetryAndBuffer already persisted it to the offline
 	// buffer (or logged the drop when no buffer is configured).
-	b.publishWithRetryAndBuffer(ctx, batch)
+	b.retry.publishWithRetryAndBuffer(ctx, batch)
 }

@@ -488,9 +488,9 @@ func TestEngineOfflineBufferStats(t *testing.T) {
 	// where e.offlineBuffer is passed to every newTransportBatcher). Each
 	// has pushed a distinct number of batches.
 	b1 := &transportBatcher{offlineBuffer: ob}
-	b1.offlineBufferPushes.Add(3)
+	b1.retry.offlineBufferPushes.Add(3)
 	b2 := &transportBatcher{offlineBuffer: ob}
-	b2.offlineBufferPushes.Add(5)
+	b2.retry.offlineBufferPushes.Add(5)
 
 	// Put 2 batches on disk so pending is non-zero.
 	points := []core.DataPoint{{Driver: "plc", Tag: "t", Value: 1.0, Timestamp: time.Now()}}
@@ -769,8 +769,8 @@ func TestBatcherPublishDropsWhenFlushQueueFull(t *testing.T) {
 
 	// flushBatchesDropped must be > 0: at least 9 evictions occurred
 	// (10 extra batches beyond the 64-slot queue + 1 being processed).
-	if b.flushBatchesDropped.Load() == 0 {
-		t.Fatalf("expected flushBatchesDropped > 0, got %d", b.flushBatchesDropped.Load())
+	if b.buf.flushBatchesDropped.Load() == 0 {
+		t.Fatalf("expected flushBatchesDropped > 0, got %d", b.buf.flushBatchesDropped.Load())
 	}
 }
 

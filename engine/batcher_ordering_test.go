@@ -24,27 +24,27 @@ func TestBatcherFlushDeferredWhileQueueBacklogged(t *testing.T) {
 	// White-box setup: drive flush() without starting flushLoop so the
 	// queue backlog is deterministic.
 	b.ctx = context.Background()
-	b.flushBatches = make(chan []core.DataPoint, defaultFlushBatchQueueSize)
+	b.buf.flushBatches = make(chan []core.DataPoint, defaultFlushBatchQueueSize)
 
 	oldBatch := []core.DataPoint{
 		{Driver: "plc", Tag: "t", Value: 0.0, Timestamp: time.Now()},
 		{Driver: "plc", Tag: "t", Value: 1.0, Timestamp: time.Now()},
 		{Driver: "plc", Tag: "t", Value: 2.0, Timestamp: time.Now()},
 	}
-	b.flushBatches <- oldBatch
+	b.buf.flushBatches <- oldBatch
 
-	b.mu.Lock()
-	b.buffer = []core.DataPoint{{Driver: "plc", Tag: "t", Value: 3.0, Timestamp: time.Now()}}
-	b.mu.Unlock()
+	b.buf.mu.Lock()
+	b.buf.buffer = []core.DataPoint{{Driver: "plc", Tag: "t", Value: 3.0, Timestamp: time.Now()}}
+	b.buf.mu.Unlock()
 
 	// A periodic flush must NOT overtake the older queued batch.
 	b.flush()
 	if got := len(tr.getPublished()); got != 0 {
 		t.Fatalf("flush() published %d points while older batches were queued; want deferred", got)
 	}
-	b.mu.Lock()
-	bufLen := len(b.buffer)
-	b.mu.Unlock()
+	b.buf.mu.Lock()
+	bufLen := len(b.buf.buffer)
+	b.buf.mu.Unlock()
 	if bufLen != 1 {
 		t.Fatalf("partial buffer = %d points, want 1 (retained for a later flush)", bufLen)
 	}
