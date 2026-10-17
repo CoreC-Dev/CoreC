@@ -25,21 +25,7 @@ const writeAuditCapacity = 1000
 var _ core.WriteAuditor = (*CoreCEngine)(nil)
 
 func (e *CoreCEngine) ReadTag(ctx context.Context, driver, tag string) (*core.TagValue, error) {
-	e.mu.RLock()
-	d, ok := e.drivers[driver]
-	e.mu.RUnlock()
-	if !ok {
-		return nil, fmt.Errorf("driver not found: %s", driver)
-	}
-
-	values, err := d.Read(ctx, []string{tag})
-	if err != nil {
-		return nil, err
-	}
-	if len(values) == 0 {
-		return nil, fmt.Errorf("no value returned for tag: %s", tag)
-	}
-	return &values[0], nil
+	return e.reads.ReadTag(ctx, driver, tag)
 }
 
 // hasDriver reports whether a driver with the given name is registered.

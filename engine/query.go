@@ -7,17 +7,11 @@ import (
 )
 
 func (e *CoreCEngine) LatestValues(driver string) map[string]core.DataPoint {
-	if driver == "" {
-		// Aggregate every driver; this backs the GET /tags endpoint.
-		return e.cache.GetAll()
-	}
-	return e.cache.GetByDriver(driver)
+	return e.reads.LatestValues(driver)
 }
 
 func (e *CoreCEngine) StaleThreshold() time.Duration {
-	// Read atomically: this is called from HTTP handlers concurrently
-	// with applyEngineConfig writes during Reload/Start.
-	return time.Duration(e.staleThreshold.Load())
+	return e.reads.StaleThreshold()
 }
 
 // --- Event Subscription ---

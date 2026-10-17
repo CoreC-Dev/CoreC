@@ -41,6 +41,7 @@ type CoreCEngine struct {
 	// command/data channels).
 	transportCancels map[string]context.CancelFunc
 	ruleSet          *ruleRole
+	reads            *readAccessor
 	scheduler        *scheduler
 	dataBus          *DataBus
 	cache            *LatestCache
@@ -83,11 +84,7 @@ type CoreCEngine struct {
 	errorThrottleWin   time.Duration
 	defaultTagInterval time.Duration
 	badQualityPolicy   badQualityPolicy
-	// staleThreshold is stored as nanoseconds in an atomic so that
-	// StaleThreshold() can be read lock-free while applyEngineConfig
-	// writes it during Reload/Start without a data race.
-	staleThreshold  atomic.Int64 // nanoseconds; 0 = disabled
-	writeRetryCount int
+	writeRetryCount    int
 
 	// commandConcurrency caps the number of write commands executed in
 	// parallel. commandSem is a counting semaphore (buffered channel)
@@ -185,9 +182,12 @@ func parseBadQualityPolicy(s string) (badQualityPolicy, error) {
 // partial state instead of a struct literal (the roles must never be
 // nil, or the forwarders would dereference them).
 func newEngineShell() *CoreCEngine {
-	return &CoreCEngine{
+	e := &CoreCEngine{
 		ruleSet: &ruleRole{},
+		reads:   &readAccessor{},
 	}
+	e.reads.eng = e
+	return e
 }
 
 // New creates a new CoreC Engine instance.

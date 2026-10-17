@@ -34,7 +34,7 @@ func (e *CoreCEngine) applyEngineConfig(cfg *core.EngineConfig) error {
 		e.badQualityPolicy = p
 	}
 	if d, err := time.ParseDuration(cfg.StaleThreshold); err == nil && d > 0 {
-		e.staleThreshold.Store(int64(d))
+		e.reads.staleThreshold.Store(int64(d))
 	}
 	if cfg.WriteRetryCount > 0 {
 		e.writeRetryCount = cfg.WriteRetryCount
