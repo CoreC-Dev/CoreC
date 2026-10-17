@@ -51,9 +51,9 @@ func (a *readAccessor) ReadTag(ctx context.Context, driver, tag string) (*core.T
 func (a *readAccessor) LatestValues(driver string) map[string]core.DataPoint {
 	if driver == "" {
 		// Aggregate every driver; this backs the GET /tags endpoint.
-		return a.eng.cache.GetAll()
+		return a.eng.processing.cache.GetAll()
 	}
-	return a.eng.cache.GetByDriver(driver)
+	return a.eng.processing.cache.GetByDriver(driver)
 }
 
 // StaleThreshold returns the configured staleness threshold for cached

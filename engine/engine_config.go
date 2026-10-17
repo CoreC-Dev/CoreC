@@ -12,10 +12,10 @@ import (
 // config. Zero/empty values fall back to the defaults already set in New().
 func (e *CoreCEngine) applyEngineConfig(cfg *core.EngineConfig) error {
 	if cfg.DataBusSize > 0 {
-		e.dataBusSize = cfg.DataBusSize
+		e.processing.dataBusSize = cfg.DataBusSize
 	}
 	if cfg.Workers > 0 {
-		e.numWorkers = cfg.Workers
+		e.processing.numWorkers = cfg.Workers
 	}
 	if d, err := time.ParseDuration(cfg.ShutdownTimeout); err == nil && d > 0 {
 		e.shutdownTimeout = d
@@ -31,7 +31,7 @@ func (e *CoreCEngine) applyEngineConfig(cfg *core.EngineConfig) error {
 		if err != nil {
 			return err
 		}
-		e.badQualityPolicy = p
+		e.processing.badQualityPolicy = p
 	}
 	if d, err := time.ParseDuration(cfg.StaleThreshold); err == nil && d > 0 {
 		e.reads.staleThreshold.Store(int64(d))
@@ -43,7 +43,7 @@ func (e *CoreCEngine) applyEngineConfig(cfg *core.EngineConfig) error {
 		e.writes.commandConcurrency = cfg.CommandConcurrency
 	}
 	if cfg.HighPriorityWorkers > 0 {
-		e.numHighPriorityWorkers = cfg.HighPriorityWorkers
+		e.processing.numHighPriorityWorkers = cfg.HighPriorityWorkers
 	}
 	return nil
 }

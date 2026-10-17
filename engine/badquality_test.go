@@ -128,10 +128,10 @@ func TestBadQualityAlertPolicyFiresWithoutRuleMatch(t *testing.T) {
 		e.cancel()
 		e.wg.Wait()
 	})
-	e.dataBus = NewDataBus(4096)
-	e.cache = NewLatestCache()
+	e.processing.dataBus = NewDataBus(4096)
+	e.processing.cache = NewLatestCache()
 	e.ruleSet.ruleEngine = rule.NewEngine() // zero rules: the B5-1 minimal repro
-	e.badQualityPolicy = badQualityAlert
+	e.processing.badQualityPolicy = badQualityAlert
 
 	type alertEvent struct {
 		point core.DataPoint
@@ -142,7 +142,7 @@ func TestBadQualityAlertPolicyFiresWithoutRuleMatch(t *testing.T) {
 		alerts <- alertEvent{point: p, rule: r}
 	})
 
-	e.processPoint(core.DataPoint{
+	e.processing.processPoint(core.DataPoint{
 		Driver: "plc", Tag: "temp", Value: nil,
 		Quality:   core.QualityBad,
 		Timestamp: time.Now(),
@@ -175,10 +175,10 @@ func TestBadQualityAlertPolicyNoDuplicateWithAlertRule(t *testing.T) {
 		e.cancel()
 		e.wg.Wait()
 	})
-	e.dataBus = NewDataBus(4096)
-	e.cache = NewLatestCache()
+	e.processing.dataBus = NewDataBus(4096)
+	e.processing.cache = NewLatestCache()
 	e.ruleSet.ruleEngine = rule.NewEngine()
-	e.badQualityPolicy = badQualityAlert
+	e.processing.badQualityPolicy = badQualityAlert
 
 	if err := e.ruleSet.ruleEngine.SetRules([]core.RuleConfig{
 		{Name: "alert-on-bad", Match: "quality == 'bad'", Action: "alert", Priority: 1},
@@ -189,7 +189,7 @@ func TestBadQualityAlertPolicyNoDuplicateWithAlertRule(t *testing.T) {
 	var alerts atomic.Int32
 	e.OnAlert(func(core.DataPoint, core.Rule) { alerts.Add(1) })
 
-	e.processPoint(core.DataPoint{
+	e.processing.processPoint(core.DataPoint{
 		Driver: "plc", Tag: "temp", Value: nil,
 		Quality:   core.QualityBad,
 		Timestamp: time.Now(),

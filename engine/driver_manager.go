@@ -236,9 +236,9 @@ func (e *CoreCEngine) onDriverData(driver string, values []core.TagValue, priori
 		}
 
 		if highPriority {
-			e.dataBus.PushHighPriority(point)
+			e.processing.dataBus.PushHighPriority(point)
 		} else {
-			e.dataBus.Push(point)
+			e.processing.dataBus.Push(point)
 		}
 	}
 }

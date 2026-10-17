@@ -75,8 +75,8 @@ func (s *statsCollector) Stats() core.EngineStats {
 	// dataBus is only created in Start(); before Start it is nil.
 	// Report zero dropped counts instead of panicking on a nil receiver.
 	var totalDropped uint64
-	if s.eng.dataBus != nil {
-		totalDropped = uint64(s.eng.dataBus.Dropped() + s.eng.dataBus.PushDropped() + s.eng.dataBus.HighPriorityPushDropped() + log.Dropped())
+	if s.eng.processing.dataBus != nil {
+		totalDropped = uint64(s.eng.processing.dataBus.Dropped() + s.eng.processing.dataBus.PushDropped() + s.eng.processing.dataBus.HighPriorityPushDropped() + log.Dropped())
 	}
 
 	return core.EngineStats{

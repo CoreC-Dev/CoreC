@@ -172,9 +172,9 @@ func runScaleTest(numDrivers, tagsPerDriver int, interval, duration time.Duratio
 	stats := eng.Stats()
 	// Capture push drops, subscriber drops, and in-flight before Stop
 	ce := eng.(*CoreCEngine)
-	pushDropped := uint64(ce.dataBus.PushDropped())
-	subDropped := uint64(ce.dataBus.Dropped())
-	inFlight := uint64(len(ce.dataBus.Channel()))
+	pushDropped := uint64(ce.processing.dataBus.PushDropped())
+	subDropped := uint64(ce.processing.dataBus.Dropped())
+	inFlight := uint64(len(ce.processing.dataBus.Channel()))
 
 	eng.Stop()
 

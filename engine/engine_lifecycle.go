@@ -86,7 +86,7 @@ func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error {
 		return err
 	}
 
-	e.startProcessingWorkers()
+	e.processing.startProcessingWorkers()
 
 	// Start derived tag evaluator if configured.
 	if len(config.DerivedTags) > 0 {
@@ -107,7 +107,7 @@ func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error {
 // scheduler goroutine.
 func (e *CoreCEngine) startScheduler() error {
 	e.mu.Lock()
-	e.dataBus = NewDataBus(e.dataBusSize)
+	e.processing.dataBus = NewDataBus(e.processing.dataBusSize)
 	e.scheduler = NewScheduler(e.readFromDriver, e.onDriverData, e.errorThrottleWin, e.stats.statManager)
 	e.mu.Unlock()
 
@@ -124,7 +124,7 @@ func (e *CoreCEngine) startDerivedTags(config *core.Config) error {
 	if err := validateDerivedTags(config.DerivedTags); err != nil {
 		return fmt.Errorf("derived tags config: %w", err)
 	}
-	ev, err := newDerivedTagEvaluator(config.DerivedTags, e.cache, e.dataBus)
+	ev, err := newDerivedTagEvaluator(config.DerivedTags, e.processing.cache, e.processing.dataBus)
 	if err != nil {
 		return fmt.Errorf("derived tags: %w", err)
 	}
@@ -134,31 +134,6 @@ func (e *CoreCEngine) startDerivedTags(config *core.Config) error {
 	ev.start(e.ctx, &e.wg)
 	slog.Info("derived tag evaluator started", "count", len(config.DerivedTags))
 	return nil
-}
-
-// startProcessingWorkers launches the N worker goroutines that consume
-// from the DataBus channel, plus optional high-priority workers.
-func (e *CoreCEngine) startProcessingWorkers() {
-	numWorkers := e.numWorkers
-	if numWorkers < 1 {
-		numWorkers = 1
-	}
-	e.wg.Add(numWorkers)
-	for i := 0; i < numWorkers; i++ {
-		go e.processingLoop()
-	}
-
-	numHP := e.numHighPriorityWorkers
-	if numHP < 0 {
-		numHP = 0
-	}
-	if numHP > 0 {
-		e.wg.Add(numHP)
-		for i := 0; i < numHP; i++ {
-			go e.processingLoopHighPriority()
-		}
-		slog.Info("high-priority processing workers started", "count", numHP)
-	}
 }
 
 func (e *CoreCEngine) Stop() error {
@@ -275,8 +250,8 @@ func (e *CoreCEngine) rollbackStart() {
 	}
 	e.driverReg.stopAllTagFileWatchers()
 
-	if e.dataBus != nil {
-		e.dataBus.Close()
+	if e.processing.dataBus != nil {
+		e.processing.dataBus.Close()
 	}
 
 	e.mu.Lock()
@@ -363,8 +338,8 @@ func (e *CoreCEngine) stopComponents() {
 	}
 
 	// Close data bus
-	if e.dataBus != nil {
-		e.dataBus.Close()
+	if e.processing.dataBus != nil {
+		e.processing.dataBus.Close()
 	}
 
 	// Close rule providers to stop their reload-loop goroutines.
@@ -402,18 +377,18 @@ func stopWithErrorTimeout(name, kind string, timeout time.Duration, stopFn func(
 // left. A closed channel (double Stop) is always ready to receive, so
 // ok=false returns immediately instead of spinning forever.
 func (e *CoreCEngine) drainDataBusOnShutdown() uint64 {
-	if e.dataBus == nil {
+	if e.processing.dataBus == nil {
 		return 0
 	}
 	var dropped uint64
 	for {
 		select {
-		case _, ok := <-e.dataBus.Channel():
+		case _, ok := <-e.processing.dataBus.Channel():
 			if !ok {
 				return dropped
 			}
 			dropped++
-		case _, ok := <-e.dataBus.HighPriorityChannel():
+		case _, ok := <-e.processing.dataBus.HighPriorityChannel():
 			if !ok {
 				return dropped
 			}

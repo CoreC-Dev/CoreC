@@ -30,28 +30,13 @@ type CoreCEngine struct {
 	driverReg    *driverRegistry
 	transportMgr *transportManager
 	writes       *writeManager
+	processing   *processingCore
 	scheduler    *scheduler
-	dataBus      *DataBus
-	cache        *LatestCache
-
-	// Alert handlers
-	alertHandlers []func(point core.DataPoint, rule core.Rule)
-
-	// Processing parallelism
-	numWorkers int
 
 	// Tunable parameters (set from GlobalConfig.Engine in Start)
-	dataBusSize        int
 	shutdownTimeout    time.Duration
 	errorThrottleWin   time.Duration
 	defaultTagInterval time.Duration
-	badQualityPolicy   badQualityPolicy
-
-	// numHighPriorityWorkers is the number of dedicated workers that
-	// process only high-priority (fast-interval) data from the DataBus
-	// high-priority channel. This isolates high-frequency collection from
-	// low-frequency bulk-read bursts (IMPROVEMENTS #5).
-	numHighPriorityWorkers int
 
 	// discovery handles topology auto-discovery via MQTT heartbeats.
 	// nil when node config is not set (auto-discovery disabled).
@@ -107,12 +92,14 @@ func newEngineShell() *CoreCEngine {
 		driverReg:    &driverRegistry{},
 		transportMgr: &transportManager{},
 		writes:       &writeManager{},
+		processing:   &processingCore{},
 	}
 	e.reads.eng = e
 	e.stats.eng = e
 	e.driverReg.eng = e
 	e.transportMgr.eng = e
 	e.writes.eng = e
+	e.processing.eng = e
 	return e
 }
 
@@ -127,16 +114,16 @@ func New() core.Engine {
 	e.transportMgr.batchers = make(map[string]*transportBatcher)
 	e.driverReg.tagGroups = make(map[string]map[string]string)
 	e.ruleSet.ruleEngine = rule.NewEngine()
-	e.cache = NewLatestCache()
-	e.numWorkers = runtime.NumCPU()
-	e.dataBusSize = core.DefaultDataBusSize
+	e.processing.cache = NewLatestCache()
+	e.processing.numWorkers = runtime.NumCPU()
+	e.processing.dataBusSize = core.DefaultDataBusSize
 	e.shutdownTimeout = core.DefaultShutdownTimeout
 	e.errorThrottleWin = core.DefaultErrorThrottleWindow
 	e.defaultTagInterval = core.DefaultTagInterval
-	e.badQualityPolicy = badQualityPublish
+	e.processing.badQualityPolicy = badQualityPublish
 	e.writes.writeRetryCount = 3
 	e.writes.commandConcurrency = core.DefaultCommandConcurrency
-	e.numHighPriorityWorkers = core.DefaultHighPriorityWorkers
+	e.processing.numHighPriorityWorkers = core.DefaultHighPriorityWorkers
 	e.stats.statManager = statistic.NewManager()
 	e.writes.deadLetterMaxLen = core.DefaultDeadLetterMaxLen
 	e.driverReg.tagFileWatchers = make(map[string]*tagFileWatcher)

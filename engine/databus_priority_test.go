@@ -109,14 +109,14 @@ func TestEngineHighPriorityWorkersProcessData(t *testing.T) {
 		e.wg.Wait()
 	})
 
-	e.dataBus = NewDataBus(4096)
-	e.cache = NewLatestCache()
+	e.processing.dataBus = NewDataBus(4096)
+	e.processing.cache = NewLatestCache()
 	e.ruleSet.ruleEngine = rule.NewEngine() // empty: Match returns nil → processPoint returns after cache update
 
 	// Start one normal worker and one high-priority worker.
 	e.wg.Add(2)
-	go e.processingLoop()
-	go e.processingLoopHighPriority()
+	go e.processing.processingLoop()
+	go e.processing.processingLoopHighPriority()
 
 	// Give workers time to start.
 	time.Sleep(20 * time.Millisecond)
@@ -124,7 +124,7 @@ func TestEngineHighPriorityWorkersProcessData(t *testing.T) {
 	// Saturate the main channel with many normal-priority points.
 	// The single normal worker will be busy draining these.
 	for i := 0; i < 500; i++ {
-		e.dataBus.Push(core.DataPoint{
+		e.processing.dataBus.Push(core.DataPoint{
 			Driver:    "plc",
 			Tag:       "bulk",
 			Value:     float64(i),
@@ -136,7 +136,7 @@ func TestEngineHighPriorityWorkersProcessData(t *testing.T) {
 	// process it promptly even while the normal worker is still draining
 	// the 500 bulk points.
 	hpTag := "urgent"
-	e.dataBus.PushHighPriority(core.DataPoint{
+	e.processing.dataBus.PushHighPriority(core.DataPoint{
 		Driver:    "plc",
 		Tag:       hpTag,
 		Value:     999.0,
@@ -148,7 +148,7 @@ func TestEngineHighPriorityWorkersProcessData(t *testing.T) {
 	// waiting for the 500 normal points to drain.
 	deadline := time.Now().Add(200 * time.Millisecond)
 	for time.Now().Before(deadline) {
-		if _, ok := e.cache.Get("plc", hpTag); ok {
+		if _, ok := e.processing.cache.Get("plc", hpTag); ok {
 			return // Success — high-priority data processed despite saturation.
 		}
 		time.Sleep(2 * time.Millisecond)

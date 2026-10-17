@@ -309,12 +309,12 @@ func TestBatcherPublishRejectedWhileStopping(t *testing.T) {
 // instead of being silently abandoned when the bus is closed.
 func TestStopComponentsDropsAndCountsQueuedPoints(t *testing.T) {
 	eng := New().(*CoreCEngine)
-	eng.dataBus = NewDataBus(64)
+	eng.processing.dataBus = NewDataBus(64)
 	for i := 0; i < 3; i++ {
-		eng.dataBus.Push(core.DataPoint{Driver: "plc", Tag: "t", Value: float64(i), Timestamp: time.Now()})
+		eng.processing.dataBus.Push(core.DataPoint{Driver: "plc", Tag: "t", Value: float64(i), Timestamp: time.Now()})
 	}
 	for i := 0; i < 2; i++ {
-		eng.dataBus.PushHighPriority(core.DataPoint{Driver: "plc", Tag: "hp", Value: float64(i), Timestamp: time.Now()})
+		eng.processing.dataBus.PushHighPriority(core.DataPoint{Driver: "plc", Tag: "hp", Value: float64(i), Timestamp: time.Now()})
 	}
 
 	eng.stopComponents()
@@ -327,7 +327,7 @@ func TestStopComponentsDropsAndCountsQueuedPoints(t *testing.T) {
 	}
 	// The bus must be closed (both channels report closed afterwards).
 	select {
-	case _, ok := <-eng.dataBus.Channel():
+	case _, ok := <-eng.processing.dataBus.Channel():
 		if ok {
 			t.Fatal("expected the main data bus channel to be closed after stopComponents")
 		}

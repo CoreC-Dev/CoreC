@@ -1,21 +1,66 @@
+// Package engine implements the core.Engine interface and orchestration pipeline.
 package engine
 
 import (
+	"log/slog"
+	"time"
+
+	"github.com/CoreC-Dev/CoreC/common/util"
 	"github.com/CoreC-Dev/CoreC/core"
+	"github.com/CoreC-Dev/CoreC/rule"
 )
 
-func (e *CoreCEngine) processingLoop() {
-	defer e.wg.Done()
+// processingCore groups the data-plane concern: the internal data bus,
+// the latest-value cache, the alert handlers, the bad-quality policy,
+// and the processing parallelism tuning. Its worker loops consume the
+// bus, run the rule pipeline, and fan points out to transports.
+// Extracted from CoreCEngine in the CPLX-020 God Object split;
+// CoreCEngine keeps thin forwarders so the core.EventSubscriber method
+// set is unchanged.
+type processingCore struct {
+	dataBus *DataBus
+	cache   *LatestCache
+
+	// Alert handlers
+	alertHandlers []func(point core.DataPoint, rule core.Rule)
+
+	// badQualityPolicy controls how DataPoints with QualityBad are
+	// handled in the processing pipeline (set from
+	// GlobalConfig.Engine.OnBadQuality).
+	badQualityPolicy badQualityPolicy
+
+	// Processing parallelism
+	numWorkers int
+
+	// dataBusSize is the buffer capacity of the internal data channel
+	// connecting drivers to the processing pipeline (set from
+	// GlobalConfig.Engine.DataBusSize).
+	dataBusSize int
+
+	// numHighPriorityWorkers is the number of dedicated workers that
+	// process only high-priority (fast-interval) data from the DataBus
+	// high-priority channel. This isolates high-frequency collection from
+	// low-frequency bulk-read bursts (IMPROVEMENTS #5).
+	numHighPriorityWorkers int
+
+	// eng is the owning engine: the loops reach the lifecycle context,
+	// wait group, stats counters, rule set, and transport registry
+	// through it.
+	eng *CoreCEngine
+}
+
+func (p *processingCore) processingLoop() {
+	defer p.eng.wg.Done()
 
 	for {
 		select {
-		case <-e.ctx.Done():
+		case <-p.eng.ctx.Done():
 			return
-		case point, ok := <-e.dataBus.Channel():
+		case point, ok := <-p.dataBus.Channel():
 			if !ok {
 				return
 			}
-			e.processPoint(point)
+			p.processPoint(point)
 		}
 	}
 }
@@ -24,19 +69,44 @@ func (e *CoreCEngine) processingLoop() {
 // (fast-interval) data. It reads only from the DataBus high-priority
 // channel, so a burst of low-frequency bulk reads on the main channel
 // cannot delay high-frequency collection (IMPROVEMENTS #5).
-func (e *CoreCEngine) processingLoopHighPriority() {
-	defer e.wg.Done()
+func (p *processingCore) processingLoopHighPriority() {
+	defer p.eng.wg.Done()
 
 	for {
 		select {
-		case <-e.ctx.Done():
+		case <-p.eng.ctx.Done():
 			return
-		case point, ok := <-e.dataBus.HighPriorityChannel():
+		case point, ok := <-p.dataBus.HighPriorityChannel():
 			if !ok {
 				return
 			}
-			e.processPoint(point)
+			p.processPoint(point)
 		}
+	}
+}
+
+// startProcessingWorkers launches the N worker goroutines that consume
+// from the DataBus channel, plus optional high-priority workers.
+func (p *processingCore) startProcessingWorkers() {
+	numWorkers := p.numWorkers
+	if numWorkers < 1 {
+		numWorkers = 1
+	}
+	p.eng.wg.Add(numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		go p.processingLoop()
+	}
+
+	numHP := p.numHighPriorityWorkers
+	if numHP < 0 {
+		numHP = 0
+	}
+	if numHP > 0 {
+		p.eng.wg.Add(numHP)
+		for i := 0; i < numHP; i++ {
+			go p.processingLoopHighPriority()
+		}
+		slog.Info("high-priority processing workers started", "count", numHP)
 	}
 }
 
@@ -44,16 +114,16 @@ func (e *CoreCEngine) processingLoopHighPriority() {
 // bad-quality policy, cache update, subscriber broadcast, rule matching,
 // and action execution (publish/transform/alert/drop). It is shared by both
 // the normal and high-priority processing loops.
-func (e *CoreCEngine) processPoint(point core.DataPoint) {
+func (p *processingCore) processPoint(point core.DataPoint) {
 	// Apply bad-quality policy before any further processing.
 	// This prevents downstream systems from receiving
 	// misleading bad-quality values unless explicitly configured.
 	policyAlerted := false
 	if point.Quality == core.QualityBad {
-		switch e.badQualityPolicy {
+		switch p.badQualityPolicy {
 		case badQualityDrop:
-			e.stats.totalErrors.Add(1)
-			e.stats.statManager.PushError()
+			p.eng.stats.totalErrors.Add(1)
+			p.eng.stats.statManager.PushError()
 			return // discard entirely
 		case badQualityMarkAndPublish:
 			point.Value = nil // keep quality=bad, clear value
@@ -68,23 +138,23 @@ func (e *CoreCEngine) processPoint(point core.DataPoint) {
 			// also skipped it). policyAlerted suppresses the duplicate
 			// rule-level alert below, mirroring the old anti-double-
 			// alert intent.
-			e.fireAlert(point, badQualityAlertRule{})
+			p.fireAlert(point, badQualityAlertRule{})
 			policyAlerted = true
 		}
 	}
 
 	// Update cache
-	e.cache.Update(point)
+	p.cache.Update(point)
 
 	// Broadcast to subscribers
-	e.dataBus.Broadcast(point)
+	p.dataBus.Broadcast(point)
 
 	// Match rules — returns all matching rules in priority order, up to
 	// and including the first terminal match (Continue() == false).
 	// All rules are matched against the ORIGINAL point; transforms in the
 	// action loop below mutate the point for publishing but do not affect
 	// which rules matched (see ADR-010 § Limitations).
-	results := e.ruleSet.ruleEngine.Match(point)
+	results := p.eng.ruleSet.ruleEngine.Match(point)
 	if len(results) == 0 {
 		return
 	}
@@ -103,18 +173,18 @@ func (e *CoreCEngine) processPoint(point core.DataPoint) {
 			// point (see the policy switch above); suppress the duplicate
 			// but still publish to the rule's targets.
 			if !policyAlerted {
-				e.fireAlert(point, result.Rule)
+				p.fireAlert(point, result.Rule)
 			}
-			e.publishToTargets(pointWithRule(point, ruleName), result.Targets)
+			p.publishToTargets(pointWithRule(point, ruleName), result.Targets)
 		case core.ActionTransform:
 			// Transform mutates the point for subsequent action publishing:
 			// a later rule's publishToTargets sees the transformed value.
 			// However, the later rule's MATCH was already evaluated against
 			// the original point — transforms do not re-trigger matching.
-			point = e.applyTransform(point, result.Transform)
-			e.publishToTargets(pointWithRule(point, ruleName), result.Targets)
+			point = p.applyTransform(point, result.Transform)
+			p.publishToTargets(pointWithRule(point, ruleName), result.Targets)
 		case core.ActionForward, core.ActionMirror:
-			e.publishToTargets(pointWithRule(point, ruleName), result.Targets)
+			p.publishToTargets(pointWithRule(point, ruleName), result.Targets)
 		}
 	}
 }
@@ -153,3 +223,177 @@ func (badQualityAlertRule) RuleType() string                 { return "policy" }
 func (badQualityAlertRule) Transform() *core.TransformConfig { return nil }
 func (badQualityAlertRule) Continue() bool                   { return false }
 func (badQualityAlertRule) String() string                   { return "bad-quality-policy" }
+
+// applyTransform evaluates the transform expression against the data point's
+// value and applies the tag rename, returning a new point. If the transform
+// config is nil, the expression is empty, or the value is non-numeric, the
+// original point is returned unchanged (with a warning logged on eval failure).
+func (p *processingCore) applyTransform(point core.DataPoint, tc *core.TransformConfig) core.DataPoint {
+	if tc == nil || tc.Expression == "" {
+		return point
+	}
+
+	raw, ok := util.ToFloat64OK(point.Value)
+	if !ok {
+		// Only numeric values can be arithmetically transformed.
+		return point
+	}
+
+	result, err := rule.EvalArith(tc.Expression, raw)
+	if err != nil {
+		slog.Warn("transform expression eval failed, keeping original value",
+			"tag", point.Tag, "expression", tc.Expression, "error", err)
+		return point
+	}
+
+	out := point
+	out.Value = result
+	if tc.TagRename != "" {
+		out.Tag = tc.TagRename
+	}
+	return out
+}
+
+// publishTargetEntry is a snapshot of a single transport and its optional
+// batcher, captured under the engine read lock so that Publish can be
+// called outside the lock (problem 8).
+type publishTargetEntry struct {
+	name      string
+	transport core.Transport
+	batcher   *transportBatcher // nil if no batcher configured
+}
+
+func (p *processingCore) publishToTargets(point core.DataPoint, targets []string) {
+	// Snapshot transports and batchers under RLock, then release the
+	// lock before calling Publish. This prevents slow network I/O from
+	// blocking management operations (AddDriver/RemoveDriver/etc.) that
+	// need the write lock (problem 8).
+	p.eng.mu.RLock()
+	snapshot := make([]publishTargetEntry, 0, len(targets))
+	for _, targetName := range targets {
+		transport, ok := p.eng.transportMgr.transports[targetName]
+		if !ok {
+			slog.Warn("target transport not found", "target", targetName)
+			p.eng.stats.totalErrors.Add(1)
+			continue
+		}
+		entry := publishTargetEntry{name: targetName, transport: transport}
+		if batcher, ok := p.eng.transportMgr.batchers[targetName]; ok {
+			entry.batcher = batcher
+		}
+		snapshot = append(snapshot, entry)
+	}
+
+	// Also snapshot fallback transports for failover.
+	fallbackSnapshot := make(map[string]publishTargetEntry, len(snapshot))
+	for _, entry := range snapshot {
+		if cfg, ok := p.eng.transportMgr.transportCfg[entry.name]; ok && cfg.Fallback != "" {
+			if ft, ok2 := p.eng.transportMgr.transports[cfg.Fallback]; ok2 {
+				fbEntry := publishTargetEntry{name: cfg.Fallback, transport: ft}
+				if batcher, ok2 := p.eng.transportMgr.batchers[cfg.Fallback]; ok2 {
+					fbEntry.batcher = batcher
+				}
+				fallbackSnapshot[entry.name] = fbEntry
+			}
+		}
+	}
+	p.eng.mu.RUnlock()
+
+	for _, entry := range snapshot {
+		// Use batcher if configured, otherwise publish directly
+		if entry.batcher != nil {
+			// publishLatency and dataAge are observed inside the
+			// batcher's publishWithRetryAndBuffer (around the actual
+			// PublishBatch call), not here — publish() is now async
+			// (IMPROVEMENTS #1) and returns near-instantly, so
+			// observing here would record enqueue time, not real
+			// transport latency.
+			//
+			// totalPublish and statManager.PushPublish are also counted
+			// inside the batcher via the onPublish callback (called when
+			// the batch is actually published, not just enqueued). This
+			// avoids inflating the publish counter for points that are
+			// later lost after retries are exhausted (Finding 4 fix:
+			// previously counted prematurely here).
+			//
+			// publish() returns an error only when the flush queue is
+			// full and the batch is dropped — in that case the data is
+			// lost, so we count the error and try the fallback transport.
+			err := entry.batcher.publish(p.eng.ctx, point)
+			if err != nil {
+				slog.Error("batch dropped from flush queue", "target", entry.name, "error", err)
+				p.eng.stats.totalErrors.Add(1)
+				p.eng.stats.statManager.PushError()
+				p.eng.transportMgr.tryFallback(point, entry.name, fallbackSnapshot)
+			}
+			continue
+		}
+
+		start := time.Now()
+		err := entry.transport.Publish(p.eng.ctx, point)
+		p.eng.stats.publishLatency.Observe(time.Since(start))
+		p.eng.stats.dataAge.Observe(time.Since(point.Timestamp))
+		if err != nil {
+			slog.Error("publish failed", "target", entry.name, "error", err)
+			p.eng.stats.totalErrors.Add(1)
+			p.eng.stats.statManager.PushError()
+			p.eng.transportMgr.tryFallback(point, entry.name, fallbackSnapshot)
+		} else {
+			p.eng.stats.totalPublish.Add(1)
+			p.eng.stats.statManager.PushPublish(1)
+		}
+	}
+}
+
+func (p *processingCore) fireAlert(point core.DataPoint, r core.Rule) {
+	p.eng.mu.RLock()
+	handlers := make([]func(core.DataPoint, core.Rule), len(p.alertHandlers))
+	copy(handlers, p.alertHandlers)
+	p.eng.mu.RUnlock()
+
+	for _, h := range handlers {
+		h(point, r)
+	}
+}
+
+// --- Event Subscription ---
+
+func (p *processingCore) Subscribe(filter string) (ch <-chan core.DataPoint, unsub func()) {
+	// dataBus is only created in Start(); before Start it is nil.
+	// Return a nil channel and no-op unsubscribe instead of panicking.
+	if p.dataBus == nil {
+		return nil, func() {}
+	}
+	return p.dataBus.Subscribe(filter)
+}
+
+// SubscribeWithBuffer is like Subscribe but lets the caller choose the
+// subscriber channel buffer size.
+func (p *processingCore) SubscribeWithBuffer(filter string, size int) (ch <-chan core.DataPoint, unsub func()) {
+	// dataBus is only created in Start(); before Start it is nil.
+	// Return a nil channel and no-op unsubscribe instead of panicking.
+	if p.dataBus == nil {
+		return nil, func() {}
+	}
+	return p.dataBus.SubscribeWithBuffer(filter, size)
+}
+
+func (p *processingCore) OnAlert(handler func(point core.DataPoint, rule core.Rule)) {
+	p.eng.mu.Lock()
+	p.alertHandlers = append(p.alertHandlers, handler)
+	p.eng.mu.Unlock()
+}
+
+// --- CoreCEngine forwarders (core.EventSubscriber) ---
+
+func (e *CoreCEngine) Subscribe(filter string) (ch <-chan core.DataPoint, unsub func()) {
+	return e.processing.Subscribe(filter)
+}
+
+func (e *CoreCEngine) SubscribeWithBuffer(filter string, size int) (ch <-chan core.DataPoint, unsub func()) {
+	return e.processing.SubscribeWithBuffer(filter, size)
+}
+
+func (e *CoreCEngine) OnAlert(handler func(point core.DataPoint, rule core.Rule)) {
+	e.processing.OnAlert(handler)
+}

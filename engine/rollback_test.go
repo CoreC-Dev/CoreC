@@ -66,7 +66,7 @@ func TestRollbackStartWithComponents(t *testing.T) {
 	}
 
 	// Data bus.
-	e.dataBus = NewDataBus(64)
+	e.processing.dataBus = NewDataBus(64)
 
 	// A started mock driver and transport in the component maps.
 	d := &mockDriverWithState{}
@@ -107,7 +107,7 @@ func TestRollbackStartWithComponents(t *testing.T) {
 // data bus were created).
 func TestRollbackStartNilSchedulerAndDataBus(t *testing.T) {
 	e := newRollbackEngine()
-	// e.scheduler and e.dataBus remain nil.
+	// e.scheduler and e.processing.dataBus remain nil.
 
 	e.rollbackStart()
 
@@ -131,7 +131,7 @@ func TestRollbackStartEmpty(t *testing.T) {
 	e.driverReg.drivers = make(map[string]core.Driver)
 	e.transportMgr.transports = make(map[string]core.Transport)
 	e.transportMgr.batchers = make(map[string]*transportBatcher)
-	// e.cancel, e.scheduler, e.dataBus all nil.
+	// e.cancel, e.scheduler, e.processing.dataBus all nil.
 
 	e.rollbackStart()
 
