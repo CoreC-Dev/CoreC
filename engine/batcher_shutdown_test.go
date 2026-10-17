@@ -220,3 +220,118 @@ func TestRemoveTransportBoundsBatcherStop(t *testing.T) {
 		t.Fatalf("RemoveTransport blocked %v on the batcher stop; want bounded by the 50ms engine shutdown timeout", elapsed)
 	}
 }
+
+// TestBatcherPublishRejectedAfterStop verifies the B1.6/B3.4 fix: after
+// stop(), publish() rejects new points (counted + logged) instead of
+// letting them strand silently in the buffer or the flush queue after
+// the final flush has already run.
+func TestBatcherPublishRejectedAfterStop(t *testing.T) {
+	tr := &flakyTransport{}
+	cfg := core.TransportConfig{Name: "test", BatchSize: 100, FlushInterval: "10s"}
+	b := newTransportBatcher(tr, cfg, nil, nil, nil, nil, time.Second)
+	if b == nil {
+		t.Fatal("expected non-nil batcher")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	b.start(ctx)
+	b.stop()
+
+	err := b.publish(ctx, core.DataPoint{Driver: "plc", Tag: "t", Value: 1.0, Timestamp: time.Now()})
+	if err == nil {
+		t.Fatal("expected publish() after stop to return an error")
+	}
+	if got := b.publishRejected.Load(); got != 1 {
+		t.Fatalf("publishRejected = %d, want 1", got)
+	}
+
+	// The rejected point must not sit in the buffer.
+	b.mu.Lock()
+	bufLen := len(b.buffer)
+	b.mu.Unlock()
+	if bufLen != 0 {
+		t.Fatalf("rejected point stranded in buffer: len=%d", bufLen)
+	}
+}
+
+// TestBatcherPublishRejectedWhileStopping verifies the rejection takes
+// effect from the very first step of stop(), not only after it
+// completes: stop() sets the stopped flag before cancelling its loops,
+// so a worker racing with shutdown gets a counted, logged rejection
+// instead of silently stranding its point (B1.6/B3.4).
+func TestBatcherPublishRejectedWhileStopping(t *testing.T) {
+	tr := &ctxAwaitTransport{}
+	cfg := core.TransportConfig{Name: "test", BatchSize: 100, RetryCount: 3}
+	b := newTransportBatcher(tr, cfg, nil, nil, nil, nil, 300*time.Millisecond)
+	if b == nil {
+		t.Fatal("expected non-nil batcher")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	b.start(ctx)
+	// A partial batch keeps stop() busy in flushFinal (the hanging
+	// transport holds it until the 300ms budget expires).
+	if err := b.publish(ctx, core.DataPoint{Driver: "plc", Tag: "t", Value: 1.0, Timestamp: time.Now()}); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		b.stop()
+		close(done)
+	}()
+
+	// Wait until stop() has begun — the stopped flag is its first step.
+	if !waitFor(time.Second, func() bool { return b.stopped.Load() }) {
+		t.Fatal("stop() did not set the stopped flag")
+	}
+
+	if err := b.publish(ctx, core.DataPoint{Driver: "plc", Tag: "t", Value: 2.0, Timestamp: time.Now()}); err == nil {
+		t.Fatal("expected publish() rejection while stop() is in flight")
+	}
+	if got := b.publishRejected.Load(); got != 1 {
+		t.Fatalf("publishRejected = %d, want 1", got)
+	}
+
+	// stop() must still complete on its own (within its budget).
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("stop() did not finish within its shutdown budget")
+	}
+}
+
+// TestStopComponentsDropsAndCountsQueuedPoints verifies the B3.4
+// visibility fix: points still queued in the data bus when the batchers
+// are about to be stopped are drained, counted as errors and logged,
+// instead of being silently abandoned when the bus is closed.
+func TestStopComponentsDropsAndCountsQueuedPoints(t *testing.T) {
+	eng := New().(*CoreCEngine)
+	eng.dataBus = NewDataBus(64)
+	for i := 0; i < 3; i++ {
+		eng.dataBus.Push(core.DataPoint{Driver: "plc", Tag: "t", Value: float64(i), Timestamp: time.Now()})
+	}
+	for i := 0; i < 2; i++ {
+		eng.dataBus.PushHighPriority(core.DataPoint{Driver: "plc", Tag: "hp", Value: float64(i), Timestamp: time.Now()})
+	}
+
+	eng.stopComponents()
+
+	if got := eng.totalErrors.Load(); got != 5 {
+		t.Fatalf("totalErrors = %d, want 5 (3 main + 2 high-priority queued points dropped and counted)", got)
+	}
+	if got := eng.statManager.Snapshot().ErrorTotal; got != 5 {
+		t.Fatalf("statManager errors = %d, want 5", got)
+	}
+	// The bus must be closed (both channels report closed afterwards).
+	select {
+	case _, ok := <-eng.dataBus.Channel():
+		if ok {
+			t.Fatal("expected the main data bus channel to be closed after stopComponents")
+		}
+	default:
+		t.Fatal("expected the main data bus channel to be closed after stopComponents")
+	}
+}

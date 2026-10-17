@@ -375,6 +375,25 @@ func (e *CoreCEngine) stopComponents() {
 		stopWithErrorTimeout(driverNames[i], "driver", stopTimeout, d.Stop)
 	}
 
+	// Empty the data bus before stopping the batchers (stage-B audit
+	// findings B1.6/B3.4): once the bus is drained the processing
+	// workers have nothing left to consume and exit promptly on the
+	// cancelled context, so no worker can still be appending to a
+	// batcher's buffer (or enqueueing into its flush queue) while that
+	// batcher's final flush runs. Points still queued at this moment are
+	// dropped and counted — shutdown abandons not-yet-processed queued
+	// data by design (documented in docs/architecture/dataflow.md);
+	// until now this drop was completely silent: no log, no counter.
+	if dropped := e.drainDataBusOnShutdown(); dropped > 0 {
+		e.totalErrors.Add(dropped)
+		for range dropped {
+			e.statManager.PushError()
+		}
+		slog.Warn("shutdown: dropped data points still queued in data bus",
+			"points", dropped,
+		)
+	}
+
 	// Stop all batchers with timeout (flush remaining buffered data).
 	// Without a timeout, a batcher whose transport ignores context
 	// cancellation or has an oversized retry config could hang Stop
@@ -415,6 +434,39 @@ func stopWithErrorTimeout(name, kind string, timeout time.Duration, stopFn func(
 		}
 	case <-time.After(timeout):
 		slog.Error("timed out stopping "+kind, "name", name, "timeout", timeout)
+	}
+}
+
+// drainDataBusOnShutdown removes every point still queued in the data
+// bus (main and high-priority channels) and returns how many were
+// dropped. Called by stopComponents before the batchers are stopped so
+// processing workers quiesce and cannot race with the batchers' final
+// flush (stage-B audit findings B1.6/B3.4). The receive loop is
+// non-blocking and exits once both channels are momentarily empty;
+// workers may still be consuming concurrently, in which case they
+// process those points normally and the drain only observes what is
+// left. A closed channel (double Stop) is always ready to receive, so
+// ok=false returns immediately instead of spinning forever.
+func (e *CoreCEngine) drainDataBusOnShutdown() uint64 {
+	if e.dataBus == nil {
+		return 0
+	}
+	var dropped uint64
+	for {
+		select {
+		case _, ok := <-e.dataBus.Channel():
+			if !ok {
+				return dropped
+			}
+			dropped++
+		case _, ok := <-e.dataBus.HighPriorityChannel():
+			if !ok {
+				return dropped
+			}
+			dropped++
+		default:
+			return dropped
+		}
 	}
 }
 

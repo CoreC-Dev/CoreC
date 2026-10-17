@@ -112,6 +112,21 @@ type transportBatcher struct {
 	flushBatches        chan []core.DataPoint
 	flushBatchesDropped atomic.Uint64
 
+	// stopped is set as the first step of stop() (under mu, before the
+	// loops are cancelled). Once set, publish() rejects new points: after
+	// flushFinal has swapped the buffer out, a late append would strand
+	// the point in memory forever, and a late enqueue into flushBatches
+	// would strand a whole batch in the channel — both silently
+	// (stage-B audit findings B1.6/B3.4). Atomic because it is paired
+	// with publishRejected for lock-free observability reads.
+	stopped atomic.Bool
+
+	// publishRejected counts the points publish() rejected because the
+	// batcher had already been stopped. The rejection converts a silent
+	// shutdown-time loss into a counted, logged drop. Atomic so it can
+	// be read lock-free.
+	publishRejected atomic.Uint64
+
 	mu     sync.Mutex
 	buffer []core.DataPoint
 	ctx    context.Context
@@ -199,8 +214,22 @@ func (b *transportBatcher) start(ctx context.Context) {
 }
 
 func (b *transportBatcher) stop() {
+	// Mark the batcher stopped BEFORE cancelling the loops so
+	// concurrent publish() calls cannot strand data after the final
+	// flush (stage-B audit findings B1.6/B3.4). The flag is checked
+	// under b.mu inside publish(), and publish() completes its
+	// append+enqueue within the same critical section, so every point
+	// accepted before this line is covered by the flushes below and
+	// every point after it is rejected, counted and logged.
+	b.mu.Lock()
+	b.stopped.Store(true)
+	b.mu.Unlock()
+
 	// Stop the periodic flush/drain loops first and wait for them to
-	// exit so they don't race with the final flush.
+	// exit so they don't race with the final flush. On shutdown the
+	// flushLoop drains every batch still queued in flushBatches before
+	// returning, so nothing enqueued before the stopped flag was set can
+	// be left behind.
 	if b.cancel != nil {
 		b.cancel()
 	}
@@ -321,62 +350,82 @@ func (b *transportBatcher) drainOnce() {
 // #1 option B: previously the buffer-full flush ran synchronously on the
 // caller's goroutine).
 //
+// The append and the flush-queue enqueue happen in one b.mu critical
+// section together with the stopped check (stage-B audit findings
+// B1.6/B3.4): stop() sets the stopped flag under the same mutex before
+// cancelling the loops, so a batch can never be enqueued after flushLoop
+// has drained the queue on its way out, and a point can never be appended
+// after flushFinal has swapped the buffer. Publishes that lose this race
+// are rejected, counted in publishRejected and logged instead of being
+// silently stranded. All channel operations below are non-blocking, so
+// holding the mutex cannot deadlock against flushLoop.
+//
 // Returns nil when the point was successfully buffered or enqueued for
-// async flush. Returns an error only when the flush queue is full and the
-// batch containing the caller's point could not be enqueued even after
-// evicting the oldest pending batch — in that case the data is lost and the
-// caller can try a fallback transport (Finding 4 fix: previously publish()
-// always returned nil, making the error/fallback branch in publish.go dead
+// async flush. Returns an error when the batcher is stopped (point
+// rejected) or when the flush queue is full and the batch containing the
+// caller's point could not be enqueued even after evicting the oldest
+// pending batch — in both cases the data is lost and the caller can try
+// a fallback transport (Finding 4 fix: previously publish() always
+// returned nil, making the error/fallback branch in publish.go dead
 // code).
 func (b *transportBatcher) publish(ctx context.Context, point core.DataPoint) error {
-	var fullBatch []core.DataPoint
 	b.mu.Lock()
-	b.buffer = append(b.buffer, point)
-	if len(b.buffer) >= b.batchSize {
-		fullBatch = b.buffer
-		b.buffer = make([]core.DataPoint, 0, b.batchSize)
-	}
-	b.mu.Unlock()
+	defer b.mu.Unlock()
 
-	if fullBatch != nil {
-		// Non-blocking enqueue. If the queue is full (consumer behind a
-		// sustained burst), evict the oldest pending batch to bound memory
-		// and count the drop for observability. The evicted batch is
-		// logged; with an offline buffer configured the operator can still
-		// see pushed counts, but these in-flight evictions are distinct
-		// from retry-exhausted pushes.
-		select {
-		case b.flushBatches <- fullBatch:
-			// enqueued successfully
-		default:
-			// queue full; try to evict oldest to make room
-			select {
-			case evicted := <-b.flushBatches:
-				b.flushBatchesDropped.Add(1)
-				slog.Warn("batcher flush queue full, evicting oldest pending batch",
-					"transport", b.transport.Name(),
-					"evicted_batch_size", len(evicted),
-				)
-			default:
-			}
-			// Retry enqueue after eviction. If still full, the new batch
-			// (containing the caller's point) is lost — return an error so
-			// the caller can try a fallback transport.
-			select {
-			case b.flushBatches <- fullBatch:
-				// enqueued after eviction; the evicted batch was lost but
-				// the caller's batch will be published by flushLoop
-			default:
-				b.flushBatchesDropped.Add(1)
-				slog.Warn("batcher flush queue still full, dropping new batch",
-					"transport", b.transport.Name(),
-					"batch_size", len(fullBatch),
-				)
-				return fmt.Errorf("batcher flush queue full for transport %s: batch of %d points dropped", b.transport.Name(), len(fullBatch))
-			}
-		}
+	if b.stopped.Load() {
+		b.publishRejected.Add(1)
+		slog.Warn("batcher stopped, rejecting publish (point dropped)",
+			"transport", b.transport.Name(),
+			"tag", point.Tag,
+		)
+		return fmt.Errorf("batcher for transport %s already stopped: point dropped", b.transport.Name())
 	}
-	return nil
+
+	b.buffer = append(b.buffer, point)
+	if len(b.buffer) < b.batchSize {
+		return nil
+	}
+	fullBatch := b.buffer
+	b.buffer = make([]core.DataPoint, 0, b.batchSize)
+
+	// Non-blocking enqueue. If the queue is full (consumer behind a
+	// sustained burst), evict the oldest pending batch to bound memory
+	// and count the drop for observability. The evicted batch is
+	// logged; with an offline buffer configured the operator can still
+	// see pushed counts, but these in-flight evictions are distinct
+	// from retry-exhausted pushes.
+	select {
+	case b.flushBatches <- fullBatch:
+		// enqueued successfully
+		return nil
+	default:
+	}
+	// queue full; try to evict oldest to make room
+	select {
+	case evicted := <-b.flushBatches:
+		b.flushBatchesDropped.Add(1)
+		slog.Warn("batcher flush queue full, evicting oldest pending batch",
+			"transport", b.transport.Name(),
+			"evicted_batch_size", len(evicted),
+		)
+	default:
+	}
+	// Retry enqueue after eviction. If still full, the new batch
+	// (containing the caller's point) is lost — return an error so
+	// the caller can try a fallback transport.
+	select {
+	case b.flushBatches <- fullBatch:
+		// enqueued after eviction; the evicted batch was lost but
+		// the caller's batch will be published by flushLoop
+		return nil
+	default:
+		b.flushBatchesDropped.Add(1)
+		slog.Warn("batcher flush queue still full, dropping new batch",
+			"transport", b.transport.Name(),
+			"batch_size", len(fullBatch),
+		)
+		return fmt.Errorf("batcher flush queue full for transport %s: batch of %d points dropped", b.transport.Name(), len(fullBatch))
+	}
 }
 
 // flush sends all buffered points via PublishBatch with retry.
