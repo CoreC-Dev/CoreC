@@ -70,10 +70,18 @@ global:
     ## TLS (optional): uncomment to enable HTTPS
     # tls-cert: /path/to/cert.pem
     # tls-key: /path/to/key.pem
-    ## CORS: empty = permissive default (Access-Control-Allow-Origin: *).
-    ## List specific origins to restrict cross-origin access.
+    ## CORS: empty = permissive default (Access-Control-Allow-Origin: *),
+    ## so a browser Dashboard can connect out of the box (direct-connect
+    ## mode, e.g. a GitHub Pages static SPA talking to a remote CoreC).
+    ## Production deployments exposed to the public internet with browsers
+    ## connecting directly: ALWAYS list your Dashboard origin(s) here —
+    ## with the permissive default, a leaked API secret lets any web page
+    ## read AND write the API cross-origin. Same-origin reverse-proxy
+    ## deployments (Dashboard proxies /corec-api/* to CoreC) need no CORS
+    ## at all. Rationale: docs/architecture/decisions.md ADR-011.
     # allowed-origins:
     #   - http://localhost:3000
+    #   - https://dashboard.example.com
     ## Rate limit (optional): max requests per second per IP
     # rate-limit-per-sec: 100
     ## HTTP server timeouts (optional, defaults shown)

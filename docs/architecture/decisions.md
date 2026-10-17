@@ -86,6 +86,20 @@
   - **性能**：`continue: true` 规则增多时单点评估次数上升，但工业场景规则数小（<100），无感知。
   - **局限性（transform 不影响后续匹配）**：`Match()` 对所有规则求值时使用的是**原始** `DataPoint`，`transform` 动作在结果集遍历时才修改 `point`——因此 transform 后续规则的**发布数据**看到变换后的值，但后续规则的**匹配条件**已在原始值上求值完毕。例如 `transform(tag: temp_c→temp_f, continue: true)` 后跟 `match: tag == 'temp_f'` 不会命中。这是"批量匹配 + 事后执行"设计的固有取舍：将匹配与执行交错可解决，但会模糊规则引擎与处理流水线的边界并绕过驱动索引优化。当前设计支持所有常见场景（alert+forward、多级告警、transform+兜底转发），transform-then-conditional-route 可用 `match: ALL` 规避。
 
+## ADR-011 CORS 默认维持 `*`（直连形态兼容 + 文档引导收紧，方案 A+C）
+
+- **状态**：已采纳（2026-10-17 项目所有者批准方案 A+C；零行为变更，纯文档 + 配置样例注释）
+- **上下文**：`hub/route/middleware.go` 的 `corsMiddleware` 在未配置 `global.api.allowed-origins`（`core/engine.go` `APIConfig.AllowedOrigins`，yaml 键 `allowed-origins`）时输出 `Access-Control-Allow-Origin: *`，并放行方法 `GET, POST, PUT, PATCH, OPTIONS` 与头 `Content-Type, Authorization`；代码注释明示意图是浏览器 Dashboard "can connect out of the box"。这是刻意设计而非疏漏，且**不是无认证裸奔**——配套防线全部在位（均经实测核实）：
+  - **认证恒在**：全部业务端点位于 auth group 内（未认证面仅 `/`、`/version`、`/healthz/*` 探针）；空 secret fail-closed；token 与 secret 先 `sha256` 定长化再 `hmac.Equal` 恒时比较。无 token 的跨域页面只能拿到 401。
+  - **token 传递面收窄**：HTTP 只认 `Authorization: Bearer`；`?token=` 仅允许 WS upgrade（浏览器 WS API 不能设自定义头）；`safeRequestLogger` 对 query token 脱敏。
+  - **限流不信任转发头**：按直连 `RemoteAddr` 令牌桶限流，注释明示 `X-Forwarded-For` 可伪造、trusted-proxy 支持须显式 opt-in。
+  - **无 cookie**：凭据走 header，浏览器不会自动附带——经典 CSRF（cookie 自动携带）模型不适用。
+  - WebSocket upgrade 的 Origin 校验（`hub/route/common.go`）与 CORS 共用同一 allowlist，未配置时同样放行。
+  Dashboard 有两种已文档化的部署形态：**同源反代**（Dashboard `server.mjs` 把 `/corec-api/*` 反代到 CoreC，注释明言 "Eliminates CSP, CORS, and port-blocking issues"）不依赖宽松 CORS；**直连模式**（静态 SPA——如 GitHub Pages——直接访问远程 CoreC，Dashboard `deploy.yml` 明确描述该架构）**必须**允许跨域，否则浏览器无法直连后端。收紧默认值会让直连形态开箱即坏。
+  真实残余风险是"**token 泄露一次即放大为跨域可读写**"：带 `Authorization` 头的请求在 CORS 语义里不算 credentialed request，`*` 下响应体可被任意网页读取——比"只能写不能读"更宽。早期审计文档曾把该默认表述为"开箱即用但裸奔"，不准确，以本 ADR 为准修正。
+- **决策**：采 **A + C**——维持默认 `*`（方案 A），叠加文档加固（方案 C）：在 `config.example.yaml`、`docs/config/global.md` 与 `docs/guide/installation.md` 写明"何时应收紧"。**收紧方式即 `global.api.allowed-origins` 配置**：一旦列出来源，中间件仅对列表内来源反射 `Origin`（限制模式，WS 同步收紧），未配置则维持 `*`。备选评估：**B**（默认收紧为同源）属破坏性变更，直连形态开箱即坏——若确认直连仅用于受控内网/演示，按流程另立 issue 显式评估；**D**（trusted-proxy 按真实 IP 限流）为独立议题，不与本决策绑定。
+- **后果**：直连形态保持开箱可用；生产公网直连部署应把 Dashboard 域名配入 `allowed-origins`；同源反代部署天然无 CORS 需求——**生产建议优先同源反代形态**。残余风险（token 泄露即跨域可读写）依赖认证 + TLS + 高熵 secret + allowlist 的组合缓解，文档已同步引导。
+
 ---
 
 *新增决策请追加至本文件，遵循"上下文 / 决策 / 后果"三段式，并标注状态。*

@@ -198,6 +198,23 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now corec
 ```
 
+## 生产部署的 CORS 姿势
+
+CoreC 管理 API 默认对浏览器开放 CORS：未配置 `global.api.allowed-origins` 时输出 `Access-Control-Allow-Origin: *`。这是刻意设计，服务于 Dashboard 的**直连部署形态**（静态 SPA——如 GitHub Pages——直接访问远程 CoreC），否则浏览器无法跨域直连后端。CORS 不影响认证：所有业务端点仍需 `Authorization: Bearer <secret>`，无 token 的跨域页面只能拿到 401。
+
+两种部署形态的推荐姿势：
+
+| 形态 | 说明 | CORS 建议 |
+|:---|:---|:---|
+| **同源反向代理**（生产首选） | Dashboard 自带 `server.mjs` 将 `/corec-api/*` 反代到 CoreC，浏览器只访问同源 | 无需 CORS，也无需配置 |
+| **直连** | 浏览器直接访问 CoreC API 地址 | **公网部署务必**配置 `global.api.allowed-origins` 为 Dashboard 域名 allowlist |
+
+::: warning 公网直连务必收紧
+默认 `*` 的残余风险是：一旦 API secret 泄露，**任意网页**都能跨域读写该 API——带 `Authorization` 头的请求在 CORS 语义里不算 credentialed request，`*` 下响应体可被读取，比"只能写不能读"更宽。生产环境公网直连部署，请显式配置 [`global.api.allowed-origins`](../config/global.md) 收紧来源；同时配合 TLS 与高熵 secret。
+:::
+
+完整决策依据与备选方案评估见[架构决策 ADR-011](../architecture/decisions.md)。
+
 ## 命令行参数
 
 | 参数 | 简写 | 默认值 | 说明 |

@@ -70,7 +70,7 @@ CoreC 内置管理 API，提供驱动管理、数据读写、规则热更新、�
 | `api.secret` | string | **是**† | — | 鉴权令牌，客户端需以 `Authorization: Bearer <secret>` 携带 |
 | `api.tls-cert` | string | 否 | — | TLS 证书文件路径，启用 HTTPS 时需与 `tls-key` 同时设置 |
 | `api.tls-key` | string | 否 | — | TLS 私钥文件路径 |
-| `api.allowed-origins` | string[] | 否 | — | CORS 允许的来源列表；留空则默认放行所有来源（`*`） |
+| `api.allowed-origins` | string[] | 否 | — | CORS 允许的来源列表；留空则默认放行所有来源（`*`），生产公网直连建议显式配置（见下方 allowed-origins 节） |
 | `api.rate-limit-per-sec` | int | 否 | `0`（不限速） | 每秒每 IP 最大请求数，用于限流防护 |
 | `api.read-header-timeout` | duration | 否 | `10s` | 读取请求头的最大时长 |
 | `api.read-timeout` | duration | 否 | `0`（禁用） | 读取整个请求的最大时长 |
@@ -125,7 +125,7 @@ api:
 
 ### allowed-origins（CORS）
 
-配置 CORS 允许的来源列表，用于浏览器端仪表板跨域访问。**留空时默认放行所有来源**（`Access-Control-Allow-Origin: *`）。如需限制跨域访问，显式列出允许的来源：
+配置 CORS 允许的来源列表，用于浏览器端仪表板跨域访问。**留空时默认放行所有来源**（`Access-Control-Allow-Origin: *`），服务于 Dashboard 直连部署形态（静态 SPA 直接访问远程 CoreC）；认证不受 CORS 影响，业务端点仍需 Bearer token。如需限制跨域访问，显式列出允许的来源：
 
 ```yaml
 api:
@@ -133,6 +133,12 @@ api:
     - http://localhost:3000
     - https://dashboard.example.com
 ```
+
+配置后仅对列表内来源返回 CORS 头（限制模式）；WebSocket upgrade 的 Origin 校验共用同一 allowlist，同步收紧。
+
+::: warning 生产建议
+默认 `*` 下，API secret 一旦泄露，任意网页都可跨域**读写**该 API（带 `Authorization` 头的请求在 CORS 语义里不算 credentialed request，响应可被读取）。生产环境公网直连部署务必配置本项为 Dashboard 域名 allowlist；同源反向代理部署（Dashboard 将 `/corec-api/*` 反代到 CoreC）无需 CORS，为生产首选形态。完整决策依据见[架构决策 ADR-011](/architecture/decisions)，部署姿势见[安装指南](/guide/installation)。
+:::
 
 ### rate-limit-per-sec
 
