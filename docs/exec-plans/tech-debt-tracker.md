@@ -49,7 +49,7 @@
 
 | ID | 标题 | 位置 | 类别 | 严重度 | 证据 | 修复建议 | 业务行为影响 | 关联批次 | 验收方式 | 状态 |
 |---|---|---|---|---|---|---|---|---|---|---|
-| CPLX-020 | God Object: CoreCEngine 43 字段/59 方法 | engine/engine.go:24-144(struct) | 复杂度 | P1 | 43 字段, 59 方法(均远超阈值 10/12) | 按职责拆为 EngineCore/DriverRegistry/TransportRegistry/StatsCollector 等组合结构 | 无 | Phase 4 批次 3 | 字段 ≤10 且方法 ≤12 | 延期至阶段5后 |
+| CPLX-020 | God Object: CoreCEngine | engine/engine.go | 复杂度 | P1 | 2026-10-17 复测（HEAD=fee1ea9）：46 字段/69 方法 | 按职责拆为 EngineCore/DriverRegistry/TransportRegistry/StatsCollector 等组合结构 | 无 | Phase 4 批次 3 | 字段 ≤10 且方法 ≤12 | 延期至阶段5后 |
 | CPLX-025 | God Object: transportBatcher 16 字段/13 方法 | engine/batcher.go:53-110(struct) | 复杂度 | P2 | 16 字段, 13 方法 | 拆出 RetryPolicy/BufferState 子结构 | 无 | Phase 4 批次 3 | 字段 ≤10 且方法 ≤12 | 延期至阶段5后 |
 
 ### 性能（PERF）
