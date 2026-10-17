@@ -707,3 +707,49 @@ func TestOPCUAWriteConnectionErrorTriggersReconnect(t *testing.T) {
 		t.Fatalf("non-connection write failure must not tear down: state = %v", got)
 	}
 }
+
+// TestOPCUAAssembleReadResultsLocalTimestamp is the stage-B audit finding
+// B5-4 regression test: every point assembled from a ReadResponse — good
+// and bad alike — must carry the local receive time, not the OPC UA
+// server's SourceTimestamp. All staleness consumers (derived-tag stale
+// guards, API is_stale annotation, dataAge metrics) compare against the
+// CoreC host clock, and a drifting server clock must not skew them.
+func TestOPCUAAssembleReadResultsLocalTimestamp(t *testing.T) {
+	d := mustInit(t, validConfig("read-ts"))
+
+	now := time.Now()
+	// A server clock running 10 minutes behind the CoreC host.
+	slowServerTs := now.Add(-10 * time.Minute)
+	resp := &ua.ReadResponse{
+		Results: []*ua.DataValue{
+			{Status: ua.StatusOK, Value: ua.MustVariant(float64(42.0)), SourceTimestamp: slowServerTs},
+			{Status: ua.StatusBadNodeIDUnknown, SourceTimestamp: slowServerTs},
+		},
+	}
+
+	results := d.assembleReadResults(resp, []string{"tag1", "tag1"}, now)
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+
+	// Good point: local receive time, value decoded.
+	if results[0].Quality != core.QualityGood {
+		t.Errorf("results[0].Quality = %v, want good", results[0].Quality)
+	}
+	if results[0].Value != float64(42.0) {
+		t.Errorf("results[0].Value = %v, want 42", results[0].Value)
+	}
+	if !results[0].Timestamp.Equal(now) {
+		t.Errorf("good point stamped with non-local time: got %v, want %v (B5-4: local clock must win over SourceTimestamp %v)",
+			results[0].Timestamp, now, slowServerTs)
+	}
+
+	// Bad point: same local receive time as the good point — the two
+	// branches of one Read must not mix time sources.
+	if results[1].Quality != core.QualityBad {
+		t.Errorf("results[1].Quality = %v, want bad", results[1].Quality)
+	}
+	if !results[1].Timestamp.Equal(now) {
+		t.Errorf("bad point stamped with non-local time: got %v, want %v", results[1].Timestamp, now)
+	}
+}

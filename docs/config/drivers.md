@@ -497,6 +497,15 @@ tags:
   read-timeout: 500ms   # 允许单次读取最多 500ms，而非默认的 200ms
 ```
 
+### Timestamp 语义
+
+所有驱动的数据点 `timestamp` 统一取 **CoreC 主机本地时钟**在采集/接收时刻的值（`time.Now()`），而非设备或服务器侧时间源：
+
+- Modbus 与 S7 协议本身不携带时间戳，始终以本地时钟打点；
+- OPC UA 轮询与订阅模式均以**本机接收时刻**打点，不采用服务器的 `SourceTimestamp`。
+
+下游所有依赖 `timestamp` 的语义——derived tag 的 `stale-guard` 陈旧保护、API 的 `is_stale` 标注、`dataAge` 指标——都与本地时钟比较。统一时间源意味着：只要 CoreC 主机时钟正常（NTP 同步），即使 OPC UA 服务器时钟漂移，陈旧判定也不会误标点位为陈旧或误判新鲜。
+
 ---
 
 ## 外部标签文件（tags-file）

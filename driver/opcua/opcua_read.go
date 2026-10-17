@@ -66,6 +66,25 @@ func (d *OPCUADriver) Read(ctx context.Context, tags []string) ([]core.TagValue,
 		return nil, fmt.Errorf("opcua batch read failed: %w", err)
 	}
 
+	results := d.assembleReadResults(resp, validTagNames, now)
+
+	d.AddReadCount(uint64(len(results)))
+	d.Lock()
+	d.SetLastRead(now)
+	d.Unlock()
+
+	return results, nil
+}
+
+// assembleReadResults maps a ReadResponse to TagValues, stamping every
+// point — good and bad alike — with the local receive time `now`.
+// All consumers of TagValue.Timestamp compare it against the local clock
+// (derived-tag stale guards, API staleness annotation, dataAge metrics)
+// and the other drivers stamp local time as well, so adopting the OPC UA
+// server's SourceTimestamp here would skew every staleness judgement
+// wherever the server clock drifts from the CoreC host (stage-B audit
+// finding B5-4).
+func (d *OPCUADriver) assembleReadResults(resp *ua.ReadResponse, validTagNames []string, now time.Time) []core.TagValue {
 	results := make([]core.TagValue, 0, len(resp.Results))
 	for i, r := range resp.Results {
 		tagName := validTagNames[i]
@@ -93,14 +112,8 @@ func (d *OPCUADriver) Read(ctx context.Context, tags []string) ([]core.TagValue,
 			Value:     val,
 			Type:      dt,
 			Quality:   core.QualityGood,
-			Timestamp: r.SourceTimestamp,
+			Timestamp: now,
 		})
 	}
-
-	d.AddReadCount(uint64(len(results)))
-	d.Lock()
-	d.SetLastRead(now)
-	d.Unlock()
-
-	return results, nil
+	return results
 }

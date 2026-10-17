@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/CoreC-Dev/CoreC/common/util"
 	"github.com/CoreC-Dev/CoreC/core"
@@ -105,6 +106,13 @@ func (d *OPCUADriver) subscriptionLoop(ctx context.Context,
 			if !ok {
 				continue
 			}
+			// Stamp the local receive time on every forwarded point: all
+			// staleness consumers compare against the CoreC host clock,
+			// and the polling drivers stamp local time too, so the
+			// server's SourceTimestamp would skew staleness wherever the
+			// OPC UA server clock drifts from the host (stage-B audit
+			// finding B5-4).
+			now := time.Now()
 			for _, item := range notif.MonitoredItems {
 				tagName, found := handleToTag[item.ClientHandle]
 				if !found {
@@ -124,7 +132,7 @@ func (d *OPCUADriver) subscriptionLoop(ctx context.Context,
 					Value:     val,
 					Type:      dt,
 					Quality:   core.QualityGood,
-					Timestamp: item.Value.SourceTimestamp,
+					Timestamp: now,
 				}
 				select {
 				case d.subChannel <- dp:

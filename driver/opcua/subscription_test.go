@@ -423,3 +423,28 @@ func TestOPCUAStaleConnectionErrorIgnored(t *testing.T) {
 		t.Fatal("teardown must close out the current client")
 	}
 }
+
+// TestOPCUASubscriptionLoopLocalTimestamp is the stage-B audit finding B5-4
+// regression test for subscription mode: forwarded data points must carry
+// the local receive time, not the OPC UA server's SourceTimestamp, so a
+// drifting server clock cannot skew staleness downstream.
+func TestOPCUASubscriptionLoopLocalTimestamp(t *testing.T) {
+	d := mustInit(t, validConfig("sub-ts"))
+	handleToTag := map[uint32]string{0: "tag1"}
+	tags := map[string]core.TagConfig{"tag1": {Name: "tag1", Type: "float64"}}
+	notifyCh, stop := startSubLoop(t, d, handleToTag, tags)
+	defer stop()
+
+	// A server clock running 10 minutes behind the CoreC host.
+	slowServerTs := time.Now().Add(-10 * time.Minute)
+	notifyCh <- dataChangeMsg(0, ua.MustVariant(float64(7.0)), slowServerTs)
+
+	select {
+	case dp := <-d.subChannel:
+		if age := time.Since(dp.Timestamp); age > time.Minute {
+			t.Errorf("subscription point stamped with the server clock: age = %v, want a fresh local receive time (B5-4)", age)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for forwarded data point")
+	}
+}
