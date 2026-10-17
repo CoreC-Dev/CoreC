@@ -104,6 +104,14 @@ var (
 	GetRawConfigFunc func() (string, error)                 // Path A: GET /configs/raw — full YAML with secrets in plaintext
 	ValidateFunc     func(payload string) ([]string, error) // Path A: POST /configs/validate — dry-run; returns idle warnings + error
 
+	// Server-side config backup slots, implemented by hub/executor (see
+	// backups.go there): GET/POST /configs/backups, GET
+	// /configs/backups/{name}, POST /configs/backups/{name}/restore.
+	ListConfigBackupsFunc   func() ([]ConfigBackupInfo, error) // list retained backups, newest first (metadata only)
+	GetConfigBackupFunc     func(name string) (string, error)  // backup YAML content; name is strictly validated (no path joins)
+	CreateConfigBackupFunc  func() (string, error)             // manual snapshot of the current on-disk config; returns the backup name
+	RestoreConfigBackupFunc func(name string) error            // validate → apply → persist the backup via the full Reload chain
+
 	// Version is the build version, injected via ldflags:
 	//   -ldflags "-X github.com/CoreC-Dev/CoreC/hub/route.Version=1.0.0"
 	// Default "dev" for local/test builds.

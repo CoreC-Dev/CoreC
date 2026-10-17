@@ -2,6 +2,7 @@ package executor
 
 import (
 	"log/slog"
+	"path/filepath"
 	"testing"
 
 	"github.com/CoreC-Dev/CoreC/core"
@@ -69,7 +70,11 @@ func TestExecutorApplyConfig(t *testing.T) {
 		},
 	}
 
-	Init(eng, initialCfg, "config.yaml")
+	// Use a temp-dir config path: Reload persists the payload to configPath
+	// (and now snapshots the replaced file into <dir>/backups/), so a
+	// repo-relative path would write test artifacts into the package
+	// directory (see the "config.yaml" cleanup in git history).
+	Init(eng, initialCfg, filepath.Join(t.TempDir(), "config.yaml"))
 
 	// Verify current config
 	curr := CurrentConfig()

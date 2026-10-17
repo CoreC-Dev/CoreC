@@ -38,6 +38,13 @@ func Init(e core.Engine, initialCfg *core.Config, path string) {
 	// import cycle (executor → route, never the reverse).
 	route.GetRawConfigFunc = RawConfigYAML
 	route.ValidateFunc = Validate
+	// Server-side config backups (GET/POST /configs/backups,
+	// GET /configs/backups/{name}, POST /configs/backups/{name}/restore):
+	// same wiring pattern as above.
+	route.ListConfigBackupsFunc = ListConfigBackups
+	route.GetConfigBackupFunc = GetConfigBackup
+	route.CreateConfigBackupFunc = CreateConfigBackup
+	route.RestoreConfigBackupFunc = RestoreConfigBackup
 }
 
 // CurrentConfig returns the current active configuration.
@@ -203,6 +210,14 @@ func Reload(path, payload string) error {
 		p := configPath
 		mux.Unlock()
 		if p != "" {
+			// Auto-snapshot (server-side config backups): copy the current
+			// on-disk config into the backup set immediately BEFORE it is
+			// overwritten, so every successful dashboard-driven change has a
+			// pre-change rollback point. Only runs when a file already
+			// exists (first persist has nothing to back up) and is strictly
+			// best-effort: a failed snapshot logs a warning and never blocks
+			// the reload — availability of the change outranks the backup.
+			snapshotExistingConfig(p)
 			// 0o600: owner read/write only. The config file contains the API
 			// secret and driver/transport credentials — world/group-readable
 			// permissions would leak them to other users on the host.
