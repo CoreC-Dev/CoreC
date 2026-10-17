@@ -136,6 +136,7 @@ func (e *CoreCEngine) startCommandListener(t core.Transport, tCtx context.Contex
 		for {
 			select {
 			case <-tCtx.Done():
+				e.deadLetterStrandedCommands(ch, nil)
 				return
 			case cmd, ok := <-ch:
 				if !ok {
@@ -157,6 +158,11 @@ func (e *CoreCEngine) startCommandListener(t core.Transport, tCtx context.Contex
 				case e.commandSem <- struct{}{}:
 					// Slot acquired — dispatch the command to a goroutine.
 				case <-tCtx.Done():
+					// The listener is already holding this command off
+					// the channel; it must not vanish. Dead-letter it,
+					// then drain whatever else is still buffered behind
+					// it (B3.2).
+					e.deadLetterStrandedCommands(ch, &cmd)
 					return
 				}
 				e.wg.Add(1)
@@ -168,6 +174,48 @@ func (e *CoreCEngine) startCommandListener(t core.Transport, tCtx context.Contex
 			}
 		}
 	}(cmdCh)
+}
+
+// deadLetterStrandedCommands runs when a command listener exits (transport
+// removal or engine shutdown). held is the command the listener had already
+// received but could not dispatch (nil when it was idle); ch is the
+// transport's command channel, whose buffered contents are drained.
+// Every stranded command is dead-lettered with a clear error: on
+// RemoveTransport the engine stays alive, so the queue remains queryable
+// and replayable via GET /write/failed; on full engine shutdown the
+// in-memory queue dies with the process, but the commands are at least
+// counted and logged instead of vanishing (stage-B audit finding B3.2).
+// The drain is non-blocking — shutdown is never delayed by stragglers.
+func (e *CoreCEngine) deadLetterStrandedCommands(ch <-chan core.WriteCommand, held *core.WriteCommand) {
+	stranded := 0
+	deadLetter := func(cmd core.WriteCommand) {
+		cmd.Source = "command"
+		e.addDeadLetter(core.DeadLetterEntry{
+			Command:  cmd,
+			Error:    "transport removed before dispatch",
+			FailedAt: time.Now(),
+			Attempts: 0,
+		})
+		stranded++
+	}
+	if held != nil {
+		deadLetter(*held)
+	}
+	for {
+		select {
+		case cmd, ok := <-ch:
+			if !ok {
+				return
+			}
+			deadLetter(cmd)
+		default:
+			if stranded > 0 {
+				slog.Warn("command listener exit: dead-lettered stranded commands",
+					"count", stranded)
+			}
+			return
+		}
+	}
 }
 
 // forwardCommand attempts to forward a write command to downstream nodes
@@ -303,9 +351,21 @@ func (e *CoreCEngine) executeWriteWithRetry(cmd core.WriteCommand) {
 				"delay", delay, "error", lastErr)
 			select {
 			case <-e.ctx.Done():
-				slog.Warn("command write retry cancelled by shutdown",
-					"driver", cmd.Driver, "tag", cmd.Tag,
-					"attempt", attempt+1, "error", lastErr)
+				// Stage-B audit finding B3.2: a shutdown-cancelled retry
+				// previously returned silently. The engine context only
+				// cancels at full process shutdown, where the in-memory
+				// dead-letter queue dies with the process anyway —
+				// queueing there would be theater. Instead the
+				// abandonment is logged at ERROR with the full command so
+				// the operator sees exactly what did not reach the
+				// device.
+				slog.Error("command write abandoned by shutdown",
+					"driver", cmd.Driver,
+					"tag", cmd.Tag,
+					"value", cmd.Value,
+					"type", cmd.Type,
+					"attempt", attempt+1,
+					"last_error", lastErr)
 				return
 			case <-time.After(delay):
 			}
