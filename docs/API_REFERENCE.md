@@ -76,8 +76,9 @@ HTTP 401
 ### Authenticated endpoints
 
 Everything else: `/configs*`, `/drivers*`, `/transports*`, `/tags`,
-`/tags/stream`, `/write`, `/write/failed`, `/rules`, `/rules/disable`,
-`/stats`, `/memory`, `/logs`, `/traffic`, `/metrics`, `/debug/pprof/*`.
+`/tags/stream`, `/write`, `/write/failed`, `/write/history`, `/rules`,
+`/rules/disable`, `/stats`, `/memory`, `/logs`, `/traffic`, `/metrics`,
+`/debug/pprof/*`.
 
 ---
 
@@ -459,6 +460,34 @@ Response `200`:
 }
 ```
 
+#### `GET /write/history`  — write audit trail (authenticated)
+
+Purpose: the write audit history — the most recent **1000** write attempts,
+**successes and failures alike**, newest first. Complements `/write/failed`
+(which only holds retry-exhausted failures): control-class deployments need a
+compliance trail of successful PLC writes too.
+
+Details:
+- Bounded in-memory ring (`writeAuditCapacity` = 1000); oldest entries are
+  evicted. Cleared on process restart (survives config reloads).
+- One entry **per attempt**: a retried command-path write produces one entry
+  per retry.
+- `source` records provenance — `"api"` (direct `POST /write`, with `remote` =
+  caller address) or `"command"` (reverse-path transport command). Both are
+  stamped server-side at the trust boundary; payload-supplied values are
+  overwritten.
+- `501` `{ "error": "write history not supported by this engine" }` when the
+  engine does not implement the optional `core.WriteAuditor` role.
+
+Response `200`:
+
+```jsonc
+{
+  "writes": [ <WriteAuditEntry>, ... ],   // array, see §5 — newest first, [] when empty
+  "count": 2                              // int — len(writes)
+}
+```
+
 ---
 
 ### Rules
@@ -704,6 +733,26 @@ The fundamental data unit. Used in `/tags`, `/drivers/{name}/tags`, and the
 }
 ```
 
+### `WriteAuditEntry`
+
+One write attempt in the audit history (`GET /write/history`). One entry per
+attempt, success or failure.
+
+```jsonc
+{
+  "timestamp": "2026-09-30T19:02:11Z",    // string — RFC3339, when the attempt was recorded
+  "driver":    "plc-modbus",              // string — target driver
+  "device":    "",                        // string — device identifier
+  "tag":       "pump_status",             // string — tag written
+  "value":     true,                      // unknown — the value that was written
+  "type":      "bool",                    // string — DataType
+  "success":   true,                      // boolean — outcome of the attempt
+  "error":     "modbus exception code 3", // string — omitted (omitempty) on success
+  "source":    "api",                     // "api" | "command" — stamped server-side
+  "remote":    "192.168.1.50:53412"       // string — caller address; omitted for command-source writes
+}
+```
+
 ### `RuleStat`
 
 ```jsonc
@@ -828,6 +877,7 @@ counters — no external Prometheus client library is used.
 | GET | `/tags` | ✓ | All latest cached tag values |
 | POST | `/write` | ✓ | Write control command to device |
 | GET | `/write/failed` | ✓ | Dead-letter queue (failed writes) |
+| GET | `/write/history` | ✓ | Write audit history (recent writes, success + failure, newest first) |
 | GET | `/rules` | ✓ | Rules + hit/miss statistics |
 | PATCH | `/rules/disable` | ✓ | Enable/disable a rule by name (recommended) or index |
 | GET | `/stats` | ✓ | Engine runtime statistics |

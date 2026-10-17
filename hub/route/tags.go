@@ -56,6 +56,14 @@ func writeTag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Stamp the audit provenance at the trust boundary: this write came
+	// from the control-plane API, and the caller's address is recorded
+	// for the write audit history (GET /write/history). Both fields are
+	// set after decoding, so a client cannot mislabel the audit trail by
+	// sending source/remote in the request body.
+	cmd.Source = "api"
+	cmd.Remote = r.RemoteAddr
+
 	var da core.DataAccessor = getEngine()
 	res, err := da.WriteTag(r.Context(), cmd)
 	if err != nil {

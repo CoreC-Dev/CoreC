@@ -23,6 +23,7 @@ type mockEngineV2 struct {
 	tagsByDriver map[string]map[string]core.DataPoint
 	writeErr     error
 	writeResult  core.WriteResult
+	writeHistory []core.WriteAuditEntry
 	ruleStats    []core.RuleStat
 	disabledIdx  int
 	disabledVal  bool
@@ -56,6 +57,10 @@ func (m *mockEngineV2) DeadLetterEntries() []core.DeadLetterEntry { return nil }
 func (m *mockEngineV2) WriteTag(ctx context.Context, cmd core.WriteCommand) (*core.WriteResult, error) {
 	return &m.writeResult, m.writeErr
 }
+
+// WriteHistory satisfies core.WriteAuditor so GET /write/history can be
+// exercised with a populated audit trail.
+func (m *mockEngineV2) WriteHistory() []core.WriteAuditEntry { return m.writeHistory }
 
 func (m *mockEngineV2) GetRuleStats() []core.RuleStat { return m.ruleStats }
 

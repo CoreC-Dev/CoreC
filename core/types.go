@@ -192,12 +192,49 @@ type WriteCommand struct {
 	Tag    string   `json:"tag"`
 	Value  any      `json:"value"`
 	Type   DataType `json:"type"`
+
+	// Source records where the command originated: "api" for direct
+	// HTTP writes (POST /write) and "command" for reverse-path commands
+	// arriving via a transport command channel. It is stamped by the
+	// trust boundary (the route handler / the engine command listener),
+	// never trusted from client payloads, so the write audit history
+	// cannot be mislabeled by an external sender. Omitted when empty.
+	Source string `json:"source,omitempty"`
+
+	// Remote records the network address of the caller for
+	// API-originated writes (r.RemoteAddr()). Reverse-path commands have
+	// no meaningful peer address and leave it empty. Omitted when empty.
+	Remote string `json:"remote,omitempty"`
 }
 
 // WriteResult represents the result of a write operation.
 type WriteResult struct {
 	Success bool   `json:"success"`
 	Error   string `json:"error,omitempty"`
+}
+
+// WriteAuditEntry records a single write attempt — success or failure —
+// in the engine's bounded write audit history, exposed via
+// GET /write/history. Unlike the dead-letter queue (which only keeps
+// failures that exhausted all retries), the audit history retains the
+// most recent writes of both outcomes: control-class deployments need a
+// complete trail of successful PLC writes for compliance.
+type WriteAuditEntry struct {
+	Timestamp time.Time `json:"timestamp"`
+	Driver    string    `json:"driver"`
+	Device    string    `json:"device"`
+	Tag       string    `json:"tag"`
+	Value     any       `json:"value"`
+	Type      DataType  `json:"type"`
+	Success   bool      `json:"success"`
+	Error     string    `json:"error,omitempty"`
+	// Source is the write's origin: "api" (direct HTTP write) or
+	// "command" (reverse-path command from a transport). Always set by
+	// the engine on recorded entries.
+	Source string `json:"source"`
+	// Remote is the caller's network address for API-originated writes;
+	// empty for transport-originated commands.
+	Remote string `json:"remote,omitempty"`
 }
 
 // DeadLetterEntry represents a failed write command stored in the dead

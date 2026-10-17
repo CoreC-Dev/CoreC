@@ -79,6 +79,20 @@ type DataAccessor interface {
 	LatestValues(driver string) map[string]DataPoint
 }
 
+// WriteAuditor exposes the bounded write audit history: the most recent
+// write attempts, successes and failures alike, newest first. It backs
+// GET /write/history. Like the other optional role interfaces below, it
+// is deliberately NOT embedded in Engine: the route layer type-asserts
+// it so alternative Engine implementations (and test mocks) are free to
+// omit write auditing without breaking the composite contract.
+// *CoreCEngine satisfies this interface.
+type WriteAuditor interface {
+	// WriteHistory returns a newest-first copy of the audit history
+	// (index 0 = most recent write attempt). The returned slice is a
+	// copy; callers may retain and mutate it freely.
+	WriteHistory() []WriteAuditEntry
+}
+
 // EventSubscriber covers real-time data subscriptions and alert handlers.
 type EventSubscriber interface {
 	Subscribe(filter string) (<-chan DataPoint, func())

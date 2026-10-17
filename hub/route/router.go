@@ -67,6 +67,7 @@ func router(ctx context.Context, secret string, allowedOrigins []string, rateLim
 		r.Get("/tags", getAllTags)
 		r.Post("/write", writeTag)
 		r.Get("/write/failed", getFailedWrites)
+		r.Get("/write/history", getWriteHistory)
 
 		r.Get("/rules", getRules)
 		r.Patch("/rules/disable", disableRule)

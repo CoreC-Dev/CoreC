@@ -12,6 +12,17 @@ import (
 
 // --- Data Operations ---
 
+// writeAuditCapacity bounds the in-memory write audit history exposed
+// via GET /write/history: the most recent 1000 write attempts (successes
+// and failures) are retained, oldest first; older entries are evicted
+// when the buffer is full. In-memory only — the trail survives config
+// reloads but not process restarts.
+const writeAuditCapacity = 1000
+
+// Compile-time guard: the engine satisfies the optional write-audit
+// role interface that the route layer type-asserts.
+var _ core.WriteAuditor = (*CoreCEngine)(nil)
+
 func (e *CoreCEngine) ReadTag(ctx context.Context, driver, tag string) (*core.TagValue, error) {
 	e.mu.RLock()
 	d, ok := e.drivers[driver]
@@ -43,17 +54,65 @@ func (e *CoreCEngine) WriteTag(ctx context.Context, cmd core.WriteCommand) (*cor
 	d, ok := e.drivers[cmd.Driver]
 	e.mu.RUnlock()
 	if !ok {
-		return nil, fmt.Errorf("driver not found: %s", cmd.Driver)
+		err := fmt.Errorf("driver not found: %s", cmd.Driver)
+		e.recordWriteAudit(cmd, false, err.Error())
+		return nil, err
 	}
 
 	results, err := d.Write(ctx, []core.WriteCommand{cmd})
 	if err != nil {
+		e.recordWriteAudit(cmd, false, err.Error())
 		return nil, err
 	}
 	if len(results) == 0 {
-		return nil, fmt.Errorf("no result returned")
+		err := fmt.Errorf("no result returned")
+		e.recordWriteAudit(cmd, false, err.Error())
+		return nil, err
 	}
-	return &results[0], nil
+	res := &results[0]
+	e.recordWriteAudit(cmd, res.Success, res.Error)
+	return res, nil
+}
+
+// recordWriteAudit appends an entry to the bounded write audit history,
+// evicting the oldest entry when the buffer is full. Every WriteTag
+// attempt is recorded — success and failure alike — so the audit trail is
+// a complete (bounded) record of writes, not just a failure list.
+func (e *CoreCEngine) recordWriteAudit(cmd core.WriteCommand, success bool, errMsg string) {
+	entry := core.WriteAuditEntry{
+		Timestamp: time.Now(),
+		Driver:    cmd.Driver,
+		Device:    cmd.Device,
+		Tag:       cmd.Tag,
+		Value:     cmd.Value,
+		Type:      cmd.Type,
+		Success:   success,
+		Error:     errMsg,
+		Source:    cmd.Source,
+		Remote:    cmd.Remote,
+	}
+	e.writeAuditMu.Lock()
+	defer e.writeAuditMu.Unlock()
+	e.writeAuditHistory = append(e.writeAuditHistory, entry)
+	if len(e.writeAuditHistory) > writeAuditCapacity {
+		e.writeAuditHistory = e.writeAuditHistory[len(e.writeAuditHistory)-writeAuditCapacity:]
+	}
+}
+
+// WriteHistory returns a newest-first copy of the write audit history
+// (index 0 = most recent write attempt), satisfying core.WriteAuditor.
+// The result is always non-nil so it serializes as a JSON array.
+func (e *CoreCEngine) WriteHistory() []core.WriteAuditEntry {
+	e.writeAuditMu.Lock()
+	defer e.writeAuditMu.Unlock()
+	n := len(e.writeAuditHistory)
+	result := make([]core.WriteAuditEntry, n)
+	// Index rather than range-copy: WriteAuditEntry is a wide struct and
+	// gocritic's rangeValCopy flags the per-iteration copy.
+	for i := range e.writeAuditHistory {
+		result[n-1-i] = e.writeAuditHistory[i]
+	}
+	return result
 }
 
 // --- Command Execution ---
@@ -81,6 +140,12 @@ func (e *CoreCEngine) startCommandListener(t core.Transport, tCtx context.Contex
 				if !ok {
 					return
 				}
+				// Stamp the audit provenance at the trust boundary: every
+				// command arriving through a transport command channel is
+				// a "command"-source write. This overwrites any source a
+				// client may have embedded in the payload so the write
+				// audit history cannot be mislabeled by external input.
+				cmd.Source = "command"
 				// Acquire a concurrency slot before dispatching. When the
 				// pool is full this blocks, applying backpressure to the
 				// transport's command channel (which overflows to the

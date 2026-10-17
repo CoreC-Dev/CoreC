@@ -87,6 +87,11 @@ decode with an error.
   the real error is logged but **not** exposed (no IP/path leakage).
 - Mutations that succeed return `204 No Content` with **empty body**
   (`renderNoContent`).
+- `501` `{"error":"..."}` — endpoints backed by an **optional** engine role
+  interface (e.g. `GET /write/history` → `core.WriteAuditor`) respond `501` when
+  the configured engine does not implement that capability. This distinguishes
+  "not supported by this engine" from "no data" (a plain `200` with an empty
+  list) and from server faults (`500`).
 
 ---
 
@@ -117,6 +122,7 @@ decode with an error.
 | `GET` | `/tags` | `getAllTags` | Latest cached values across all drivers |
 | `POST` | `/write` | `writeTag` | Write a value to a device tag |
 | `GET` | `/write/failed` | `getFailedWrites` | Dead-letter queue of failed writes |
+| `GET` | `/write/history` | `getWriteHistory` | Write audit history — recent writes, successes AND failures (bounded 1000, newest first) |
 | `GET` | `/rules` | `getRules` | Rule list with hit/miss stats + disabled flag |
 | `PATCH` | `/rules/disable` | `disableRule` | Enable/disable a rule by name (recommended) or index |
 | `GET` | `/stats` | `getStats` | Aggregate engine statistics |
@@ -503,6 +509,12 @@ Handler `writeTag` (`tags.go:46`). Auth required. Body limited to 1 MiB.
 | `value` | `any` | `"value"` | any JSON value | yes | bool/number/string; must be coercible to `type` |
 | `type` | `DataType` | `"type"` | **string** | yes | accepts string (`"bool"`,`"float32"`,…) **or** legacy integer (0–12); see §6.1 |
 
+> `WriteCommand` also carries optional `source`/`remote` audit-provenance
+> fields (`omitempty`). Clients do not send them: the handler stamps
+> `source:"api"` + the caller address after decoding, so a payload cannot
+> mislabel the write audit history (§3.20). They surface read-only inside
+> serialized commands (e.g. `/write/failed` entries).
+
 **Response `200`** (struct `core.WriteResult`, `core/types.go:198`):
 ```json
 {"success": true}
@@ -678,6 +690,84 @@ Returns `sp.Stats()` directly → `core.EngineStats` (`core/engine.go:315`).
 
 > `points_per_sec` is computed as `float64(totalRead) / uptime.Seconds()`, so it
 > is a lifetime average, not an instantaneous rate.
+
+### 3.20 `GET /write/history` — write audit trail
+
+Handler `getWriteHistory` (`write_history.go`). Auth required. No query params.
+
+Returns the engine's bounded write audit history: the most recent **1000** write
+attempts (`writeAuditCapacity`, `engine/command_manager.go`), **successes and
+failures alike**, newest first (index 0 = most recent). This complements
+`GET /write/failed` (§3.16), which only holds reverse-path writes that
+exhausted all retries — control-class deployments also need a compliance trail
+of *successful* PLC writes (who set which setpoint, when, from where).
+
+The engine optionally implements `core.WriteAuditor`; when it does not, the
+endpoint returns `501` (see §1.5). The history is in-memory only: it survives
+config reloads but is cleared on process restart. Every `WriteTag` attempt is
+recorded, one entry per attempt — a retried command-path write therefore
+produces one entry per retry.
+
+**Response `200`:**
+```json
+{
+  "writes": [
+    {
+      "timestamp": "2024-01-01T12:00:00.123456789Z",
+      "driver": "plc-modbus",
+      "device": "",
+      "tag": "pump_status",
+      "value": true,
+      "type": "bool",
+      "success": true,
+      "source": "api",
+      "remote": "192.168.1.50:53412"
+    },
+    {
+      "timestamp": "2024-01-01T11:59:58.987654321Z",
+      "driver": "plc-modbus",
+      "device": "",
+      "tag": "pump_status",
+      "value": false,
+      "type": "bool",
+      "success": false,
+      "error": "modbus exception code 3",
+      "source": "command"
+    }
+  ],
+  "count": 2
+}
+```
+| Field | Go type / json tag | JSON type | Notes |
+|---|---|---|---|
+| `writes` | `[]WriteAuditEntry` / `"writes"` | array | newest first; `[]` (never `null`) when no writes have occurred |
+| `count` | `int` / `"count"` | number | `len(writes)` |
+
+#### `WriteAuditEntry` (struct `core.WriteAuditEntry`, `core/types.go:222`)
+
+| Field | Go type | json tag | JSON type | Notes |
+|---|---|---|---|---|
+| `Timestamp` | `time.Time` | `"timestamp"` | RFC3339 string | when the attempt was recorded (`time.Now()`) |
+| `Driver` | `string` | `"driver"` | string | target driver name |
+| `Device` | `string` | `"device"` | string | device identifier (often `""`) |
+| `Tag` | `string` | `"tag"` | string | tag written |
+| `Value` | `any` | `"value"` | any JSON value | the value that was written. Unlike the `slog` audit log (which deliberately redacts values), the write trail carries the value — that is its purpose |
+| `Type` | `DataType` | `"type"` | **string** | see §6.1 |
+| `Success` | `bool` | `"success"` | boolean | outcome of the attempt |
+| `Error` | `string` | `"error,omitempty"` | string | failure message; omitted on success |
+| `Source` | `string` | `"source"` | string | `"api"` (direct `POST /write`) or `"command"` (reverse-path transport command). No `omitempty` — always present on entries recorded by the engine |
+| `Remote` | `string` | `"remote,omitempty"` | string | caller's network address for API writes; omitted for command-path writes (no meaningful peer address) |
+
+> **Provenance integrity:** `POST /write` stamps `source:"api"` +
+> `remote:<r.RemoteAddr>` *after* decoding the body, and the engine's command
+> listener stamps `source:"command"` on every command received from a
+> transport channel. Payload-supplied `source`/`remote` fields are therefore
+> always overwritten and cannot mislabel the audit trail.
+
+**Errors:**
+- `501` `{"error":"write history not supported by this engine"}` — the engine
+  does not implement `core.WriteAuditor` (test mocks, alternative engine
+  implementations).
 
 ---
 
@@ -1204,6 +1294,7 @@ A map from group name to a list of `RuleConfig`. Referenced by `SUB-RULE:<name>`
 | `PUT /configs` | `204` | `400` (bad JSON), `500` (reload error) |
 | `PATCH /configs` | `204` | `400` (bad JSON / unsupported key / invalid level) |
 | `POST /write` | `200` | `400` (bad JSON), `500` (write error) |
+| `GET /write/history` | `200` | `401`; `501` (engine does not implement `core.WriteAuditor`) |
 | `PATCH /rules/disable` | `204` | `400` (bad JSON / bad index) |
 | Any (rate-limited) | — | `429` with `Retry-After: 1` |
 | Any (auth group, no token) | — | `401 {"error":"unauthorized"}` |
@@ -1263,8 +1354,18 @@ interface RuleStat {
 }
 
 interface WriteCommand { driver: string; device: string; tag: string; value: unknown; type: DataType; }
+// source/remote are audit-provenance fields stamped server-side (POST /write
+// → "api" + caller address; transport commands → "command"). omitempty: they
+// appear in serialized WriteCommands (e.g. inside /write/failed entries) only
+// when set, so existing clients see no change.
+interface WriteCommandSource { source?: "api" | "command"; remote?: string; }
 interface WriteResult { success: boolean; error?: string; }
 interface DeadLetterEntry { command: WriteCommand; error: string; failed_at: string; attempts: number; }
+interface WriteAuditEntry {
+  timestamp: string; driver: string; device: string; tag: string;
+  value: unknown; type: DataType; success: boolean; error?: string;
+  source: "api" | "command"; remote?: string;   // remote: API writes only
+}
 
 // GET /  (uptime here is a STRING, unlike /stats)
 interface Hello { name: string; version: string; status: string; time: string; uptime: string; }

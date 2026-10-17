@@ -1,6 +1,6 @@
 ---
 title: 数据读写
-description: CoreC 数据读写 API，包含获取所有标签最新值（GET /tags）和向设备写入标签值（POST /write）。
+description: CoreC 数据读写 API，包含获取所有标签最新值（GET /tags）、向设备写入标签值（POST /write）、写入审计历史（GET /write/history）与死信队列（GET /write/failed）。
 ---
 
 # 数据读写
@@ -203,7 +203,7 @@ API POST /write  →  Engine.WriteTag(cmd)  →  Driver.Write([]cmd)  →  设�
 
 写入操作通过引擎转发至对应驱动的 `Write` 方法，在独立 goroutine 中执行，不影响采集 goroutine 的上行数据流。
 
-写入失败时会按 `engine.write-retry-count` 进行指数退避重试，全部失败后进入死信队列。可通过 `GET /write/failed` 查询死信队列中的失败指令。
+写入失败时会按 `engine.write-retry-count` 进行指数退避重试，全部失败后进入死信队列。可通过 `GET /write/failed` 查询死信队列中的失败指令；每次写尝试（成功与失败）均会记入写入审计历史，可通过 [`GET /write/history`](#查询写入审计历史) 查询。
 
 ---
 
@@ -254,5 +254,93 @@ GET /write/failed
 
 ```bash
 curl http://localhost:9090/write/failed \
+  -H "Authorization: Bearer corec-secret-token"
+```
+
+---
+
+## 查询写入审计历史
+
+返回写入审计历史（audit trail）：最近 **1000** 条写入尝试，**成功与失败均记录**，按时间新→旧排列。控制类系统的合规刚需——不仅失败要可见（死信队列），成功的 PLC 写操作也必须可追溯（何时、何人、从何处写了哪个点）。
+
+与 `GET /write/failed` 的区别：死信队列只保留重试耗尽的失败指令；审计历史是"最近发生了哪些写"的完整有界记录，每一条**尝试**记一条（反向流指令重试时，每次重试各记一条）。
+
+### 请求
+
+```http
+GET /write/history
+```
+
+### 响应
+
+`200 OK`
+
+```json
+{
+  "writes": [
+    {
+      "timestamp": "2024-09-08T10:30:00.123456789Z",
+      "driver": "plc1",
+      "device": "192.168.1.10",
+      "tag": "setpoint",
+      "value": 50.0,
+      "type": "float64",
+      "success": true,
+      "source": "api",
+      "remote": "192.168.1.50:53412"
+    },
+    {
+      "timestamp": "2024-09-08T10:29:58.987654321Z",
+      "driver": "plc1",
+      "device": "192.168.1.10",
+      "tag": "motor_enable",
+      "value": true,
+      "type": "bool",
+      "success": false,
+      "error": "modbus exception code 3",
+      "source": "command"
+    }
+  ],
+  "count": 2
+}
+```
+
+### WriteAuditEntry 字段说明
+
+| 字段 | 类型 | 说明 |
+|:---|:---|:---|
+| `timestamp` | string (RFC 3339) | 该次写尝试的记录时间 |
+| `driver` | string | 目标驱动实例名称 |
+| `device` | string | 目标设备标识（常为空字符串） |
+| `tag` | string | 目标标签名称 |
+| `value` | any | 实际写入的值。与运行日志刻意不记录值不同，写审计历史的核心用途就是记录"写了什么" |
+| `type` | string | 值的数据类型（`DataType`，按字符串序列化） |
+| `success` | bool | 该次尝试是否成功 |
+| `error` | string | 失败信息（仅失败时出现） |
+| `source` | string | 写来源：`api`（`POST /write` 直写）或 `command`（反向流指令，即 MQTT/HTTP 命令通道触发的写） |
+| `remote` | string | `source=api` 时为调用方网络地址（`r.RemoteAddr`）；`source=command` 时省略（无对端地址） |
+
+::: info 审计来源不可伪造
+`source` 与 `remote` 由服务端在信任边界处写入：`POST /write` 在解码请求体**之后**统一盖章 `source="api"` + 调用方地址；引擎命令监听器对每条来自传输通道的指令统一盖章 `source="command"`。请求体或指令载荷中携带的同名字段一律被覆盖，外部输入无法污染审计历史。
+:::
+
+::: warning 历史边界
+审计历史为内存环形缓冲，上限 1000 条（超出驱逐最旧条目）：跨配置 reload 存活，**进程重启后清空**；它是有界的最近记录，不是持久化审计日志。需要长期留存时请由外部系统轮询拉取归档。
+:::
+
+### 引擎不支持时 — `501 Not Implemented`
+
+当引擎未实现可选角色接口 `core.WriteAuditor`（如测试替身、第三方 Engine 实现）时返回：
+
+```json
+{
+  "error": "write history not supported by this engine"
+}
+```
+
+### 示例
+
+```bash
+curl http://localhost:9090/write/history \
   -H "Authorization: Bearer corec-secret-token"
 ```

@@ -131,6 +131,14 @@ type CoreCEngine struct {
 	deadLetterQueue  []core.DeadLetterEntry
 	deadLetterMaxLen int
 
+	// writeAuditHistory records the most recent write attempts —
+	// successes AND failures — for the GET /write/history audit trail.
+	// Bounded by writeAuditCapacity; oldest entries are evicted when
+	// full. Guarded by its own small mutex so audit recording never
+	// contends with the engine-wide e.mu.
+	writeAuditMu      sync.Mutex
+	writeAuditHistory []core.WriteAuditEntry
+
 	// tagFileWatchers tracks per-driver hot-reload watchers for tags-file.
 	// Keyed by driver name; nil entry means no watcher for that driver.
 	tagFileWatchers map[string]*tagFileWatcher
