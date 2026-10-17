@@ -266,7 +266,16 @@ func (b *transportBatcher) flushLoop() {
 		case batch := <-b.flushBatches:
 			b.publishWithRetryAndBuffer(b.ctx, batch)
 		case <-tickerC:
-			// Periodic flush of any partially-filled buffer.
+			// Periodic flush of any partially-filled buffer. Older full
+			// batches still queued in flushBatches are published FIRST:
+			// this select cannot prioritize the queue over the ticker,
+			// and when both are ready the pseudo-random choice could
+			// otherwise publish the NEWER partial buffer ahead of older
+			// queued batches (stage-B audit finding B1.3, cross-batch
+			// reordering). flush() additionally defers itself while any
+			// backlog remains, closing the window where a batch is
+			// enqueued between the drain and the flush.
+			b.drainFlushBatches()
 			b.flush()
 		}
 	}
@@ -428,10 +437,21 @@ func (b *transportBatcher) publish(ctx context.Context, point core.DataPoint) er
 	}
 }
 
-// flush sends all buffered points via PublishBatch with retry.
+// flush sends all buffered points via PublishBatch with retry. It is
+// called by flushLoop on the periodic tick.
+//
+// While older full batches are still queued in flushBatches the flush
+// is deferred (returns without publishing): the points in the partial
+// buffer are newer than every queued batch, so sending them now would
+// reorder batches across the queue (stage-B audit finding B1.3). The
+// queue check and the buffer swap happen in one b.mu critical section —
+// publish() appends and enqueues under the same mutex — so a batch
+// cannot slip in between the check and the swap. The queued batches are
+// consumed by flushLoop's main select, and the partial buffer goes out
+// on a later tick once the backlog is clear.
 func (b *transportBatcher) flush() {
 	b.mu.Lock()
-	if len(b.buffer) == 0 {
+	if len(b.buffer) == 0 || len(b.flushBatches) > 0 {
 		b.mu.Unlock()
 		return
 	}
