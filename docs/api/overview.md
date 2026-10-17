@@ -98,7 +98,7 @@ API 内置 CORS 中间件，用于支持浏览器端仪表盘跨域访问。行�
 | `429 Too Many Requests` | 请求频率超限 | 触发速率限制中间件（`global.api.rate-limit-per-sec`，超限按客户端 IP 拒绝） |
 | `404 Not Found` | 资源不存在 | 驱动/传输名称未找到 |
 | `500 Internal Server Error` | 内部错误 | 写入失败、配置重载失败等 |
-| `501 Not Implemented` | 能力不支持 | 引擎未实现端点依赖的可选角色接口（如 `GET /write/history` 需要引擎实现 `core.WriteAuditor`） |
+| `501 Not Implemented` | 能力不支持 | 引擎未实现端点依赖的可选角色接口（如 `GET /write/history` 需要 `core.WriteAuditor`、`POST /rules/preview` 需要 `core.RulePreviewer`） |
 
 ## 端点索引
 
@@ -124,6 +124,7 @@ API 内置 CORS 中间件，用于支持浏览器端仪表盘跨域访问。行�
 | `GET` | `/write/history` | 是 | 查询写入审计历史（最近 1000 条写记录，含成功与失败，新→旧） |
 | `GET` | `/rules` | 是 | 列出所有规则统计 |
 | `PATCH` | `/rules/disable` | 是 | 启用/禁用指定规则（按 name 推荐，index 向后兼容） |
+| `POST` | `/rules/preview` | 是 | 规则试算——离线验证 match 表达式（不影响生产规则集） |
 | `GET` | `/stats` | 是 | 获取引擎运行统计 |
 | `GET` | `/metrics` | 是 | Prometheus 文本格式指标 |
 | `GET` | `/debug/pprof/*` | 是 | pprof 性能分析端点（可配置关闭或独立端口） |

@@ -71,6 +71,7 @@ func router(ctx context.Context, secret string, allowedOrigins []string, rateLim
 
 		r.Get("/rules", getRules)
 		r.Patch("/rules/disable", disableRule)
+		r.Post("/rules/preview", previewRule)
 
 		r.Get("/stats", getStats)
 		r.Get("/memory", getMemory)

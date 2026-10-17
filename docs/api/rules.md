@@ -1,6 +1,6 @@
 ---
 title: 规则管理
-description: CoreC 规则管理 API，包含列出规则运行统计（GET /rules）和启用/禁用规则（PATCH /rules/disable）。
+description: CoreC 规则管理 API，包含列出规则运行统计（GET /rules）、启用/禁用规则（PATCH /rules/disable）与规则试算（POST /rules/preview）。
 ---
 
 # 规则管理
@@ -205,4 +205,133 @@ curl -X PATCH http://localhost:9090/rules/disable \
   -H "Authorization: Bearer corec-secret-token" \
   -H "Content-Type: application/json" \
   -d '{"name": "overtemp-alarm", "disabled": false}'
+```
+
+---
+
+## 规则试算
+
+离线试算：将一条 match 表达式在**临时规则引擎**中编译，并对一个样例数据点求值——**不触碰生产规则集**（不修改任何规则、不影响命中统计）。用于在保存规则前验证表达式的语法与语义，避免"保存后靠生产数据暴露编译错误"。
+
+试算用的临时规则使用合成名 `preview` 与 `forward` 动作：`action`/`target` 的合法性属于配置校验（config.validate）的职责，试算只关心 `match` 表达式本身。
+
+### 请求
+
+```http
+POST /rules/preview
+Content-Type: application/json
+```
+
+#### 请求体
+
+```json
+{
+  "match": "tag == 'temperature' && value > 95",
+  "point": {
+    "driver": "plc1",
+    "device": "",
+    "group": "g1",
+    "tag": "temperature",
+    "value": 96.5,
+    "type": "float64",
+    "quality": 0,
+    "timestamp": "2024-09-08T10:30:00Z"
+  }
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|:---|:---|:---|:---|
+| `match` | string | 是 | 待试算的 match 表达式。空字符串返回 `400` |
+| `point` | object (DataPoint) | 否 | 样例数据点，结构与 `GET /tags` 返回的 `DataPoint` 一致，可直接粘贴后微调。省略时按零值 DataPoint 求值（适合只引用 `value` 的表达式） |
+
+::: warning 请求体限制
+请求体最大 1 MiB。
+:::
+
+### 响应
+
+#### 试算成功 — `200 OK`
+
+```json
+{
+  "matched": true
+}
+```
+
+| 字段 | 类型 | 说明 |
+|:---|:---|:---|
+| `matched` | bool | 拥有该 match 表达式的规则是否会在此样例点上命中 |
+
+#### 表达式编译错误 — `400 Bad Request`
+
+错误信息**原样返回**（不做脱敏），便于前端在表达式编辑器旁直接展示 expr 的具体报错：
+
+```json
+{
+  "error": "failed to create rule preview: invalid match expression \"tag ==\": compile expression \"tag ==\" (translated: \"tag ==\"): unexpected token EOF (1:6)"
+}
+```
+
+#### 请求格式错误 — `400 Bad Request`
+
+```json
+{
+  "error": "invalid character 'x' looking for beginning of value"
+}
+```
+
+#### match 为空 — `400 Bad Request`
+
+```json
+{
+  "error": "match is required"
+}
+```
+
+#### 引擎不支持 — `501 Not Implemented`
+
+当引擎未实现可选角色接口 `core.RulePreviewer`（如测试替身、第三方 Engine 实现）时返回：
+
+```json
+{
+  "error": "rule preview not supported by this engine"
+}
+```
+
+### 示例
+
+::: code-group
+
+```bash [命中试算]
+curl -X POST http://localhost:9090/rules/preview \
+  -H "Authorization: Bearer corec-secret-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "match": "value > 95",
+    "point": {"driver": "plc1", "tag": "temperature", "value": 96.5, "type": "float64", "quality": 0, "timestamp": "2024-09-08T10:30:00Z"}
+  }'
+# → {"matched": true}
+```
+
+```bash [编译错误试算]
+curl -X POST http://localhost:9090/rules/preview \
+  -H "Authorization: Bearer corec-secret-token" \
+  -H "Content-Type: application/json" \
+  -d '{"match": "value >", "point": {"tag": "t", "value": 1}}'
+```
+
+:::
+
+### 典型用法
+
+```bash
+# 在 Dashboard 规则编辑器中：先试算，再保存
+# 1. 从 GET /tags 复制真实数据点作为样例，试算新表达式（shell 示例
+#    选用不含单引号的表达式；含字符串字面量的写法见上方请求体示例）
+curl -X POST http://localhost:9090/rules/preview \
+  -H "Authorization: Bearer corec-secret-token" \
+  -H "Content-Type: application/json" \
+  -d '{"match": "value > 95 && value in 0..200", "point": {"driver": "plc1", "group": "safety", "tag": "temperature", "value": 96.5, "type": "float64", "quality": 0}}'
+# → {"matched": true} 后再写入配置并 PUT /configs
 ```

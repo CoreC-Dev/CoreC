@@ -77,8 +77,8 @@ HTTP 401
 
 Everything else: `/configs*`, `/drivers*`, `/transports*`, `/tags`,
 `/tags/stream`, `/write`, `/write/failed`, `/write/history`, `/rules`,
-`/rules/disable`, `/stats`, `/memory`, `/logs`, `/traffic`, `/metrics`,
-`/debug/pprof/*`.
+`/rules/disable`, `/rules/preview`, `/stats`, `/memory`, `/logs`, `/traffic`,
+`/metrics`, `/debug/pprof/*`.
 
 ---
 
@@ -524,6 +524,43 @@ Response:
 - `400` — `{ "error": "<message>" }` (bad JSON, unknown rule name, or index
   out of range).
 
+#### `POST /rules/preview`  — offline rule trial (authenticated)
+
+Purpose: evaluate a match expression against a sample data point **without
+saving it**. The expression is compiled in a scratch rule engine — the active
+rule set, its statistics, and all routing are untouched — so rule authors can
+validate syntax and semantics before committing a rule, instead of discovering
+a compile error only when production data hits the saved rule.
+
+Request body:
+
+```jsonc
+{
+  "match": "tag == 'temperature' && value > 95",   // string — required; the expression under test
+  "point": {                                        // DataPoint — optional; the sample to evaluate against
+    "driver": "plc-modbus",
+    "tag": "temperature",
+    "value": 96.5,
+    "type": "float64",
+    "quality": 0,
+    "timestamp": "2026-09-30T19:02:10Z"
+  }
+}
+```
+
+> `point` may be omitted (the expression is evaluated against a zero-value
+> `DataPoint`) — useful for pure `value` expressions. A live sample can be
+> pasted straight from `GET /tags`.
+
+Response:
+- `200` — `{ "matched": true }` or `{ "matched": false }`.
+- `400` — `{ "error": "<json decode message>" }`, `{ "error": "match is required" }`,
+  or `{ "error": "failed to create rule preview: <expr compile error>" }` —
+  compile errors are returned **verbatim** (not masked as 500) so the frontend
+  can show them next to the expression editor.
+- `501` — `{ "error": "rule preview not supported by this engine" }` when the
+  engine does not implement the optional `core.RulePreviewer` role.
+
 ---
 
 ### Stats
@@ -880,6 +917,7 @@ counters — no external Prometheus client library is used.
 | GET | `/write/history` | ✓ | Write audit history (recent writes, success + failure, newest first) |
 | GET | `/rules` | ✓ | Rules + hit/miss statistics |
 | PATCH | `/rules/disable` | ✓ | Enable/disable a rule by name (recommended) or index |
+| POST | `/rules/preview` | ✓ | Offline rule trial — evaluate a match expression against a sample point |
 | GET | `/stats` | ✓ | Engine runtime statistics |
 | GET | `/memory` | ✓ | **WebSocket** — memory/GC/goroutine stream |
 | GET | `/logs` | ✓ | **WebSocket** — real-time log stream |

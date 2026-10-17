@@ -6,6 +6,7 @@ import (
 	"github.com/CoreC-Dev/CoreC/common/metrics"
 	"github.com/CoreC-Dev/CoreC/core"
 	"github.com/CoreC-Dev/CoreC/log"
+	"github.com/CoreC-Dev/CoreC/rule"
 )
 
 func (e *CoreCEngine) Status() core.EngineStatus {
@@ -32,6 +33,32 @@ func (e *CoreCEngine) SetRuleDisabled(index int, disabled bool) error {
 
 func (e *CoreCEngine) SetRuleDisabledByName(name string, disabled bool) error {
 	return e.ruleEngine.SetRuleDisabledByName(name, disabled)
+}
+
+// Compile-time guard: the engine satisfies the optional rule-preview role
+// that the route layer type-asserts.
+var _ core.RulePreviewer = (*CoreCEngine)(nil)
+
+// PreviewRule compiles the given match expression in a scratch rule
+// engine and evaluates it against the sample point, satisfying
+// core.RulePreviewer (POST /rules/preview). The active rule set is never
+// touched: the scratch engine is built per call and discarded, so a
+// broken expression cannot poison production routing. Compile errors are
+// returned verbatim so the API can surface them to the rule author.
+//
+// The scratch rule uses a synthetic name ("preview") and a forward
+// action; action/target validity is a config.validate concern and
+// irrelevant here — only the match expression is under test.
+func (e *CoreCEngine) PreviewRule(match string, point core.DataPoint) (bool, error) {
+	scratch := rule.NewEngine()
+	if err := scratch.SetRules([]core.RuleConfig{{
+		Name:   "preview",
+		Match:  match,
+		Action: "forward",
+	}}); err != nil {
+		return false, err
+	}
+	return len(scratch.Match(point)) > 0, nil
 }
 
 // --- Stats ---

@@ -88,8 +88,9 @@ decode with an error.
 - Mutations that succeed return `204 No Content` with **empty body**
   (`renderNoContent`).
 - `501` `{"error":"..."}` — endpoints backed by an **optional** engine role
-  interface (e.g. `GET /write/history` → `core.WriteAuditor`) respond `501` when
-  the configured engine does not implement that capability. This distinguishes
+  interface (e.g. `GET /write/history` → `core.WriteAuditor`,
+  `POST /rules/preview` → `core.RulePreviewer`) respond `501` when the
+  configured engine does not implement that capability. This distinguishes
   "not supported by this engine" from "no data" (a plain `200` with an empty
   list) and from server faults (`500`).
 
@@ -125,6 +126,7 @@ decode with an error.
 | `GET` | `/write/history` | `getWriteHistory` | Write audit history — recent writes, successes AND failures (bounded 1000, newest first) |
 | `GET` | `/rules` | `getRules` | Rule list with hit/miss stats + disabled flag |
 | `PATCH` | `/rules/disable` | `disableRule` | Enable/disable a rule by name (recommended) or index |
+| `POST` | `/rules/preview` | `previewRule` | Offline rule trial — evaluate a match expression against a sample point |
 | `GET` | `/stats` | `getStats` | Aggregate engine statistics |
 | `GET` | `/metrics` | `promMetrics` | Prometheus text-format metrics |
 | `GET` | `/logs` | `getLogs` | **WebSocket** — real-time log stream |
@@ -769,6 +771,64 @@ produces one entry per retry.
   does not implement `core.WriteAuditor` (test mocks, alternative engine
   implementations).
 
+### 3.21 `POST /rules/preview` — offline rule trial
+
+Handler `previewRule` (`rules_preview.go`). Auth required. Body limited to 1 MiB.
+
+Compiles a match expression in a **scratch rule engine** and evaluates it
+against a sample data point, without touching the active rule set. This lets
+rule authors validate syntax and semantics *before* saving: previously a typo
+in `match` could only be discovered when production data flowed through the
+saved rule. Compile errors are returned verbatim in the `400` body so the
+frontend can display them next to the expression editor.
+
+**Request body** (struct `previewRuleRequest`, `rules_preview.go:14`):
+```json
+{
+  "match": "tag == 'temperature' && value > 95",
+  "point": {
+    "driver": "plc-modbus",
+    "device": "",
+    "group": "",
+    "tag": "temperature",
+    "value": 96.5,
+    "type": "float64",
+    "quality": 0,
+    "timestamp": "2024-01-01T12:00:00Z"
+  }
+}
+```
+| Field | Go type | json tag | JSON type | Required | Notes |
+|---|---|---|---|---|---|
+| `match` | `string` | `"match"` | string | yes | the match expression under test; empty → `400` `"match is required"` |
+| `point` | `core.DataPoint` | `"point"` | object | no* | the sample point to evaluate against; shape as in §6. A zero-value point is accepted — only the fields the expression references matter |
+
+`point` may be omitted entirely (evaluates against the zero DataPoint), which
+is useful for pure-`value` expressions.
+
+**Response `200`:**
+```json
+{"matched": true}
+```
+| Field | Go type / json tag | JSON type | Notes |
+|---|---|---|---|
+| `matched` | `bool` / `"matched"` | boolean | whether a rule with this `match` would fire on `point` |
+
+**Errors:**
+- `400` `{"error":"<json decode error>"}` — malformed body.
+- `400` `{"error":"match is required"}` — empty `match`.
+- `400` — the expression does not compile; the message is preserved
+  verbatim (rule name + DSL wrapper + the underlying `expr` error) for
+  display next to the expression editor, e.g.
+  `failed to create rule preview: invalid match expression "tag ==": compile expression "tag ==" (translated: "tag =="): unexpected token EOF (1:6)`.
+- `501` `{"error":"rule preview not supported by this engine"}` — the engine
+  does not implement `core.RulePreviewer`.
+
+> The scratch rule uses a synthetic name (`preview`) and `action: forward`.
+> Action/target validity is a config-validation concern and does not apply
+> here — only the `match` expression is under test. The active rule set and
+> its statistics are untouched.
+
 ---
 
 ## 4. WebSocket Endpoints
@@ -1296,6 +1356,7 @@ A map from group name to a list of `RuleConfig`. Referenced by `SUB-RULE:<name>`
 | `POST /write` | `200` | `400` (bad JSON), `500` (write error) |
 | `GET /write/history` | `200` | `401`; `501` (engine does not implement `core.WriteAuditor`) |
 | `PATCH /rules/disable` | `204` | `400` (bad JSON / bad index) |
+| `POST /rules/preview` | `200` | `400` (bad JSON / empty `match` / expression compile error); `501` (engine does not implement `core.RulePreviewer`) |
 | Any (rate-limited) | — | `429` with `Retry-After: 1` |
 | Any (auth group, no token) | — | `401 {"error":"unauthorized"}` |
 
@@ -1366,6 +1427,9 @@ interface WriteAuditEntry {
   value: unknown; type: DataType; success: boolean; error?: string;
   source: "api" | "command"; remote?: string;   // remote: API writes only
 }
+
+// POST /rules/preview
+interface RulePreviewResult { matched: boolean; }
 
 // GET /  (uptime here is a STRING, unlike /stats)
 interface Hello { name: string; version: string; status: string; time: string; uptime: string; }

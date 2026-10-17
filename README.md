@@ -219,6 +219,7 @@ curl -H "Authorization: Bearer your-secret-token" http://localhost:9090/drivers
 | GET | `/write/history` | 查询写入审计历史（最近 1000 条写记录，含成功与失败，新→旧） |
 | GET | `/rules` | 列出规则 + **命中/未命中统计** |
 | PATCH | `/rules/disable` | 运行时启用/禁用规则 `{"index":0,"disabled":true}` |
+| POST | `/rules/preview` | 规则试算：离线验证 match 表达式（不影响生产规则集） |
 | GET | `/stats` | 引擎运行统计 |
 | GET | `/metrics` | Prometheus 文本格式指标（计数器/仪表盘 + Go 运行时指标） |
 | GET | `/debug/pprof/*` | pprof 性能分析端点（CPU/heap/goroutine，可配置关闭或独立端口） |

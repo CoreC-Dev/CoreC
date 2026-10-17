@@ -71,6 +71,20 @@ type RuleManager interface {
 	SetRuleDisabledByName(name string, disabled bool) error
 }
 
+// RulePreviewer evaluates a match expression against a sample data point
+// without touching the active rule set — the backing for
+// POST /rules/preview (offline rule trial). Like the other optional role
+// interfaces, it is deliberately NOT embedded in Engine: the route layer
+// type-asserts it so alternative Engine implementations and test mocks
+// are free to omit preview support. *CoreCEngine satisfies it.
+type RulePreviewer interface {
+	// PreviewRule compiles match, evaluates it against point, and reports
+	// whether a rule with that expression would fire on it. Compile
+	// errors are returned verbatim so the API can show the rule author
+	// what is wrong with the expression.
+	PreviewRule(match string, point DataPoint) (bool, error)
+}
+
 // DataAccessor covers synchronous read/write operations and cached
 // latest values, used by the API layer.
 type DataAccessor interface {
