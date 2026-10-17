@@ -60,8 +60,8 @@ func TestRollbackStartWithComponents(t *testing.T) {
 	e := newRollbackEngine()
 
 	// Started scheduler (no tasks → no goroutines, Stop is a clean no-op).
-	e.scheduler = NewScheduler(nil, nil, 0, statistic.NewManager())
-	if err := e.scheduler.Start(e.ctx); err != nil {
+	e.lifecycle.scheduler = NewScheduler(nil, nil, 0, statistic.NewManager())
+	if err := e.lifecycle.scheduler.Start(e.ctx); err != nil {
 		t.Fatalf("scheduler start failed: %v", err)
 	}
 
@@ -107,7 +107,7 @@ func TestRollbackStartWithComponents(t *testing.T) {
 // data bus were created).
 func TestRollbackStartNilSchedulerAndDataBus(t *testing.T) {
 	e := newRollbackEngine()
-	// e.scheduler and e.processing.dataBus remain nil.
+	// e.lifecycle.scheduler and e.processing.dataBus remain nil.
 
 	e.rollbackStart()
 
@@ -131,7 +131,7 @@ func TestRollbackStartEmpty(t *testing.T) {
 	e.driverReg.drivers = make(map[string]core.Driver)
 	e.transportMgr.transports = make(map[string]core.Transport)
 	e.transportMgr.batchers = make(map[string]*transportBatcher)
-	// e.cancel, e.scheduler, e.processing.dataBus all nil.
+	// e.cancel, e.lifecycle.scheduler, e.processing.dataBus all nil.
 
 	e.rollbackStart()
 

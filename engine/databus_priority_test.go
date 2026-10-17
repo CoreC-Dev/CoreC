@@ -163,7 +163,7 @@ func TestScheduleDriverTagsSetsPriority(t *testing.T) {
 	e := New().(*CoreCEngine)
 	e.ctx, e.cancel = context.WithCancel(context.Background())
 	defer e.cancel()
-	e.scheduler = NewScheduler(
+	e.lifecycle.scheduler = NewScheduler(
 		func(ctx context.Context, driver string, tags []string) ([]core.TagValue, error) {
 			return nil, nil
 		},
@@ -171,10 +171,10 @@ func TestScheduleDriverTagsSetsPriority(t *testing.T) {
 		0,
 		statistic.NewManager(),
 	)
-	if err := e.scheduler.Start(e.ctx); err != nil {
+	if err := e.lifecycle.scheduler.Start(e.ctx); err != nil {
 		t.Fatalf("scheduler.Start: %v", err)
 	}
-	defer e.scheduler.Stop()
+	defer e.lifecycle.scheduler.Stop()
 
 	// Fast interval (200ms) → high priority (priority=1)
 	// Slow interval (5s) → normal priority (priority=0)
@@ -187,7 +187,7 @@ func TestScheduleDriverTagsSetsPriority(t *testing.T) {
 		},
 	})
 
-	tasks := e.scheduler.tasks
+	tasks := e.lifecycle.scheduler.tasks
 	var fastPriority, slowPriority int
 	fastFound, slowFound := false, false
 	for _, tr := range tasks {

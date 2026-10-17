@@ -1,12 +1,10 @@
 package engine
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"time"
 
-	"github.com/CoreC-Dev/CoreC/common/trace"
 	"github.com/CoreC-Dev/CoreC/core"
 	"github.com/CoreC-Dev/CoreC/log"
 )
@@ -100,8 +98,8 @@ func (r *driverRegistry) AddDriver(config core.DriverConfig) error {
 	// Stop the old driver outside the lock — it's already removed from the
 	// map, so no concurrent caller can interact with it.
 	if oldDriver != nil {
-		if r.eng.scheduler != nil {
-			if err := r.eng.scheduler.PauseDriver(config.Name); err != nil {
+		if r.eng.lifecycle.scheduler != nil {
+			if err := r.eng.lifecycle.scheduler.PauseDriver(config.Name); err != nil {
 				slog.Error("failed to pause old driver in scheduler", "name", config.Name, "error", err)
 			}
 		}
@@ -155,11 +153,11 @@ func (r *driverRegistry) RemoveDriver(name string) error {
 	delete(r.driverConfigs, name)
 	r.eng.mu.Unlock()
 
-	if r.eng.scheduler != nil {
+	if r.eng.lifecycle.scheduler != nil {
 		// Remove all scheduler tasks for this driver so their goroutines
 		// actually exit, instead of just pausing them and leaving the
 		// goroutines running forever (problem 3).
-		r.eng.scheduler.RemoveDriverTasks(name)
+		r.eng.lifecycle.scheduler.RemoveDriverTasks(name)
 	}
 	return driver.Stop()
 }
@@ -181,68 +179,6 @@ func (r *driverRegistry) ListDrivers() []core.DriverStatus {
 	return result
 }
 
-func (e *CoreCEngine) readFromDriver(ctx context.Context, driver string, tags []string) ([]core.TagValue, error) {
-	ctx, span := trace.Start(ctx, "engine.readFromDriver")
-	defer span.End()
-	span.SetAttr("driver", driver)
-	span.SetAttr("tag_count", len(tags))
-
-	e.mu.RLock()
-	d, ok := e.driverReg.drivers[driver]
-	e.mu.RUnlock()
-	if !ok {
-		return nil, fmt.Errorf("driver not found: %s", driver)
-	}
-	start := time.Now()
-	values, err := d.Read(ctx, tags)
-	e.stats.readLatency.Observe(time.Since(start))
-	return values, err
-}
-
-func (e *CoreCEngine) onDriverData(driver string, values []core.TagValue, priority int) {
-	// Enrich DataPoint.Group from the TagConfig.Group captured in AddDriver.
-	// TagValue only carries the tag name, so the group must be looked up by
-	// (driver, tag). We read the per-driver map once under RLock to avoid
-	// per-point lock churn.
-	//
-	// NOTE on Device: there is currently no Device source in config
-	// (DriverConfig has no Device field and TagConfig has no Device field),
-	// so DataPoint.Device is left empty here. To populate it, add a Device
-	// field to DriverConfig (driver-wide) or TagConfig (per-tag) and store
-	// it alongside tagGroups, then set point.Device below.
-	e.mu.RLock()
-	groups := e.driverReg.tagGroups[driver]
-	e.mu.RUnlock()
-
-	// Route to the high-priority channel when the task's priority is > 0
-	// (fast-interval tasks). Dedicated high-priority workers process this
-	// channel so a burst of low-frequency bulk reads cannot delay
-	// high-frequency collection (IMPROVEMENTS #5).
-	highPriority := priority > 0
-
-	for _, v := range values {
-		e.stats.totalRead.Add(1)
-
-		point := core.DataPoint{
-			Driver:    driver,
-			Tag:       v.Tag,
-			Value:     v.Value,
-			Type:      v.Type,
-			Quality:   v.Quality,
-			Timestamp: v.Timestamp,
-		}
-		if groups != nil {
-			point.Group = groups[v.Tag]
-		}
-
-		if highPriority {
-			e.processing.dataBus.PushHighPriority(point)
-		} else {
-			e.processing.dataBus.Push(point)
-		}
-	}
-}
-
 func (r *driverRegistry) scheduleDriverTags(config core.DriverConfig) {
 	// Group tags by their parsed interval so that equivalent spellings
 	// (e.g. "1s" and "1000ms") collapse into a single task instead of
@@ -254,7 +190,7 @@ func (r *driverRegistry) scheduleDriverTags(config core.DriverConfig) {
 	// so the effective timeout is the most generous one requested.
 	readTimeouts := make(map[time.Duration]time.Duration)
 	for _, tag := range config.Tags {
-		interval := r.eng.defaultTagInterval
+		interval := r.eng.lifecycle.defaultTagInterval
 		if tag.Interval != "" {
 			if d, err := time.ParseDuration(tag.Interval); err == nil && d > 0 {
 				interval = d
@@ -285,7 +221,7 @@ func (r *driverRegistry) scheduleDriverTags(config core.DriverConfig) {
 		if interval > 0 && interval <= core.DefaultHighPriorityInterval {
 			priority = 1
 		}
-		if err := r.eng.scheduler.AddTask(core.ScheduleTask{
+		if err := r.eng.lifecycle.scheduler.AddTask(core.ScheduleTask{
 			ID:          taskID,
 			Driver:      config.Name,
 			Tags:        tags,

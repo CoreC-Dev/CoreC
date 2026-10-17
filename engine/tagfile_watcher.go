@@ -105,8 +105,8 @@ func (r *driverRegistry) reloadDriverTags(config core.DriverConfig) error {
 	r.eng.mu.Unlock()
 
 	if ok {
-		if r.eng.scheduler != nil {
-			r.eng.scheduler.RemoveDriverTasks(config.Name)
+		if r.eng.lifecycle.scheduler != nil {
+			r.eng.lifecycle.scheduler.RemoveDriverTasks(config.Name)
 		}
 		if err := oldDriver.Stop(); err != nil {
 			slog.Error("failed to stop old driver for tag reload",

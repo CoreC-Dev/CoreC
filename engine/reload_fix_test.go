@@ -90,10 +90,10 @@ func TestRemoveDriverCleansSchedulerTasks(t *testing.T) {
 
 	// Verify task exists before removal
 	taskID := "removable-driver_100ms"
-	e.scheduler.mu.RLock()
-	_, hasTask := e.scheduler.tasks[taskID]
-	taskCount := len(e.scheduler.tasks)
-	e.scheduler.mu.RUnlock()
+	e.lifecycle.scheduler.mu.RLock()
+	_, hasTask := e.lifecycle.scheduler.tasks[taskID]
+	taskCount := len(e.lifecycle.scheduler.tasks)
+	e.lifecycle.scheduler.mu.RUnlock()
 	if !hasTask {
 		t.Fatal("expected task to exist before driver removal")
 	}
@@ -104,10 +104,10 @@ func TestRemoveDriverCleansSchedulerTasks(t *testing.T) {
 	}
 
 	// Verify task is removed from the scheduler
-	e.scheduler.mu.RLock()
-	_, hasTask = e.scheduler.tasks[taskID]
-	newTaskCount := len(e.scheduler.tasks)
-	e.scheduler.mu.RUnlock()
+	e.lifecycle.scheduler.mu.RLock()
+	_, hasTask = e.lifecycle.scheduler.tasks[taskID]
+	newTaskCount := len(e.lifecycle.scheduler.tasks)
+	e.lifecycle.scheduler.mu.RUnlock()
 	if hasTask {
 		t.Error("BUG: task still exists in scheduler after RemoveDriver — should be cleaned up")
 	}

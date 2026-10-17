@@ -31,21 +31,10 @@ type CoreCEngine struct {
 	transportMgr *transportManager
 	writes       *writeManager
 	processing   *processingCore
-	scheduler    *scheduler
+	lifecycle    *lifecycleSupport
 
 	// Tunable parameters (set from GlobalConfig.Engine in Start)
-	shutdownTimeout    time.Duration
-	errorThrottleWin   time.Duration
-	defaultTagInterval time.Duration
-
-	// discovery handles topology auto-discovery via MQTT heartbeats.
-	// nil when node config is not set (auto-discovery disabled).
-	discovery *Discovery
-
-	// derivedEvaluator periodically computes derived tags from the latest
-	// cache and pushes results into the data bus. nil when no derived tags
-	// are configured.
-	derivedEvaluator *derivedTagEvaluator
+	shutdownTimeout time.Duration
 
 	// Lifecycle
 	ctx       context.Context
@@ -93,6 +82,7 @@ func newEngineShell() *CoreCEngine {
 		transportMgr: &transportManager{},
 		writes:       &writeManager{},
 		processing:   &processingCore{},
+		lifecycle:    &lifecycleSupport{},
 	}
 	e.reads.eng = e
 	e.stats.eng = e
@@ -100,6 +90,7 @@ func newEngineShell() *CoreCEngine {
 	e.transportMgr.eng = e
 	e.writes.eng = e
 	e.processing.eng = e
+	e.lifecycle.eng = e
 	return e
 }
 
@@ -118,8 +109,8 @@ func New() core.Engine {
 	e.processing.numWorkers = runtime.NumCPU()
 	e.processing.dataBusSize = core.DefaultDataBusSize
 	e.shutdownTimeout = core.DefaultShutdownTimeout
-	e.errorThrottleWin = core.DefaultErrorThrottleWindow
-	e.defaultTagInterval = core.DefaultTagInterval
+	e.lifecycle.errorThrottleWin = core.DefaultErrorThrottleWindow
+	e.lifecycle.defaultTagInterval = core.DefaultTagInterval
 	e.processing.badQualityPolicy = badQualityPublish
 	e.writes.writeRetryCount = 3
 	e.writes.commandConcurrency = core.DefaultCommandConcurrency

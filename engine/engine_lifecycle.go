@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -66,7 +65,7 @@ func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error {
 		e.rollbackStart()
 	}()
 
-	if err := e.startScheduler(); err != nil {
+	if err := e.lifecycle.startScheduler(); err != nil {
 		return err
 	}
 
@@ -90,49 +89,16 @@ func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error {
 
 	// Start derived tag evaluator if configured.
 	if len(config.DerivedTags) > 0 {
-		if err := e.startDerivedTags(config); err != nil {
+		if err := e.lifecycle.startDerivedTags(config); err != nil {
 			return err
 		}
 	}
 
 	// Start topology auto-discovery if node config is present.
-	e.startDiscovery(config)
+	e.lifecycle.startDiscovery(config)
 
 	started = true
 	slog.Info("CoreC engine started successfully")
-	return nil
-}
-
-// startScheduler creates the data bus and scheduler, then starts the
-// scheduler goroutine.
-func (e *CoreCEngine) startScheduler() error {
-	e.mu.Lock()
-	e.processing.dataBus = NewDataBus(e.processing.dataBusSize)
-	e.scheduler = NewScheduler(e.readFromDriver, e.onDriverData, e.errorThrottleWin, e.stats.statManager)
-	e.mu.Unlock()
-
-	if err := e.scheduler.Start(e.ctx); err != nil {
-		return fmt.Errorf("failed to start scheduler: %w", err)
-	}
-	return nil
-}
-
-// startDerivedTags compiles and launches the derived tag evaluator. The
-// evaluator reads the latest cache and pushes computed points into the data
-// bus. Each derived tag runs in its own goroutine bound to e.ctx/e.wg.
-func (e *CoreCEngine) startDerivedTags(config *core.Config) error {
-	if err := validateDerivedTags(config.DerivedTags); err != nil {
-		return fmt.Errorf("derived tags config: %w", err)
-	}
-	ev, err := newDerivedTagEvaluator(config.DerivedTags, e.processing.cache, e.processing.dataBus)
-	if err != nil {
-		return fmt.Errorf("derived tags: %w", err)
-	}
-	e.mu.Lock()
-	e.derivedEvaluator = ev
-	e.mu.Unlock()
-	ev.start(e.ctx, &e.wg)
-	slog.Info("derived tag evaluator started", "count", len(config.DerivedTags))
 	return nil
 }
 
@@ -145,14 +111,14 @@ func (e *CoreCEngine) Stop() error {
 
 	// Stop discovery module first so it doesn't try to add transports
 	// while we're tearing everything else down.
-	if e.discovery != nil {
-		e.discovery.Stop()
-		e.discovery = nil
+	if e.lifecycle.discovery != nil {
+		e.lifecycle.discovery.Stop()
+		e.lifecycle.discovery = nil
 	}
 
 	// Stop scheduler
-	if e.scheduler != nil {
-		if err := e.scheduler.Stop(); err != nil {
+	if e.lifecycle.scheduler != nil {
+		if err := e.lifecycle.scheduler.Stop(); err != nil {
 			slog.Error("failed to stop scheduler", "error", err)
 		}
 	}
@@ -164,7 +130,7 @@ func (e *CoreCEngine) Stop() error {
 	e.wg.Wait()
 	e.mu.Lock()
 	e.status = core.EngineStatusStopped
-	e.derivedEvaluator = nil
+	e.lifecycle.derivedEvaluator = nil
 	e.mu.Unlock()
 	slog.Info("CoreC engine stopped")
 	return nil
@@ -174,8 +140,8 @@ func (e *CoreCEngine) Suspend() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.status = core.EngineStatusSuspended
-	if e.scheduler != nil {
-		if err := e.scheduler.Pause(); err != nil {
+	if e.lifecycle.scheduler != nil {
+		if err := e.lifecycle.scheduler.Pause(); err != nil {
 			return err
 		}
 	}
@@ -187,8 +153,8 @@ func (e *CoreCEngine) Resume() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.status = core.EngineStatusRunning
-	if e.scheduler != nil {
-		if err := e.scheduler.Resume(); err != nil {
+	if e.lifecycle.scheduler != nil {
+		if err := e.lifecycle.scheduler.Resume(); err != nil {
 			return err
 		}
 	}
@@ -210,8 +176,8 @@ func (e *CoreCEngine) rollbackStart() {
 	if e.cancel != nil {
 		e.cancel()
 	}
-	if e.scheduler != nil {
-		if err := e.scheduler.Stop(); err != nil {
+	if e.lifecycle.scheduler != nil {
+		if err := e.lifecycle.scheduler.Stop(); err != nil {
 			slog.Error("rollback: failed to stop scheduler", "error", err)
 		}
 	}

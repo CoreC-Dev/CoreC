@@ -21,10 +21,10 @@ func (e *CoreCEngine) applyEngineConfig(cfg *core.EngineConfig) error {
 		e.shutdownTimeout = d
 	}
 	if d, err := time.ParseDuration(cfg.ErrorThrottleWindow); err == nil && d > 0 {
-		e.errorThrottleWin = d
+		e.lifecycle.errorThrottleWin = d
 	}
 	if d, err := time.ParseDuration(cfg.DefaultTagInterval); err == nil && d > 0 {
-		e.defaultTagInterval = d
+		e.lifecycle.defaultTagInterval = d
 	}
 	if cfg.OnBadQuality != "" {
 		p, err := parseBadQualityPolicy(cfg.OnBadQuality)
@@ -103,63 +103,5 @@ func (e *CoreCEngine) autoFillNodeConfig(config *core.Config) {
 			{Name: "topo-auto-forward", Match: "ALL", Action: "forward", Target: config.Transports[0].Name},
 		}
 		slog.Debug("auto-added forward rule", "target", config.Transports[0].Name)
-	}
-}
-
-// startDiscovery launches the topology auto-discovery module if node config
-// is present. It collects the broker URLs from MQTT transports and derives
-// the publish endpoint (subscription pattern) from each transport's topic-template.
-func (e *CoreCEngine) startDiscovery(config *core.Config) {
-	if config.Node.ID == "" {
-		return // auto-discovery disabled
-	}
-
-	// Collect broker endpoints from MQTT transports.
-	brokerMap := make(map[string]*brokerEndpoint) // deduplicate by broker URL
-	for _, tc := range config.Transports {
-		if tc.Type != "mqtt" {
-			continue
-		}
-		broker, ok := tc.Settings["broker"].(string)
-		if !ok || broker == "" {
-			continue
-		}
-
-		be, exists := brokerMap[broker]
-		if !exists {
-			be = &brokerEndpoint{Broker: broker}
-			brokerMap[broker] = be
-		}
-
-		// If this transport has a topic-template (explicit or auto-filled),
-		// it's an outbound transport — advertise a publish endpoint.
-		if topicTpl, ok := tc.Settings["topic-template"].(string); ok && topicTpl != "" {
-			be.Publish = &endpoint{
-				Type:  "mqtt",
-				Topic: topicTemplateToSubscriptionPattern(topicTpl),
-			}
-		}
-
-		// HTTP receive endpoint discovery (webhook-addr) is deferred to a
-		// future iteration. When implemented, it will be collected from
-		// HTTP transports in a separate loop and paired with the broker
-		// used for discovery heartbeats.
-	}
-
-	if len(brokerMap) == 0 {
-		slog.Warn("discovery: node config set but no MQTT transports found, auto-discovery disabled",
-			"node", config.Node.ID)
-		return
-	}
-
-	brokers := make([]brokerEndpoint, 0, len(brokerMap))
-	for _, be := range brokerMap {
-		brokers = append(brokers, *be)
-	}
-
-	e.discovery = NewDiscovery(config.Node, brokers, e.AddTransport)
-	if err := e.discovery.Start(e.ctx); err != nil {
-		slog.Error("failed to start discovery, continuing without auto-discovery", "error", err)
-		e.discovery = nil
 	}
 }
