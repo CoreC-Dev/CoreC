@@ -92,13 +92,15 @@ API 内置 CORS 中间件，用于支持浏览器端仪表盘跨域访问。行�
 | 状态码 | 含义 | 触发场景 |
 |:---|:---|:---|
 | `200 OK` | 请求成功 | 所有 `GET` 端点、`POST /write` 成功 |
-| `204 No Content` | 操作成功，无响应体 | `PUT /configs`、`PATCH /configs`、`PATCH /rules/disable` |
-| `400 Bad Request` | 请求格式错误 | JSON 解析失败、规则索引越界等 |
+| `201 Created` | 资源已创建 | `POST /configs/backups` 手动快照成功 |
+| `204 No Content` | 操作成功，无响应体 | `PUT /configs`、`PATCH /configs`、`PATCH /rules/disable`、`POST /configs/backups/{name}/restore` |
+| `400 Bad Request` | 请求格式错误 | JSON 解析失败、规则索引越界、备份名非法或备份校验失败等 |
 | `401 Unauthorized` | 认证失败 | Token 缺失或不匹配 |
 | `429 Too Many Requests` | 请求频率超限 | 触发速率限制中间件（`global.api.rate-limit-per-sec`，超限按客户端 IP 拒绝） |
-| `404 Not Found` | 资源不存在 | 驱动/传输名称未找到 |
+| `404 Not Found` | 资源不存在 | 驱动/传输名称未找到、配置备份不存在 |
 | `500 Internal Server Error` | 内部错误 | 写入失败、配置重载失败等 |
 | `501 Not Implemented` | 能力不支持 | 引擎未实现端点依赖的可选角色接口（如 `GET /write/history` 需要 `core.WriteAuditor`、`POST /rules/preview` 需要 `core.RulePreviewer`） |
+| `503 Service Unavailable` | 服务状态不满足 | 空配置启动（无配置文件路径）时访问配置备份端点 |
 
 ## 端点索引
 
@@ -111,8 +113,14 @@ API 内置 CORS 中间件，用于支持浏览器端仪表盘跨域访问。行�
 | `GET` | `/healthz/live` | 否 | 存活探针（Kubernetes liveness） |
 | `GET` | `/healthz/ready` | 否 | 就绪探针（Kubernetes readiness） |
 | `GET` | `/configs` | 是 | 获取当前配置概要（脱敏） |
-| `PUT` | `/configs` | 是 | 全量重载配置 |
+| `GET` | `/configs/raw` | 是 | 获取完整配置 YAML 原文（含明文凭据，供配置中心编辑器） |
+| `PUT` | `/configs` | 是 | 全量重载配置（变更前自动快照到服务端备份） |
 | `PATCH` | `/configs` | 是 | 增量更新配置 |
+| `POST` | `/configs/validate` | 是 | 配置 dry-run 校验（不应用） |
+| `GET` | `/configs/backups` | 是 | 列出服务端配置备份（新→旧，仅元数据，保留最近 10 份） |
+| `GET` | `/configs/backups/{name}` | 是 | 读取指定备份 YAML 原文（安全姿态同 `/configs/raw`） |
+| `POST` | `/configs/backups` | 是 | 手动创建当前磁盘配置快照 |
+| `POST` | `/configs/backups/{name}/restore` | 是 | 恢复指定备份（走完整校验链，不绕过校验） |
 | `GET` | `/drivers` | 是 | 列出所有驱动状态 |
 | `GET` | `/drivers/{name}` | 是 | 获取指定驱动状态 |
 | `GET` | `/drivers/{name}/tags` | 是 | 获取指定驱动最新标签值 |

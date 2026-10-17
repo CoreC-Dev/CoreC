@@ -206,8 +206,14 @@ curl -H "Authorization: Bearer your-secret-token" http://localhost:9090/drivers
 | GET | `/healthz/live` | 存活探针（无需认证，Kubernetes liveness） |
 | GET | `/healthz/ready` | 就绪探针（无需认证，Kubernetes readiness） |
 | GET | `/configs` | 当前配置概要 |
-| PUT | `/configs` | 热重载配置（`{"path":"config.yaml"}` 或 `{"payload":"<yaml>"}` ） |
+| GET | `/configs/raw` | 完整配置 YAML 原文（含明文凭据，认证可见，配置中心编辑器用） |
+| PUT | `/configs` | 热重载配置（`{"path":"config.yaml"}` 或 `{"payload":"<yaml>"}` ；变更前自动快照） |
 | PATCH | `/configs` | 修改运行时设置（如 `{"log-level":"debug"}` ） |
+| POST | `/configs/validate` | 配置 dry-run 校验（不应用） |
+| GET | `/configs/backups` | 服务端配置备份列表（新→旧，保留最近 10 份，仅元数据） |
+| GET | `/configs/backups/{name}` | 读取指定备份 YAML 原文 |
+| POST | `/configs/backups` | 手动创建当前磁盘配置快照 |
+| POST | `/configs/backups/{name}/restore` | 一键恢复指定备份（走完整校验链） |
 | GET | `/drivers` | 列出所有南向驱动及状态 |
 | GET | `/drivers/{name}` | 查看单个驱动 |
 | GET | `/drivers/{name}/tags` | 查看驱动下所有测点最新值 |

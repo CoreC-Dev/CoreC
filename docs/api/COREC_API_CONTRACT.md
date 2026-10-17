@@ -112,8 +112,14 @@ decode with an error.
 | Method | Path | Handler | Purpose |
 |---|---|---|---|
 | `GET` | `/configs` | `getConfigs` | Safe (secret-redacted) config overview |
-| `PUT` | `/configs` | `updateConfigs` | Full config reload (file path or YAML payload) |
+| `GET` | `/configs/raw` | `getConfigsRaw` | Full active config as YAML text, secrets in plaintext (auth'd) |
+| `PUT` | `/configs` | `updateConfigs` | Full config reload (file path or YAML payload); auto-snapshots the replaced file (§3.23) |
 | `PATCH` | `/configs` | `patchConfigs` | Selective runtime patch (only `log-level`) |
+| `POST` | `/configs/validate` | `validateConfigs` | Dry-run parse+validate of a config payload (no apply) |
+| `GET` | `/configs/backups` | `getConfigBackups` | Server-side config backup metadata, newest first (§3.23) |
+| `POST` | `/configs/backups` | `createConfigBackup` | Manual snapshot of the current on-disk config (§3.26) |
+| `GET` | `/configs/backups/{name}` | `getConfigBackupContent` | One backup's raw YAML — plaintext secrets, auth'd, mirrors `/configs/raw` (§3.24) |
+| `POST` | `/configs/backups/{name}/restore` | `restoreConfigBackup` | Restore a backup through the full validate → apply → persist chain (§3.25) |
 | `GET` | `/drivers` | `getDrivers` | All driver statuses |
 | `GET` | `/drivers/{name}` | `getDriver` | One driver status |
 | `GET` | `/drivers/{name}/tags` | `getDriverTags` | Latest cached values for a driver's tags |
@@ -293,6 +299,15 @@ engine, diffs drivers/transports/rules, and resumes. **API config**
 (`api.listen`, `api.secret`, `api.tls-*`), **rule-providers**, **rule-groups**,
 and **engine tuning** (`global.engine.*`) cannot be hot-applied — changes log a
 warning and require restart.
+
+> **Auto-snapshot (server-side backups):** on the payload path, when a config
+> path is set and the file already exists on disk, `Reload` copies the current
+> on-disk config into the backup set (§3.23–§3.26) immediately **before**
+> overwriting it, so every successful dashboard-driven change has a pre-change
+> rollback point. A missing file (first persist) is a silent no-op; a failed
+> copy logs a warning and never blocks the reload (availability first).
+> Validation/apply failures happen before the snapshot, so failed changes
+> never create backups.
 
 **Response:** `204 No Content` (empty body) on success.
 `400` `{"error":"<decode error>"}` on bad JSON.
@@ -902,6 +917,133 @@ which is the YAML contract and carries only yaml tags):
 - `400` `{"error":"<factory error>"}` — the registered factory rejected the
   settings (e.g. a bad `settings` key).
 
+### 3.23 `GET /configs/backups` — server-side config backup list
+
+Handler `getConfigBackups` (`configs_backups.go`; backed by
+`executor.ListConfigBackups`). Auth required. No query params.
+
+Motivation (audit finding): the Dashboard's config snapshot stack is
+in-memory only and lost on refresh. CoreC therefore retains timestamped
+copies of the persisted config **on the server**: the active config's
+directory gets a `backups/` subdirectory, and every successful
+dashboard-driven change auto-snapshots the replaced file into it before
+overwriting (§3.6). Files are named `<unix-nano>.yaml` with **0o600**
+permissions (they contain the API secret and driver/transport credentials,
+same rationale as the active config file) and at most the **10** newest are
+retained (`configBackupMax` — older ones are deleted when a new one is
+written).
+
+The response carries **metadata only** — never the content, which includes
+secrets and is served solely through `GET /configs/backups/{name}` (§3.24).
+
+**Response `200`** (struct `ConfigBackupInfo`, `configs_backups.go`):
+```json
+{
+  "backups": [
+    {"name": "1760000000000000000.yaml", "timestamp": "2025-10-09T08:53:20Z", "size": 1842},
+    {"name": "1759999999999999999.yaml", "timestamp": "2025-10-09T08:53:19.999999999Z", "size": 1790}
+  ]
+}
+```
+| Field | Go type / json tag | JSON type | Notes |
+|---|---|---|---|
+| `backups` | `[]ConfigBackupInfo` / `"backups"` | array | newest first; `[]` (never `null`) when no backup exists yet |
+| `backups[].name` | `string` / `"name"` | string | `<unix-nano>.yaml`; identifier for §3.24/§3.25 |
+| `backups[].timestamp` | `time.Time` / `"timestamp"` | RFC3339 string | snapshot time, derived from the file name |
+| `backups[].size` | `int64` / `"size"` | number | file size in bytes |
+
+**Errors:**
+- `503` `{"error":"no active config path; config backups unavailable"}` — the
+  core started without a persisted config file (empty-config startup), so
+  there is nothing to back up. A clear error, not an empty misleading list.
+- `500` `{"error":"internal server error"}` — listing failure or endpoint not
+  wired (executor not initialized).
+
+### 3.24 `GET /configs/backups/{name}` — one backup's raw YAML
+
+Handler `getConfigBackupContent` (`configs_backups.go`; backed by
+`executor.GetConfigBackup`). Auth required. Path param `name` must be an
+exact backup name from §3.23.
+
+**Security posture — mirrors `GET /configs/raw`:** the backup is a byte copy
+of the persisted config file, so its YAML contains secrets in plaintext
+(`api.secret`, driver/transport credentials, webhook secrets). It is served
+only to authenticated callers — the same operators who can already fetch the
+full active config via `/configs/raw` — so no new plaintext exposure surface
+opens. The name must match the strict generated pattern
+`<unix-nano>.yaml` (digits only, anchored); path separators, traversal
+fragments, absolute paths, and suffixed names are rejected with `400`
+**before any filesystem path is joined**, so the endpoint can never be aimed
+outside the backup directory.
+
+**Response `200`:** the backup's YAML document as raw text with
+`Content-Type: application/yaml; charset=utf-8` (not JSON).
+
+**Errors:**
+- `400` `{"error":"invalid backup name: \"<name>\""}` — malformed name
+  (traversal attempt, wrong pattern).
+- `404` `{"error":"config backup not found: <name>"}` — well-formed name not
+  in the backup set.
+- `503` — no active config path (see §3.23).
+- `500` `{"error":"internal server error"}` — read failure or endpoint not
+  wired.
+
+### 3.25 `POST /configs/backups/{name}/restore` — restore a backup
+
+Handler `restoreConfigBackup` (`configs_backups.go`; backed by
+`executor.RestoreConfigBackup`). Auth required. No request body.
+
+The executor reads the backup file and hands its content to
+`Reload(path="", payload=content)` — the exact chain used by `PUT /configs`
+(§3.6): parse → validate → `ApplyConfig` (suspend → diff drivers/transports/
+rules → resume) → persist to the active config file. A backup is **never**
+blindly copied over the active file. Consequences:
+
+- A backup whose content no longer passes validation fails with `400`
+  **before anything is applied** — the running configuration and the
+  on-disk file are left untouched (the executor pre-validates to keep this
+  failure distinguishable from apply failures).
+- On success the restored content is persisted to disk, and — because
+  restore goes through Reload's persist step — the replaced pre-restore
+  state is itself auto-snapshotted first: a restore can be undone by
+  restoring the newer snapshot.
+- Apply failures after a successful validation behave exactly like
+  `PUT /configs`: masked `500`, real error server-side logged.
+
+**Response `204 No Content`** on success (empty body).
+
+**Errors:**
+- `400` `{"error":"invalid backup name: \"<name>\""}` — malformed `name`; or
+  `{"error":"config backup failed validation: <underlying parse/validation message>"}`
+  — the backup content no longer validates (nothing applied).
+- `404` `{"error":"config backup not found: <name>"}` — backup not in the set.
+- `503` — no active config path (see §3.23).
+- `500` `{"error":"internal server error"}` — apply failure after successful
+  validation (masked; real error logged).
+
+### 3.26 `POST /configs/backups` — manual snapshot
+
+Handler `createConfigBackup` (`configs_backups.go`; backed by
+`executor.CreateConfigBackup`). Auth required. No request body.
+
+Copies the current **on-disk** config file into the backup set — e.g. right
+before an operator hand-edits the file or performs a risky batch of changes.
+Retention and pruning are identical to auto-snapshots (§3.23). If the config
+path is set but no file exists on disk yet, there is nothing to snapshot and
+the endpoint answers `404` with a precise message.
+
+**Response `201`:**
+```json
+{"name": "1760000000000001234.yaml"}
+```
+
+**Errors:**
+- `404` `{"error":"active config file not found on disk"}` — config path set
+  but the file does not exist yet.
+- `503` — no active config path (see §3.23).
+- `500` `{"error":"internal server error"}` — snapshot failure (real error
+  logged).
+
 ---
 
 ## 4. WebSocket Endpoints
@@ -1427,6 +1569,10 @@ A map from group name to a list of `RuleConfig`. Referenced by `SUB-RULE:<name>`
 | `POST /drivers/test` | `200` | `400` (bad JSON / empty type / unknown type / factory error) |
 | `PUT /configs` | `204` | `400` (bad JSON), `500` (reload error) |
 | `PATCH /configs` | `204` | `400` (bad JSON / unsupported key / invalid level) |
+| `GET /configs/backups` | `200` | `401`; `503` (no active config path) |
+| `GET /configs/backups/{name}` | `200` (`application/yaml`) | `400` (invalid name — traversal rejected), `404`; `503` |
+| `POST /configs/backups` | `201` | `404` (no config file on disk); `503`; `401` |
+| `POST /configs/backups/{name}/restore` | `204` | `400` (invalid name / backup failed validation — nothing applied), `404`; `500` (apply failure, masked) |
 | `POST /write` | `200` | `400` (bad JSON), `500` (write error) |
 | `GET /write/history` | `200` | `401`; `501` (engine does not implement `core.WriteAuditor`) |
 | `PATCH /rules/disable` | `204` | `400` (bad JSON / bad index) |
@@ -1509,6 +1655,11 @@ interface RulePreviewResult { matched: boolean; }
 interface DriverTestResult {
   ok: boolean; connected: boolean; latency_ms: number; driver_type: string; error?: string;
 }
+
+// GET /configs/backups — server-side config backup metadata (newest first)
+interface ConfigBackupInfo { name: string; timestamp: string; size: number; }
+// POST /configs/backups — created backup name
+interface CreatedBackup { name: string; }
 
 // GET /  (uptime here is a STRING, unlike /stats)
 interface Hello { name: string; version: string; status: string; time: string; uptime: string; }

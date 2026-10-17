@@ -489,3 +489,55 @@ func TestListConfigBackups_Empty(t *testing.T) {
 		t.Errorf("expected 0 backups, got %d", len(backups))
 	}
 }
+
+// TestInitWiresBackupFuncSlots proves executor.Init publishes the real
+// backup implementations to the route layer (the HTTP endpoints call these
+// slots), so a real server serves backups without any mock in between.
+// Calls through the slots behave identically to the direct calls above.
+func TestInitWiresBackupFuncSlots(t *testing.T) {
+	dir := t.TempDir()
+	current := "global:\n  log-level: info\n"
+	cfgPath := backupTestConfig(t, dir, current)
+	Init(&mockEngineForExecutor{}, &core.Config{}, cfgPath)
+	defer func() {
+		route.ListConfigBackupsFunc = nil
+		route.GetConfigBackupFunc = nil
+		route.CreateConfigBackupFunc = nil
+		route.RestoreConfigBackupFunc = nil
+	}()
+
+	if route.ListConfigBackupsFunc == nil || route.GetConfigBackupFunc == nil ||
+		route.CreateConfigBackupFunc == nil || route.RestoreConfigBackupFunc == nil {
+		t.Fatal("executor.Init did not wire the config backup function slots")
+	}
+
+	// Manual snapshot through the slot, then read it back through the slot.
+	name, err := route.CreateConfigBackupFunc()
+	if err != nil {
+		t.Fatalf("create through the wired slot failed: %v", err)
+	}
+	backups, err := route.ListConfigBackupsFunc()
+	if err != nil {
+		t.Fatalf("list through the wired slot failed: %v", err)
+	}
+	if len(backups) != 1 || backups[0].Name != name {
+		t.Fatalf("wired list = %+v (name=%q), want the single snapshot just created", backups, name)
+	}
+	content, err := route.GetConfigBackupFunc(name)
+	if err != nil {
+		t.Fatalf("read through the wired slot failed: %v", err)
+	}
+	if content != current {
+		t.Errorf("wired read content = %q, want %q", content, current)
+	}
+
+	// Restore through the slot runs the full chain (validate → apply →
+	// persist), so the active file ends up holding the backup content.
+	if err := route.RestoreConfigBackupFunc(name); err != nil {
+		t.Fatalf("restore through the wired slot failed: %v", err)
+	}
+	active, _ := os.ReadFile(cfgPath)
+	if string(active) != current {
+		t.Errorf("active config after wired restore = %q, want %q", string(active), current)
+	}
+}

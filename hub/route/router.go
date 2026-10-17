@@ -56,6 +56,16 @@ func router(ctx context.Context, secret string, allowedOrigins []string, rateLim
 		r.Patch("/configs", patchConfigs)
 		r.Post("/configs/validate", validateConfigs)
 
+		// Server-side config backups: snapshot copies of the persisted
+		// config (auto-created before every dashboard-driven change, plus
+		// manual ones) restorable through the full validate → apply →
+		// persist chain. Metadata-only listing; content mirrors
+		// GET /configs/raw's authenticated-plaintext posture.
+		r.Get("/configs/backups", getConfigBackups)
+		r.Post("/configs/backups", createConfigBackup)
+		r.Get("/configs/backups/{name}", getConfigBackupContent)
+		r.Post("/configs/backups/{name}/restore", restoreConfigBackup)
+
 		r.Get("/drivers", getDrivers)
 		r.Get("/drivers/{name}", getDriver)
 		r.Get("/drivers/{name}/tags", getDriverTags)

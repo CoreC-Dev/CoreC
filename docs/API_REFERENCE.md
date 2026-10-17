@@ -237,21 +237,21 @@ Response `200`:
 
 Fallback (no active config): `200 { "error": "no active configuration" }`.
 
-#### `GET /configs/raw`  — full redacted YAML (authenticated)
+#### `GET /configs/raw`  — full active config YAML (authenticated)
 
-Purpose: the **complete** active configuration as YAML text with every secret
-value redacted to `"***"`. Feeds a Monaco/YAML editor in the Config Center.
-Secrets are restored server-side on `PUT /configs` round-trip (sentinel merge).
+Purpose: the **complete** active configuration as YAML text with **all values
+in plaintext, including secrets** (`api.secret`, MQTT broker passwords,
+HTTP-push auth tokens/headers, webhook secrets, driver passwords). Feeds the
+Monaco/YAML editor in the Config Center so the editor shows the server's real
+config. The endpoint sits behind the same Bearer-token middleware as every
+other `/configs/*` route, so it is visible only to operators holding the API
+secret — no public exposure.
 
 - **Content-Type:** `application/yaml; charset=utf-8`
 - **Body:** raw YAML text (not JSON)
-- Response `200`: the redacted YAML document.
-- Response `500`: `{ "error": "internal server error" }` if the endpoint is not
-  wired or redaction fails.
-
-Redacted fields include: `api.secret`, MQTT broker passwords, HTTP-push auth
-tokens / headers, webhook secrets, driver passwords. The sentinel is the literal
-string `***`.
+- Response `200`: the full YAML document.
+- Response `500`: `{ "error": "internal server error" }` if the endpoint is
+  not wired or marshaling fails.
 
 #### `PUT /configs`  — hot-reload configuration (authenticated)
 
@@ -318,6 +318,74 @@ Response:
 - `200` — `{ "valid": true }`.
 - `400` — `{ "valid": false, "error": "<message>" }` (validation failure) or
   `{ "error": "<message>" }` (JSON decode failure).
+
+#### `GET /configs/backups`  — list server-side config backups (authenticated)
+
+Purpose: metadata for the server-side config backup set. CoreC keeps
+timestamped copies of the persisted config on disk — the active config's
+directory gets a `backups/` subdirectory, and every successful
+dashboard-driven change (`PUT /configs` with a payload) auto-snapshots the
+replaced file into it before overwriting. Up to the **10** newest files are
+retained; older ones are pruned. Files are `<unix-nano>.yaml` with `0o600`
+permissions (they contain the API secret and driver/transport credentials).
+The list is metadata only — content is served by the endpoint below.
+
+Response `200`:
+
+```jsonc
+{
+  "backups": [                      // array — newest first; [] when empty
+    { "name": "1760000000000000000.yaml", "timestamp": "2025-10-09T08:53:20Z", "size": 1842 }
+  ]
+}
+```
+
+- Response `503` — `{ "error": "no active config path; config backups unavailable" }`
+  when the core started without a persisted config file (empty-config startup).
+
+#### `GET /configs/backups/{name}`  — one backup's raw YAML (authenticated)
+
+Purpose: the YAML content of one backup, identified by an exact `name` from
+the list above. Mirrors `GET /configs/raw`'s security posture: the content
+holds secrets in plaintext and is visible only to authenticated operators —
+the same people who can already fetch the full active config, so no new
+plaintext surface opens. `name` must strictly match the generated
+`<unix-nano>.yaml` pattern; traversal fragments and path separators are
+rejected with `400` **before** any filesystem path is joined.
+
+- Response `200` — raw YAML text, `Content-Type: application/yaml; charset=utf-8`.
+- Response `400` — `{ "error": "invalid backup name: \"<name>\"" }`.
+- Response `404` — `{ "error": "config backup not found: <name>" }`.
+- Response `503` — no active config path (see above).
+
+#### `POST /configs/backups/{name}/restore`  — restore a backup (authenticated)
+
+Purpose: roll the server back to a saved snapshot. The backup content goes
+through the **exact same chain as `PUT /configs`** — parse → validate →
+diff-and-apply (suspend → diff → resume) → persist — never a raw file
+overwrite. A backup that no longer validates fails with `400` **before
+anything is applied** (running config and on-disk file untouched). On success
+the restored content is persisted, and the pre-restore state is itself
+auto-snapshotted, so a restore can be undone by restoring the newer
+snapshot. No request body.
+
+- Response `204 No Content` — restored.
+- Response `400` — invalid `name`, or
+  `{ "error": "config backup failed validation: <message>" }`.
+- Response `404` — backup not found.
+- Response `500` — `{ "error": "internal server error" }` (apply failure after
+  successful validation; detail logged server-side, masked like `PUT /configs`).
+
+#### `POST /configs/backups`  — manual snapshot (authenticated)
+
+Purpose: snapshot the current on-disk config right now — e.g. before
+hand-editing the file or starting a risky batch of Dashboard changes.
+Retention/pruning identical to auto-snapshots. No request body.
+
+- Response `201` — `{ "name": "1760000000000001234.yaml" }`.
+- Response `404` — `{ "error": "active config file not found on disk" }` (config
+  path set but no file written yet).
+- Response `503` — no active config path.
 
 ---
 
@@ -948,10 +1016,14 @@ counters — no external Prometheus client library is used.
 | GET | `/healthz/live` | ✗ | Liveness probe |
 | GET | `/healthz/ready` | ✗ | Readiness probe |
 | GET | `/configs` | ✓ | Config summary (names-only, secret-redacted) |
-| GET | `/configs/raw` | ✓ | Full redacted YAML (`application/yaml`) |
+| GET | `/configs/raw` | ✓ | Full active config YAML, secrets in plaintext (`application/yaml`) |
 | PUT | `/configs` | ✓ | Hot-reload config (`{path}` or `{payload}`) |
 | PATCH | `/configs` | ✓ | Patch runtime settings (`{log-level}`) |
 | POST | `/configs/validate` | ✓ | Dry-run validate (`{payload}`) |
+| GET | `/configs/backups` | ✓ | Server-side config backup metadata (newest first) |
+| GET | `/configs/backups/{name}` | ✓ | One backup's raw YAML (auth'd, mirrors `/configs/raw`) |
+| POST | `/configs/backups/{name}/restore` | ✓ | Restore a backup through the full validate → apply chain |
+| POST | `/configs/backups` | ✓ | Manual snapshot of the current on-disk config |
 | GET | `/drivers` | ✓ | List all drivers + status |
 | GET | `/drivers/{name}` | ✓ | Single driver status |
 | GET | `/drivers/{name}/tags` | ✓ | Driver's latest tag values |

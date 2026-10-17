@@ -1,6 +1,6 @@
 ---
 title: 配置管理
-description: CoreC 配置管理 API，包含获取配置概要（GET /configs）、全量重载配置（PUT /configs）和增量更新配置（PATCH /configs）。
+description: CoreC 配置管理 API，包含获取配置概要（GET /configs）、全量重载配置（PUT /configs）、增量更新配置（PATCH /configs）与服务端配置备份/恢复（/configs/backups）。
 ---
 
 # 配置管理
@@ -206,4 +206,107 @@ curl -X PATCH http://localhost:9090/configs \
   -H "Authorization: Bearer corec-secret-token" \
   -H "Content-Type: application/json" \
   -d '{"log-level": "debug"}'
+```
+
+---
+
+## 配置备份与恢复
+
+CoreC 在服务端持久化保留配置快照，供一键回滚：前端（Dashboard）的快照栈只在内存里、刷新即丢，而服务端备份落盘、进程重启后仍可用，保留最近 **10** 份。
+
+**备份策略**：
+
+- **自动快照**：每次通过 `PUT /configs`（payload 方式）成功变更配置、且活动配置文件已存在于磁盘时，在覆盖持久化**之前**，现有文件先被复制为一份备份（即"成功变更前"的时间点快照）。校验或应用失败不产生备份；复制失败仅记录告警、不阻断重载（可用性优先）。恢复动作本身也会先快照被替换的状态，因此一次恢复可以被再次恢复撤销。
+- **手动快照**：`POST /configs/backups` 立即对当前磁盘配置文件做一份快照（适合手工编辑配置文件或批量改动前留档）。
+- **存储**：备份存放于活动配置文件同目录的 `backups/` 子目录，文件名 `<unix-nano>.yaml`，权限 `0o600`（备份内容含 API Secret 与驱动/传输凭据，禁止组/其他用户可读）。超出保留上限时删除最旧的备份。
+- **恢复语义**：恢复内容走与 `PUT /configs` 完全相同的 parse → validate → ApplyConfig → persist 链，**绝不绕过校验直接覆盖**；校验失败时当前配置（内存与磁盘）均不受影响。
+- 空配置启动（未指定配置文件路径）时没有可备份的文件，备份端点返回明确的 `503` 错误而非 panic。
+
+### 列出备份
+
+`GET /configs/backups` 返回备份元数据列表（新→旧排序）。**只返回元数据，不返回内容**——内容走单独端点。
+
+#### 请求
+
+```http
+GET /configs/backups
+```
+
+#### 响应
+
+`200 OK`
+
+```json
+{
+  "backups": [
+    { "name": "1760000000000000000.yaml", "timestamp": "2025-10-09T08:53:20Z", "size": 1842 },
+    { "name": "1759999999999999999.yaml", "timestamp": "2025-10-09T08:53:19.999999999Z", "size": 1790 }
+  ]
+}
+```
+
+| 字段 | 类型 | 说明 |
+|:---|:---|:---|
+| `backups` | array | 备份列表，新→旧；无备份时为 `[]` |
+| `backups[].name` | string | 备份文件名（`<unix-nano>.yaml`），作为读取/恢复的标识 |
+| `backups[].timestamp` | string | RFC3339 快照时间（由文件名推导） |
+| `backups[].size` | number | 文件大小（字节） |
+
+错误：`503`（无活动配置文件路径，空配置启动）；`401`（未认证）。
+
+### 读取备份内容
+
+`GET /configs/backups/{name}` 返回指定备份的 YAML 原文。
+
+::: warning 内容含明文凭据
+安全姿态与 `GET /configs/raw` 一致：备份是磁盘配置文件的逐字节副本，包含 API Secret 与驱动/传输凭据明文，仅对已认证调用者可见——不新增任何放开面。`{name}` 必须严格匹配备份列表中的名字；任何路径拼接/穿越尝试（`../`、绝对路径、多余后缀等）在拼接路径之前即被拒绝，返回 `400`。
+:::
+
+| 状态码 | 说明 |
+|:---|:---|
+| `200` | YAML 原文（`Content-Type: application/yaml; charset=utf-8`） |
+| `400` | `{name}` 非法（不符合 `<unix-nano>.yaml` 严格格式） |
+| `404` | 备份不存在 |
+| `503` | 无活动配置文件路径 |
+
+### 恢复备份
+
+`POST /configs/backups/{name}/restore` 用指定备份内容走完整校验链后应用并持久化。无请求体。
+
+| 状态码 | 说明 |
+|:---|:---|
+| `204` | 恢复成功（无响应体） |
+| `400` | `{name}` 非法；或备份内容未通过校验（响应带具体错误信息，当前配置不受影响） |
+| `404` | 备份不存在 |
+| `500` | 校验通过但应用失败（真实错误仅记录服务端日志，响应脱敏） |
+| `503` | 无活动配置文件路径 |
+
+### 手动创建备份
+
+`POST /configs/backups` 对当前磁盘配置文件立即做一份快照。无请求体。
+
+| 状态码 | 说明 |
+|:---|:---|
+| `201` | 创建成功，返回 `{"name":"<unix-nano>.yaml"}` |
+| `404` | 配置路径已设置但磁盘上尚无配置文件 |
+| `503` | 无活动配置文件路径 |
+
+### 示例
+
+```bash
+# 列出备份（新→旧）
+curl http://localhost:9090/configs/backups \
+  -H "Authorization: Bearer corec-secret-token"
+
+# 读取某份备份内容
+curl http://localhost:9090/configs/backups/1760000000000000000.yaml \
+  -H "Authorization: Bearer corec-secret-token"
+
+# 手动创建一份快照
+curl -X POST http://localhost:9090/configs/backups \
+  -H "Authorization: Bearer corec-secret-token"
+
+# 恢复指定备份
+curl -X POST http://localhost:9090/configs/backups/1760000000000000000.yaml/restore \
+  -H "Authorization: Bearer corec-secret-token"
 ```
