@@ -362,6 +362,52 @@ Response `200`:
 The map key is the tag name. `is_stale` is set to `true` on any `DataPoint`
 whose `timestamp` is older than `now - stale-threshold` (only when threshold > 0).
 
+#### `POST /drivers/test`  — throwaway-instance connectivity test (authenticated)
+
+Purpose: validate an **unsaved** driver configuration by creating a temporary
+instance, running it through the same lifecycle a configured driver follows
+(create → init → start), and always stopping it. Previously a bad driver
+config could only be exposed by production traffic after saving + reload.
+
+Request body — the field names are explicit json tags defined in the handler
+(NOT `core.DriverConfig`, which is the YAML contract and has yaml tags only):
+
+```jsonc
+{
+  "type":     "modbus-tcp",          // string — required; a registered driver type
+  "settings": {                      // object — same shape as drivers[].settings in YAML
+    "host": "192.168.1.100",
+    "port": 502,
+    "slave-id": 1
+  },
+  "name":    "plc-probe"             // string — optional log label; default "driver-test"
+}
+```
+
+Semantics:
+- **Temporary**: nothing is registered with the engine or the plugin registry,
+  and nothing is written to the config. The `name` only labels log lines.
+- **Closed immediately**: the instance is stopped on every path (success,
+  failure, timeout) — no connection or device handle leaks.
+- **5-second hard timeout** (`driverTestTimeout`): the lifecycle runs under
+  `context.WithTimeout` with a goroutine+select fallback, so the handler
+  always returns even if a driver blocks.
+- **Both outcomes are `200`** — a completed negative test is a successful run:
+
+```jsonc
+// connected:
+{ "ok": true,  "connected": true,  "latency_ms": 12, "driver_type": "modbus-tcp" }
+// failed to connect (still 200):
+{ "ok": false, "connected": false, "error": "dial tcp 192.168.1.100:502: connect: connection refused", "latency_ms": 3, "driver_type": "modbus-tcp" }
+```
+
+`latency_ms` covers init+start only (teardown excluded). On timeout the error
+is `"driver test timed out after 5s"`.
+
+Errors: `400` — bad JSON, `type` empty (`"type is required"`), `type` not
+registered (`"unknown driver type: <type>"`), or the factory rejected the
+settings.
+
 ---
 
 ### Transports
@@ -909,6 +955,7 @@ counters — no external Prometheus client library is used.
 | GET | `/drivers` | ✓ | List all drivers + status |
 | GET | `/drivers/{name}` | ✓ | Single driver status |
 | GET | `/drivers/{name}/tags` | ✓ | Driver's latest tag values |
+| POST | `/drivers/test` | ✓ | Throwaway-instance connectivity test for an unsaved driver config |
 | GET | `/transports` | ✓ | List all transports + status |
 | GET | `/transports/{name}` | ✓ | Single transport status |
 | GET | `/tags` | ✓ | All latest cached tag values |

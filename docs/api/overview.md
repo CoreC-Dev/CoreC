@@ -116,6 +116,7 @@ API 内置 CORS 中间件，用于支持浏览器端仪表盘跨域访问。行�
 | `GET` | `/drivers` | 是 | 列出所有驱动状态 |
 | `GET` | `/drivers/{name}` | 是 | 获取指定驱动状态 |
 | `GET` | `/drivers/{name}/tags` | 是 | 获取指定驱动最新标签值 |
+| `POST` | `/drivers/test` | 是 | 驱动连通性测试（临时实例，不落配置，5s 超时） |
 | `GET` | `/transports` | 是 | 列出所有传输状态 |
 | `GET` | `/transports/{name}` | 是 | 获取指定传输状态 |
 | `GET` | `/tags` | 是 | 获取所有驱动最新标签值 |

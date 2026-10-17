@@ -1,6 +1,6 @@
 ---
 title: 驱动管理
-description: CoreC 驱动管理 API，包含列出驱动、查询驱动状态、获取驱动最新标签值等端点。
+description: CoreC 驱动管理 API，包含列出驱动、查询驱动状态、获取驱动最新标签值与驱动连通性测试（POST /drivers/test）等端点。
 ---
 
 # 驱动管理
@@ -233,4 +233,118 @@ GET /drivers/{name}/tags
 ```bash
 curl http://localhost:9090/drivers/plc1/tags \
   -H "Authorization: Bearer corec-secret-token"
+```
+
+---
+
+## 驱动连通性测试
+
+用一份**尚未保存**的驱动配置创建临时驱动实例，按配置驱动的真实生命周期（创建 → 初始化 → 启动连接）试连一次，测出连接耗时，然后**必定关闭**。用于在保存驱动配置前验证 host/port/endpoint 等参数是否可达——此前配置错误只能保存后靠生产流量暴露。
+
+### 请求
+
+```http
+POST /drivers/test
+Content-Type: application/json
+```
+
+#### 请求体
+
+```json
+{
+  "type": "modbus-tcp",
+  "settings": {
+    "host": "192.168.1.100",
+    "port": 502,
+    "slave-id": 1,
+    "timeout": "3s"
+  },
+  "name": "plc-line-2-probe"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|:---|:---|:---|:---|
+| `type` | string | 是 | 已注册的驱动类型：`modbus-tcp`、`modbus-rtu`、`modbus-rtuovertcp`、`modbus-udp`、`modbus-rtuoverudp`、`modbus-tls`、`s7`、`opcua`。空值返回 `400`；未注册类型返回 `400 "unknown driver type: <type>"` |
+| `settings` | object | 否 | 协议特有连接参数，结构与 YAML 配置中 `drivers[].settings` 完全一致（如 Modbus 的 `host`/`port`/`slave-id`，OPC UA 的 `endpoint`） |
+| `name` | string | 否 | 临时实例的日志标签，缺省 `"driver-test"`。仅用于日志，不代表任何注册或持久化 |
+
+::: warning 字段名是 json tag，不是 yaml 字段名
+请求字段 `type`/`settings`/`name` 是 handler 内定义的**显式 json tag**——`core.DriverConfig` 只有 yaml tag（它是 YAML 配置契约），API 层不直接反序列化它，因此请求字段名与 YAML 字段名无关，按本表使用。
+:::
+
+::: warning 请求体限制
+请求体最大 1 MiB。
+:::
+
+### 响应
+
+**连通与不通都是 `200 OK`**——测试跑完拿到否定结果也是成功的测试（`ok:false` 表示"连接失败"，而非"测试失败"）。
+
+#### 连接成功 — `200 OK`
+
+```json
+{
+  "ok": true,
+  "connected": true,
+  "latency_ms": 12,
+  "driver_type": "modbus-tcp"
+}
+```
+
+#### 连接失败 — `200 OK`
+
+```json
+{
+  "ok": false,
+  "connected": false,
+  "error": "dial tcp 192.168.1.100:502: connect: connection refused",
+  "latency_ms": 3,
+  "driver_type": "modbus-tcp"
+}
+```
+
+| 字段 | 类型 | 说明 |
+|:---|:---|:---|
+| `ok` | bool | 生命周期是否以连通结束（等价于 `connected`） |
+| `connected` | bool | `Init` + `Start`（连接）是否成功 |
+| `error` | string | 失败信息（仅失败时出现）；超时为 `"driver test timed out after 5s"` |
+| `latency_ms` | int | 连接尝试耗时（初始化+启动，不含 teardown），毫秒 |
+| `driver_type` | string | 回显请求的 `type` |
+
+#### 请求非法 — `400 Bad Request`
+
+```json
+{
+  "error": "unknown driver type: no-such-type"
+}
+```
+
+其余 `400` 场景：JSON 解析失败、`type` 为空（`"type is required"`）、驱动工厂拒绝该 settings（如非法参数键）。
+
+### 生命周期与安全保证
+
+- **临时实例不落配置**：实例绝不注册进引擎或插件注册表，请求绝不写入当前配置；`name` 仅出现在日志中。
+- **连接即关**：所有路径（成功、失败、超时）都会 `Stop()` 临时实例，不泄漏连接或设备句柄。
+- **5 秒硬超时**：整个生命周期在 `context.WithTimeout`（5s）之下运行，并对不感知 context 的驱动提供 goroutine+select 兜底，handler 必定返回。
+- **只依赖插件注册表**：不经过引擎，引擎状态（运行/挂起）不影响本端点。
+
+### 示例
+
+```bash
+# 保存前先试连：用计划写入配置的 settings 原样探测
+curl -X POST http://localhost:9090/drivers/test \
+  -H "Authorization: Bearer corec-secret-token" \
+  -H "Content-Type: application/json" \
+  -d '{"type": "modbus-tcp", "settings": {"host": "192.168.1.100", "port": 502, "slave-id": 1}}'
+```
+
+### 典型用法
+
+```bash
+# Dashboard 驱动编辑器中：
+# 1. 填写新驱动的 type 与 settings
+# 2. POST /drivers/test 验证参数可达性
+# → {"ok": true, "connected": true, ...} 后再写入配置并 PUT /configs
+# → {"ok": false, "error": "connection refused", ...} 时修正 host/port 再试
 ```

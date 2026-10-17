@@ -59,6 +59,7 @@ func router(ctx context.Context, secret string, allowedOrigins []string, rateLim
 		r.Get("/drivers", getDrivers)
 		r.Get("/drivers/{name}", getDriver)
 		r.Get("/drivers/{name}/tags", getDriverTags)
+		r.Post("/drivers/test", testDriver)
 
 		r.Get("/transports", getTransports)
 		r.Get("/transports/{name}", getTransport)

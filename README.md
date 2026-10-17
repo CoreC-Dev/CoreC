@@ -211,6 +211,7 @@ curl -H "Authorization: Bearer your-secret-token" http://localhost:9090/drivers
 | GET | `/drivers` | 列出所有南向驱动及状态 |
 | GET | `/drivers/{name}` | 查看单个驱动 |
 | GET | `/drivers/{name}/tags` | 查看驱动下所有测点最新值 |
+| POST | `/drivers/test` | 驱动连通性测试（临时实例，不落配置，连接即关，5s 超时） |
 | GET | `/transports` | 列出所有北向传输及状态 |
 | GET | `/transports/{name}` | 查看单个传输 |
 | GET | `/tags` | 所有测点最新缓存值 |

@@ -117,6 +117,7 @@ decode with an error.
 | `GET` | `/drivers` | `getDrivers` | All driver statuses |
 | `GET` | `/drivers/{name}` | `getDriver` | One driver status |
 | `GET` | `/drivers/{name}/tags` | `getDriverTags` | Latest cached values for a driver's tags |
+| `POST` | `/drivers/test` | `testDriver` | Throwaway-instance connectivity test for an unsaved driver config |
 | `GET` | `/transports` | `getTransports` | All transport statuses |
 | `GET` | `/transports/{name}` | `getTransport` | One transport status |
 | `POST` | `/transports/{name}/test` | `testTransport` | Publish a test data point to verify connectivity |
@@ -829,6 +830,78 @@ is useful for pure-`value` expressions.
 > here — only the `match` expression is under test. The active rule set and
 > its statistics are untouched.
 
+### 3.22 `POST /drivers/test` — throwaway-instance connectivity test
+
+Handler `testDriver` (`driver_check.go`). Auth required. Body limited to 1 MiB.
+
+Creates a **temporary** driver instance from the request, drives it through
+the same lifecycle a configured driver follows (`core.CreateDriver` →
+`Init` → `Start`, with the same optional `SetLogger`/`SetMetrics` injection
+as `engine.AddDriver`), measures how long the connection attempt took, and
+**always stops the instance afterwards**. This lets an operator validate a
+new driver's settings (host/port/endpoint…) *before* saving them: previously
+a bad config could only be exposed by production traffic after reload.
+
+Guarantees:
+- **Nothing is registered or persisted.** The instance never enters the
+  engine's driver map or any registry, and the request never touches the
+  active config. The optional `name` only labels log lines.
+- **The connection is always closed.** `Stop()` runs on every path —
+  success, failure, and timeout alike — so no device handle or connection
+  leaks.
+- **5-second hard timeout** (`driverTestTimeout`): the whole lifecycle runs
+  under a `context.WithTimeout`, with a goroutine+select fallback for
+  drivers that ignore context cancellation, so the handler always returns.
+- **Both outcomes are `200`.** A completed test with `connected:false` is a
+  successful test run, not a server error.
+- The endpoint depends only on the plugin registry (`core.CreateDriver`) —
+  not on any engine role — so it works regardless of engine state.
+
+**Request body** (struct `testDriverRequest`, `driver_check.go:31` — the
+json tags are defined in the handler, deliberately NOT on `core.DriverConfig`,
+which is the YAML contract and carries only yaml tags):
+```json
+{
+  "type": "modbus-tcp",
+  "settings": {
+    "host": "192.168.1.100",
+    "port": 502,
+    "slave-id": 1,
+    "timeout": "3s"
+  },
+  "name": "plc-line-2-probe"
+}
+```
+| Field | Go type | json tag | JSON type | Required | Notes |
+|---|---|---|---|---|---|
+| `type` | `string` | `"type"` | string | yes | registered driver type (§8.7): `modbus-tcp`,`modbus-rtu`,`modbus-rtuovertcp`,`modbus-udp`,`modbus-rtuoverudp`,`modbus-tls`,`s7`,`opcua`; empty → `400` `"type is required"`, unregistered → `400` `"unknown driver type: <type>"` |
+| `settings` | `map[string]any` | `"settings"` | object | no | protocol-specific parameters, exactly as under `drivers[].settings` in YAML (e.g. `host`, `port`, `slave-id` for Modbus; `endpoint` for OPC UA) |
+| `name` | `string` | `"name"` | string | no | log label for the temporary instance; defaults to `"driver-test"` |
+
+**Response `200`** (connection established):
+```json
+{"ok": true, "connected": true, "latency_ms": 12, "driver_type": "modbus-tcp"}
+```
+**Response `200`** (connection failed — the test itself succeeded):
+```json
+{"ok": false, "connected": false, "error": "dial tcp 192.168.1.100:502: connect: connection refused", "latency_ms": 3, "driver_type": "modbus-tcp"}
+```
+| Field | JSON type | Notes |
+|---|---|---|
+| `ok` | boolean | `true` iff the lifecycle completed with `connected:true` |
+| `connected` | boolean | whether `Init`+`Start` succeeded |
+| `error` | string | failure message; present only on the failure shape (timeout reports `"driver test timed out after 5s"`) |
+| `latency_ms` | number | milliseconds from lifecycle start to outcome (init+start; teardown excluded) |
+| `driver_type` | string | echoes the requested `type` |
+
+**Errors:**
+- `400` `{"error":"<json decode error>"}` — malformed body.
+- `400` `{"error":"type is required"}` — empty `type`.
+- `400` `{"error":"unknown driver type: <type>"}` — `type` not in
+  `core.RegisteredDrivers()`.
+- `400` `{"error":"<factory error>"}` — the registered factory rejected the
+  settings (e.g. a bad `settings` key).
+
 ---
 
 ## 4. WebSocket Endpoints
@@ -1351,6 +1424,7 @@ A map from group name to a list of `RuleConfig`. Referenced by `SUB-RULE:<name>`
 | `GET /`, `/version`, `/healthz/*` | `200` | — |
 | `GET /configs`, `/drivers`, `/transports`, `/tags`, `/rules`, `/stats`, `/write/failed`, `/metrics` | `200` | `401` (no/bad token) |
 | `GET /drivers/{name}`, `/transports/{name}` | `200` | `401`, `404` |
+| `POST /drivers/test` | `200` | `400` (bad JSON / empty type / unknown type / factory error) |
 | `PUT /configs` | `204` | `400` (bad JSON), `500` (reload error) |
 | `PATCH /configs` | `204` | `400` (bad JSON / unsupported key / invalid level) |
 | `POST /write` | `200` | `400` (bad JSON), `500` (write error) |
@@ -1430,6 +1504,11 @@ interface WriteAuditEntry {
 
 // POST /rules/preview
 interface RulePreviewResult { matched: boolean; }
+
+// POST /drivers/test (200 for BOTH outcomes; error only on the failure shape)
+interface DriverTestResult {
+  ok: boolean; connected: boolean; latency_ms: number; driver_type: string; error?: string;
+}
 
 // GET /  (uptime here is a STRING, unlike /stats)
 interface Hello { name: string; version: string; status: string; time: string; uptime: string; }
