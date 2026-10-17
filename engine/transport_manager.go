@@ -137,7 +137,7 @@ func (m *transportManager) AddTransport(config core.TransportConfig) error {
 		m.eng.mu.Lock()
 		m.transportCancels[config.Name] = tCancel
 		m.eng.mu.Unlock()
-		m.eng.startCommandListener(transport, tCtx)
+		m.eng.writes.startCommandListener(transport, tCtx)
 		m.startDataListener(transport, tCtx)
 	}
 

@@ -37,10 +37,10 @@ func (e *CoreCEngine) applyEngineConfig(cfg *core.EngineConfig) error {
 		e.reads.staleThreshold.Store(int64(d))
 	}
 	if cfg.WriteRetryCount > 0 {
-		e.writeRetryCount = cfg.WriteRetryCount
+		e.writes.writeRetryCount = cfg.WriteRetryCount
 	}
 	if cfg.CommandConcurrency > 0 {
-		e.commandConcurrency = cfg.CommandConcurrency
+		e.writes.commandConcurrency = cfg.CommandConcurrency
 	}
 	if cfg.HighPriorityWorkers > 0 {
 		e.numHighPriorityWorkers = cfg.HighPriorityWorkers

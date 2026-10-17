@@ -55,14 +55,14 @@ func (d *erroringDriver) writeAttempts() int {
 func runFailingWrite(t *testing.T, errMsg string, retryCount int) (*erroringDriver, core.DeadLetterEntry) {
 	t.Helper()
 	e := newTestEngine(t)
-	e.writeRetryCount = retryCount
+	e.writes.writeRetryCount = retryCount
 	drv := &erroringDriver{}
 	drv.name = "opc"
 	drv.err = errMsg
 	e.driverReg.drivers["opc"] = drv
 
 	cmd := core.WriteCommand{Driver: "opc", Tag: "setpoint", Value: 1.0}
-	e.executeWriteWithRetry(cmd)
+	e.writes.executeWriteWithRetry(cmd)
 
 	if !waitFor(2*time.Second, func() bool {
 		return len(e.DeadLetterEntries()) == 1
@@ -152,9 +152,9 @@ func TestCommandListenerDeadLettersStrandedOnExit(t *testing.T) {
 
 	// A single-slot semaphore, pre-occupied: the listener receives the
 	// first command and then blocks acquiring the slot, holding it.
-	e.commandSem = make(chan struct{}, 1)
-	e.commandSem <- struct{}{}
-	t.Cleanup(func() { <-e.commandSem }) // release for cleanliness
+	e.writes.commandSem = make(chan struct{}, 1)
+	e.writes.commandSem <- struct{}{}
+	t.Cleanup(func() { <-e.writes.commandSem }) // release for cleanliness
 
 	tr := &mockTransport{name: "stranded-tr"}
 	tr.cmdCh = make(chan core.WriteCommand, 10)
@@ -162,7 +162,7 @@ func TestCommandListenerDeadLettersStrandedOnExit(t *testing.T) {
 
 	// Listener bound to its own cancelable transport context.
 	tCtx, tcancel := context.WithCancel(context.Background())
-	e.startCommandListener(tr, tCtx)
+	e.writes.startCommandListener(tr, tCtx)
 
 	// First command is received but can never acquire a slot; the second
 	// and third stay buffered behind it.

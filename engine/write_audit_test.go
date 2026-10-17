@@ -143,8 +143,8 @@ func TestWriteHistoryNewestFirstAndRingEviction(t *testing.T) {
 
 func TestCommandListenerStampsAuditSource(t *testing.T) {
 	e := newTestEngine(t)
-	e.writeRetryCount = 0 // single attempt — keeps the test fast
-	e.commandSem = make(chan struct{}, 1)
+	e.writes.writeRetryCount = 0 // single attempt — keeps the test fast
+	e.writes.commandSem = make(chan struct{}, 1)
 
 	drv := newRecordingDriver("plc")
 	e.driverReg.drivers["plc"] = drv
@@ -153,7 +153,7 @@ func TestCommandListenerStampsAuditSource(t *testing.T) {
 	tr.cmdCh = make(chan core.WriteCommand, 1)
 	tr.status = core.TransportStatus{Name: "cmd-tr", State: core.StateConnected}
 
-	e.startCommandListener(tr, e.ctx)
+	e.writes.startCommandListener(tr, e.ctx)
 	t.Cleanup(func() {
 		e.cancel()
 		e.wg.Wait()

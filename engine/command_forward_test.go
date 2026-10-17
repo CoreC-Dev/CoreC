@@ -150,8 +150,8 @@ func newTestEngine(t *testing.T) *CoreCEngine {
 	e := newEngineShell()
 	e.driverReg.drivers = make(map[string]core.Driver)
 	e.transportMgr.transports = make(map[string]core.Transport)
-	e.writeRetryCount = 0 // single attempt: keeps failure tests fast
-	e.deadLetterMaxLen = 1000
+	e.writes.writeRetryCount = 0 // single attempt: keeps failure tests fast
+	e.writes.deadLetterMaxLen = 1000
 	e.ctx, e.cancel = context.WithCancel(context.Background())
 	t.Cleanup(e.cancel)
 	return e
@@ -200,7 +200,7 @@ func TestForwardCommandReturnsFalseWhenNoForwarder(t *testing.T) {
 	e.transportMgr.transports["plain"] = &plainTransport{name: "plain"}
 
 	cmd := core.WriteCommand{Driver: "opc", Tag: "setpoint", Value: 1.0}
-	if e.forwardCommand(context.Background(), cmd) {
+	if e.writes.forwardCommand(context.Background(), cmd) {
 		t.Fatal("forwardCommand returned true with no forwarder-capable transport")
 	}
 }
@@ -222,7 +222,7 @@ func TestForwardCommandTriesAllForwardersUntilSuccess(t *testing.T) {
 	e.transportMgr.transports["ok"] = ok
 
 	cmd := core.WriteCommand{Driver: "opc", Tag: "setpoint", Value: 2.0}
-	if !e.forwardCommand(context.Background(), cmd) {
+	if !e.writes.forwardCommand(context.Background(), cmd) {
 		t.Fatal("forwardCommand returned false, want true (ok forwarder should have succeeded)")
 	}
 	if failing.forwardedCount() != 1 {
@@ -244,7 +244,7 @@ func TestForwardCommandAllFailReturnsFalse(t *testing.T) {
 	e.transportMgr.transports["f2"] = newForwarderTransport("f2", fmt.Errorf("err2"))
 
 	cmd := core.WriteCommand{Driver: "opc", Tag: "t", Value: 1.0}
-	if e.forwardCommand(context.Background(), cmd) {
+	if e.writes.forwardCommand(context.Background(), cmd) {
 		t.Fatal("forwardCommand returned true, want false (all forwarders failed)")
 	}
 }
@@ -262,7 +262,7 @@ func TestExecuteWriteForwardsWhenNoLocalDriver(t *testing.T) {
 	// No drivers registered — relay node has drivers: [].
 
 	cmd := core.WriteCommand{Driver: "opc", Tag: "setpoint", Value: 42.0, Type: core.TypeFloat64}
-	e.executeWriteWithRetry(cmd)
+	e.writes.executeWriteWithRetry(cmd)
 
 	if fwd.forwardedCount() != 1 {
 		t.Fatalf("forwarder call count: got %d, want 1", fwd.forwardedCount())
@@ -284,7 +284,7 @@ func TestExecuteWriteDeadLettersWhenNoDriverNoForwarder(t *testing.T) {
 	e.transportMgr.transports["plain"] = &plainTransport{name: "plain"}
 
 	cmd := core.WriteCommand{Driver: "opc", Tag: "setpoint", Value: 1.0}
-	e.executeWriteWithRetry(cmd)
+	e.writes.executeWriteWithRetry(cmd)
 
 	if !waitFor(time.Second, func() bool {
 		return len(e.DeadLetterEntries()) == 1
@@ -308,7 +308,7 @@ func TestExecuteWriteForwarderFailureFallsBackToDeadLetter(t *testing.T) {
 	e.transportMgr.transports["broken-fwd"] = newForwarderTransport("broken-fwd", fmt.Errorf("downstream unreachable"))
 
 	cmd := core.WriteCommand{Driver: "opc", Tag: "setpoint", Value: 1.0}
-	e.executeWriteWithRetry(cmd)
+	e.writes.executeWriteWithRetry(cmd)
 
 	if !waitFor(time.Second, func() bool {
 		return len(e.DeadLetterEntries()) == 1
@@ -332,7 +332,7 @@ func TestExecuteWriteLocalDriverNotForwarded(t *testing.T) {
 	e.transportMgr.transports["relay-fwd"] = fwd
 
 	cmd := core.WriteCommand{Driver: "opc", Tag: "setpoint", Value: 7.0, Type: core.TypeFloat64}
-	e.executeWriteWithRetry(cmd)
+	e.writes.executeWriteWithRetry(cmd)
 
 	if !waitFor(time.Second, func() bool {
 		return len(drv.GetWritten()) == 1
@@ -354,7 +354,7 @@ func TestExecuteWriteLocalDriverNotForwarded(t *testing.T) {
 // fails its writes.
 func TestExecuteWriteLocalDriverFailureRetriesAndDeadLetters(t *testing.T) {
 	e := newTestEngine(t)
-	e.writeRetryCount = 1 // 2 attempts total
+	e.writes.writeRetryCount = 1 // 2 attempts total
 	drv := &failingDriver{}
 	drv.name = "opc"
 	e.driverReg.drivers["opc"] = drv
@@ -362,7 +362,7 @@ func TestExecuteWriteLocalDriverFailureRetriesAndDeadLetters(t *testing.T) {
 	e.transportMgr.transports["relay-fwd"] = fwd
 
 	cmd := core.WriteCommand{Driver: "opc", Tag: "setpoint", Value: 1.0}
-	e.executeWriteWithRetry(cmd)
+	e.writes.executeWriteWithRetry(cmd)
 
 	// 2 write attempts (writeRetryCount+1), never forwarded.
 	if !waitFor(time.Second, func() bool {
@@ -464,8 +464,8 @@ func (d *slowDriver) peakConcurrency() int {
 // (concurrency ≥ 4) completes in ~100 ms and shows peak concurrency ≥ 2.
 func TestCommandListenerDispatchesConcurrently(t *testing.T) {
 	e := newTestEngine(t)
-	e.writeRetryCount = 0 // single attempt — keeps the test fast
-	e.commandSem = make(chan struct{}, 8)
+	e.writes.writeRetryCount = 0 // single attempt — keeps the test fast
+	e.writes.commandSem = make(chan struct{}, 8)
 
 	d := &slowDriver{
 		writeDelay: 100 * time.Millisecond,
@@ -479,7 +479,7 @@ func TestCommandListenerDispatchesConcurrently(t *testing.T) {
 	tr.status = core.TransportStatus{Name: "cmd-tr", State: core.StateConnected}
 
 	// Start the command listener bound to the engine context.
-	e.startCommandListener(tr, e.ctx)
+	e.writes.startCommandListener(tr, e.ctx)
 	// Ensure the listener + any in-flight command goroutines exit on cleanup.
 	t.Cleanup(func() {
 		e.cancel()
@@ -524,8 +524,8 @@ func TestCommandListenerDispatchesConcurrently(t *testing.T) {
 // which is important for drivers that are not safe for concurrent writes.
 func TestCommandListenerSerialWhenConcurrencyOne(t *testing.T) {
 	e := newTestEngine(t)
-	e.writeRetryCount = 0
-	e.commandSem = make(chan struct{}, 1) // serial
+	e.writes.writeRetryCount = 0
+	e.writes.commandSem = make(chan struct{}, 1) // serial
 
 	d := &slowDriver{
 		writeDelay: 50 * time.Millisecond,
@@ -538,7 +538,7 @@ func TestCommandListenerSerialWhenConcurrencyOne(t *testing.T) {
 	tr.cmdCh = make(chan core.WriteCommand, 10)
 	tr.status = core.TransportStatus{Name: "cmd-tr-serial", State: core.StateConnected}
 
-	e.startCommandListener(tr, e.ctx)
+	e.writes.startCommandListener(tr, e.ctx)
 	t.Cleanup(func() {
 		e.cancel()
 		e.wg.Wait()

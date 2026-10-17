@@ -29,6 +29,7 @@ type CoreCEngine struct {
 	stats        *statsCollector
 	driverReg    *driverRegistry
 	transportMgr *transportManager
+	writes       *writeManager
 	scheduler    *scheduler
 	dataBus      *DataBus
 	cache        *LatestCache
@@ -45,17 +46,6 @@ type CoreCEngine struct {
 	errorThrottleWin   time.Duration
 	defaultTagInterval time.Duration
 	badQualityPolicy   badQualityPolicy
-	writeRetryCount    int
-
-	// commandConcurrency caps the number of write commands executed in
-	// parallel. commandSem is a counting semaphore (buffered channel)
-	// created in Start() after applyEngineConfig. Each command acquires a
-	// slot before dispatch; when full, the listener applies backpressure
-	// (the transport's command channel fills, overflow → dead-letter #4).
-	// This prevents a single slow write from serializing all subsequent
-	// control commands (IMPROVEMENTS #2). nil before Start() → synchronous.
-	commandConcurrency int
-	commandSem         chan struct{}
 
 	// numHighPriorityWorkers is the number of dedicated workers that
 	// process only high-priority (fast-interval) data from the DataBus
@@ -71,20 +61,6 @@ type CoreCEngine struct {
 	// cache and pushes results into the data bus. nil when no derived tags
 	// are configured.
 	derivedEvaluator *derivedTagEvaluator
-
-	// deadLetterQueue holds write commands that failed after all retries.
-	// Bounded by deadLetterMaxLen; oldest entries are evicted when full.
-	deadLetterMu     sync.Mutex
-	deadLetterQueue  []core.DeadLetterEntry
-	deadLetterMaxLen int
-
-	// writeAuditHistory records the most recent write attempts —
-	// successes AND failures — for the GET /write/history audit trail.
-	// Bounded by writeAuditCapacity; oldest entries are evicted when
-	// full. Guarded by its own small mutex so audit recording never
-	// contends with the engine-wide e.mu.
-	writeAuditMu      sync.Mutex
-	writeAuditHistory []core.WriteAuditEntry
 
 	// Lifecycle
 	ctx       context.Context
@@ -130,11 +106,13 @@ func newEngineShell() *CoreCEngine {
 		stats:        &statsCollector{},
 		driverReg:    &driverRegistry{},
 		transportMgr: &transportManager{},
+		writes:       &writeManager{},
 	}
 	e.reads.eng = e
 	e.stats.eng = e
 	e.driverReg.eng = e
 	e.transportMgr.eng = e
+	e.writes.eng = e
 	return e
 }
 
@@ -156,11 +134,11 @@ func New() core.Engine {
 	e.errorThrottleWin = core.DefaultErrorThrottleWindow
 	e.defaultTagInterval = core.DefaultTagInterval
 	e.badQualityPolicy = badQualityPublish
-	e.writeRetryCount = 3
-	e.commandConcurrency = core.DefaultCommandConcurrency
+	e.writes.writeRetryCount = 3
+	e.writes.commandConcurrency = core.DefaultCommandConcurrency
 	e.numHighPriorityWorkers = core.DefaultHighPriorityWorkers
 	e.stats.statManager = statistic.NewManager()
-	e.deadLetterMaxLen = core.DefaultDeadLetterMaxLen
+	e.writes.deadLetterMaxLen = core.DefaultDeadLetterMaxLen
 	e.driverReg.tagFileWatchers = make(map[string]*tagFileWatcher)
 	e.driverReg.driverConfigs = make(map[string]core.DriverConfig)
 	e.stats.readLatency = metrics.NewLatencyHistogram(metrics.DefaultReadLatencyBuckets)

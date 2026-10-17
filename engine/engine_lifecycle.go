@@ -31,10 +31,10 @@ func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error {
 	// Create the command-execution semaphore. This bounds the number of
 	// write commands processed in parallel (IMPROVEMENTS #2). Must be
 	// created before AddTransport (which starts command listeners).
-	if e.commandConcurrency <= 0 {
-		e.commandConcurrency = core.DefaultCommandConcurrency
+	if e.writes.commandConcurrency <= 0 {
+		e.writes.commandConcurrency = core.DefaultCommandConcurrency
 	}
-	e.commandSem = make(chan struct{}, e.commandConcurrency)
+	e.writes.commandSem = make(chan struct{}, e.writes.commandConcurrency)
 
 	// Initialize offline buffer if configured and enabled.
 	if config.Global.Buffer.Enabled && config.Global.Buffer.Path != "" {

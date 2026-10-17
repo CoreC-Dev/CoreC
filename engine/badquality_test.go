@@ -45,15 +45,14 @@ func TestParseBadQualityPolicy(t *testing.T) {
 }
 
 func TestDeadLetterQueue(t *testing.T) {
-	e := &CoreCEngine{
-		deadLetterMaxLen: 1000,
-	}
+	e := newEngineShell()
+	e.writes.deadLetterMaxLen = 1000
 
 	cmd := core.WriteCommand{Driver: "plc1", Tag: "setpoint", Value: 50.0}
 
 	// Add entries
 	for i := 0; i < 5; i++ {
-		e.addDeadLetter(core.DeadLetterEntry{
+		e.writes.addDeadLetter(core.DeadLetterEntry{
 			Command:  cmd,
 			Error:    "connection refused",
 			Attempts: i + 1,
@@ -78,15 +77,14 @@ func TestDeadLetterQueue(t *testing.T) {
 }
 
 func TestDeadLetterQueueEviction(t *testing.T) {
-	e := &CoreCEngine{
-		deadLetterMaxLen: 3, // small capacity
-	}
+	e := newEngineShell()
+	e.writes.deadLetterMaxLen = 3 // small capacity
 
 	cmd := core.WriteCommand{Driver: "plc1", Tag: "setpoint", Value: 50.0}
 
 	// Add 5 entries, capacity is 3
 	for i := 0; i < 5; i++ {
-		e.addDeadLetter(core.DeadLetterEntry{
+		e.writes.addDeadLetter(core.DeadLetterEntry{
 			Command:  cmd,
 			Error:    "error",
 			Attempts: i + 1,
@@ -108,9 +106,8 @@ func TestDeadLetterQueueEviction(t *testing.T) {
 }
 
 func TestDeadLetterQueueEmpty(t *testing.T) {
-	e := &CoreCEngine{
-		deadLetterMaxLen: 1000,
-	}
+	e := newEngineShell()
+	e.writes.deadLetterMaxLen = 1000
 
 	entries := e.DeadLetterEntries()
 	if len(entries) != 0 {
