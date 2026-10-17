@@ -168,6 +168,40 @@ func buildTestBinary(t *testing.T, path string) error {
 	return cmd.Run()
 }
 
+// TestArmForcedExit verifies the B3.0 fix: after the first shutdown
+// signal starts the graceful stop, a second signal must force-exit the
+// process instead of being silently swallowed (previously a hung
+// graceful shutdown could only be ended with kill -9).
+func TestArmForcedExit(t *testing.T) {
+	exitCalls := make(chan int, 1)
+	sigCh := make(chan os.Signal, 2)
+
+	armForcedExit(sigCh, func(code int) { exitCalls <- code })
+
+	// No second signal yet: the watchdog must not fire.
+	select {
+	case code := <-exitCalls:
+		t.Fatalf("forced exit fired with code %d before any second signal", code)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// Second signal: forced exit with code 1.
+	sigCh <- syscall.SIGINT
+	select {
+	case code := <-exitCalls:
+		if code != 1 {
+			t.Errorf("forced exit code = %d, want 1", code)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("forced exit did not fire after the second signal")
+	}
+
+	// A closed signal channel (no more signals possible) must not panic.
+	closedCh := make(chan os.Signal)
+	close(closedCh)
+	armForcedExit(closedCh, func(int) { t.Error("forced exit fired on closed channel") })
+}
+
 // runWithTimeout runs run() with a timeout to prevent hanging.
 func runWithTimeout(t *testing.T, timeout time.Duration) int {
 	t.Helper()

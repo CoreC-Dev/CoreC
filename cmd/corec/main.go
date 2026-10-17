@@ -101,12 +101,18 @@ func run() int {
 
 	slog.Info("CoreC is running", "config", configPath)
 
-	// Wait for shutdown signal
-	sigCh := make(chan os.Signal, 1)
+	// Wait for shutdown signal. The channel is buffered for two signals:
+	// the first triggers the graceful shutdown below; a second one while
+	// the graceful stop is still running force-exits the process so a
+	// stuck shutdown can always be interrupted interactively (stage-B
+	// audit finding B3.0: previously a second Ctrl-C was silently
+	// swallowed and a hung stop could only be ended with kill -9).
+	sigCh := make(chan os.Signal, 2)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 
 	sig := <-sigCh
 	slog.Info("received signal, shutting down", "signal", sig)
+	armForcedExit(sigCh, os.Exit)
 
 	// Stop API server first to prevent new requests during engine shutdown
 	hub.Stop()
@@ -140,4 +146,22 @@ func setupLogging(cfg *core.Config, override string) {
 	// Init installs an ObservableHandler as the global slog logger,
 	// so ALL slog.Info/slog.Error calls are captured by the log bus.
 	log.Init(coreLevel, format)
+}
+
+// armForcedExit watches for a second shutdown signal and force-exits the
+// process when one arrives. The graceful shutdown can legitimately take
+// tens of seconds (per-component stop timeouts summed over drivers,
+// batchers and transports); without this watchdog a stuck stop could
+// only be ended with kill -9 (stage-B audit finding B3.0). exit is
+// injected so tests can observe the forced exit without terminating the
+// test binary.
+func armForcedExit(sigCh <-chan os.Signal, exit func(code int)) {
+	go func() {
+		sig, ok := <-sigCh
+		if !ok {
+			return
+		}
+		slog.Warn("second shutdown signal received, forcing exit", "signal", sig)
+		exit(1)
+	}()
 }

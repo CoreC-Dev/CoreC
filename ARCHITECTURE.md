@@ -87,13 +87,19 @@ cmd/corec/main.go
 ```
 signal.Notify(SIGINT, SIGTERM) → hub.Stop() → engine.Stop()
   → cancel()（级联取消所有子 ctx）
-  → discovery.Stop() → scheduler.Stop()
+  → discovery.Stop() → scheduler.Stop()（wg 屏障：生产者先于消费者静默）
   → stopComponents():
-      drivers/transports（带超时 time.After）
-      batchers（带超时 time.After）
+      drivers（逐个带超时）
+      排空 dataBus（滞留点位计数 + Warn 日志后丢弃）
+      batchers（带超时；flushFinal 余量发布）
+      transports（逐个带超时）
       dataBus.Close() → ruleProviders → tagWatchers
   → wg.Wait()（收集 processingLoop/listener goroutine）
 ```
+
+- **batchers 必须先于 transports 停止**：batcher 的 `flushFinal` 余量发布需要存活的 transport；若顺序颠倒（先停 transports），flush 会打在已断开的连接上而全部失败。此前本节文档写的顺序（transports → batchers）与代码不符且照做会引入数据丢失——以代码顺序为准。
+- **第二个 SIGINT/SIGTERM 强制退出**：优雅关停进行中再次收到信号时进程立即 `os.Exit(1)`，卡住的关停无需 `kill -9`。
+- **关停数据语义**：已进入 Batcher 的数据保证被 flush（发布或落盘）；仍滞留在 DataBus 通道、未被处理管线消费的点位在关停时被丢弃（有 Warn 日志与 error 计数，不落盘）。详见 `docs/architecture/dataflow.md` 的交付语义一节。
 
 ## 已知架构债务
 
