@@ -75,11 +75,11 @@ func (r *driverRegistry) AddDriver(config core.DriverConfig) error {
 		mi.SetMetrics(core.NoopMetrics{})
 	}
 
-	if err := driver.Init(r.eng.ctx, config); err != nil {
+	if err := driver.Init(r.eng.runtime.ctx, config); err != nil {
 		return fmt.Errorf("failed to init driver %s: %w", config.Name, err)
 	}
 
-	if err := driver.Start(r.eng.ctx); err != nil {
+	if err := driver.Start(r.eng.runtime.ctx); err != nil {
 		return fmt.Errorf("failed to start driver %s: %w", config.Name, err)
 	}
 

@@ -47,8 +47,8 @@ func newRollbackEngine() *CoreCEngine {
 	e.driverReg.drivers = make(map[string]core.Driver)
 	e.transportMgr.transports = make(map[string]core.Transport)
 	e.transportMgr.batchers = make(map[string]*transportBatcher)
-	e.ctx, e.cancel = context.WithCancel(context.Background())
-	e.status = core.EngineStatusRunning
+	e.runtime.ctx, e.runtime.cancel = context.WithCancel(context.Background())
+	e.runtime.status = core.EngineStatusRunning
 	return e
 }
 
@@ -61,7 +61,7 @@ func TestRollbackStartWithComponents(t *testing.T) {
 
 	// Started scheduler (no tasks → no goroutines, Stop is a clean no-op).
 	e.lifecycle.scheduler = NewScheduler(nil, nil, 0, statistic.NewManager())
-	if err := e.lifecycle.scheduler.Start(e.ctx); err != nil {
+	if err := e.lifecycle.scheduler.Start(e.runtime.ctx); err != nil {
 		t.Fatalf("scheduler start failed: %v", err)
 	}
 
@@ -82,7 +82,7 @@ func TestRollbackStartWithComponents(t *testing.T) {
 	// so this exercises the batcher-stop loop without leaking goroutines.
 	e.transportMgr.batchers["t1"] = &transportBatcher{transport: tr, buf: batcherBufferState{batchSize: 10}}
 
-	e.rollbackStart()
+	e.runtime.rollbackStart()
 
 	if len(e.driverReg.drivers) != 0 {
 		t.Errorf("drivers map not cleared: got %d entries", len(e.driverReg.drivers))
@@ -93,10 +93,10 @@ func TestRollbackStartWithComponents(t *testing.T) {
 	if len(e.transportMgr.batchers) != 0 {
 		t.Errorf("batchers map not cleared: got %d entries", len(e.transportMgr.batchers))
 	}
-	if e.status != core.EngineStatusStopped {
-		t.Errorf("status = %v, want %v", e.status, core.EngineStatusStopped)
+	if e.runtime.status != core.EngineStatusStopped {
+		t.Errorf("status = %v, want %v", e.runtime.status, core.EngineStatusStopped)
 	}
-	if e.ctx.Err() == nil {
+	if e.runtime.ctx.Err() == nil {
 		t.Error("engine context was not cancelled by rollback")
 	}
 }
@@ -109,12 +109,12 @@ func TestRollbackStartNilSchedulerAndDataBus(t *testing.T) {
 	e := newRollbackEngine()
 	// e.lifecycle.scheduler and e.processing.dataBus remain nil.
 
-	e.rollbackStart()
+	e.runtime.rollbackStart()
 
-	if e.status != core.EngineStatusStopped {
-		t.Errorf("status = %v, want %v", e.status, core.EngineStatusStopped)
+	if e.runtime.status != core.EngineStatusStopped {
+		t.Errorf("status = %v, want %v", e.runtime.status, core.EngineStatusStopped)
 	}
-	if e.ctx.Err() == nil {
+	if e.runtime.ctx.Err() == nil {
 		t.Error("engine context was not cancelled by rollback")
 	}
 	if len(e.driverReg.drivers) != 0 || len(e.transportMgr.transports) != 0 || len(e.transportMgr.batchers) != 0 {
@@ -131,12 +131,12 @@ func TestRollbackStartEmpty(t *testing.T) {
 	e.driverReg.drivers = make(map[string]core.Driver)
 	e.transportMgr.transports = make(map[string]core.Transport)
 	e.transportMgr.batchers = make(map[string]*transportBatcher)
-	// e.cancel, e.lifecycle.scheduler, e.processing.dataBus all nil.
+	// e.runtime.cancel, e.lifecycle.scheduler, e.processing.dataBus all nil.
 
-	e.rollbackStart()
+	e.runtime.rollbackStart()
 
-	if e.status != core.EngineStatusStopped {
-		t.Errorf("status = %v, want %v", e.status, core.EngineStatusStopped)
+	if e.runtime.status != core.EngineStatusStopped {
+		t.Errorf("status = %v, want %v", e.runtime.status, core.EngineStatusStopped)
 	}
 }
 
@@ -149,7 +149,7 @@ func TestRollbackStartWithErroringComponents(t *testing.T) {
 	e.driverReg.drivers["bad-d"] = &rollbackErrDriver{}
 	e.transportMgr.transports["bad-t"] = &rollbackErrTransport{}
 
-	e.rollbackStart()
+	e.runtime.rollbackStart()
 
 	if len(e.driverReg.drivers) != 0 {
 		t.Errorf("drivers map not cleared: got %d entries", len(e.driverReg.drivers))
@@ -157,10 +157,10 @@ func TestRollbackStartWithErroringComponents(t *testing.T) {
 	if len(e.transportMgr.transports) != 0 {
 		t.Errorf("transports map not cleared: got %d entries", len(e.transportMgr.transports))
 	}
-	if e.status != core.EngineStatusStopped {
-		t.Errorf("status = %v, want %v", e.status, core.EngineStatusStopped)
+	if e.runtime.status != core.EngineStatusStopped {
+		t.Errorf("status = %v, want %v", e.runtime.status, core.EngineStatusStopped)
 	}
-	if e.ctx.Err() == nil {
+	if e.runtime.ctx.Err() == nil {
 		t.Error("engine context was not cancelled by rollback")
 	}
 }
@@ -201,7 +201,7 @@ func TestRollbackStartIntegration(t *testing.T) {
 	}
 	// The engine context must be cancelled so no partially-started
 	// goroutine keeps running.
-	if e.ctx.Err() == nil {
+	if e.runtime.ctx.Err() == nil {
 		t.Error("engine context was not cancelled after failed Start")
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/CoreC-Dev/CoreC/common/metrics"
 	"github.com/CoreC-Dev/CoreC/core"
@@ -19,11 +18,16 @@ var _ core.Engine = (*CoreCEngine)(nil)
 // CoreCEngine implements core.Engine.
 // This is the central orchestrator.
 type CoreCEngine struct {
+	// mu guards the composite state shared across roles: the driver and
+	// transport registries, the status, the derived evaluator, and the
+	// alert handler list. It lives on the composition root so every
+	// role can reach it through its back-pointer.
 	mu sync.RWMutex
 
-	// Operational State
-	status core.EngineStatus
-
+	// Roles (CPLX-020 God Object split). Every method on CoreCEngine is
+	// a <=3-line forwarder to one of these; all logic lives in the
+	// role structs (see docs/exec-plans/tech-debt-tracker.md CPLX-020).
+	runtime      *engineRuntime
 	ruleSet      *ruleRole
 	reads        *readAccessor
 	stats        *statsCollector
@@ -32,15 +36,6 @@ type CoreCEngine struct {
 	writes       *writeManager
 	processing   *processingCore
 	lifecycle    *lifecycleSupport
-
-	// Tunable parameters (set from GlobalConfig.Engine in Start)
-	shutdownTimeout time.Duration
-
-	// Lifecycle
-	ctx       context.Context
-	parentCtx context.Context // saved from Start() for Reload()
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
 }
 
 // badQualityPolicy controls how DataPoints with QualityBad are handled.
@@ -75,6 +70,7 @@ func parseBadQualityPolicy(s string) (badQualityPolicy, error) {
 // nil, or the forwarders would dereference them).
 func newEngineShell() *CoreCEngine {
 	e := &CoreCEngine{
+		runtime:      &engineRuntime{},
 		ruleSet:      &ruleRole{},
 		reads:        &readAccessor{},
 		stats:        &statsCollector{},
@@ -91,13 +87,14 @@ func newEngineShell() *CoreCEngine {
 	e.writes.eng = e
 	e.processing.eng = e
 	e.lifecycle.eng = e
+	e.runtime.eng = e
 	return e
 }
 
 // New creates a new CoreC Engine instance.
 func New() core.Engine {
 	e := newEngineShell()
-	e.status = core.EngineStatusStopped
+	e.runtime.status = core.EngineStatusStopped
 	e.driverReg.drivers = make(map[string]core.Driver)
 	e.transportMgr.transports = make(map[string]core.Transport)
 	e.transportMgr.transportCfg = make(map[string]core.TransportConfig)
@@ -108,7 +105,7 @@ func New() core.Engine {
 	e.processing.cache = NewLatestCache()
 	e.processing.numWorkers = runtime.NumCPU()
 	e.processing.dataBusSize = core.DefaultDataBusSize
-	e.shutdownTimeout = core.DefaultShutdownTimeout
+	e.runtime.shutdownTimeout = core.DefaultShutdownTimeout
 	e.lifecycle.errorThrottleWin = core.DefaultErrorThrottleWindow
 	e.lifecycle.defaultTagInterval = core.DefaultTagInterval
 	e.processing.badQualityPolicy = badQualityPublish
@@ -123,4 +120,26 @@ func New() core.Engine {
 	e.stats.publishLatency = metrics.NewLatencyHistogram(metrics.DefaultPublishLatencyBuckets)
 	e.stats.dataAge = metrics.NewLatencyHistogram(metrics.DefaultDataAgeBuckets)
 	return e
+}
+
+// --- CoreCEngine forwarders (core.Lifecycler) ---
+
+func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error {
+	return e.runtime.Start(ctx, config)
+}
+
+func (e *CoreCEngine) Stop() error {
+	return e.runtime.Stop()
+}
+
+func (e *CoreCEngine) Reload(config *core.Config) error {
+	return e.runtime.Reload(config)
+}
+
+func (e *CoreCEngine) Suspend() error {
+	return e.runtime.Suspend()
+}
+
+func (e *CoreCEngine) Resume() error {
+	return e.runtime.Resume()
 }

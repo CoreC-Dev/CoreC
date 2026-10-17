@@ -83,10 +83,10 @@ func (r *driverRegistry) reloadDriverTags(config core.DriverConfig) error {
 	if err != nil {
 		return fmt.Errorf("failed to create driver %s: %w", config.Name, err)
 	}
-	if err := driver.Init(r.eng.ctx, config); err != nil {
+	if err := driver.Init(r.eng.runtime.ctx, config); err != nil {
 		return fmt.Errorf("failed to init driver %s: %w", config.Name, err)
 	}
-	if err := driver.Start(r.eng.ctx); err != nil {
+	if err := driver.Start(r.eng.runtime.ctx); err != nil {
 		return fmt.Errorf("failed to start driver %s: %w", config.Name, err)
 	}
 

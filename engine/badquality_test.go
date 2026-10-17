@@ -123,10 +123,10 @@ func TestDeadLetterQueueEmpty(t *testing.T) {
 // violating the documented contract in docs/config/global.md).
 func TestBadQualityAlertPolicyFiresWithoutRuleMatch(t *testing.T) {
 	e := New().(*CoreCEngine)
-	e.ctx, e.cancel = context.WithCancel(context.Background())
+	e.runtime.ctx, e.runtime.cancel = context.WithCancel(context.Background())
 	t.Cleanup(func() {
-		e.cancel()
-		e.wg.Wait()
+		e.runtime.cancel()
+		e.runtime.wg.Wait()
 	})
 	e.processing.dataBus = NewDataBus(4096)
 	e.processing.cache = NewLatestCache()
@@ -170,10 +170,10 @@ func TestBadQualityAlertPolicyFiresWithoutRuleMatch(t *testing.T) {
 // once for the point.
 func TestBadQualityAlertPolicyNoDuplicateWithAlertRule(t *testing.T) {
 	e := New().(*CoreCEngine)
-	e.ctx, e.cancel = context.WithCancel(context.Background())
+	e.runtime.ctx, e.runtime.cancel = context.WithCancel(context.Background())
 	t.Cleanup(func() {
-		e.cancel()
-		e.wg.Wait()
+		e.runtime.cancel()
+		e.runtime.wg.Wait()
 	})
 	e.processing.dataBus = NewDataBus(4096)
 	e.processing.cache = NewLatestCache()

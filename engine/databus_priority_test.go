@@ -103,10 +103,10 @@ func TestDataBusHighPriorityPushDropped(t *testing.T) {
 // with normal-priority data (IMPROVEMENTS #5).
 func TestEngineHighPriorityWorkersProcessData(t *testing.T) {
 	e := New().(*CoreCEngine)
-	e.ctx, e.cancel = context.WithCancel(context.Background())
+	e.runtime.ctx, e.runtime.cancel = context.WithCancel(context.Background())
 	t.Cleanup(func() {
-		e.cancel()
-		e.wg.Wait()
+		e.runtime.cancel()
+		e.runtime.wg.Wait()
 	})
 
 	e.processing.dataBus = NewDataBus(4096)
@@ -114,7 +114,7 @@ func TestEngineHighPriorityWorkersProcessData(t *testing.T) {
 	e.ruleSet.ruleEngine = rule.NewEngine() // empty: Match returns nil → processPoint returns after cache update
 
 	// Start one normal worker and one high-priority worker.
-	e.wg.Add(2)
+	e.runtime.wg.Add(2)
 	go e.processing.processingLoop()
 	go e.processing.processingLoopHighPriority()
 
@@ -161,8 +161,8 @@ func TestEngineHighPriorityWorkersProcessData(t *testing.T) {
 // tasks as normal priority (IMPROVEMENTS #5).
 func TestScheduleDriverTagsSetsPriority(t *testing.T) {
 	e := New().(*CoreCEngine)
-	e.ctx, e.cancel = context.WithCancel(context.Background())
-	defer e.cancel()
+	e.runtime.ctx, e.runtime.cancel = context.WithCancel(context.Background())
+	defer e.runtime.cancel()
 	e.lifecycle.scheduler = NewScheduler(
 		func(ctx context.Context, driver string, tags []string) ([]core.TagValue, error) {
 			return nil, nil
@@ -171,7 +171,7 @@ func TestScheduleDriverTagsSetsPriority(t *testing.T) {
 		0,
 		statistic.NewManager(),
 	)
-	if err := e.lifecycle.scheduler.Start(e.ctx); err != nil {
+	if err := e.lifecycle.scheduler.Start(e.runtime.ctx); err != nil {
 		t.Fatalf("scheduler.Start: %v", err)
 	}
 	defer e.lifecycle.scheduler.Stop()

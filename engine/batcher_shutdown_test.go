@@ -185,7 +185,7 @@ func TestBatcherDrainOnceInheritsBatcherContext(t *testing.T) {
 // flush retry chain.
 func TestRemoveTransportBoundsBatcherStop(t *testing.T) {
 	eng := New().(*CoreCEngine)
-	eng.shutdownTimeout = 50 * time.Millisecond
+	eng.runtime.shutdownTimeout = 50 * time.Millisecond
 
 	tr := &ctxAwaitTransport{name: "slow"}
 	cfg := core.TransportConfig{Name: "slow", BatchSize: 10, RetryCount: 3}
@@ -317,7 +317,7 @@ func TestStopComponentsDropsAndCountsQueuedPoints(t *testing.T) {
 		eng.processing.dataBus.PushHighPriority(core.DataPoint{Driver: "plc", Tag: "hp", Value: float64(i), Timestamp: time.Now()})
 	}
 
-	eng.stopComponents()
+	eng.runtime.stopComponents()
 
 	if got := eng.stats.totalErrors.Load(); got != 5 {
 		t.Fatalf("totalErrors = %d, want 5 (3 main + 2 high-priority queued points dropped and counted)", got)

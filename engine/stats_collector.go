@@ -80,7 +80,7 @@ func (s *statsCollector) Stats() core.EngineStats {
 	}
 
 	return core.EngineStats{
-		Status:         s.eng.status,
+		Status:         s.eng.runtime.status,
 		Uptime:         uptime,
 		Drivers:        len(s.eng.driverReg.drivers),
 		Transports:     len(s.eng.transportMgr.transports),

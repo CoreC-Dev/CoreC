@@ -48,11 +48,11 @@ func (m *transportManager) AddTransport(config core.TransportConfig) error {
 		return fmt.Errorf("failed to create transport %s: %w", config.Name, err)
 	}
 
-	if err := transport.Init(m.eng.ctx, config); err != nil {
+	if err := transport.Init(m.eng.runtime.ctx, config); err != nil {
 		return fmt.Errorf("failed to init transport %s: %w", config.Name, err)
 	}
 
-	if err := transport.Start(m.eng.ctx); err != nil {
+	if err := transport.Start(m.eng.runtime.ctx); err != nil {
 		return fmt.Errorf("failed to start transport %s: %w", config.Name, err)
 	}
 
@@ -110,8 +110,8 @@ func (m *transportManager) AddTransport(config core.TransportConfig) error {
 	// fix: previously publish.go counted prematurely). The engine's
 	// shutdownTimeout is threaded through as the batcher's flushFinal
 	// budget so the shutdown flush cannot outlive shutdown (B3.1).
-	if b := newTransportBatcher(transport, config, m.offlineBuffer, m.eng.stats.publishLatency, m.eng.stats.dataAge, m.eng.stats.onBatchPublish, m.eng.shutdownTimeout); b != nil {
-		b.start(m.eng.ctx)
+	if b := newTransportBatcher(transport, config, m.offlineBuffer, m.eng.stats.publishLatency, m.eng.stats.dataAge, m.eng.stats.onBatchPublish, m.eng.runtime.shutdownTimeout); b != nil {
+		b.start(m.eng.runtime.ctx)
 		m.batchers[config.Name] = b
 		slog.Info("transport batching enabled",
 			"name", config.Name,
@@ -132,8 +132,8 @@ func (m *transportManager) AddTransport(config core.TransportConfig) error {
 	// listeners without tearing down the whole engine. This fixes the
 	// goroutine leak where MQTT listener goroutines blocked forever after
 	// RemoveTransport.
-	if m.eng.ctx != nil && m.eng.ctx.Err() == nil {
-		tCtx, tCancel := context.WithCancel(m.eng.ctx)
+	if m.eng.runtime.ctx != nil && m.eng.runtime.ctx.Err() == nil {
+		tCtx, tCancel := context.WithCancel(m.eng.runtime.ctx)
 		m.eng.mu.Lock()
 		m.transportCancels[config.Name] = tCancel
 		m.eng.mu.Unlock()
@@ -214,11 +214,11 @@ func (m *transportManager) stopBatcherWithTimeout(b *transportBatcher, name, rea
 	select {
 	case <-done:
 		slog.Info("batcher stopped", "name", name)
-	case <-time.After(m.eng.shutdownTimeout):
+	case <-time.After(m.eng.runtime.shutdownTimeout):
 		slog.Error("timed out stopping batcher",
 			"name", name,
 			"reason", reason,
-			"timeout", m.eng.shutdownTimeout,
+			"timeout", m.eng.runtime.shutdownTimeout,
 		)
 	}
 }
@@ -263,9 +263,9 @@ func (m *transportManager) startDataListener(t core.Transport, tCtx context.Cont
 	if dataCh == nil {
 		return
 	}
-	m.eng.wg.Add(1)
+	m.eng.runtime.wg.Add(1)
 	go func(ch <-chan core.DataPoint, transportName string) {
-		defer m.eng.wg.Done()
+		defer m.eng.runtime.wg.Done()
 		slog.Info("data listener started", "transport", transportName)
 		for {
 			select {
@@ -297,7 +297,7 @@ func (m *transportManager) tryFallback(point core.DataPoint, primaryName string,
 		// batcher's async flush path (see comment in publishToTargets
 		// above). publish() returns an error only when the batch is
 		// dropped from the flush queue.
-		err := fb.batcher.publish(m.eng.ctx, point)
+		err := fb.batcher.publish(m.eng.runtime.ctx, point)
 		if err != nil {
 			slog.Error("fallback batch dropped from flush queue", "fallback", fb.name, "error", err)
 			m.eng.stats.totalErrors.Add(1)
@@ -307,7 +307,7 @@ func (m *transportManager) tryFallback(point core.DataPoint, primaryName string,
 	}
 
 	start := time.Now()
-	err := fb.transport.Publish(m.eng.ctx, point)
+	err := fb.transport.Publish(m.eng.runtime.ctx, point)
 	m.eng.stats.publishLatency.Observe(time.Since(start))
 	m.eng.stats.dataAge.Observe(time.Since(point.Timestamp))
 	if err != nil {

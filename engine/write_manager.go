@@ -144,9 +144,9 @@ func (w *writeManager) startCommandListener(t core.Transport, tCtx context.Conte
 	if cmdCh == nil {
 		return
 	}
-	w.eng.wg.Add(1)
+	w.eng.runtime.wg.Add(1)
 	go func(ch <-chan core.WriteCommand) {
-		defer w.eng.wg.Done()
+		defer w.eng.runtime.wg.Done()
 		for {
 			select {
 			case <-tCtx.Done():
@@ -179,9 +179,9 @@ func (w *writeManager) startCommandListener(t core.Transport, tCtx context.Conte
 					w.deadLetterStrandedCommands(ch, &cmd)
 					return
 				}
-				w.eng.wg.Add(1)
+				w.eng.runtime.wg.Add(1)
 				go func(c core.WriteCommand) {
-					defer w.eng.wg.Done()
+					defer w.eng.runtime.wg.Done()
 					defer func() { <-w.commandSem }()
 					w.executeWriteWithRetry(c)
 				}(cmd)
@@ -307,7 +307,7 @@ func (w *writeManager) executeWriteWithRetry(cmd core.WriteCommand) {
 	// drivers: [] and receive commands via command-topic; without
 	// forwarding, commands dead-end in the dead letter queue.
 	if !w.eng.driverReg.hasDriver(cmd.Driver) {
-		if w.forwardCommand(w.eng.ctx, cmd) {
+		if w.forwardCommand(w.eng.runtime.ctx, cmd) {
 			slog.Info("command forwarded to downstream node",
 				"driver", cmd.Driver, "tag", cmd.Tag)
 			return
@@ -327,7 +327,7 @@ func (w *writeManager) executeWriteWithRetry(cmd core.WriteCommand) {
 	var lastErr string
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		result, err := w.WriteTag(w.eng.ctx, cmd)
+		result, err := w.WriteTag(w.eng.runtime.ctx, cmd)
 		switch {
 		case err != nil:
 			lastErr = err.Error()
@@ -364,7 +364,7 @@ func (w *writeManager) executeWriteWithRetry(cmd core.WriteCommand) {
 				"attempt", attempt+1, "max", maxAttempts,
 				"delay", delay, "error", lastErr)
 			select {
-			case <-w.eng.ctx.Done():
+			case <-w.eng.runtime.ctx.Done():
 				// Stage-B audit finding B3.2: a shutdown-cancelled retry
 				// previously returned silently. The engine context only
 				// cancels at full process shutdown, where the in-memory

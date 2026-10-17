@@ -6,9 +6,7 @@ import (
 )
 
 func (e *CoreCEngine) Status() core.EngineStatus {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	return e.status
+	return e.runtime.Status()
 }
 
 // --- Rule Management ---

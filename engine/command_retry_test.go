@@ -144,10 +144,10 @@ func TestIsPermanentWriteErrorClassifier(t *testing.T) {
 // dead-letter that command, and everything still buffered behind it.
 func TestCommandListenerDeadLettersStrandedOnExit(t *testing.T) {
 	e := New().(*CoreCEngine)
-	e.ctx, e.cancel = context.WithCancel(context.Background())
+	e.runtime.ctx, e.runtime.cancel = context.WithCancel(context.Background())
 	t.Cleanup(func() {
-		e.cancel()
-		e.wg.Wait()
+		e.runtime.cancel()
+		e.runtime.wg.Wait()
 	})
 
 	// A single-slot semaphore, pre-occupied: the listener receives the
@@ -184,7 +184,7 @@ func TestCommandListenerDeadLettersStrandedOnExit(t *testing.T) {
 	// Transport removed / shutdown: the listener must exit and
 	// dead-letter the held command plus both buffered ones.
 	tcancel()
-	e.wg.Wait()
+	e.runtime.wg.Wait()
 
 	entries := e.DeadLetterEntries()
 	if len(entries) != 3 {

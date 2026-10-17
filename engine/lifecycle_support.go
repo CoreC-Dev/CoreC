@@ -51,7 +51,7 @@ func (l *lifecycleSupport) startScheduler() error {
 	l.scheduler = NewScheduler(l.readFromDriver, l.onDriverData, l.errorThrottleWin, l.eng.stats.statManager)
 	l.eng.mu.Unlock()
 
-	if err := l.scheduler.Start(l.eng.ctx); err != nil {
+	if err := l.scheduler.Start(l.eng.runtime.ctx); err != nil {
 		return fmt.Errorf("failed to start scheduler: %w", err)
 	}
 	return nil
@@ -72,7 +72,7 @@ func (l *lifecycleSupport) startDerivedTags(config *core.Config) error {
 	l.eng.mu.Lock()
 	l.derivedEvaluator = ev
 	l.eng.mu.Unlock()
-	ev.start(l.eng.ctx, &l.eng.wg)
+	ev.start(l.eng.runtime.ctx, &l.eng.runtime.wg)
 	slog.Info("derived tag evaluator started", "count", len(config.DerivedTags))
 	return nil
 }
@@ -129,7 +129,7 @@ func (l *lifecycleSupport) startDiscovery(config *core.Config) {
 	}
 
 	l.discovery = NewDiscovery(config.Node, brokers, l.eng.AddTransport)
-	if err := l.discovery.Start(l.eng.ctx); err != nil {
+	if err := l.discovery.Start(l.eng.runtime.ctx); err != nil {
 		slog.Error("failed to start discovery, continuing without auto-discovery", "error", err)
 		l.discovery = nil
 	}

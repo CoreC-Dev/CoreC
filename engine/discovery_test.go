@@ -123,7 +123,7 @@ func TestNodeInfoOmitsNilEndpoints(t *testing.T) {
 }
 
 func TestAutoFillNodeConfig(t *testing.T) {
-	e := &CoreCEngine{}
+	e := newEngineShell()
 
 	t.Run("no node config - no changes", func(t *testing.T) {
 		config := &core.Config{
@@ -131,7 +131,7 @@ func TestAutoFillNodeConfig(t *testing.T) {
 				{Name: "mqtt", Type: "mqtt", Settings: map[string]any{"broker": "tcp://x:1883"}},
 			},
 		}
-		e.autoFillNodeConfig(config)
+		e.runtime.autoFillNodeConfig(config)
 
 		// topic-template should NOT be auto-filled (no node.id)
 		if _, ok := config.Transports[0].Settings["topic-template"]; ok {
@@ -149,7 +149,7 @@ func TestAutoFillNodeConfig(t *testing.T) {
 				{Name: "mqtt", Type: "mqtt", Settings: map[string]any{"broker": "tcp://x:1883"}},
 			},
 		}
-		e.autoFillNodeConfig(config)
+		e.runtime.autoFillNodeConfig(config)
 
 		got := config.Transports[0].Settings["topic-template"]
 		want := "topo/edge-A/data/{{.Driver}}/{{.Tag}}"
@@ -175,7 +175,7 @@ func TestAutoFillNodeConfig(t *testing.T) {
 				}},
 			},
 		}
-		e.autoFillNodeConfig(config)
+		e.runtime.autoFillNodeConfig(config)
 
 		got := config.Transports[0].Settings["topic-template"]
 		if got != custom {
@@ -194,7 +194,7 @@ func TestAutoFillNodeConfig(t *testing.T) {
 				}},
 			},
 		}
-		e.autoFillNodeConfig(config)
+		e.runtime.autoFillNodeConfig(config)
 
 		got := config.Transports[0].Settings["command-topic"]
 		if got != custom {
@@ -212,7 +212,7 @@ func TestAutoFillNodeConfig(t *testing.T) {
 				}},
 			},
 		}
-		e.autoFillNodeConfig(config)
+		e.runtime.autoFillNodeConfig(config)
 
 		parser, ok := config.Transports[0].Settings["parser"]
 		if !ok {
@@ -239,7 +239,7 @@ func TestAutoFillNodeConfig(t *testing.T) {
 				}},
 			},
 		}
-		e.autoFillNodeConfig(config)
+		e.runtime.autoFillNodeConfig(config)
 
 		got := config.Transports[0].Settings["parser"]
 		parserMap, ok := got.(map[string]any)
@@ -258,7 +258,7 @@ func TestAutoFillNodeConfig(t *testing.T) {
 				{Name: "mqtt", Type: "mqtt", Settings: map[string]any{"broker": "tcp://x:1883"}},
 			},
 		}
-		e.autoFillNodeConfig(config)
+		e.runtime.autoFillNodeConfig(config)
 
 		if len(config.Rules) != 1 {
 			t.Fatalf("expected 1 auto rule, got %d", len(config.Rules))
@@ -281,7 +281,7 @@ func TestAutoFillNodeConfig(t *testing.T) {
 				{Name: "custom-rule", Match: "ALL", Action: "forward", Target: "mqtt"},
 			},
 		}
-		e.autoFillNodeConfig(config)
+		e.runtime.autoFillNodeConfig(config)
 
 		if len(config.Rules) != 1 {
 			t.Fatalf("expected 1 rule (the original), got %d", len(config.Rules))
@@ -298,7 +298,7 @@ func TestAutoFillNodeConfig(t *testing.T) {
 				{Name: "mqtt", Type: "mqtt", Settings: map[string]any{"broker": "tcp://x:1883"}},
 			},
 		}
-		e.autoFillNodeConfig(config)
+		e.runtime.autoFillNodeConfig(config)
 
 		got := config.Transports[0].Settings["topic-template"]
 		want := "factory/edge-A/data/{{.Driver}}/{{.Tag}}"
@@ -314,7 +314,7 @@ func TestAutoFillNodeConfig(t *testing.T) {
 				{Name: "http", Type: "http", Settings: map[string]any{"url": "http://x:9091/ing!ingest"}},
 			},
 		}
-		e.autoFillNodeConfig(config)
+		e.runtime.autoFillNodeConfig(config)
 
 		if _, ok := config.Transports[0].Settings["topic-template"]; ok {
 			t.Error("topic-template should not be set for non-mqtt transport")

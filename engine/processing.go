@@ -50,11 +50,11 @@ type processingCore struct {
 }
 
 func (p *processingCore) processingLoop() {
-	defer p.eng.wg.Done()
+	defer p.eng.runtime.wg.Done()
 
 	for {
 		select {
-		case <-p.eng.ctx.Done():
+		case <-p.eng.runtime.ctx.Done():
 			return
 		case point, ok := <-p.dataBus.Channel():
 			if !ok {
@@ -70,11 +70,11 @@ func (p *processingCore) processingLoop() {
 // channel, so a burst of low-frequency bulk reads on the main channel
 // cannot delay high-frequency collection (IMPROVEMENTS #5).
 func (p *processingCore) processingLoopHighPriority() {
-	defer p.eng.wg.Done()
+	defer p.eng.runtime.wg.Done()
 
 	for {
 		select {
-		case <-p.eng.ctx.Done():
+		case <-p.eng.runtime.ctx.Done():
 			return
 		case point, ok := <-p.dataBus.HighPriorityChannel():
 			if !ok {
@@ -92,7 +92,7 @@ func (p *processingCore) startProcessingWorkers() {
 	if numWorkers < 1 {
 		numWorkers = 1
 	}
-	p.eng.wg.Add(numWorkers)
+	p.eng.runtime.wg.Add(numWorkers)
 	for i := 0; i < numWorkers; i++ {
 		go p.processingLoop()
 	}
@@ -102,7 +102,7 @@ func (p *processingCore) startProcessingWorkers() {
 		numHP = 0
 	}
 	if numHP > 0 {
-		p.eng.wg.Add(numHP)
+		p.eng.runtime.wg.Add(numHP)
 		for i := 0; i < numHP; i++ {
 			go p.processingLoopHighPriority()
 		}
@@ -319,7 +319,7 @@ func (p *processingCore) publishToTargets(point core.DataPoint, targets []string
 			// publish() returns an error only when the flush queue is
 			// full and the batch is dropped — in that case the data is
 			// lost, so we count the error and try the fallback transport.
-			err := entry.batcher.publish(p.eng.ctx, point)
+			err := entry.batcher.publish(p.eng.runtime.ctx, point)
 			if err != nil {
 				slog.Error("batch dropped from flush queue", "target", entry.name, "error", err)
 				p.eng.stats.totalErrors.Add(1)
@@ -330,7 +330,7 @@ func (p *processingCore) publishToTargets(point core.DataPoint, targets []string
 		}
 
 		start := time.Now()
-		err := entry.transport.Publish(p.eng.ctx, point)
+		err := entry.transport.Publish(p.eng.runtime.ctx, point)
 		p.eng.stats.publishLatency.Observe(time.Since(start))
 		p.eng.stats.dataAge.Observe(time.Since(point.Timestamp))
 		if err != nil {

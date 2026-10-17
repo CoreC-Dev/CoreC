@@ -152,8 +152,8 @@ func newTestEngine(t *testing.T) *CoreCEngine {
 	e.transportMgr.transports = make(map[string]core.Transport)
 	e.writes.writeRetryCount = 0 // single attempt: keeps failure tests fast
 	e.writes.deadLetterMaxLen = 1000
-	e.ctx, e.cancel = context.WithCancel(context.Background())
-	t.Cleanup(e.cancel)
+	e.runtime.ctx, e.runtime.cancel = context.WithCancel(context.Background())
+	t.Cleanup(e.runtime.cancel)
 	return e
 }
 
@@ -479,11 +479,11 @@ func TestCommandListenerDispatchesConcurrently(t *testing.T) {
 	tr.status = core.TransportStatus{Name: "cmd-tr", State: core.StateConnected}
 
 	// Start the command listener bound to the engine context.
-	e.writes.startCommandListener(tr, e.ctx)
+	e.writes.startCommandListener(tr, e.runtime.ctx)
 	// Ensure the listener + any in-flight command goroutines exit on cleanup.
 	t.Cleanup(func() {
-		e.cancel()
-		e.wg.Wait()
+		e.runtime.cancel()
+		e.runtime.wg.Wait()
 	})
 
 	start := time.Now()
@@ -538,10 +538,10 @@ func TestCommandListenerSerialWhenConcurrencyOne(t *testing.T) {
 	tr.cmdCh = make(chan core.WriteCommand, 10)
 	tr.status = core.TransportStatus{Name: "cmd-tr-serial", State: core.StateConnected}
 
-	e.writes.startCommandListener(tr, e.ctx)
+	e.writes.startCommandListener(tr, e.runtime.ctx)
 	t.Cleanup(func() {
-		e.cancel()
-		e.wg.Wait()
+		e.runtime.cancel()
+		e.runtime.wg.Wait()
 	})
 
 	for i := 0; i < 3; i++ {

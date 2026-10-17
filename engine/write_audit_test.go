@@ -153,10 +153,10 @@ func TestCommandListenerStampsAuditSource(t *testing.T) {
 	tr.cmdCh = make(chan core.WriteCommand, 1)
 	tr.status = core.TransportStatus{Name: "cmd-tr", State: core.StateConnected}
 
-	e.writes.startCommandListener(tr, e.ctx)
+	e.writes.startCommandListener(tr, e.runtime.ctx)
 	t.Cleanup(func() {
-		e.cancel()
-		e.wg.Wait()
+		e.runtime.cancel()
+		e.runtime.wg.Wait()
 	})
 
 	// A command payload carrying a spoofed "source" field must still be
