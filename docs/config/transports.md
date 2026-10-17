@@ -135,6 +135,9 @@ transports:
 | `retained` | bool | 否 | `false` | 是否发布保留消息 |
 | `topic-template` | string | 否 | <code v-pre>corec/{{.Driver}}/{{.Tag}}</code> ¹ | 发布主题模板，支持 Go 模板变量 |
 | `command-topic` | string | 否 | — ¹ | 订阅的命令主题，支持通配符 `+` / `#` |
+| `command-secret` | string | 否 | `""`（禁用认证） | 命令 HMAC-SHA256 认证密钥，见[命令认证与防重放](#命令认证与防重放) |
+| `command-max-skew` | duration | 否 | `5m` | 命令时间戳允许偏移；`0` 关闭防重放窗口与新鲜度校验 |
+| `command-strict-replay` | bool | 否 | `false` | `true` 时拒绝无 `timestamp` 的签名命令（生产环境推荐） |
 | `data-topic` | string | 否 | — ¹ | 订阅的数据主题（链式核心入站），需配合 `parser` |
 | `keep-alive` | duration | 否 | `60s` | 心跳保活间隔 |
 | `connect-timeout` | duration | 否 | `10s` | 连接超时时间 |
@@ -217,6 +220,20 @@ topic-template: "factory/{{.Driver}}/{{.Group}}/{{.Tag}}"
 command-topic: "factory/commands/#"   # 接收所有命令
 command-topic: "factory/commands/plc-modbus/+"   # 仅该驱动的命令
 ```
+
+#### 命令认证与防重放
+
+配置了 `command-topic` 后，**任何能向该主题发布消息的客户端都可注入控制命令**。生产环境必须配置 `command-secret`：命令消息需携带 `hex(HMAC-SHA256(secret, 规范化签名载荷))`，放在 `X-Signature` 或 `signature` JSON 字段（签名载荷为移除签名字段、按键名排序后的 JSON）。
+
+防重放依赖消息中的 `timestamp` 字段（Unix 毫秒）：
+
+- 带 `timestamp` 的签名命令：时间戳参与签名（不可伪造），且必须落在 `±command-max-skew` 内；有界重放缓存（10,000 条，TTL 为 2× skew 窗口）记录每条已认证命令的哈希，同一消息在窗口内不可二次接受。
+- 无 `timestamp` 的签名命令（遗留发送方）：`command-strict-replay: false`（默认）时**首次接受并告警**，重放缓存同样生效——同一载荷在窗口内的重发会被当作重放拒绝；`command-strict-replay: true` 时直接拒绝。
+- `command-max-skew: 0` 显式关闭新鲜度校验与重放缓存（不推荐）。
+
+::: warning 生产环境强制
+无 `timestamp` 的签名没有时效边界，重放缓存只在窗口内拦截重复。**生产环境应设置 `command-strict-replay: true`**，要求所有发送方携带时间戳，使重放在窗口外也无法得逞。
+:::
 
 ### data-topic（链式核心入站）
 

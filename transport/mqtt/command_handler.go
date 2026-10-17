@@ -24,8 +24,14 @@ import (
 // fields removed) and the timestamp must fall within ±commandMaxSkew of
 // the current time.  Messages without a timestamp are accepted for
 // backward compatibility when command-strict-replay is false (a warning
-// is logged, since such messages cannot be protected against replay),
-// and rejected when command-strict-replay is true.
+// is logged, since such messages cannot carry a freshness bound), and
+// rejected when command-strict-replay is true.  In the backward-compatible
+// case the replay window still applies: while a timestamp-less signature
+// cannot be freshness-checked, the same payload can only be accepted once
+// per replay window (stage-B audit finding B6-1 — previously such
+// messages could be re-sent indefinitely and executed every time).
+// Production deployments should set command-strict-replay: true so
+// timestamp-less commands are rejected outright.
 func (t *MQTTTransport) handleCommandMessage(topic string, payload []byte) {
 	slog.Debug("mqtt command received",
 		"topic", topic,
@@ -59,7 +65,22 @@ func (t *MQTTTransport) handleCommandMessage(topic string, payload []byte) {
 					"topic", topic, "name", t.name)
 				return
 			}
-			slog.Warn("mqtt: command accepted without timestamp; replay protection not enforced",
+			// A timestamp-less signature carries no freshness bound, so
+			// the replay window is the only replay guard available for
+			// the legacy path (stage-B audit finding B6-1): the first
+			// arrival is still accepted for backward compatibility, but
+			// the same payload cannot be accepted twice within the
+			// window. When the window is disabled (command-max-skew <= 0)
+			// there is no guard — replay protection is off entirely.
+			if t.replayCache != nil {
+				msgHash := fmt.Sprintf("%x", sha256.Sum256(payload))
+				if !t.replayCache.checkAndAdd(msgHash) {
+					slog.Error("mqtt: command rejected as duplicate (replay detected)",
+						"topic", topic, "name", t.name)
+					return
+				}
+			}
+			slog.Warn("mqtt: command accepted without timestamp; replay protection is window-limited, set command-strict-replay to reject such commands outright",
 				"topic", topic, "name", t.name)
 		} else {
 			// Replay-protected path: verify the HMAC over the canonical

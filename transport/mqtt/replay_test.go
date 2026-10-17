@@ -428,3 +428,90 @@ func TestReplayDifferentCommandsBothAccepted(t *testing.T) {
 		t.Fatal("second different command should be accepted")
 	}
 }
+
+// signedNoTSCommand builds a validly-signed command payload WITHOUT a
+// timestamp and with the given value, mirroring a legacy signed-command
+// sender.
+func signedNoTSCommand(secret string, value float64) []byte {
+	fields := map[string]any{
+		"driver": "opc",
+		"tag":    "setpoint",
+		"value":  value,
+		"type":   core.TypeFloat64,
+	}
+	signingBytes, _ := json.Marshal(fields)
+	sig := computeHMACSignature(secret, signingBytes)
+	fields["signature"] = sig
+	payload, _ := json.Marshal(fields)
+	return payload
+}
+
+// TestReplayNoTimestampDuplicateRejected is the stage-B audit finding
+// B6-1 regression test: in non-strict mode a timestamp-less signed command
+// is accepted once (documented backward compatibility), but the replay
+// window must drop an exact re-send within the window — previously the
+// same signed payload could be replayed indefinitely and executed every
+// time.
+func TestReplayNoTimestampDuplicateRejected(t *testing.T) {
+	mtr := newCommandTransport(t, "replay-nots-dup", "secret")
+	payload := buildSignedCommand("secret", 0, false)
+
+	// First send: accepted (legacy senders keep working).
+	mtr.handleCommandMessage("commands/opc/set", payload)
+	if got := drainCommand(mtr); got == nil {
+		t.Fatal("first send of a timestamp-less command must be accepted in non-strict mode")
+	}
+
+	// Exact re-send (broker redelivery, QoS DUP, or an attacker): the
+	// replay window must reject it.
+	mtr.handleCommandMessage("commands/opc/set", payload)
+	if got := drainCommand(mtr); got != nil {
+		t.Errorf("duplicate timestamp-less command must be rejected as replay, got %+v", got)
+	}
+}
+
+// TestReplayNoTimestampDistinctCommandsAccepted verifies the replay
+// window does not false-positive on distinct timestamp-less commands:
+// different payloads hash differently and both must be accepted.
+func TestReplayNoTimestampDistinctCommandsAccepted(t *testing.T) {
+	mtr := newCommandTransport(t, "replay-nots-distinct", "secret")
+
+	mtr.handleCommandMessage("commands/opc/set", signedNoTSCommand("secret", 42.0))
+	if got := drainCommand(mtr); got == nil {
+		t.Fatal("first distinct command should be accepted")
+	}
+
+	mtr.handleCommandMessage("commands/opc/set", signedNoTSCommand("secret", 43.0))
+	if got := drainCommand(mtr); got == nil {
+		t.Fatal("second distinct command should be accepted")
+	} else if got.Value != 43.0 {
+		t.Errorf("unexpected value: got %v, want 43", got.Value)
+	}
+}
+
+// TestReplayNoTimestampNoWindowNoGuard pins the explicit operator opt-out:
+// command-max-skew <= 0 disables the replay window entirely (for both
+// timestamped and timestamp-less commands), so duplicates of legacy
+// commands are accepted. This documents that the new no-timestamp replay
+// guard is tied to the replay window being active, not to the strict flag.
+func TestReplayNoTimestampNoWindowNoGuard(t *testing.T) {
+	mtr := newInitdTransport(t, "replay-nots-noguard", map[string]any{
+		"broker":           "tcp://127.0.0.1:1883",
+		"command-topic":    "commands/+/set",
+		"command-secret":   "secret",
+		"command-max-skew": "0",
+	})
+	if mtr.replayCache != nil {
+		t.Fatal("test setup: command-max-skew 0 must disable the replay window")
+	}
+
+	payload := buildSignedCommand("secret", 0, false)
+	mtr.handleCommandMessage("commands/opc/set", payload)
+	if got := drainCommand(mtr); got == nil {
+		t.Fatal("first send should be accepted with the replay window disabled")
+	}
+	mtr.handleCommandMessage("commands/opc/set", payload)
+	if got := drainCommand(mtr); got == nil {
+		t.Fatal("duplicate is accepted when replay protection is explicitly disabled (command-max-skew: 0)")
+	}
+}

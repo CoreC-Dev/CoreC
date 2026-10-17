@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/CoreC-Dev/CoreC/core"
@@ -207,6 +208,34 @@ func (e *CoreCEngine) forwardCommand(ctx context.Context, cmd core.WriteCommand)
 	return false
 }
 
+// permanentWriteErrPatterns are error-message signatures that indicate a
+// write command can never succeed on retry: the command itself is
+// misconfigured (unknown tag, read-only target, type mismatch). Retrying
+// such a command just hammers the device writeRetryCount more times and
+// pollutes the dead-letter queue (stage-B audit finding B6-1). Every other
+// failure keeps the retry loop — connection-class errors may succeed once
+// the driver reconnects, and unknown errors are retried fail-safe.
+var permanentWriteErrPatterns = []string{
+	"tag not found",            // all drivers: command references no configured tag
+	"read-only area",           // modbus: discrete-input / input-register target
+	"is not supported on",      // modbus: type not supported on the tag's area
+	"expected bool value",      // modbus: value/type mismatch on bit areas
+	"unsupported write type",   // modbus: unrepresentable command type
+	"failed to create variant", // opcua: value cannot map to an OPC UA variant
+	"s7 encode",                // s7: value cannot encode for the tag's type
+}
+
+// isPermanentWriteError reports whether a write failure is
+// configuration-class: retrying the exact same command cannot succeed.
+func isPermanentWriteError(errStr string) bool {
+	for _, p := range permanentWriteErrPatterns {
+		if strings.Contains(errStr, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // executeWriteWithRetry attempts a write command up to writeRetryCount+1
 // times with exponential backoff. On permanent failure, the command is
 // added to the dead letter queue.
@@ -244,6 +273,22 @@ func (e *CoreCEngine) executeWriteWithRetry(cmd core.WriteCommand) {
 			lastErr = result.Error
 		default:
 			slog.Info("command write success", "driver", cmd.Driver, "tag", cmd.Tag, "attempt", attempt+1)
+			return
+		}
+
+		// Configuration-class failures (unknown tag, read-only target,
+		// type mismatch) can never succeed on retry: dead-letter the
+		// command immediately instead of burning writeRetryCount more
+		// device round-trips (stage-B audit finding B6-1).
+		if isPermanentWriteError(lastErr) {
+			slog.Error("command write failed permanently, added to dead letter queue",
+				"driver", cmd.Driver, "tag", cmd.Tag, "error", lastErr)
+			e.addDeadLetter(core.DeadLetterEntry{
+				Command:  cmd,
+				Error:    lastErr,
+				FailedAt: time.Now(),
+				Attempts: attempt + 1,
+			})
 			return
 		}
 
