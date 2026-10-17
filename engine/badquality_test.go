@@ -1,9 +1,13 @@
 package engine
 
 import (
+	"context"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/CoreC-Dev/CoreC/core"
+	"github.com/CoreC-Dev/CoreC/rule"
 )
 
 func TestParseBadQualityPolicy(t *testing.T) {
@@ -111,5 +115,90 @@ func TestDeadLetterQueueEmpty(t *testing.T) {
 	entries := e.DeadLetterEntries()
 	if len(entries) != 0 {
 		t.Fatalf("len(entries) = %d, want 0", len(entries))
+	}
+}
+
+// TestBadQualityAlertPolicyFiresWithoutRuleMatch is the stage-B audit
+// finding B5-1 regression test: on-bad-quality: alert must trigger the
+// alert callback even when NO configured rule matches the bad point
+// (previously the alert sat behind rule matching and Match()==0
+// returned early, so a zero-rule config silently never alerted,
+// violating the documented contract in docs/config/global.md).
+func TestBadQualityAlertPolicyFiresWithoutRuleMatch(t *testing.T) {
+	e := New().(*CoreCEngine)
+	e.ctx, e.cancel = context.WithCancel(context.Background())
+	t.Cleanup(func() {
+		e.cancel()
+		e.wg.Wait()
+	})
+	e.dataBus = NewDataBus(4096)
+	e.cache = NewLatestCache()
+	e.ruleEngine = rule.NewEngine() // zero rules: the B5-1 minimal repro
+	e.badQualityPolicy = badQualityAlert
+
+	type alertEvent struct {
+		point core.DataPoint
+		rule  core.Rule
+	}
+	alerts := make(chan alertEvent, 4)
+	e.OnAlert(func(p core.DataPoint, r core.Rule) {
+		alerts <- alertEvent{point: p, rule: r}
+	})
+
+	e.processPoint(core.DataPoint{
+		Driver: "plc", Tag: "temp", Value: nil,
+		Quality:   core.QualityBad,
+		Timestamp: time.Now(),
+	})
+
+	select {
+	case a := <-alerts:
+		if a.rule == nil {
+			t.Fatal("policy alert must carry a rule context")
+		}
+		if a.rule.Name() != "bad-quality-policy" {
+			t.Errorf("policy alert rule name = %q, want %q", a.rule.Name(), "bad-quality-policy")
+		}
+		if a.point.Quality != core.QualityBad {
+			t.Errorf("alerted point quality = %v, want QualityBad", a.point.Quality)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("on-bad-quality: alert policy never fired — zero rules must not silence the policy alert (B5-1)")
+	}
+}
+
+// TestBadQualityAlertPolicyNoDuplicateWithAlertRule verifies the
+// anti-double-alert behavior is preserved: when the policy fires and a
+// matching action=alert rule also fires, the handler is called exactly
+// once for the point.
+func TestBadQualityAlertPolicyNoDuplicateWithAlertRule(t *testing.T) {
+	e := New().(*CoreCEngine)
+	e.ctx, e.cancel = context.WithCancel(context.Background())
+	t.Cleanup(func() {
+		e.cancel()
+		e.wg.Wait()
+	})
+	e.dataBus = NewDataBus(4096)
+	e.cache = NewLatestCache()
+	e.ruleEngine = rule.NewEngine()
+	e.badQualityPolicy = badQualityAlert
+
+	if err := e.ruleEngine.SetRules([]core.RuleConfig{
+		{Name: "alert-on-bad", Match: "quality == 'bad'", Action: "alert", Priority: 1},
+	}); err != nil {
+		t.Fatalf("SetRules: %v", err)
+	}
+
+	var alerts atomic.Int32
+	e.OnAlert(func(core.DataPoint, core.Rule) { alerts.Add(1) })
+
+	e.processPoint(core.DataPoint{
+		Driver: "plc", Tag: "temp", Value: nil,
+		Quality:   core.QualityBad,
+		Timestamp: time.Now(),
+	})
+
+	if got := alerts.Load(); got != 1 {
+		t.Errorf("alert handler called %d times for one bad point, want exactly 1 (policy + rule must not double-fire)", got)
 	}
 }
