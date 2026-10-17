@@ -6,7 +6,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/CoreC-Dev/CoreC/common/metrics"
@@ -42,6 +41,7 @@ type CoreCEngine struct {
 	transportCancels map[string]context.CancelFunc
 	ruleSet          *ruleRole
 	reads            *readAccessor
+	stats            *statsCollector
 	scheduler        *scheduler
 	dataBus          *DataBus
 	cache            *LatestCache
@@ -56,24 +56,6 @@ type CoreCEngine struct {
 
 	// Alert handlers
 	alertHandlers []func(point core.DataPoint, rule core.Rule)
-
-	// Stats
-	totalRead    atomic.Uint64
-	totalPublish atomic.Uint64
-	totalErrors  atomic.Uint64
-	startTime    time.Time
-
-	// Latency histograms for Prometheus exposure. Initialized in New()
-	// and accumulated across the engine lifetime (mirroring the total*
-	// counters above, which are also not reset on Reload). Exposed via
-	// ReadLatency()/PublishLatency() for the route metrics handler.
-	readLatency    *metrics.LatencyHistogram
-	publishLatency *metrics.LatencyHistogram
-	// dataAge records the freshness of data at publish time: elapsed time
-	// since DataPoint.Timestamp (collection/source time) to the publish
-	// attempt. Larger than I/O latency because it includes scheduler
-	// queuing, batching, and offline-buffer replay during outages.
-	dataAge *metrics.LatencyHistogram
 
 	// Processing parallelism
 	numWorkers int
@@ -101,13 +83,6 @@ type CoreCEngine struct {
 	// high-priority channel. This isolates high-frequency collection from
 	// low-frequency bulk-read bursts (IMPROVEMENTS #5).
 	numHighPriorityWorkers int
-
-	// statManager collects throughput counters (reads/publishes/errors).
-	// It is an instance field rather than the package-level
-	// statistic.DefaultManager so that multiple Engine instances embedded
-	// in the same process do not mix their counters (IMPROVEMENTS #8).
-	// Injected into the scheduler via NewScheduler.
-	statManager *statistic.Manager
 
 	// offlineBuffer persists failed publish batches to disk for replay
 	// after transport recovery. nil = disabled (no buffer config).
@@ -185,8 +160,10 @@ func newEngineShell() *CoreCEngine {
 	e := &CoreCEngine{
 		ruleSet: &ruleRole{},
 		reads:   &readAccessor{},
+		stats:   &statsCollector{},
 	}
 	e.reads.eng = e
+	e.stats.eng = e
 	return e
 }
 
@@ -211,12 +188,12 @@ func New() core.Engine {
 	e.writeRetryCount = 3
 	e.commandConcurrency = core.DefaultCommandConcurrency
 	e.numHighPriorityWorkers = core.DefaultHighPriorityWorkers
-	e.statManager = statistic.NewManager()
+	e.stats.statManager = statistic.NewManager()
 	e.deadLetterMaxLen = core.DefaultDeadLetterMaxLen
 	e.tagFileWatchers = make(map[string]*tagFileWatcher)
 	e.driverConfigs = make(map[string]core.DriverConfig)
-	e.readLatency = metrics.NewLatencyHistogram(metrics.DefaultReadLatencyBuckets)
-	e.publishLatency = metrics.NewLatencyHistogram(metrics.DefaultPublishLatencyBuckets)
-	e.dataAge = metrics.NewLatencyHistogram(metrics.DefaultDataAgeBuckets)
+	e.stats.readLatency = metrics.NewLatencyHistogram(metrics.DefaultReadLatencyBuckets)
+	e.stats.publishLatency = metrics.NewLatencyHistogram(metrics.DefaultPublishLatencyBuckets)
+	e.stats.dataAge = metrics.NewLatencyHistogram(metrics.DefaultDataAgeBuckets)
 	return e
 }

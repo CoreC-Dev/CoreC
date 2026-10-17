@@ -52,8 +52,8 @@ func (e *CoreCEngine) processPoint(point core.DataPoint) {
 	if point.Quality == core.QualityBad {
 		switch e.badQualityPolicy {
 		case badQualityDrop:
-			e.totalErrors.Add(1)
-			e.statManager.PushError()
+			e.stats.totalErrors.Add(1)
+			e.stats.statManager.PushError()
 			return // discard entirely
 		case badQualityMarkAndPublish:
 			point.Value = nil // keep quality=bad, clear value

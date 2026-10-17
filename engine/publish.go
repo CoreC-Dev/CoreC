@@ -59,7 +59,7 @@ func (e *CoreCEngine) publishToTargets(point core.DataPoint, targets []string) {
 		transport, ok := e.transports[targetName]
 		if !ok {
 			slog.Warn("target transport not found", "target", targetName)
-			e.totalErrors.Add(1)
+			e.stats.totalErrors.Add(1)
 			continue
 		}
 		entry := publishTargetEntry{name: targetName, transport: transport}
@@ -107,8 +107,8 @@ func (e *CoreCEngine) publishToTargets(point core.DataPoint, targets []string) {
 			err := entry.batcher.publish(e.ctx, point)
 			if err != nil {
 				slog.Error("batch dropped from flush queue", "target", entry.name, "error", err)
-				e.totalErrors.Add(1)
-				e.statManager.PushError()
+				e.stats.totalErrors.Add(1)
+				e.stats.statManager.PushError()
 				e.tryFallback(point, entry.name, fallbackSnapshot)
 			}
 			continue
@@ -116,16 +116,16 @@ func (e *CoreCEngine) publishToTargets(point core.DataPoint, targets []string) {
 
 		start := time.Now()
 		err := entry.transport.Publish(e.ctx, point)
-		e.publishLatency.Observe(time.Since(start))
-		e.dataAge.Observe(time.Since(point.Timestamp))
+		e.stats.publishLatency.Observe(time.Since(start))
+		e.stats.dataAge.Observe(time.Since(point.Timestamp))
 		if err != nil {
 			slog.Error("publish failed", "target", entry.name, "error", err)
-			e.totalErrors.Add(1)
-			e.statManager.PushError()
+			e.stats.totalErrors.Add(1)
+			e.stats.statManager.PushError()
 			e.tryFallback(point, entry.name, fallbackSnapshot)
 		} else {
-			e.totalPublish.Add(1)
-			e.statManager.PushPublish(1)
+			e.stats.totalPublish.Add(1)
+			e.stats.statManager.PushPublish(1)
 		}
 	}
 }
@@ -148,23 +148,23 @@ func (e *CoreCEngine) tryFallback(point core.DataPoint, primaryName string, fall
 		err := fb.batcher.publish(e.ctx, point)
 		if err != nil {
 			slog.Error("fallback batch dropped from flush queue", "fallback", fb.name, "error", err)
-			e.totalErrors.Add(1)
-			e.statManager.PushError()
+			e.stats.totalErrors.Add(1)
+			e.stats.statManager.PushError()
 		}
 		return
 	}
 
 	start := time.Now()
 	err := fb.transport.Publish(e.ctx, point)
-	e.publishLatency.Observe(time.Since(start))
-	e.dataAge.Observe(time.Since(point.Timestamp))
+	e.stats.publishLatency.Observe(time.Since(start))
+	e.stats.dataAge.Observe(time.Since(point.Timestamp))
 	if err != nil {
 		slog.Error("fallback publish also failed", "fallback", fb.name, "error", err)
-		e.totalErrors.Add(1)
-		e.statManager.PushError()
+		e.stats.totalErrors.Add(1)
+		e.stats.statManager.PushError()
 	} else {
-		e.totalPublish.Add(1)
-		e.statManager.PushPublish(1)
+		e.stats.totalPublish.Add(1)
+		e.stats.statManager.PushPublish(1)
 	}
 }
 

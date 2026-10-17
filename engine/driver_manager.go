@@ -163,7 +163,7 @@ func (e *CoreCEngine) readFromDriver(ctx context.Context, driver string, tags []
 	}
 	start := time.Now()
 	values, err := d.Read(ctx, tags)
-	e.readLatency.Observe(time.Since(start))
+	e.stats.readLatency.Observe(time.Since(start))
 	return values, err
 }
 
@@ -189,7 +189,7 @@ func (e *CoreCEngine) onDriverData(driver string, values []core.TagValue, priori
 	highPriority := priority > 0
 
 	for _, v := range values {
-		e.totalRead.Add(1)
+		e.stats.totalRead.Add(1)
 
 		point := core.DataPoint{
 			Driver:    driver,

@@ -319,10 +319,10 @@ func TestStopComponentsDropsAndCountsQueuedPoints(t *testing.T) {
 
 	eng.stopComponents()
 
-	if got := eng.totalErrors.Load(); got != 5 {
+	if got := eng.stats.totalErrors.Load(); got != 5 {
 		t.Fatalf("totalErrors = %d, want 5 (3 main + 2 high-priority queued points dropped and counted)", got)
 	}
-	if got := eng.statManager.Snapshot().ErrorTotal; got != 5 {
+	if got := eng.stats.statManager.Snapshot().ErrorTotal; got != 5 {
 		t.Fatalf("statManager errors = %d, want 5", got)
 	}
 	// The bus must be closed (both channels report closed afterwards).

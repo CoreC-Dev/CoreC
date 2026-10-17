@@ -79,7 +79,7 @@ func (e *CoreCEngine) AddTransport(config core.TransportConfig) error {
 	// fix: previously publish.go counted prematurely). The engine's
 	// shutdownTimeout is threaded through as the batcher's flushFinal
 	// budget so the shutdown flush cannot outlive shutdown (B3.1).
-	if b := newTransportBatcher(transport, config, e.offlineBuffer, e.publishLatency, e.dataAge, e.onBatchPublish, e.shutdownTimeout); b != nil {
+	if b := newTransportBatcher(transport, config, e.offlineBuffer, e.stats.publishLatency, e.stats.dataAge, e.stats.onBatchPublish, e.shutdownTimeout); b != nil {
 		b.start(e.ctx)
 		e.batchers[config.Name] = b
 		slog.Info("transport batching enabled",
@@ -232,7 +232,7 @@ func (e *CoreCEngine) startDataListener(t core.Transport, tCtx context.Context) 
 				if !ok {
 					return
 				}
-				e.totalRead.Add(1)
+				e.stats.totalRead.Add(1)
 				e.dataBus.Push(point)
 			}
 		}

@@ -13,7 +13,7 @@ func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error {
 	e.mu.Lock()
 	e.parentCtx = ctx
 	e.ctx, e.cancel = context.WithCancel(ctx)
-	e.startTime = time.Now()
+	e.stats.startTime = time.Now()
 	e.status = core.EngineStatusRunning
 	// Clear stale state from any previous run (e.g. after Reload→Stop→Start).
 	e.drivers = make(map[string]core.Driver)
@@ -108,7 +108,7 @@ func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error {
 func (e *CoreCEngine) startScheduler() error {
 	e.mu.Lock()
 	e.dataBus = NewDataBus(e.dataBusSize)
-	e.scheduler = NewScheduler(e.readFromDriver, e.onDriverData, e.errorThrottleWin, e.statManager)
+	e.scheduler = NewScheduler(e.readFromDriver, e.onDriverData, e.errorThrottleWin, e.stats.statManager)
 	e.mu.Unlock()
 
 	if err := e.scheduler.Start(e.ctx); err != nil {
@@ -361,9 +361,9 @@ func (e *CoreCEngine) stopComponents() {
 	// data by design (documented in docs/architecture/dataflow.md);
 	// until now this drop was completely silent: no log, no counter.
 	if dropped := e.drainDataBusOnShutdown(); dropped > 0 {
-		e.totalErrors.Add(dropped)
+		e.stats.totalErrors.Add(dropped)
 		for range dropped {
-			e.statManager.PushError()
+			e.stats.statManager.PushError()
 		}
 		slog.Warn("shutdown: dropped data points still queued in data bus",
 			"points", dropped,
