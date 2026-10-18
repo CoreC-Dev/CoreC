@@ -32,10 +32,10 @@
 
 | 指标 | 值 |
 |------|-----|
-| 总条目 | **3**（延期至阶段 5 后） |
-| P1 | **1**（CPLX-020） |
-| P2 | **2**（CPLX-025 · PERF-003） |
-| 已清理 | 72（已修复 64 · 已归档 7 · 已关闭 1） |
+| 总条目 | **1**（延期至阶段 5 后） |
+| P1 | **0** |
+| P2 | **1**（PERF-003） |
+| 已清理 | 74（已修复 66 · 已归档 7 · 已关闭 1） |
 | 整体测试覆盖率 | **85.5%**（Phase 5 后实测；Phase 1 基线 80.1%） |
 | 生产 InsecureSkipVerify | 0（1 处 WS Origin 跳过 + 1 处仅测试） |
 | TODO/FIXME/XXX/HACK | 0 |
@@ -49,8 +49,8 @@
 
 | ID | 标题 | 位置 | 类别 | 严重度 | 证据 | 修复建议 | 业务行为影响 | 关联批次 | 验收方式 | 状态 |
 |---|---|---|---|---|---|---|---|---|---|---|
-| CPLX-020 | God Object: CoreCEngine | engine/engine.go | 复杂度 | P1 | 2026-10-17 复测（HEAD=fee1ea9）：46 字段/69 方法 | 按职责拆为 EngineCore/DriverRegistry/TransportRegistry/StatsCollector 等组合结构 | 无 | Phase 4 批次 3 | 字段 ≤10 且方法 ≤12 | 延期至阶段5后 |
-| CPLX-025 | God Object: transportBatcher 16 字段/13 方法 | engine/batcher.go:53-110(struct) | 复杂度 | P2 | 16 字段, 13 方法 | 拆出 RetryPolicy/BufferState 子结构 | 无 | Phase 4 批次 3 | 字段 ≤10 且方法 ≤12 | 延期至阶段5后 |
+| CPLX-020 | God Object: CoreCEngine | engine/engine.go | 复杂度 | P1 | 2026-10-17 复测（HEAD=fee1ea9）：46 字段/69 方法（HEAD=0960ad7 实施时实测 46f/73m） | 按职责拆为 EngineCore/DriverRegistry/TransportRegistry/StatsCollector 等组合结构 | 无 | Phase 4 批次 3 | 字段 ≤10 且方法 ≤12 | 已修复（2026-10-17，纯重构 9 commit）：CoreCEngine 成为纯组合壳——10 字段（共享 RWMutex + 9 个 role）+ 37 个 ≤3 行接口转发（core.Engine 复合接口方法集不变）；role 计数：engineRuntime 7f/11m、driverRegistry 5f/11m、transportManager 6f/8m、ruleRole 1f/6m、statsCollector 9f/10m、writeManager 9f/9m、processingCore 8f/10m、readAccessor 2f/3m、lifecycleSupport 6f/5m；上限经 engine/structure_test.go 反射+AST 机械固化（字段≤10、方法≤12、壳纯转发） |
+| CPLX-025 | God Object: transportBatcher 16 字段/13 方法 | engine/batcher.go:53-110(struct) | 复杂度 | P2 | 16 字段, 13 方法（HEAD=0960ad7 实施时实测 19f/13m） | 拆出 RetryPolicy/BufferState 子结构 | 无 | Phase 4 批次 3 | 字段 ≤10 且方法 ≤12 | 已修复（2026-10-17）：拆 batcherRetryPolicy（4f/1m，吸收 publishWithRetryAndBuffer）+ batcherBufferState（8f/0m），transportBatcher 降至 10f/12m；计数口径=反射字段数/AST 声明方法数，经 engine/structure_test.go 固化 |
 
 ### 性能（PERF）
 

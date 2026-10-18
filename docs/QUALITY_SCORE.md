@@ -11,7 +11,7 @@
 | `core` | 10 | 10 | 10 | 10 | **10.0** | — | 100.0% |
 | `common` | 10 | 10 | 7 | 10 | **9.4** | `util.go` 401 行 | ~96%（util 96.3% · metrics 100% · observable 95.1% · trace 93.3%） |
 | `config` | 10 | 10 | 10 | 10 | **10.0** | — | 87.2% |
-| `engine` | 8 | 10 | 7 | 10 | **8.6** | God Object CoreCEngine 64 方法（CPLX-020 延期）；transportBatcher（CPLX-025 延期） | 82.3% |
+| `engine` | 8 | 10 | 9 | 10 | **9.0** | runtime.go 518 行（>400，<600 T1 达标）；Discovery struct 14 字段（账外观察，未登记） | 82.3% |
 | `driver/modbus` | 10 | 10 | 7 | 10 | **9.4** | `modbus_read.go` 515 行 | 88.1% |
 | `driver/opcua` | 8 | 10 | 10 | 10 | **9.2** | 覆盖率 70.7%（订阅路径 mock 限制） | 70.7% |
 | `driver/s7` | 10 | 10 | 10 | 10 | **10.0** | PERF-003 N+1 延期 | 85.6% |
@@ -50,11 +50,10 @@
 - 5 = 有 600–800 行文件或 gocyclo >20（nolint 抑制）
 - 3 = 有 >800 行文件或多个 God Object
 - 数据来源：Phase 5 后实测，**2026-10-17 复测修正**（阶段 A 审计发现原文档存在一处失实：
-  "CoreCEngine 字段已 43→11" 的缩减从未发生——写入该句的同一提交实测即 43 字段；复测时点 HEAD=fee1ea9）——**6** 文件 >400 行
-  （publisher.go 736 · modbus_read.go 536 · rule_build.go 481 · engine_lifecycle.go 446 · httppush/push.go 437 · util.go 401；
-  后两个为文档刷新后新晋）；**0** 函数 gocyclo >20（0 nolint:gocyclo，全部重构）；**0** 生产函数 gocyclo >15
-  （CPLX-018 候选带 8 函数 + stopComponents + readTag 全部拆分至 ≤15）；**2** God Object 延期
-  （CoreCEngine 46 字段/69 方法（复测值） · transportBatcher 16 字段/9 方法）
+  "CoreCEngine 字段已 43→11" 的缩减从未发生——写入该句的同一提交实测即 43 字段；复测时点 HEAD=fee1ea9）——**2026-10-17 CPLX-020/025 修复后实测（HEAD=26ea71a）**：**4** 文件 >400 行
+  （publisher.go 736 · modbus_read.go 537 · rule_build.go 491 · engine/runtime.go 518；均 <600 T1 达标，仅 publisher.go 经 tastetest exemptedFiles 登记 CPLX-001 豁免）；**0** 函数 gocyclo >20（0 nolint:gocyclo，全部重构）；**0** 生产函数 gocyclo >15
+  （CPLX-018 候选带 8 函数 + stopComponents + readTag 全部拆分至 ≤15）；**0** God Object
+  （CoreCEngine 46 字段/73 方法 已拆为 9-role 组合结构：壳 10 字段 + 37 个 ≤3 行转发，各 role ≤10 字段/≤12 方法 · transportBatcher 19 字段/13 方法 已拆 batcherRetryPolicy/batcherBufferState，降至 10 字段/12 方法；上限经 engine/structure_test.go 机械固化）
 
 ### 依赖合规（20%）
 - 10 = 0 环 / 0 跨层 / 0 跨域（当前全项目达标）
@@ -65,10 +64,10 @@
 | 目标 | 当前 | 差距 | 状态 |
 |------|------|------|------|
 | 整体覆盖率 ≥85% | **85.5%** | ✅ 达标 | Phase 5 完成 |
-| 无 >400 行文件 | 6 个 | -6 | publisher.go/modbus_read.go/rule_build.go/engine_lifecycle.go/push.go/util.go（T1 门禁阈值 600 行；>600 仅 publisher.go，经 tastetest exemptedFiles 登记 CPLX-001 豁免） |
+| 无 >400 行文件 | 4 个 | -4 | publisher.go/modbus_read.go/rule_build.go/engine/runtime.go（T1 门禁阈值 600 行；>600 仅 publisher.go，经 tastetest exemptedFiles 登记 CPLX-001 豁免；2026-10-17 CPLX 修复后复测） |
 | gocyclo 全 <20（无 nolint） | **0** | ✅ 达标 | Phase 4 完成，0 nolint:gocyclo |
 | 生产函数 gocyclo ≤15（CPLX-018） | **0** >15 | ✅ 达标 | 候选带 8 函数 + stopComponents + readTag 全部拆分至 ≤15 |
-| 无 God Object | 2 个 | -2 | CPLX-020/025 延期至阶段5后（CoreCEngine 46 字段/69 方法——2026-10-17 复测；原文档"43→11"系失实已更正） |
+| 无 God Object | **0** | ✅ 达标 | CPLX-020/025 已修复（2026-10-17）：CoreCEngine 46f/73m 拆为 9-role 组合结构（壳 10 字段 + 37 个 ≤3 行转发，core.Engine 方法集不变，各 role ≤10 字段/≤12 方法）；transportBatcher 19f/13m 拆 batcherRetryPolicy/batcherBufferState（10f/12m）；上限经 engine/structure_test.go 反射+AST 机械固化 |
 | 全包有 // Package 注释 | **0 缺** | ✅ 达标 | Phase 2 完成 |
 | 0 孤儿文档 | 1 个 | -1 | `docs/gates.md`（预期内，不阻断） |
 | 项目加权均分 ≥8.0 | **9.4** | ✅ 超额 | Phase 5 预期 8.8，实测 9.4 |
@@ -77,6 +76,6 @@
 
 | ID | 严重度 | 说明 | 状态 |
 |---|---|---|---|
-| CPLX-020 | P1 | CoreCEngine God Object（11 字段/64 方法，字段已从 43 降至 11） | 延期至阶段5后 |
-| CPLX-025 | P2 | transportBatcher God Object（16 字段/13 方法） | 延期至阶段5后 |
+| CPLX-020 | P1 | CoreCEngine God Object（46 字段/73 方法） | 已修复（2026-10-17：9-role 组合结构，壳 10 字段/37 转发，详见 tech-debt-tracker） |
+| CPLX-025 | P2 | transportBatcher God Object（19 字段/13 方法） | 已修复（2026-10-17：RetryPolicy/BufferState 子结构，10 字段/12 方法） |
 | PERF-003 | P2 | S7 逐 tag N+1 往返（变更行为，需测试覆盖） | 延期至阶段5后 |
