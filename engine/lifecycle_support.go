@@ -188,7 +188,10 @@ func (l *lifecycleSupport) readFromDriver(ctx context.Context, driver string, ta
 	}
 	start := time.Now()
 	values, err := d.Read(ctx, tags)
-	l.eng.stats.readLatency.Observe(time.Since(start))
+	// Observe read latency in both the global aggregate histogram and
+	// the per-driver labeled histogram (audit OBS-2: a single slow
+	// driver must be distinguishable from healthy siblings).
+	l.eng.stats.labeled.observeRead(driver, time.Since(start))
 	return values, err
 }
 

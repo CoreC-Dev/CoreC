@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/CoreC-Dev/CoreC/common/metrics"
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
@@ -131,20 +130,17 @@ type transportBatcher struct {
 	offlineBuffer *OfflineBuffer
 
 	// publishLatency records the duration of each PublishBatch attempt
-	// (including retries). Injected from the engine so the batcher's
-	// async flush path can observe the real transport latency, not just
-	// the in-memory enqueue time (IMPROVEMENTS #1 regression fix: after
-	// making publish() async, the observation must move to the async path
-	// where Transport.PublishBatch actually runs). nil = no observation
-	// (used only in tests that don't check histograms).
-	publishLatency *metrics.LatencyHistogram
+	// (including retries). Injected from the engine as a latencyObserver:
+	// normally a fan-out adapter that feeds BOTH the global aggregate
+	// histogram and the per-transport labeled histogram (audit OBS-2),
+	// but a plain metrics.LatencyHistogram (or nil in tests) also
+	// satisfies the interface.
+	publishLatency latencyObserver
 
-	// dataAge records the freshness of each data point at publish time.
-	// Injected from the engine so the batcher's async flush path can
-	// observe the real data age (collection-to-publish delay including
-	// batching/retry/offline-replay), not just the enqueue-time age.
-	// nil = no observation.
-	dataAge *metrics.LatencyHistogram
+	// dataAge records the freshness of each data point at publish time,
+	// same observer contract as publishLatency: global + per-transport
+	// labeled histogram via the engine's fan-out adapter.
+	dataAge latencyObserver
 
 	// onPublish is called with the number of points actually published
 	// when publishWithRetryAndBuffer or drainOnce succeeds. It lets the
@@ -171,16 +167,18 @@ type transportBatcher struct {
 // newTransportBatcher creates a batcher if batching config is set, otherwise returns nil.
 // If offlineBuffer is non-nil, the batcher will persist failed batches
 // to disk and replay them via a background drain goroutine.
-// publishLatency and dataAge are the engine's histograms for observing
-// real transport publish latency and data age on the async flush path.
-// They may be nil (tests that don't check histograms).
+// publishLatency and dataAge are latencyObservers for the real
+// transport publish latency and data age on the async flush path — the
+// engine passes fan-out adapters (global aggregate + per-transport
+// labeled histogram, audit OBS-2). They may be nil (tests that don't
+// check histograms).
 // onPublish is called with the point count when a batch is actually
 // published (not just enqueued). It may be nil (tests).
 // shutdownBudget bounds the shutdown flush (flushFinal); pass the
 // engine's shutdownTimeout so the final flush cannot outlive the
 // engine's own stop timeout. <= 0 defaults to
 // core.DefaultShutdownTimeout (stage-B audit finding B3.1).
-func newTransportBatcher(t core.Transport, cfg core.TransportConfig, offlineBuffer *OfflineBuffer, publishLatency, dataAge *metrics.LatencyHistogram, onPublish func(int), shutdownBudget time.Duration) *transportBatcher {
+func newTransportBatcher(t core.Transport, cfg core.TransportConfig, offlineBuffer *OfflineBuffer, publishLatency, dataAge latencyObserver, onPublish func(int), shutdownBudget time.Duration) *transportBatcher {
 	if cfg.BatchSize <= 0 && cfg.FlushInterval == "" && cfg.RetryCount <= 0 && offlineBuffer == nil {
 		return nil
 	}

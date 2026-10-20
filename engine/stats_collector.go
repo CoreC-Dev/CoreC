@@ -31,19 +31,13 @@ type statsCollector struct {
 	// stopped" alerting (audit finding OBS-1).
 	readRate *metrics.RateWindow
 
-	// Latency histograms for Prometheus exposure. Initialized in New()
-	// and accumulated across the engine lifetime (mirroring the total*
-	// counters above, which are also not reset on Reload). Exposed via
-	// ReadLatency()/PublishLatency() for the route metrics handler.
-	readLatency *metrics.LatencyHistogram
-	// publishLatency records transport publish latency.
-	publishLatency *metrics.LatencyHistogram
-	// dataAge records the freshness of data at publish time: elapsed
-	// time since DataPoint.Timestamp (collection/source time) to the
-	// publish attempt. Larger than I/O latency because it includes
-	// scheduler queuing, batching, and offline-buffer replay during
-	// outages.
-	dataAge *metrics.LatencyHistogram
+	// labeled owns every latency histogram in the engine: the global
+	// read/publish/data-age aggregates AND the per-driver /
+	// per-transport labeled histograms (audit finding OBS-2: one slow
+	// driver was invisible behind healthy siblings in the single
+	// aggregate). A dedicated sub-role keeps this collector under its
+	// CPLX field/method ceilings.
+	labeled *labeledLatencyStore
 
 	// statManager collects throughput counters (reads/publishes/errors).
 	// It is an instance field rather than the package-level
@@ -222,42 +216,4 @@ func (s *statsCollector) recordRead(n int) {
 func (s *statsCollector) onBatchPublish(n int) {
 	s.totalPublish.Add(uint64(n))
 	s.statManager.PushPublish(int64(n))
-}
-
-// ReadLatency returns the histogram tracking driver read latency
-// (time spent in Driver.Read), for Prometheus histogram exposure. The
-// returned pointer is always non-nil for an engine created via New().
-func (s *statsCollector) ReadLatency() *metrics.LatencyHistogram {
-	return s.readLatency
-}
-
-// ReadLatencyHistogram returns a point-in-time snapshot of the read
-// latency histogram, satisfying the core.LatencyProvider interface.
-func (s *statsCollector) ReadLatencyHistogram() core.LatencySnapshot {
-	buckets, counts, sum, count := s.readLatency.Snapshot()
-	return core.LatencySnapshot{Buckets: buckets, Counts: counts, Sum: sum, Count: count}
-}
-
-// PublishLatency returns the histogram tracking transport publish
-// latency (time spent in Transport.Publish / batcher.publish, including
-// fallback attempts), for Prometheus histogram exposure. The returned
-// pointer is always non-nil for an engine created via New().
-func (s *statsCollector) PublishLatency() *metrics.LatencyHistogram {
-	return s.publishLatency
-}
-
-// PublishLatencyHistogram returns a point-in-time snapshot of the publish
-// latency histogram, satisfying the core.LatencyProvider interface.
-func (s *statsCollector) PublishLatencyHistogram() core.LatencySnapshot {
-	buckets, counts, sum, count := s.publishLatency.Snapshot()
-	return core.LatencySnapshot{Buckets: buckets, Counts: counts, Sum: sum, Count: count}
-}
-
-// DataAgeHistogram returns a point-in-time snapshot of the data-age
-// (freshness) histogram, satisfying the core.DataAgeProvider interface.
-// Data age is the elapsed time from DataPoint.Timestamp (collection/source
-// time) to the publish attempt, measured at each publish site.
-func (s *statsCollector) DataAgeHistogram() core.LatencySnapshot {
-	buckets, counts, sum, count := s.dataAge.Snapshot()
-	return core.LatencySnapshot{Buckets: buckets, Counts: counts, Sum: sum, Count: count}
 }

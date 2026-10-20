@@ -2,6 +2,7 @@ package route
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -77,42 +78,84 @@ func writeDeadLetterMetrics(b *strings.Builder) {
 	fmt.Fprintf(b, "corec_dead_letter_pushed_total %d\n", pushed)
 }
 
-// writeLatencyMetrics emits read and publish latency histograms from the
-// engine's LatencyProvider role. When the engine does not satisfy
-// core.LatencyProvider (e.g. test mocks), no metrics are emitted.
+// writeLatencyMetrics emits the read and publish latency histogram
+// families plus the data-age (freshness) family.
+//
+// When the engine satisfies core.LabeledLatencyProvider (audit finding
+// OBS-2), the families carry driver/transport labels —
+// corec_read_latency_seconds_bucket{driver="plc1",le="..."} — so a
+// single slow driver or transport is distinguishable from healthy
+// siblings; aggregate queries use sum by (le) (...) in PromQL. Engines
+// without the role (test mocks) fall back to the unlabeled families.
 func writeLatencyMetrics(b *strings.Builder) {
 	eng := getEngine()
 
-	// Latency histograms (read/publish) are exposed via the LatencyProvider
-	// role interface. When the engine does not satisfy it (e.g. test
-	// mocks), no latency metrics are emitted.
-	if provider, ok := eng.(core.LatencyProvider); ok && provider != nil {
-		writeLatencyHistogram(b, "corec_read_latency_seconds", "Driver read latency in seconds", provider.ReadLatencyHistogram())
-		writeLatencyHistogram(b, "corec_publish_latency_seconds", "Transport publish latency in seconds", provider.PublishLatencyHistogram())
+	if labeled, ok := eng.(core.LabeledLatencyProvider); ok && labeled != nil {
+		writeLabeledHistogram(b, "corec_read_latency_seconds", "Driver read latency in seconds, per driver", "driver", labeled.ReadLatencyByDriver())
+		writeLabeledHistogram(b, "corec_publish_latency_seconds", "Transport publish latency in seconds, per transport", "transport", labeled.PublishLatencyByTransport())
+		writeLabeledHistogram(b, "corec_data_age_seconds", "Data age (publish time minus collection timestamp) in seconds, per transport", "transport", labeled.DataAgeByTransport())
+		return
 	}
 
-	// Data-age (freshness) histogram is exposed via a separate role
-	// interface so it is emitted independently of LatencyProvider.
+	// Unlabeled fallback: aggregate histograms only.
+	if provider, ok := eng.(core.LatencyProvider); ok && provider != nil {
+		writeLatencyHistogram(b, "corec_read_latency_seconds", "Driver read latency in seconds", nil, provider.ReadLatencyHistogram())
+		writeLatencyHistogram(b, "corec_publish_latency_seconds", "Transport publish latency in seconds", nil, provider.PublishLatencyHistogram())
+	}
 	if ap, ok := eng.(core.DataAgeProvider); ok && ap != nil {
-		writeLatencyHistogram(b, "corec_data_age_seconds", "Data age (publish time minus collection timestamp) in seconds", ap.DataAgeHistogram())
+		writeLatencyHistogram(b, "corec_data_age_seconds", "Data age (publish time minus collection timestamp) in seconds", nil, ap.DataAgeHistogram())
 	}
 }
 
-// writeLatencyHistogram renders a single Prometheus histogram family from
-// a LatencySnapshot. Buckets and Counts are already cumulative (the
-// histogram implementation increments every bucket whose upper bound >=
-// the observed value), so we emit them directly.
-func writeLatencyHistogram(b *strings.Builder, name, help string, snap core.LatencySnapshot) {
+// writeLabeledHistogram renders one histogram family as a series per
+// label value, in sorted label order for deterministic output. An
+// empty snapshot map emits nothing (no family header with zero
+// samples), matching the unlabeled path's behaviour for empty data.
+func writeLabeledHistogram(b *strings.Builder, name, help, label string, snaps map[string]core.LatencySnapshot) {
+	if len(snaps) == 0 {
+		return
+	}
+	keys := make([]string, 0, len(snaps))
+	for k := range snaps {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		writeLatencyHistogram(b, name, help, map[string]string{label: key}, snaps[key])
+	}
+}
+
+// writeLatencyHistogram renders a single Prometheus histogram series
+// (one label set) from a LatencySnapshot. Buckets and Counts are
+// already cumulative (the histogram implementation increments every
+// bucket whose upper bound >= the observed value), so they are emitted
+// directly. A nil labels map renders the unlabeled series.
+func writeLatencyHistogram(b *strings.Builder, name, help string, labels map[string]string, snap core.LatencySnapshot) {
 	writePromHeader(b, name, "histogram", help)
+	// labelPrefix carries the caller's labels each followed by a comma
+	// (e.g. `driver="plc1",`), so bucket lines splice `le=` in after
+	// them. sum/count lines use the comma-trimmed form, and render
+	// brace-less when there are no labels (identical to the
+	// pre-labeled exposition format).
+	labelPrefix := ""
+	for k, v := range labels {
+		labelPrefix += fmt.Sprintf("%s=%q,", k, promEscape(v))
+	}
+	suffix := strings.TrimSuffix(labelPrefix, ",")
 	for i, ub := range snap.Buckets {
 		var le string
 		if i < len(snap.Counts) {
 			le = strconv.FormatFloat(ub, 'f', -1, 64)
-			fmt.Fprintf(b, "%s_bucket{le=%q} %d\n", name, le, snap.Counts[i])
+			fmt.Fprintf(b, "%s_bucket{%sle=%q} %d\n", name, labelPrefix, le, snap.Counts[i])
 		}
 	}
 	// +Inf bucket = total count
-	fmt.Fprintf(b, "%s_bucket{le=\"+Inf\"} %d\n", name, snap.Count)
-	fmt.Fprintf(b, "%s_sum %g\n", name, snap.Sum)
-	fmt.Fprintf(b, "%s_count %d\n", name, snap.Count)
+	fmt.Fprintf(b, "%s_bucket{%sle=\"+Inf\"} %d\n", name, labelPrefix, snap.Count)
+	if suffix != "" {
+		fmt.Fprintf(b, "%s_sum{%s} %g\n", name, suffix, snap.Sum)
+		fmt.Fprintf(b, "%s_count{%s} %d\n", name, suffix, snap.Count)
+	} else {
+		fmt.Fprintf(b, "%s_sum %g\n", name, snap.Sum)
+		fmt.Fprintf(b, "%s_count %d\n", name, snap.Count)
+	}
 }

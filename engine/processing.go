@@ -331,8 +331,10 @@ func (p *processingCore) publishToTargets(point core.DataPoint, targets []string
 
 		start := time.Now()
 		err := entry.transport.Publish(p.eng.runtime.ctx, point)
-		p.eng.stats.publishLatency.Observe(time.Since(start))
-		p.eng.stats.dataAge.Observe(time.Since(point.Timestamp))
+		// Observe in both the global aggregate and the per-transport
+		// labeled histograms (audit OBS-2).
+		p.eng.stats.labeled.observePublish(entry.name, time.Since(start))
+		p.eng.stats.labeled.observeAge(entry.name, time.Since(point.Timestamp))
 		if err != nil {
 			slog.Error("publish failed", "target", entry.name, "error", err)
 			p.eng.stats.totalErrors.Add(1)

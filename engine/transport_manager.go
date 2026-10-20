@@ -111,7 +111,10 @@ func (m *transportManager) AddTransport(config core.TransportConfig) error {
 	// fix: previously publish.go counted prematurely). The engine's
 	// shutdownTimeout is threaded through as the batcher's flushFinal
 	// budget so the shutdown flush cannot outlive shutdown (B3.1).
-	if b := newTransportBatcher(transport, config, m.offlineBuffer, m.eng.stats.publishLatency, m.eng.stats.dataAge, m.eng.stats.onBatchPublish, m.eng.runtime.shutdownTimeout); b != nil {
+	if b := newTransportBatcher(transport, config, m.offlineBuffer,
+		m.eng.stats.labeled.publishObserver(transport.Name()),
+		m.eng.stats.labeled.ageObserver(transport.Name()),
+		m.eng.stats.onBatchPublish, m.eng.runtime.shutdownTimeout); b != nil {
 		b.start(m.eng.runtime.ctx)
 		m.batchers[config.Name] = b
 		slog.Info("transport batching enabled",
@@ -309,8 +312,8 @@ func (m *transportManager) tryFallback(point core.DataPoint, primaryName string,
 
 	start := time.Now()
 	err := fb.transport.Publish(m.eng.runtime.ctx, point)
-	m.eng.stats.publishLatency.Observe(time.Since(start))
-	m.eng.stats.dataAge.Observe(time.Since(point.Timestamp))
+	m.eng.stats.labeled.observePublish(fb.name, time.Since(start))
+	m.eng.stats.labeled.observeAge(fb.name, time.Since(point.Timestamp))
 	if err != nil {
 		slog.Error("fallback publish also failed", "fallback", fb.name, "error", err)
 		m.eng.stats.totalErrors.Add(1)

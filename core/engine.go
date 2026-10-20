@@ -133,6 +133,25 @@ type LatencyProvider interface {
 	PublishLatencyHistogram() LatencySnapshot
 }
 
+// LabeledLatencyProvider exposes the per-driver / per-transport latency
+// histograms for Prometheus exposure (audit finding OBS-2: the single
+// global histogram aggregated every driver and transport into one
+// distribution, so a single slow driver was invisible behind healthy
+// siblings). It is a separate role interface the route layer
+// type-asserts optionally; engines that do not implement it keep the
+// unlabeled families. *CoreCEngine satisfies this interface.
+type LabeledLatencyProvider interface {
+	// ReadLatencyByDriver returns one read-latency snapshot per driver
+	// that has completed at least one read.
+	ReadLatencyByDriver() map[string]LatencySnapshot
+	// PublishLatencyByTransport returns one publish-latency snapshot
+	// per transport that has published at least once.
+	PublishLatencyByTransport() map[string]LatencySnapshot
+	// DataAgeByTransport returns one data-age snapshot per transport
+	// that has published at least once.
+	DataAgeByTransport() map[string]LatencySnapshot
+}
+
 // LatencySnapshot is a point-in-time copy of a latency histogram's state.
 // Buckets and Counts are aligned: Buckets[i] is the upper bound (in seconds)
 // and Counts[i] is the cumulative number of observations with duration <=

@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"github.com/CoreC-Dev/CoreC/common/metrics"
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
@@ -53,24 +52,34 @@ func (e *CoreCEngine) FlushBatchesDropped() uint64 {
 	return e.stats.FlushBatchesDropped()
 }
 
-func (e *CoreCEngine) ReadLatency() *metrics.LatencyHistogram {
-	return e.stats.ReadLatency()
-}
-
 func (e *CoreCEngine) ReadLatencyHistogram() core.LatencySnapshot {
-	return e.stats.ReadLatencyHistogram()
-}
-
-func (e *CoreCEngine) PublishLatency() *metrics.LatencyHistogram {
-	return e.stats.PublishLatency()
+	return e.stats.labeled.globalReadSnapshot()
 }
 
 func (e *CoreCEngine) PublishLatencyHistogram() core.LatencySnapshot {
-	return e.stats.PublishLatencyHistogram()
+	return e.stats.labeled.globalPublishSnapshot()
 }
 
 func (e *CoreCEngine) DataAgeHistogram() core.LatencySnapshot {
-	return e.stats.DataAgeHistogram()
+	return e.stats.labeled.globalAgeSnapshot()
+}
+
+// ReadLatencyByDriver forwards to the stats collector for the metrics
+// route's optional core.LabeledLatencyProvider role (audit OBS-2).
+func (e *CoreCEngine) ReadLatencyByDriver() map[string]core.LatencySnapshot {
+	return e.stats.labeled.readSnapshots()
+}
+
+// PublishLatencyByTransport forwards to the stats collector for the
+// metrics route's optional core.LabeledLatencyProvider role.
+func (e *CoreCEngine) PublishLatencyByTransport() map[string]core.LatencySnapshot {
+	return e.stats.labeled.publishSnapshots()
+}
+
+// DataAgeByTransport forwards to the stats collector for the metrics
+// route's optional core.LabeledLatencyProvider role.
+func (e *CoreCEngine) DataAgeByTransport() map[string]core.LatencySnapshot {
+	return e.stats.labeled.ageSnapshots()
 }
 
 // SchedulerHealth forwards to the scheduler for the metrics route's

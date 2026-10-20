@@ -130,12 +130,24 @@ corec_driver_last_read_seconds{driver="plc2"} 748.9
 
 ### 延迟直方图指标
 
-引擎自动测量驱动读取和传输发布的耗时，以 Prometheus 直方图格式暴露：
+引擎自动测量驱动读取和传输发布的耗时，以 Prometheus 直方图格式暴露。**三个直方图族都带维度标签**：读延迟按 `driver`、发布延迟与数据年龄按 `transport` 分序列——单个慢驱动/慢传输不再被健康同伴的平均值稀释（观测审计 OBS-2）。聚合查询用 `sum by (le)`：
 
-| 指标 | 类型 | 说明 |
-|:---|:---|:---|
-| `corec_read_latency_seconds` | histogram | 驱动读取延迟分布（桶：1ms/5ms/10ms/50ms/100ms/500ms/1s/5s/10s） |
-| `corec_publish_latency_seconds` | histogram | 传输发布延迟分布（同上桶配置） |
+| 指标 | 类型 | 标签 | 说明 |
+|:---|:---|:---|:---|
+| `corec_read_latency_seconds` | histogram | `driver` | 该驱动的读取延迟分布（桶：1ms/5ms/10ms/50ms/100ms/500ms/1s/5s/10s）；至少完成一次读取的驱动才有序列 |
+| `corec_publish_latency_seconds` | histogram | `transport` | 该传输的发布延迟分布（同上桶配置） |
+| `corec_data_age_seconds` | histogram | `transport` | 该传输的数据年龄分布——采集到发布的真实延迟，含批量/重试/离线回放（桶：0.1s~600s） |
+
+```promql
+# 单个驱动的读延迟 P99（标签化后可直接按驱动拆分）
+histogram_quantile(0.99, rate(corec_read_latency_seconds_bucket{driver="plc1"}[5m]))
+
+# 全局聚合读延迟 P99（跨驱动合并）
+histogram_quantile(0.99, sum by (le) (rate(corec_read_latency_seconds_bucket[5m])))
+
+# 找出最慢的传输（按中位发布延迟排序）
+histogram_quantile(0.5, sum by (transport, le) (rate(corec_publish_latency_seconds_bucket[5m])))
+```
 
 ### Go 运行时指标
 
@@ -191,11 +203,8 @@ corec_goroutines > 500
 # 驱动重连频率（频繁重连说明连接不稳定）
 rate(corec_driver_reconnect_total[5m]) > 0.1
 
-# 读取延迟 P99
-histogram_quantile(0.99, rate(corec_read_latency_seconds_bucket[5m]))
-
-# 发布延迟 P95
-histogram_quantile(0.95, rate(corec_publish_latency_seconds_bucket[5m]))
+# 读取延迟 P99（跨驱动聚合；单驱动查询见"延迟直方图指标"节）
+histogram_quantile(0.99, sum by (le) (rate(corec_read_latency_seconds_bucket[5m])))
 
 # 离线缓冲积压告警
 corec_offline_buffer_pending > 100

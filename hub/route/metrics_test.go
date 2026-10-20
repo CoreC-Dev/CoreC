@@ -84,19 +84,19 @@ func TestPromMetricsWithDrivers(t *testing.T) {
 			TotalRead: 500,
 			DriverStats: map[string]core.DriverStatus{
 				"modbus1": {
-					Name:      "modbus1",
-					Type:      "modbus-tcp",
-					State:     core.StateConnected,
-					ReadCount: 400,
+					Name:       "modbus1",
+					Type:       "modbus-tcp",
+					State:      core.StateConnected,
+					ReadCount:  400,
 					ErrorCount: 2,
 					TagCount:   10,
 					LastRead:   lastRead,
 				},
 				"opcua1": {
-					Name:      "opcua1",
-					Type:      "opcua",
-					State:     core.StateDisconnected,
-					ReadCount: 100,
+					Name:       "opcua1",
+					Type:       "opcua",
+					State:      core.StateDisconnected,
+					ReadCount:  100,
 					ErrorCount: 5,
 					TagCount:   5,
 					// LastRead zero: never completed a read — the
@@ -455,5 +455,102 @@ func TestPromMetricsDeadLetter(t *testing.T) {
 		if !strings.Contains(output, s) {
 			t.Errorf("metrics output missing %q\nOutput:\n%s", s, output)
 		}
+	}
+}
+
+// TestPromMetricsLabeledLatency verifies the labeled histogram families
+// render per-driver/per-transport series (audit OBS-2) when the engine
+// provides core.LabeledLatencyProvider, and that engines with only the
+// plain LatencyProvider keep the unlabeled fallback.
+type mockLabeledLatency struct {
+	mockEngineV2
+	byDriver       map[string]core.LatencySnapshot
+	byTransport    map[string]core.LatencySnapshot
+	byTransportAge map[string]core.LatencySnapshot
+}
+
+func (m *mockLabeledLatency) ReadLatencyByDriver() map[string]core.LatencySnapshot {
+	return m.byDriver
+}
+func (m *mockLabeledLatency) PublishLatencyByTransport() map[string]core.LatencySnapshot {
+	return m.byTransport
+}
+func (m *mockLabeledLatency) DataAgeByTransport() map[string]core.LatencySnapshot {
+	return m.byTransportAge
+}
+
+func TestPromMetricsLabeledLatency(t *testing.T) {
+	eng := &mockLabeledLatency{
+		byDriver: map[string]core.LatencySnapshot{
+			"plc1": {Buckets: []float64{0.01}, Counts: []uint64{7}, Sum: 0.05, Count: 10},
+			"plc2": {Buckets: []float64{0.01}, Counts: []uint64{3}, Sum: 0.25, Count: 4},
+		},
+		byTransport: map[string]core.LatencySnapshot{
+			"mqtt-a": {Buckets: []float64{0.01}, Counts: []uint64{9}, Sum: 0.02, Count: 12},
+		},
+		byTransportAge: map[string]core.LatencySnapshot{
+			"mqtt-a": {Buckets: []float64{0.5}, Counts: []uint64{6}, Sum: 1.5, Count: 6},
+		},
+	}
+	ts := newTestServer("", eng)
+	defer ts.Close()
+
+	resp := authedGet(t, ts, "/metrics", "")
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	output := string(body)
+
+	checks := []string{
+		"corec_read_latency_seconds_bucket{driver=\"plc1\",le=\"0.01\"} 7",
+		"corec_read_latency_seconds_bucket{driver=\"plc1\",le=\"+Inf\"} 10",
+		"corec_read_latency_seconds_count{driver=\"plc2\"} 4",
+		"corec_publish_latency_seconds_bucket{transport=\"mqtt-a\",le=\"0.01\"} 9",
+		"corec_data_age_seconds_bucket{transport=\"mqtt-a\",le=\"0.5\"} 6",
+	}
+	for _, s := range checks {
+		if !strings.Contains(output, s) {
+			t.Errorf("metrics output missing %q\nOutput:\n%s", s, output)
+		}
+	}
+}
+
+// TestPromMetricsUnlabeledLatencyFallback verifies engines that only
+// implement core.LatencyProvider (no labeled role) still get the
+// unlabeled families.
+type mockUnlabeledLatency struct {
+	mockEngineV2
+	read    core.LatencySnapshot
+	publish core.LatencySnapshot
+}
+
+func (m *mockUnlabeledLatency) ReadLatencyHistogram() core.LatencySnapshot    { return m.read }
+func (m *mockUnlabeledLatency) PublishLatencyHistogram() core.LatencySnapshot { return m.publish }
+
+func TestPromMetricsUnlabeledLatencyFallback(t *testing.T) {
+	eng := &mockUnlabeledLatency{
+		read:    core.LatencySnapshot{Buckets: []float64{0.01}, Counts: []uint64{7}, Sum: 0.05, Count: 10},
+		publish: core.LatencySnapshot{Buckets: []float64{0.01}, Counts: []uint64{9}, Sum: 0.02, Count: 12},
+	}
+	ts := newTestServer("", eng)
+	defer ts.Close()
+
+	resp := authedGet(t, ts, "/metrics", "")
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	output := string(body)
+
+	checks := []string{
+		"corec_read_latency_seconds_bucket{le=\"0.01\"} 7",
+		"corec_read_latency_seconds_count 10",
+		"corec_publish_latency_seconds_bucket{le=\"0.01\"} 9",
+	}
+	for _, s := range checks {
+		if !strings.Contains(output, s) {
+			t.Errorf("metrics output missing %q\nOutput:\n%s", s, output)
+		}
+	}
+	// No labeled series may appear in the fallback path.
+	if strings.Contains(output, "driver=\"") {
+		t.Errorf("unlabeled fallback unexpectedly contains labeled series\nOutput:\n%s", output)
 	}
 }

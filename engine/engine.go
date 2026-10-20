@@ -116,10 +116,8 @@ func New() core.Engine {
 	e.writes.deadLetterMaxLen = core.DefaultDeadLetterMaxLen
 	e.driverReg.tagFileWatchers = make(map[string]*tagFileWatcher)
 	e.driverReg.driverConfigs = make(map[string]core.DriverConfig)
-	e.stats.readLatency = metrics.NewLatencyHistogram(metrics.DefaultReadLatencyBuckets)
-	e.stats.publishLatency = metrics.NewLatencyHistogram(metrics.DefaultPublishLatencyBuckets)
-	e.stats.dataAge = metrics.NewLatencyHistogram(metrics.DefaultDataAgeBuckets)
 	e.stats.readRate = metrics.NewRateWindow()
+	e.stats.labeled = newLabeledLatencyStore()
 	return e
 }
 
