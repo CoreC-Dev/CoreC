@@ -1,0 +1,44 @@
+# 执行计划：生产级加固（audit-backend-functionality P0/P1 落地）
+
+> 状态：执行中 · 来源：`/root/DSH/audit-backend-functionality.md`（2026-10-19 后端功能完整性审计，40 项路线图）
+> 业务行为影响：**变更行为**（写路径反演、PUT /configs 错误码、指标新增/删除——每项单独登记，见各行）
+> 跨仓库：CoreC-Dashboard 需同步的项标注 [FE]；文档需同步的项标注 [DOC]
+
+## 1. 目标
+
+按审计推荐方案落地 P0+P1 全部 11 项，使后端达到"可告警、可归因、写值正确"的生产水位；前端与文档随行为变更同步。P2/P3 项在 P0/P1 收口后另开计划。
+
+## 2. 范围与顺序（P0 → P1）
+
+| # | 项 | 来源 | 行为影响 | 验收 |
+|---|---|---|---|---|
+| 1 | **写路径 scale/offset 反演**：三驱动写编码前应用 `(value-offset)/scale`；`WriteCommand.Raw` 显式逃生口；审计记录 Raw | DRV-1 (P0) | 变更行为：带 scale 的 tag 写入值从"原样下发"变为"反演后下发"（原本即错） | 带 scale tag 写工程值→设备收到正确原始值；`raw:true` 跳过反演；三驱动测试 |
+| 2 | `corec_points_per_second` 语义修复（改为 60s 滑动窗口速率） | OBS-1 | 变更行为：指标从"启动均值"变为"近 60s 速率" | 断流 1 分钟内指标→0；[DOC] observability.md 同步 |
+| 3 | `corec_driver_last_read_seconds`（年龄 gauge）| OBS-5 | 无（新增） | /metrics 含 per-driver last_read 年龄；[DOC] 同步 |
+| 4 | 延迟直方图加 driver/transport 标签（保留全局聚合族） | OBS-2 | 无（新增带标签族） | `corec_read_latency_seconds_bucket{driver=...}` 可查 |
+| 5 | 死信可观测：queue_size gauge + pushed_total；MQTT 入站死信并入 `/write/failed?source=ingress` | OBS-3/RES-1/TRA-4 | 无（新增指标+查询参数） | 死信堆积可告警；入站丢弃可查；[FE] DLQ 视图加 source 维度 |
+| 6 | **告警一等公民化**：engine 内建 alertManager（active/ack/history 去重冷却）+ `GET /alerts` + `WS /alerts/stream` + `corec_alerts_total{rule}` | OBS-4/HUB-6 | 变更行为：新增 API 面（旧 /logs 流不动） | 告警有状态/历史/流；[FE] AlertsPage 接入；[DOC] API 参考 |
+| 7 | 调度器状态指标：degraded / overruns_total（不清零）/ consecutive_errors | OBS-5 | 无（新增） | 降级发生时可在 /metrics 看到 |
+| 8 | derived-tags 热应用；node/buffer 进 restart-required 警告 | CFG-1 | 变更行为：reload 改派生标签即时生效 | 改派生标签+PUT 后实际生效 |
+| 9 | reload 失败善后：diff 失败时按 oldCfg 回滚已删组件 | CFG-2 | 变更行为：失败后引擎与 /configs/raw 一致 | 注入失败 reload→引擎组件集不变 |
+| 10 | PUT /configs 错误分类：parse/validate→400 透传；apply 失败→500 掩码 | CFG-3/HUB-2 | 变更行为：错误码语义 | 非法配置 PUT 返回 400+原因；[FE] 错误展示无需改（原样展示 error） |
+| 11 | OPC UA 订阅质量映射：读 `item.Value.Status` → Quality | DRV-2 | 变换行为：订阅 Bad 值不再以 Good 入管线 | 订阅回调按 StatusCode 置 Quality |
+
+## 3. 设计要点（关键决策，B11 登记）
+
+- **反演数学**：`raw = (value - offset) / scale`，镜像 `util.ApplyTransform` 的归一化：`scale==0 && offset==0` 视为未配置（原样透传）；`scale==0 && offset!=0` 读侧等价 `+offset`，写侧反演为 `-offset`。非数值（bool/string/bytes）读侧不变换，写侧同样透传。helper 落位 `driverbase.WriteValueForTag`（单一事实源，三驱动共用），数学原语 `util.InvertTransform`。
+- **滑动窗口速率**：statsCollector 增加 60s 环形分桶（每秒一个桶，原子操作），`PointsPerSec` 取窗口内总数/窗口时长；uptime<窗口时退化为总数/uptime。语义即文档宣称的"当前速率"。
+- **告警状态模型**：不引入"恢复表达式"（超出范围）；active 定义为"未 ack 且最近 `alert-active-window`（默认 15m）内再触发"；ack 经 `PATCH /alerts/{key}/ack`；自动 clear 超窗未再触发。去重窗口内合并计数（复用 notify 的 cooldown 思路，引擎层实现）。历史 ring 封顶 500。`/alerts/stream` 推送事件（fired/ack/cleared）。
+- **错误分类**：executor 返回 `*ConfigError`（parse/validate 类，客户端可修复）vs 其他（内部）；route 层 `errors.As` 判定 400/500。
+- **回滚**：`ApplyConfig` 在 diff 前记录被删组件名，任一 diff 失败→按 oldCfg 逐一 re-Add（best-effort，日志记录失败项）。
+
+## 4. 同步义务
+
+- [DOC] README API 表、docs/guide/observability.md 指标表、docs/api/* 新端点、docs/config/drivers.md scale 写语义。
+- [FE] #5 DLQ source 维度、#6 AlertsPage 接 `/alerts`+`/alerts/stream`、#2 Dashboard 若消费 points_per_sec 需确认语义。
+- 提交粒度：每项一个 commit，行为变更在 message 显式登记（R2）。
+
+## 5. 验收基线
+
+- `go build ./...`、`go vet ./...`、`go test -short ./...` 全绿；关键路径补 race（`go test -race` 定向跑改动包）。
+- Dashboard `npm run build` + `npm test` 全绿。
