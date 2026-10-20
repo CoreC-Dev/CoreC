@@ -202,20 +202,26 @@ Content-Type: application/json
 
 #### 请求体
 
-请求体为 JSON 对象，键为配置路径，值为更新内容。当前仅支持以下键：
+请求体为 JSON 对象，键为配置路径，值为更新内容。支持以下运行时键（roadmap #23）：
 
 | 键 | 类型 | 说明 |
 |:---|:---|:---|
 | `log-level` | string | 运行时日志级别（`debug`/`info`/`warn`/`error`） |
+| `log-format` | string | 运行时日志输出格式（`text`/`json`）；空串为 no-op。只影响 stdout 渲染，`/logs` WS 流的负载不受影响 |
+| `stale-threshold` | string (duration) | 运行时数据陈旧阈值（如 `"45s"`；`"0s"` 禁用）——`/tags` 的 `is_stale` 标注随之生效，无需重启 |
 
 ```json
 {
-  "log-level": "debug"
+  "log-level": "debug",
+  "log-format": "json",
+  "stale-threshold": "45s"
 }
 ```
 
-::: warning 仅支持 log-level
-`PATCH /configs` 当前仅支持修改 `log-level`。传入任何其他键将返回 `400 Bad Request`。API 监听地址、Secret 等字段需通过 `PUT /configs` 全量重载并重启生效。
+三个键均为**运行时即时生效**：当前配置摘要（`currentCfg`）同步更新，后续 `GET /configs/raw` 与热重载读到的是补丁后的值；每个成功的补丁都会记入 [`GET /configs/audit`](#配置变更审计--get-configsaudit)。
+
+::: warning 不支持的键
+传入表外键将返回 `400 Bad Request`。API 监听地址、Secret 等字段需通过 `PUT /configs` 全量重载并重启生效。
 :::
 
 ::: warning 请求体限制

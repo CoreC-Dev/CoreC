@@ -244,6 +244,15 @@ type IngressDeadLetterProvider interface {
 	IngressDeadLetters() []DeadLetterEntry
 }
 
+// StaleThresholdPatcher is the optional role PATCH /configs uses to
+// apply global.engine.stale-threshold at runtime (roadmap #23): the
+// threshold gates /tags is_stale annotation, and toggling it while
+// debugging freshness beats a full restart. Engines that do not
+// implement it reject the patch key.
+type StaleThresholdPatcher interface {
+	SetStaleThreshold(d time.Duration)
+}
+
 // DerivedTagApplier exposes hot-reload of the derived tag set (audit
 // finding CFG-1: derived-tags changes were previously ignored by
 // ApplyConfig — PUT returned success while nothing happened). The

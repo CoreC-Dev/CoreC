@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CoreC-Dev/CoreC/core"
 )
@@ -600,3 +601,81 @@ type nilEngineOnlySuspendResume struct{ core.Engine }
 
 func (nilEngineOnlySuspendResume) Suspend() error { return nil }
 func (nilEngineOnlySuspendResume) Resume() error  { return nil }
+
+// TestPatchExpansionLogFormatAndStaleThreshold verifies PATCH /configs
+// handles the three runtime keys (roadmap #23): log-level (existing),
+// log-format (swaps the stdout handler without breaking the /logs bus),
+// and stale-threshold (runtime role; engines without it reject).
+func TestPatchExpansionLogFormatAndStaleThreshold(t *testing.T) {
+	cfgAudit.mu.Lock()
+	cfgAudit.entries = nil
+	cfgAudit.mu.Unlock()
+
+	patchEngine := &patchableEngine{}
+	Init(patchEngine, &core.Config{Global: core.GlobalConfig{LogLevel: "info"}}, "")
+	defer Init(nil, nil, "")
+
+	// Unknown keys still rejected.
+	if err := PatchWithOrigin(map[string]any{"bogus": 1}, ""); err == nil {
+		t.Error("expected rejection of unknown patch key")
+	}
+
+	// log-format: json applies; invalid values rejected.
+	if err := PatchWithOrigin(map[string]any{"log-format": "json"}, "r1"); err != nil {
+		t.Fatalf("log-format json: %v", err)
+	}
+	if err := PatchWithOrigin(map[string]any{"log-format": "xml"}, ""); err == nil {
+		t.Error("expected rejection of invalid log-format")
+	}
+	// "" is a documented no-op.
+	if err := PatchWithOrigin(map[string]any{"log-format": ""}, ""); err != nil {
+		t.Fatalf("log-format empty no-op: %v", err)
+	}
+
+	// stale-threshold: applies through the role.
+	if err := PatchWithOrigin(map[string]any{"stale-threshold": "45s"}, "r2"); err != nil {
+		t.Fatalf("stale-threshold: %v", err)
+	}
+	if patchEngine.threshold != 45*time.Second {
+		t.Errorf("engine threshold = %v, want 45s", patchEngine.threshold)
+	}
+	// "0" disables.
+	if err := PatchWithOrigin(map[string]any{"stale-threshold": "0s"}, ""); err != nil {
+		t.Fatalf("stale-threshold disable: %v", err)
+	}
+	if patchEngine.threshold != 0 {
+		t.Errorf("engine threshold after disable = %v, want 0", patchEngine.threshold)
+	}
+	// Malformed durations rejected.
+	if err := PatchWithOrigin(map[string]any{"stale-threshold": "soon"}, ""); err == nil {
+		t.Error("expected rejection of malformed stale-threshold")
+	}
+
+	// Audit carries one entry per applied patch (json + 45s + 0s; the
+	// rejected/empty ones record nothing).
+	entries := ConfigAuditHistory()
+	var keys []string
+	for _, e := range entries {
+		keys = append(keys, e.Keys[0])
+	}
+	want := []string{"stale-threshold", "stale-threshold", "log-format"}
+	if len(entries) != 3 {
+		t.Fatalf("audit entries = %v, want %v (3 applied patches)", keys, want)
+	}
+	for i := range want {
+		if keys[i] != want[i] {
+			t.Errorf("audit key[%d] = %q, want %q", i, keys[i], want[i])
+		}
+	}
+}
+
+// patchableEngine is a core.Engine stub with the StaleThresholdPatcher
+// role recording the last applied threshold.
+type patchableEngine struct {
+	core.Engine
+	threshold time.Duration
+}
+
+func (p *patchableEngine) SetStaleThreshold(d time.Duration) { p.threshold = d }
+func (p *patchableEngine) Suspend() error                    { return nil }
+func (p *patchableEngine) Resume() error                     { return nil }

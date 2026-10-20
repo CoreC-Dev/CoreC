@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"time"
+
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
@@ -164,6 +166,12 @@ func (e *CoreCEngine) DroppedBreakdown() core.DroppedBreakdown {
 // families (optional core.DriverMetricsProvider role, OBS-8).
 func (e *CoreCEngine) DriverMetrics() []core.DriverMetric {
 	return e.stats.DriverMetrics()
+}
+
+// SetStaleThreshold forwards to the read accessor for PATCH /configs
+// (optional core.StaleThresholdPatcher role, roadmap #23).
+func (e *CoreCEngine) SetStaleThreshold(d time.Duration) {
+	e.reads.SetStaleThreshold(d)
 }
 
 // --- Driver pause/resume (audit RES-4, roadmap #21) ---

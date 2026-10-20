@@ -4,6 +4,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync/atomic"
 	"time"
 
@@ -62,4 +63,15 @@ func (a *readAccessor) StaleThreshold() time.Duration {
 	// Read atomically: this is called from HTTP handlers concurrently
 	// with applyEngineConfig writes during Reload/Start.
 	return time.Duration(a.staleThreshold.Load())
+}
+
+// SetStaleThreshold applies a runtime staleness-threshold change
+// (core.StaleThresholdPatcher, roadmap #23): the atomic keeps the API
+// read path lock-free; d <= 0 disables the annotation.
+func (r *readAccessor) SetStaleThreshold(d time.Duration) {
+	if d <= 0 {
+		d = 0
+	}
+	r.staleThreshold.Store(int64(d))
+	slog.Info("stale threshold patched", "threshold", d)
 }
