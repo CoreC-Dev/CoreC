@@ -1,6 +1,6 @@
 # 执行计划：生产级加固（audit-backend-functionality P0/P1 落地）
 
-> 状态：P0+P1（12/12）+ P2 已全部落地（17/17：#12–#30，TRA-1 复核为误报）；P3 打磨项见路线图 #31–#40
+> 状态：P0+P1（12/12）+ P2（17/17）已落地；P3 已落地 6 项（#31 #32 #33 #34 #36 #38）；余 P3：#35（/tags、/write/history 过滤分页）、#37（批量写 API）、#39（docs 残留同步）
 > 来源：`docs/audits/backend-functionality-audit-2026-10-19.md`（2026-10-19 后端功能完整性审计，40 项路线图）
 > 业务行为影响：**变更行为**（写路径反演、PUT /configs 错误码、指标新增/删除——每项单独登记，见各行）
 > 跨仓库：CoreC-Dashboard 需同步的项标注 [FE]；文档需同步的项标注 [DOC]
@@ -46,6 +46,17 @@
 | 27 | 专用免密 metrics 端口（metrics-addr） | OBS-12 | `bfa1577` |
 | 25 | settings 键名校验（typo 拒绝 + 漂移测试） | CFG-4 | `005cfdc` |
 | 26 | 资源级 DELETE 端点（drivers/transports/rules） | HUB-3 | `ed64736`（FE `02cc612`） |
+
+## P3 批次进度（2026-10-20）
+
+| 路线图# | 项 | 状态 | Commit |
+|---|---|---|---|
+| 31 | runtime 累计指标改 counter TYPE | OBS-10 | `92c7aef` |
+| 32 | /traffic 改推速率（服务端差分，mode=totals 兼容） | OBS-11 | `92c7aef`（FE `62aaa5a`） |
+| 33 | mirror 语义澄清（文档对齐实现） | RULE-1 | `92c7aef` |
+| 34 | 规则环境加 timestamp | RULE-3 | `92c7aef` |
+| 36 | webhook 批量响应逐项计数 | TRA-3 | `92c7aef` |
+| 38 | 派生标签编译期循环检测 | PIPE-4 | `92c7aef` |
 
 ## 1. 目标
 
