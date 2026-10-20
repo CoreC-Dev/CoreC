@@ -136,8 +136,7 @@ func (p *processingCore) processPoint(point core.DataPoint) {
 		switch p.badQualityPolicy {
 		case badQualityDrop:
 			p.eng.stats.totalErrors.Add(1)
-			p.eng.stats.statManager.PushError()
-			return // discard entirely
+						return // discard entirely
 		case badQualityMarkAndPublish:
 			point.Value = nil // keep quality=bad, clear value
 		case badQualityAlert:
@@ -336,8 +335,7 @@ func (p *processingCore) publishToTargets(point core.DataPoint, targets []string
 			if err != nil {
 				slog.Error("batch dropped from flush queue", "target", entry.name, "error", err)
 				p.eng.stats.totalErrors.Add(1)
-				p.eng.stats.statManager.PushError()
-				p.eng.transportMgr.tryFallback(point, entry.name, fallbackSnapshot)
+								p.eng.transportMgr.tryFallback(point, entry.name, fallbackSnapshot)
 			}
 			continue
 		}
@@ -351,11 +349,9 @@ func (p *processingCore) publishToTargets(point core.DataPoint, targets []string
 		if err != nil {
 			slog.Error("publish failed", "target", entry.name, "error", err)
 			p.eng.stats.totalErrors.Add(1)
-			p.eng.stats.statManager.PushError()
-			p.eng.transportMgr.tryFallback(point, entry.name, fallbackSnapshot)
+						p.eng.transportMgr.tryFallback(point, entry.name, fallbackSnapshot)
 		} else {
 			p.eng.stats.totalPublish.Add(1)
-			p.eng.stats.statManager.PushPublish(1)
 		}
 	}
 }

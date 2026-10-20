@@ -9,7 +9,6 @@ import (
 
 	"github.com/CoreC-Dev/CoreC/common/metrics"
 	"github.com/CoreC-Dev/CoreC/core"
-	"github.com/CoreC-Dev/CoreC/engine/statistic"
 	"github.com/CoreC-Dev/CoreC/rule"
 )
 
@@ -112,7 +111,6 @@ func New() core.Engine {
 	e.writes.writeRetryCount = 3
 	e.writes.commandConcurrency = core.DefaultCommandConcurrency
 	e.processing.numHighPriorityWorkers = core.DefaultHighPriorityWorkers
-	e.stats.statManager = statistic.NewManager()
 	e.writes.deadLetterMaxLen = core.DefaultDeadLetterMaxLen
 	e.driverReg.tagFileWatchers = make(map[string]*tagFileWatcher)
 	e.driverReg.driverConfigs = make(map[string]core.DriverConfig)

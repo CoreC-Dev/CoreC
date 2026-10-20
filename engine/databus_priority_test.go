@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/CoreC-Dev/CoreC/core"
-	"github.com/CoreC-Dev/CoreC/engine/statistic"
 	"github.com/CoreC-Dev/CoreC/rule"
 )
 
@@ -169,7 +168,6 @@ func TestScheduleDriverTagsSetsPriority(t *testing.T) {
 		},
 		func(driver string, values []core.TagValue, priority int) {},
 		0,
-		statistic.NewManager(),
 	)
 	if err := e.lifecycle.scheduler.Start(e.runtime.ctx); err != nil {
 		t.Fatalf("scheduler.Start: %v", err)

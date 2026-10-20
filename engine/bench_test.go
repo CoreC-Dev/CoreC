@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/CoreC-Dev/CoreC/core"
-	"github.com/CoreC-Dev/CoreC/engine/statistic"
 	"github.com/CoreC-Dev/CoreC/rule"
 )
 
@@ -546,8 +545,7 @@ func BenchmarkSchedulerManyTasks(b *testing.B) {
 				func(driver string, values []core.TagValue, _ int) {
 					totalRead.Add(int64(len(values)))
 				},
-				0,                      // default error-throttle window
-				statistic.NewManager(), // isolated stat manager
+				0, // default error-throttle window
 			)
 
 			ctx, cancel := context.WithCancel(context.Background())

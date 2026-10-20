@@ -25,7 +25,7 @@ func quietOnData(driver string, values []core.TagValue, priority int) {}
 // summed, and output is sorted by driver name for deterministic
 // exposition.
 func TestSchedulerHealthAggregation(t *testing.T) {
-	s := NewScheduler(quietReadFunc, quietOnData, 0, nil)
+	s := NewScheduler(quietReadFunc, quietOnData, 0)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if err := s.Start(ctx); err != nil {
@@ -78,7 +78,7 @@ func TestSchedulerHealthNilAndEmpty(t *testing.T) {
 		t.Errorf("nil scheduler Health() = %+v, want nil", got)
 	}
 
-	s := NewScheduler(quietReadFunc, quietOnData, 0, nil)
+	s := NewScheduler(quietReadFunc, quietOnData, 0)
 	if got := s.Health(); got != nil {
 		t.Errorf("taskless scheduler Health() = %+v, want nil", got)
 	}
@@ -98,7 +98,7 @@ func TestSchedulerPauseResumeRoundTrip(t *testing.T) {
 		return []core.TagValue{{Tag: tags[0], Value: 1, Timestamp: time.Now()}}, nil
 	}
 	s := NewScheduler(readFn, func(driver string, values []core.TagValue, priority int) {},
-		0, nil)
+		0)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if err := s.Start(ctx); err != nil {

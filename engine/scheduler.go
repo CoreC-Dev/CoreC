@@ -11,7 +11,6 @@ import (
 
 	"github.com/CoreC-Dev/CoreC/common/util"
 	"github.com/CoreC-Dev/CoreC/core"
-	"github.com/CoreC-Dev/CoreC/engine/statistic"
 )
 
 var _ core.Scheduler = (*scheduler)(nil)
@@ -25,10 +24,6 @@ type scheduler struct {
 	globalPaused atomic.Bool
 	readFunc     func(ctx context.Context, driver string, tags []string) ([]core.TagValue, error)
 	onData       func(driver string, values []core.TagValue, priority int)
-
-	// statManager collects throughput counters. Injected from the engine
-	// so multiple Engine instances don't share a global (IMPROVEMENTS #8).
-	statManager *statistic.Manager
 
 	// errorThrottleWindow is the time window for suppressing repeated
 	// error/overrun log messages. Defaults to core.DefaultErrorThrottleWindow.
@@ -77,26 +72,19 @@ type taskRunner struct {
 // engine can route fast-interval data to a dedicated high-priority channel.
 // errorThrottleWindow is the time window for suppressing repeated error
 // logs; <=0 falls back to core.DefaultErrorThrottleWindow.
-// statManager collects throughput counters; if nil, a new Manager is
-// created (but callers should pass the engine's instance for isolation).
 func NewScheduler(
 	readFunc func(ctx context.Context, driver string, tags []string) ([]core.TagValue, error),
 	onData func(driver string, values []core.TagValue, priority int),
 	errorThrottleWindow time.Duration,
-	statManager *statistic.Manager,
 ) *scheduler {
 	if errorThrottleWindow <= 0 {
 		errorThrottleWindow = core.DefaultErrorThrottleWindow
-	}
-	if statManager == nil {
-		statManager = statistic.NewManager()
 	}
 	return &scheduler{
 		tasks:               make(map[string]*taskRunner),
 		paused:              make(map[string]bool),
 		readFunc:            readFunc,
 		onData:              onData,
-		statManager:         statManager,
 		errorThrottleWindow: errorThrottleWindow,
 	}
 }
@@ -336,7 +324,6 @@ func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) {
 			continue
 		}
 
-		s.statManager.PushRead(int64(len(values)))
 		values = applyDeadbandFilter(runner, values)
 		if len(values) > 0 {
 			s.onData(task.Driver, values, task.Priority)
@@ -367,7 +354,6 @@ func (s *scheduler) logOverrunIfNeeded(runner *taskRunner, task core.ScheduleTas
 // handleReadError records the error, logs it (throttled), and auto-degrades
 // the ticker if sustained errors reach the threshold.
 func (s *scheduler) handleReadError(runner *taskRunner, task core.ScheduleTask, err error, interval, degradedInterval time.Duration, degradeAfterErrors int, ticker *time.Ticker) {
-	s.statManager.PushError()
 	errMsg := err.Error()
 	runner.errCount++
 	now := time.Now()

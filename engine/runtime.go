@@ -343,8 +343,7 @@ func (r *engineRuntime) stopComponents() {
 	if dropped := r.drainDataBusOnShutdown(); dropped > 0 {
 		r.eng.stats.totalErrors.Add(dropped)
 		for range dropped {
-			r.eng.stats.statManager.PushError()
-		}
+					}
 		slog.Warn("shutdown: dropped data points still queued in data bus",
 			"points", dropped,
 		)

@@ -7,7 +7,6 @@ import (
 
 	"github.com/CoreC-Dev/CoreC/common/metrics"
 	"github.com/CoreC-Dev/CoreC/core"
-	"github.com/CoreC-Dev/CoreC/engine/statistic"
 	"github.com/CoreC-Dev/CoreC/log"
 )
 
@@ -38,13 +37,6 @@ type statsCollector struct {
 	// aggregate). A dedicated sub-role keeps this collector under its
 	// CPLX field/method ceilings.
 	labeled *labeledLatencyStore
-
-	// statManager collects throughput counters (reads/publishes/errors).
-	// It is an instance field rather than the package-level
-	// statistic.DefaultManager so that multiple Engine instances embedded
-	// in the same process do not mix their counters (IMPROVEMENTS #8).
-	// Injected into the scheduler via NewScheduler.
-	statManager *statistic.Manager
 
 	// eng is the owning engine: Stats reads the component maps and
 	// status through it; the offline-buffer and flush-drop aggregators
@@ -215,5 +207,4 @@ func (s *statsCollector) recordRead(n int) {
 // failed after retries).
 func (s *statsCollector) onBatchPublish(n int) {
 	s.totalPublish.Add(uint64(n))
-	s.statManager.PushPublish(int64(n))
 }

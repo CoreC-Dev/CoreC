@@ -305,8 +305,7 @@ func (m *transportManager) tryFallback(point core.DataPoint, primaryName string,
 		if err != nil {
 			slog.Error("fallback batch dropped from flush queue", "fallback", fb.name, "error", err)
 			m.eng.stats.totalErrors.Add(1)
-			m.eng.stats.statManager.PushError()
-		}
+					}
 		return
 	}
 
@@ -317,10 +316,8 @@ func (m *transportManager) tryFallback(point core.DataPoint, primaryName string,
 	if err != nil {
 		slog.Error("fallback publish also failed", "fallback", fb.name, "error", err)
 		m.eng.stats.totalErrors.Add(1)
-		m.eng.stats.statManager.PushError()
-	} else {
+			} else {
 		m.eng.stats.totalPublish.Add(1)
-		m.eng.stats.statManager.PushPublish(1)
 	}
 }
 

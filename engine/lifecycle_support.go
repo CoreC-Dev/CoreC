@@ -48,7 +48,7 @@ type lifecycleSupport struct {
 func (l *lifecycleSupport) startScheduler() error {
 	l.eng.mu.Lock()
 	l.eng.processing.dataBus = NewDataBus(l.eng.processing.dataBusSize)
-	l.scheduler = NewScheduler(l.readFromDriver, l.onDriverData, l.errorThrottleWin, l.eng.stats.statManager)
+	l.scheduler = NewScheduler(l.readFromDriver, l.onDriverData, l.errorThrottleWin)
 	l.eng.mu.Unlock()
 
 	if err := l.scheduler.Start(l.eng.runtime.ctx); err != nil {

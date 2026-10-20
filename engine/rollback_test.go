@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/CoreC-Dev/CoreC/core"
-	"github.com/CoreC-Dev/CoreC/engine/statistic"
 )
 
 // These tests exercise engine.rollbackStart, which cleans up partially
@@ -60,7 +59,7 @@ func TestRollbackStartWithComponents(t *testing.T) {
 	e := newRollbackEngine()
 
 	// Started scheduler (no tasks → no goroutines, Stop is a clean no-op).
-	e.lifecycle.scheduler = NewScheduler(nil, nil, 0, statistic.NewManager())
+	e.lifecycle.scheduler = NewScheduler(nil, nil, 0)
 	if err := e.lifecycle.scheduler.Start(e.runtime.ctx); err != nil {
 		t.Fatalf("scheduler start failed: %v", err)
 	}
