@@ -50,6 +50,21 @@ func (r *driverRegistry) startTagFileWatcher(config core.DriverConfig) {
 		slog.Info("reloading driver from tags-file",
 			"driver", driverName, "old_tags", len(baseCfg.Tags), "new_tags", len(newTags))
 
+		// Evict tags that disappeared from the file (audit finding
+		// PIPE-1): the file is the source of truth, so removed tags'
+		// cached values must go with them — otherwise /tags keeps
+		// serving ghosts and derived tags keep consuming them.
+		newNames := make(map[string]bool, len(newTags))
+		for _, t := range newTags {
+			newNames[t.Name] = true
+		}
+		for _, t := range baseCfg.Tags {
+			if !newNames[t.Name] {
+				r.eng.processing.cache.DeleteTag(driverName, t.Name)
+				slog.Info("evicted cached value for removed tag", "driver", driverName, "tag", t.Name)
+			}
+		}
+
 		if err := r.reloadDriverTags(updatedCfg); err != nil {
 			return fmt.Errorf("failed to reload driver with new tags: %w", err)
 		}

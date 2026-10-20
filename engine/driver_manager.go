@@ -153,6 +153,12 @@ func (r *driverRegistry) RemoveDriver(name string) error {
 	delete(r.driverConfigs, name)
 	r.eng.mu.Unlock()
 
+	// Evict the driver's cached values (audit finding PIPE-1): the
+	// cache previously kept serving a deleted driver's last values in
+	// GET /tags forever (stale-flagged, but never gone) and derived
+	// tags kept consuming the ghosts.
+	r.eng.processing.cache.DeleteDriver(name)
+
 	if r.eng.lifecycle.scheduler != nil {
 		// Remove all scheduler tasks for this driver so their goroutines
 		// actually exit, instead of just pausing them and leaving the

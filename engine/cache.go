@@ -148,6 +148,52 @@ func (c *LatestCache) GetAll() map[string]core.DataPoint {
 	return all
 }
 
+// DeleteDriver evicts every cached value of the named driver. Called on
+// RemoveDriver so a deleted driver's last values stop haunting GET /tags
+// and derived-tag inputs forever (audit finding PIPE-1: the cache had
+// only the test-only Clear() — deleted drivers left ghost values that
+// only ever grew stale-flags, never disappeared).
+func (c *LatestCache) DeleteDriver(driver string) {
+	idx := cacheShardIdx(driver)
+	shard := &c.shards[idx]
+
+	shard.mu.Lock()
+	if dc, ok := shard.drivers[driver]; ok {
+		delete(shard.drivers, driver)
+		// Drop the atomic snapshot too: GetByDriver would otherwise
+		// keep serving the deleted driver's last snapshot until the
+		// next rebuild (which would never come — no more Updates).
+		dc.mu.Lock()
+		dc.snapshot.Store(nil)
+		dc.dirty.Store(false)
+		dc.mu.Unlock()
+	}
+	shard.mu.Unlock()
+}
+
+// DeleteTag evicts one cached value. Called by the tags-file reload
+// path for tags that disappeared from the file (audit finding PIPE-1:
+// removed tags kept their ghost values in /tags and kept feeding
+// derived-tag expressions).
+func (c *LatestCache) DeleteTag(driver, tag string) {
+	idx := cacheShardIdx(driver)
+	shard := &c.shards[idx]
+
+	shard.mu.RLock()
+	dc, ok := shard.drivers[driver]
+	shard.mu.RUnlock()
+	if !ok {
+		return
+	}
+
+	dc.mu.Lock()
+	delete(dc.values, tag)
+	dc.mu.Unlock()
+	// Force the snapshot rebuild on the next GetByDriver so the
+	// eviction is visible to the snapshot fast path too.
+	dc.dirty.Store(true)
+}
+
 // Clear removes all cached data.
 func (c *LatestCache) Clear() {
 	for i := range c.shards {
