@@ -180,7 +180,7 @@ func (l *lifecycleSupport) onDriverData(driver string, values []core.TagValue, p
 	highPriority := priority > 0
 
 	for _, v := range values {
-		l.eng.stats.totalRead.Add(1)
+		l.eng.stats.recordRead(1)
 
 		point := core.DataPoint{
 			Driver:    driver,

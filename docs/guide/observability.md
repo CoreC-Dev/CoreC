@@ -42,7 +42,7 @@ CoreC 内置四套可观测性机制，无需任何外部依赖或第三方库�
 | `corec_transports` | 已配置的传输数量 | `EngineStats.Transports` |
 | `corec_rules` | 已配置的规则数量 | `EngineStats.Rules` |
 | `corec_uptime_seconds` | 引擎运行时长（秒） | `EngineStats.Uptime` |
-| `corec_points_per_second` | 当前数据处理速率（点/秒） | `EngineStats.PointsPerSec` |
+| `corec_points_per_second` | 近 60 秒滑动窗口的数据处理速率（点/秒）；采集停止超过 1 分钟后归零（窗口内速率，非启动以来均值） | `EngineStats.PointsPerSec` |
 
 ### 每驱动指标
 

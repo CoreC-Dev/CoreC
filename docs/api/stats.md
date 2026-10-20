@@ -82,7 +82,7 @@ GET /stats
 | `total_publish` | uint64 | 全局累计发布次数 |
 | `total_errors` | uint64 | 全局累计错误次数 |
 | `total_dropped` | uint64 | 全局累计丢弃数据点数（背压策略丢弃） |
-| `points_per_sec` | float64 | 当前每秒数据点吞吐速率 |
+| `points_per_sec` | float64 | 近 60 秒滑动窗口的每秒数据点吞吐速率；采集停止超过 1 分钟后归零 |
 | `driver_stats` | object | 各驱动状态明细，键为驱动名 |
 | `transport_stats` | object | 各传输状态明细，键为传输名 |
 

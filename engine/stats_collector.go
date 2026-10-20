@@ -24,6 +24,13 @@ type statsCollector struct {
 	totalErrors  atomic.Uint64
 	startTime    time.Time
 
+	// readRate tracks points-per-second over the last minute so
+	// EngineStats.PointsPerSec reports a true current rate. The
+	// lifetime average previously reported (totalRead / uptime) decayed
+	// slowly on a stalled pipeline and was useless for "collection
+	// stopped" alerting (audit finding OBS-1).
+	readRate *metrics.RateWindow
+
 	// Latency histograms for Prometheus exposure. Initialized in New()
 	// and accumulated across the engine lifetime (mirroring the total*
 	// counters above, which are also not reset on Reload). Exposed via
@@ -67,10 +74,26 @@ func (s *statsCollector) Stats() core.EngineStats {
 
 	uptime := time.Since(s.startTime)
 	totalRead := s.totalRead.Load()
+
+	// Current rate over the last minute (a true windowed rate, not the
+	// lifetime average). For an engine younger than the window, fall
+	// back to the uptime as the divisor so the first seconds are not
+	// diluted by a window the engine was not alive for (audit finding
+	// OBS-1: the old lifetime average never showed a stall).
 	pointsPerSec := float64(0)
-	if uptime.Seconds() > 0 {
-		pointsPerSec = float64(totalRead) / uptime.Seconds()
+	windowSecs := s.readRate.WindowSeconds()
+	elapsedSecs := int64(uptime.Seconds())
+	divisor := windowSecs
+	if elapsedSecs < divisor {
+		divisor = elapsedSecs
 	}
+	// A brand-new engine (sub-second uptime) still reports its first
+	// second's traffic at face value instead of 0; the floor disappears
+	// once uptime exceeds one second.
+	if divisor < 1 {
+		divisor = 1
+	}
+	pointsPerSec = float64(s.readRate.Sum(time.Now())) / float64(divisor)
 
 	// dataBus is only created in Start(); before Start it is nil.
 	// Report zero dropped counts instead of panicking on a nil receiver.
@@ -173,6 +196,17 @@ func (s *statsCollector) FlushBatchesDropped() uint64 {
 		total += b.buf.flushBatchesDropped.Load()
 	}
 	return total
+}
+
+// recordRead counts n points entering the pipeline (driver reads and
+// chained-transport inbound points alike): the lifetime total and the
+// windowed per-second rate behind EngineStats.PointsPerSec.
+func (s *statsCollector) recordRead(n int) {
+	if n <= 0 {
+		return
+	}
+	s.totalRead.Add(uint64(n))
+	s.readRate.Observe(time.Now(), uint64(n))
 }
 
 // onBatchPublish is the callback handed to each transportBatcher via

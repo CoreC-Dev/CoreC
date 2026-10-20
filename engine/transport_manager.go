@@ -275,7 +275,7 @@ func (m *transportManager) startDataListener(t core.Transport, tCtx context.Cont
 				if !ok {
 					return
 				}
-				m.eng.stats.totalRead.Add(1)
+				m.eng.stats.recordRead(1)
 				m.eng.processing.dataBus.Push(point)
 			}
 		}

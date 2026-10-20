@@ -58,7 +58,7 @@ func promMetrics(w http.ResponseWriter, r *http.Request) {
 	writePromHeader(&b, "corec_uptime_seconds", "gauge", "Engine uptime in seconds")
 	fmt.Fprintf(&b, "corec_uptime_seconds %g\n", stats.Uptime.Seconds())
 
-	writePromHeader(&b, "corec_points_per_second", "gauge", "Current data points processed per second")
+	writePromHeader(&b, "corec_points_per_second", "gauge", "Data points processed per second over the last minute (0 when collection stalls)")
 	fmt.Fprintf(&b, "corec_points_per_second %g\n", stats.PointsPerSec)
 
 	// ─── Per-driver metrics ───────────────────────────────────────────

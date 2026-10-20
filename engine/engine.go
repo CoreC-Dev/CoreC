@@ -119,6 +119,7 @@ func New() core.Engine {
 	e.stats.readLatency = metrics.NewLatencyHistogram(metrics.DefaultReadLatencyBuckets)
 	e.stats.publishLatency = metrics.NewLatencyHistogram(metrics.DefaultPublishLatencyBuckets)
 	e.stats.dataAge = metrics.NewLatencyHistogram(metrics.DefaultDataAgeBuckets)
+	e.stats.readRate = metrics.NewRateWindow()
 	return e
 }
 
