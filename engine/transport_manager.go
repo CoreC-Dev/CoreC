@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"time"
 
 	"github.com/CoreC-Dev/CoreC/core"
@@ -318,6 +319,39 @@ func (m *transportManager) tryFallback(point core.DataPoint, primaryName string,
 		m.eng.stats.totalPublish.Add(1)
 		m.eng.stats.statManager.PushPublish(1)
 	}
+}
+
+// ingressDeadLetters aggregates the transport-local dead-letter stores:
+// commands dropped at transport ingress (e.g. an MQTT command arriving
+// while the command channel was full), which previously had only a
+// counter (corec_transport_dropped_commands_total) with no queryable
+// detail (audit findings RES-1/TRA-4). Transports opt in by implementing
+// core.IngressDeadLetterSource; the entry's Transport field records
+// which transport dropped it. Returns nil when no transport reports
+// ingress drops.
+func (m *transportManager) ingressDeadLetters() []core.DeadLetterEntry {
+	m.eng.mu.RLock()
+	names := make([]string, 0, len(m.transports))
+	transportByName := make(map[string]core.Transport, len(m.transports))
+	for name, t := range m.transports {
+		names = append(names, name)
+		transportByName[name] = t
+	}
+	m.eng.mu.RUnlock()
+
+	sort.Strings(names)
+	var out []core.DeadLetterEntry
+	for _, name := range names {
+		src, ok := transportByName[name].(core.IngressDeadLetterSource)
+		if !ok || src == nil {
+			continue
+		}
+		for _, entry := range src.CommandDeadLetterEntries() {
+			entry.Transport = name
+			out = append(out, entry)
+		}
+	}
+	return out
 }
 
 // --- CoreCEngine forwarders (core.TransportManager) ---

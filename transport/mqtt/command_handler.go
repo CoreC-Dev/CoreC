@@ -156,9 +156,10 @@ func (t *MQTTTransport) addCommandDeadLetter(entry core.DeadLetterEntry) {
 }
 
 // CommandDeadLetterEntries returns a copy of the transport-local dead-letter
-// entries for commands dropped at ingress (command channel full). It is
-// intended for operator inspection / replay tooling and is not part of the
-// core.Transport interface (callers type-assert to *MQTTTransport).
+// entries for commands dropped at ingress (command channel full). It backs
+// the optional core.IngressDeadLetterSource role: the engine type-asserts
+// for it to serve GET /write/failed?source=ingress (audit RES-1/TRA-4 —
+// these drops previously had a counter but no queryable detail).
 func (t *MQTTTransport) CommandDeadLetterEntries() []core.DeadLetterEntry {
 	t.commandDeadLetterMu.Lock()
 	defer t.commandDeadLetterMu.Unlock()
@@ -166,6 +167,10 @@ func (t *MQTTTransport) CommandDeadLetterEntries() []core.DeadLetterEntry {
 	copy(cp, t.commandDeadLetter)
 	return cp
 }
+
+// Compile-time guard: the transport satisfies the ingress dead-letter
+// role the engine aggregates.
+var _ core.IngressDeadLetterSource = (*MQTTTransport)(nil)
 
 // extractCommandSignature pulls the signature from a command JSON
 // payload.  It accepts either an "X-Signature" field or a "signature"

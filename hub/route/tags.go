@@ -2,6 +2,7 @@ package route
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -108,13 +109,46 @@ func writeTag(w http.ResponseWriter, r *http.Request) {
 	render(w, r, http.StatusOK, res)
 }
 
-// getFailedWrites returns the dead letter queue — write commands that
-// failed after all retries. It only depends on the StatsProvider role.
+// getFailedWrites returns dead-lettered write commands. By default it
+// serves the engine's dead letter queue — commands that exhausted all
+// retries against the device. With ?source=ingress it instead serves
+// commands dropped at transport ingress (e.g. an MQTT command arriving
+// while the command channel was full), which the transports keep in
+// their own bounded stores (audit findings RES-1/TRA-4: those drops
+// previously had only a counter, with no queryable detail of what was
+// dropped and why).
 func getFailedWrites(w http.ResponseWriter, r *http.Request) {
-	var sp core.StatsProvider = getEngine()
-	entries := sp.DeadLetterEntries()
+	entries, err := deadLetterEntriesForSource(r)
+	if err != nil {
+		renderError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	render(w, r, http.StatusOK, map[string]any{
 		"failed_writes": entries,
 		"count":         len(entries),
 	})
+}
+
+// deadLetterEntriesForSource resolves the ?source= query parameter to
+// the right dead-letter store. The default (engine) path uses the
+// StatsProvider role; source=ingress type-asserts the optional
+// IngressDeadLetterProvider role. Unknown source values are rejected
+// rather than silently falling back to the engine queue.
+func deadLetterEntriesForSource(r *http.Request) ([]core.DeadLetterEntry, error) {
+	switch source := r.URL.Query().Get("source"); source {
+	case "", "engine":
+		var sp core.StatsProvider = getEngine()
+		return sp.DeadLetterEntries(), nil
+	case "ingress":
+		if provider, ok := getEngine().(core.IngressDeadLetterProvider); ok && provider != nil {
+			return provider.IngressDeadLetters(), nil
+		}
+		// Engine without ingress dead-letter support: an empty list,
+		// indistinguishable from "no drops" (same shape as the mock
+		// engines in tests).
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("unknown source %q (valid: engine, ingress)", source)
+	}
 }

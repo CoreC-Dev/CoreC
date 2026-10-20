@@ -76,6 +76,9 @@ func promMetrics(w http.ResponseWriter, r *http.Request) {
 	// ─── Batcher flush-queue drop counter ──────────────────────────────
 	writeFlushBatchesDropped(&b)
 
+	// ─── Write dead-letter queue ─────────────────────────────────────
+	writeDeadLetterMetrics(&b)
+
 	// ─── HTTP request metrics ──────────────────────────────────────────
 	writeHTTPMetrics(&b)
 

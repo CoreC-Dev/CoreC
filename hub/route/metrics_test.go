@@ -432,3 +432,28 @@ func TestPromMetricsSchedulerHealth(t *testing.T) {
 		t.Errorf("metrics output unexpectedly contains scheduler families for a health-less engine")
 	}
 }
+
+// TestPromMetricsDeadLetter verifies the dead-letter families render from
+// the optional DeadLetterStatsProvider role (audit OBS-3): queue depth
+// and lifetime pushes must be scrapeable, not just queryable via
+// /write/failed.
+func TestPromMetricsDeadLetter(t *testing.T) {
+	eng := &mockEngineV2{dlqSize: 4, dlqPushed: 12}
+	ts := newTestServer("", eng)
+	defer ts.Close()
+
+	resp := authedGet(t, ts, "/metrics", "")
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	output := string(body)
+
+	checks := []string{
+		"corec_dead_letter_queue_size 4",
+		"corec_dead_letter_pushed_total 12",
+	}
+	for _, s := range checks {
+		if !strings.Contains(output, s) {
+			t.Errorf("metrics output missing %q\nOutput:\n%s", s, output)
+		}
+	}
+}

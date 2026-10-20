@@ -220,7 +220,17 @@ API POST /write  →  Engine.WriteTag(cmd)  →  Driver.Write([]cmd)  →  设�
 
 ```http
 GET /write/failed
+GET /write/failed?source=ingress
 ```
+
+`?source=` 选择要查询的死信来源（默认 `engine`）：
+
+| `source` | 说明 |
+|:---|:---|
+| `engine`（默认） | 引擎死信队列——重试耗尽后仍失败的写指令 |
+| `ingress` | **入站丢弃**——命令到达传输时因命令通道满而被丢弃的指令（如 MQTT command-topic 消费洪峰）。条目带 `transport` 字段标明丢弃它的传输 |
+
+未知 `source` 值返回 `400 Bad Request`。死信深度与累计入队数也可经 `corec_dead_letter_queue_size` / `corec_dead_letter_pushed_total` 指标监控（入站丢弃量见 `corec_transport_dropped_commands_total`）。
 
 ### 响应
 
@@ -251,9 +261,10 @@ GET /write/failed
 | 字段 | 类型 | 说明 |
 |:---|:---|:---|
 | `command` | object | 原始 `WriteCommand`（driver, device, tag, value, type） |
-| `error` | string | 最后一次失败的错误信息 |
+| `error` | string | 最后一次失败的错误信息（入站丢弃为丢弃原因，如 `command channel full at ingress`） |
 | `failed_at` | string (RFC 3339) | 进入死信队列的时间 |
-| `attempts` | int | 总尝试次数（含首次 + 重试） |
+| `attempts` | int | 总尝试次数（含首次 + 重试；入站丢弃恒为 1） |
+| `transport` | string | 仅 `source=ingress` 时出现：丢弃该命令的传输实例名 |
 
 ### 示例
 

@@ -46,6 +46,16 @@ type CommandForwarder interface {
 	ForwardCommand(ctx context.Context, cmd WriteCommand) error
 }
 
+// IngressDeadLetterSource is an optional capability for transports that
+// divert commands dropped at ingress (e.g. the command channel was full)
+// into a transport-local dead-letter store. The MQTT transport
+// implements it; the engine type-asserts for this interface to serve
+// GET /write/failed?source=ingress (audit findings RES-1/TRA-4: those
+// drops previously had a counter but no queryable detail).
+type IngressDeadLetterSource interface {
+	CommandDeadLetterEntries() []DeadLetterEntry
+}
+
 // TransportConfig holds configuration for a transport instance.
 type TransportConfig struct {
 	Name          string         `yaml:"name"`

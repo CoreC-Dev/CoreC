@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/CoreC-Dev/CoreC/core"
@@ -36,8 +37,17 @@ type writeManager struct {
 	// deadLetterQueue holds write commands that failed after all retries.
 	// Bounded by deadLetterMaxLen; oldest entries are evicted when full.
 	deadLetterMu     sync.Mutex
-	deadLetterQueue  []core.DeadLetterEntry
+	deadLetterQueue []core.DeadLetterEntry
+
+	// deadLetterMaxLen bounds the dead letter queue.
 	deadLetterMaxLen int
+
+	// deadLetterPushed counts every command that ever entered the dead
+	// letter queue, for the corec_dead_letter_pushed_total Prometheus
+	// counter (audit OBS-3: queue depth + lifetime push count make
+	// "commands are piling up" alertable, which a capped query-only
+	// queue could not).
+	deadLetterPushed atomic.Uint64
 
 	// writeAuditHistory records the most recent write attempts —
 	// successes AND failures — for the GET /write/history audit trail.
@@ -404,9 +414,20 @@ func (w *writeManager) addDeadLetter(entry core.DeadLetterEntry) {
 	w.deadLetterMu.Lock()
 	defer w.deadLetterMu.Unlock()
 	w.deadLetterQueue = append(w.deadLetterQueue, entry)
+	w.deadLetterPushed.Add(1)
 	if len(w.deadLetterQueue) > w.deadLetterMaxLen {
 		w.deadLetterQueue = w.deadLetterQueue[len(w.deadLetterQueue)-w.deadLetterMaxLen:]
 	}
+}
+
+// DeadLetterStats returns the current queue depth (gauge) and the
+// lifetime number of commands pushed into the queue (counter), for
+// Prometheus exposure via the core.DeadLetterStatsProvider role.
+func (w *writeManager) DeadLetterStats() (size int, pushed uint64) {
+	w.deadLetterMu.Lock()
+	size = len(w.deadLetterQueue)
+	w.deadLetterMu.Unlock()
+	return size, w.deadLetterPushed.Load()
 }
 
 // DeadLetterEntries returns a copy of the current dead letter queue.

@@ -57,6 +57,26 @@ func writeFlushBatchesDropped(b *strings.Builder) {
 	fmt.Fprintf(b, "corec_flush_batches_dropped_total %d\n", dropped)
 }
 
+// writeDeadLetterMetrics exposes the write dead-letter queue for
+// alerting (audit finding OBS-3 / roadmap #5): the queue is capped and
+// in-memory, so "commands are piling up" was previously invisible to
+// Prometheus — operators had to poll GET /write/failed. Engines that do
+// not satisfy core.DeadLetterStatsProvider (test mocks) omit the
+// families.
+func writeDeadLetterMetrics(b *strings.Builder) {
+	provider, ok := getEngine().(core.DeadLetterStatsProvider)
+	if !ok || provider == nil {
+		return
+	}
+	size, pushed := provider.DeadLetterStats()
+
+	writePromHeader(b, "corec_dead_letter_queue_size", "gauge", "Write commands currently held in the dead letter queue (retries exhausted); alert on sustained growth")
+	fmt.Fprintf(b, "corec_dead_letter_queue_size %d\n", size)
+
+	writePromHeader(b, "corec_dead_letter_pushed_total", "counter", "Total write commands pushed into the dead letter queue since startup")
+	fmt.Fprintf(b, "corec_dead_letter_pushed_total %d\n", pushed)
+}
+
 // writeLatencyMetrics emits read and publish latency histograms from the
 // engine's LatencyProvider role. When the engine does not satisfy
 // core.LatencyProvider (e.g. test mocks), no metrics are emitted.

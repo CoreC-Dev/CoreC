@@ -33,11 +33,30 @@ type mockEngineV2 struct {
 	// role; nil (zero value) means "no scheduler health" so existing
 	// mocks keep omitting the scheduler metric families.
 	schedulerHealth []core.TaskHealth
+
+	// deadLetters backs StatsProvider.DeadLetterEntries (the engine
+	// dead-letter queue view of /write/failed).
+	deadLetters []core.DeadLetterEntry
+
+	// dlqSize/dlqPushed back the optional core.DeadLetterStatsProvider
+	// role for the /metrics dead-letter families.
+	dlqSize   int
+	dlqPushed uint64
+
+	// ingressDeadLetters backs the optional core.IngressDeadLetterProvider
+	// role (/write/failed?source=ingress).
+	ingressDeadLetters []core.DeadLetterEntry
 }
 
 func (m *mockEngineV2) Stats() core.EngineStats { return m.stats }
 
 func (m *mockEngineV2) SchedulerHealth() []core.TaskHealth { return m.schedulerHealth }
+
+func (m *mockEngineV2) DeadLetterEntries() []core.DeadLetterEntry { return m.deadLetters }
+
+func (m *mockEngineV2) DeadLetterStats() (int, uint64) { return m.dlqSize, m.dlqPushed }
+
+func (m *mockEngineV2) IngressDeadLetters() []core.DeadLetterEntry { return m.ingressDeadLetters }
 
 func (m *mockEngineV2) ListDrivers() []core.DriverStatus { return m.drivers }
 
@@ -58,7 +77,6 @@ func (m *mockEngineV2) LatestValues(driver string) map[string]core.DataPoint {
 }
 
 func (m *mockEngineV2) StaleThreshold() time.Duration             { return 0 }
-func (m *mockEngineV2) DeadLetterEntries() []core.DeadLetterEntry { return nil }
 
 func (m *mockEngineV2) WriteTag(ctx context.Context, cmd core.WriteCommand) (*core.WriteResult, error) {
 	return &m.writeResult, m.writeErr

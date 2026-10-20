@@ -463,3 +463,68 @@ func TestPprofEnabled(t *testing.T) {
 		t.Error("expected pprof to be available when enabled, got 404")
 	}
 }
+
+// TestGetFailedWritesSource verifies the ?source= parameter of
+// GET /write/failed (audit RES-1/TRA-4): the default serves the engine
+// dead-letter queue, source=ingress serves commands dropped at transport
+// ingress, and unknown values are rejected with 400 instead of silently
+// falling back to the wrong queue.
+func TestGetFailedWritesSource(t *testing.T) {
+	engineEntry := core.DeadLetterEntry{
+		Command:  core.WriteCommand{Driver: "plc", Tag: "engine-tag"},
+		Error:    "write failed after retries",
+		Attempts: 4,
+	}
+	ingressEntry := core.DeadLetterEntry{
+		Command:  core.WriteCommand{Driver: "plc", Tag: "ingress-tag"},
+		Error:    "command channel full at ingress",
+		Attempts: 1,
+	}
+	eng := &mockEngineV2{
+		deadLetters:        []core.DeadLetterEntry{engineEntry},
+		ingressDeadLetters: []core.DeadLetterEntry{ingressEntry},
+	}
+	ts := newTestServer("", eng)
+	defer ts.Close()
+
+	// Default: engine queue.
+	resp := authedGet(t, ts, "/write/failed", "")
+	defer resp.Body.Close()
+	var body struct {
+		FailedWrites []core.DeadLetterEntry `json:"failed_writes"`
+		Count        int                    `json:"count"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode default response: %v", err)
+	}
+	if body.Count != 1 || body.FailedWrites[0].Command.Tag != "engine-tag" {
+		t.Errorf("default response = %+v, want the engine queue entry", body)
+	}
+
+	// source=engine: explicit same as default.
+	resp2 := authedGet(t, ts, "/write/failed?source=engine", "")
+	defer resp2.Body.Close()
+	if err := json.NewDecoder(resp2.Body).Decode(&body); err != nil {
+		t.Fatalf("decode engine response: %v", err)
+	}
+	if body.Count != 1 || body.FailedWrites[0].Command.Tag != "engine-tag" {
+		t.Errorf("source=engine response = %+v, want the engine queue entry", body)
+	}
+
+	// source=ingress: the transport-side drops.
+	resp3 := authedGet(t, ts, "/write/failed?source=ingress", "")
+	defer resp3.Body.Close()
+	if err := json.NewDecoder(resp3.Body).Decode(&body); err != nil {
+		t.Fatalf("decode ingress response: %v", err)
+	}
+	if body.Count != 1 || body.FailedWrites[0].Command.Tag != "ingress-tag" {
+		t.Errorf("source=ingress response = %+v, want the ingress drop entry", body)
+	}
+
+	// Unknown source: 400, not a silent fallback.
+	resp4 := authedGet(t, ts, "/write/failed?source=bogus", "")
+	defer resp4.Body.Close()
+	if resp4.StatusCode != http.StatusBadRequest {
+		t.Errorf("source=bogus status = %d, want 400", resp4.StatusCode)
+	}
+}

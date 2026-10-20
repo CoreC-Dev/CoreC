@@ -80,3 +80,17 @@ func (e *CoreCEngine) DataAgeHistogram() core.LatencySnapshot {
 func (e *CoreCEngine) SchedulerHealth() []core.TaskHealth {
 	return e.lifecycle.scheduler.Health()
 }
+
+// DeadLetterStats forwards to the write manager for the metrics
+// route's optional core.DeadLetterStatsProvider role (queue depth +
+// lifetime pushes).
+func (e *CoreCEngine) DeadLetterStats() (size int, pushed uint64) {
+	return e.writes.DeadLetterStats()
+}
+
+// IngressDeadLetters forwards to the transport manager for the
+// /write/failed?source=ingress view (optional
+// core.IngressDeadLetterProvider role).
+func (e *CoreCEngine) IngressDeadLetters() []core.DeadLetterEntry {
+	return e.transportMgr.ingressDeadLetters()
+}

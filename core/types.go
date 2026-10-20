@@ -257,6 +257,11 @@ type DeadLetterEntry struct {
 	Error    string       `json:"error"`
 	FailedAt time.Time    `json:"failed_at"`
 	Attempts int          `json:"attempts"`
+	// Transport names the transport that dropped the command at
+	// ingress (set only for entries surfaced via
+	// /write/failed?source=ingress, e.g. the MQTT transport whose
+	// command channel was full). Empty for engine dead letters.
+	Transport string `json:"transport,omitempty"`
 }
 
 // TagConfig defines the configuration for a single tag/data point.

@@ -171,6 +171,28 @@ type FlushBatchesDroppedProvider interface {
 	FlushBatchesDropped() uint64
 }
 
+// DeadLetterStatsProvider exposes the dead-letter queue depth (gauge)
+// and the lifetime number of commands pushed into it (counter) for
+// Prometheus exposure (audit finding OBS-3 / roadmap #5). Previously
+// the queue was reachable only through GET /write/failed, so "commands
+// are piling up in the dead letter queue" could not be alerted on.
+// *CoreCEngine satisfies this interface; test mocks are free to omit it.
+type DeadLetterStatsProvider interface {
+	DeadLetterStats() (size int, pushed uint64)
+}
+
+// IngressDeadLetterProvider exposes commands dropped at transport
+// ingress — e.g. an MQTT command that arrived while the command channel
+// was full and was diverted to the transport-local dead-letter store
+// (audit findings RES-1/TRA-4). Those drops previously had a counter
+// (corec_transport_dropped_commands_total) but no queryable detail:
+// what was dropped and why was invisible. Backs
+// GET /write/failed?source=ingress. *CoreCEngine satisfies this
+// interface; test mocks are free to omit it.
+type IngressDeadLetterProvider interface {
+	IngressDeadLetters() []DeadLetterEntry
+}
+
 // Config is the top-level configuration structure.
 type Config struct {
 	Node          NodeConfig              `yaml:"node,omitempty"`

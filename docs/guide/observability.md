@@ -106,6 +106,18 @@ corec_driver_last_read_seconds{driver="plc2"} 748.9
 | `corec_offline_buffer_pending` | gauge | 当前等待重放的缓冲区批次数 |
 | `corec_offline_buffer_drained_total` | counter | 成功重放的批次总数 |
 | `corec_offline_buffer_pushed_total` | counter | 重试耗尽后写入缓冲区的批次总数 |
+| `corec_offline_buffer_evicted_total` | counter | 缓冲区满时被逐出的最旧批次总数（新数据优先） |
+
+### 死信队列指标
+
+写指令的死信队列（`GET /write/failed`）的监控面：
+
+| 指标 | 类型 | 说明 |
+|:---|:---|:---|
+| `corec_dead_letter_queue_size` | gauge | 当前列队中的死信指令数——持续增长即"写路径在持续失败" |
+| `corec_dead_letter_pushed_total` | counter | 启动以来累计进入死信队列的指令数（队列有界驱逐不减少该计数） |
+
+入站丢弃（命令通道满）见 `corec_transport_dropped_commands_total`（每传输）与 `GET /write/failed?source=ingress`（丢弃明细）。
 
 ### HTTP 请求指标
 
