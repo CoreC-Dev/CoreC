@@ -520,6 +520,8 @@ tags:
 
 下游所有依赖 `timestamp` 的语义——derived tag 的 `stale-guard` 陈旧保护、API 的 `is_stale` 标注、`dataAge` 指标——都与本地时钟比较。统一时间源意味着：只要 CoreC 主机时钟正常（NTP 同步），即使 OPC UA 服务器时钟漂移，陈旧判定也不会误标点位为陈旧或误判新鲜。
 
+**质量戳（OPC UA）**：轮询与订阅两种模式都会把服务器的 StatusCode 映射为质量戳——`OK` → `good`；其余（含 `Uncertain`）保守映射为 `bad`（订阅模式下 bad 点不带值）。质量戳随后进入管线的 bad-quality 策略、死区质量穿透与告警规则，两条采集路径语义一致。
+
 ---
 
 ## 外部标签文件（tags-file）

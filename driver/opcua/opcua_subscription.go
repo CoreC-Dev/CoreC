@@ -121,18 +121,45 @@ func (d *OPCUADriver) subscriptionLoop(ctx context.Context,
 				if item.Value == nil || item.Value.Value == nil {
 					continue
 				}
-				val := item.Value.Value.Value()
-				tagCfg := tags[tagName]
-				val = util.ApplyTransform(val, tagCfg.Scale, tagCfg.Offset)
-				dt, _ := core.ParseDataType(tagCfg.Type)
 
-				dp := core.DataPoint{
-					Driver:    d.Name(),
-					Tag:       tagName,
-					Value:     val,
-					Type:      dt,
-					Quality:   core.QualityGood,
-					Timestamp: now,
+				var dp core.DataPoint
+				if item.Value.Status != ua.StatusOK {
+					// Map the server-reported quality (audit finding
+					// DRV-2): the polling path has always translated
+					// non-OK statuses into QualityBad, but the
+					// subscription path previously hardcoded
+					// QualityGood, so a server-reported Bad value
+					// (dead sensor, unavailable node) entered the
+					// pipeline as GOOD data and bypassed every
+					// bad-quality policy. Non-OK statuses (including
+					// Uncertain) map conservatively to Bad,
+					// mirroring the polling path; the value is
+					// dropped so a stale reading cannot ride along
+					// (DataPoint, unlike TagValue, carries no
+					// per-value error - the bad-quality policy owns
+					// visibility from here).
+					slog.Debug("opcua subscription bad status",
+						"name", d.Name(), "tag", tagName, "status", item.Value.Status)
+					dp = core.DataPoint{
+						Driver:    d.Name(),
+						Tag:       tagName,
+						Quality:   core.QualityBad,
+						Timestamp: now,
+					}
+				} else {
+					val := item.Value.Value.Value()
+					tagCfg := tags[tagName]
+					val = util.ApplyTransform(val, tagCfg.Scale, tagCfg.Offset)
+					dt, _ := core.ParseDataType(tagCfg.Type)
+
+					dp = core.DataPoint{
+						Driver:    d.Name(),
+						Tag:       tagName,
+						Value:     val,
+						Type:      dt,
+						Quality:   core.QualityGood,
+						Timestamp: now,
+					}
 				}
 				select {
 				case d.subChannel <- dp:

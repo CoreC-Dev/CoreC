@@ -448,3 +448,44 @@ func TestOPCUASubscriptionLoopLocalTimestamp(t *testing.T) {
 		t.Fatal("timed out waiting for forwarded data point")
 	}
 }
+
+// TestOPCUASubscriptionLoopBadStatusMapsQuality verifies the subscription
+// path maps the server's StatusCode to CoreC quality (audit finding DRV-2):
+// a Bad value must surface as QualityBad with no value. The loop previously
+// hardcoded QualityGood, so server-reported quality degradation (dead
+// sensor, unavailable node) entered the pipeline as trustworthy GOOD data
+// and bypassed every bad-quality policy — the polling path has always
+// mapped it, making this a same-driver path asymmetry.
+func TestOPCUASubscriptionLoopBadStatusMapsQuality(t *testing.T) {
+	d := mustInit(t, validConfig("bad"))
+	handleToTag := map[uint32]string{0: "tag1"}
+	tags := map[string]core.TagConfig{"tag1": {Name: "tag1", Type: "float64"}}
+	notifyCh, stop := startSubLoop(t, d, handleToTag, tags)
+	defer stop()
+
+	notifyCh <- &opcua.PublishNotificationData{
+		Value: &ua.DataChangeNotification{
+			MonitoredItems: []*ua.MonitoredItemNotification{
+				{ClientHandle: 0, Value: &ua.DataValue{
+					Value:  ua.MustVariant(float64(42.0)),
+					Status: ua.StatusBadNodeIDUnknown,
+				}},
+			},
+		},
+	}
+
+	select {
+	case dp := <-d.subChannel:
+		if dp.Quality != core.QualityBad {
+			t.Errorf("Quality: expected bad, got %v", dp.Quality)
+		}
+		if dp.Value != nil {
+			t.Errorf("Value: expected nil for bad status, got %v", dp.Value)
+		}
+		if dp.Tag != "tag1" {
+			t.Errorf("Tag: expected tag1, got %s", dp.Tag)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for bad-quality data point")
+	}
+}
