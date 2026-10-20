@@ -48,18 +48,25 @@ func ApplyConfig(cfg *core.Config, force bool) error {
 		oldCfg = &core.Config{}
 	}
 
+	// act records every mutation the diffs apply so any later failure
+	// can roll the engine back to the pre-reload component set (audit
+	// finding CFG-2: a half-applied reload previously left the engine
+	// inconsistent with currentCfg — removed components stayed removed
+	// while /configs/raw kept showing them).
+	act := &diffActions{}
+
 	// Step 3: Diff and update drivers
-	if err := diffDrivers(oldCfg.Drivers, cfg.Drivers, force); err != nil {
-		slog.Warn("config reload partially applied: driver diff failed; "+
-			"engine state may be inconsistent with currentCfg until next successful reload",
+	if err := diffDrivers(oldCfg.Drivers, cfg.Drivers, force, act); err != nil {
+		act.rollback(oldCfg)
+		slog.Warn("config reload rolled back to pre-reload state: driver diff failed",
 			"error", err)
 		return fmt.Errorf("error updating drivers: %w", err)
 	}
 
 	// Step 4: Diff and update transports
-	if err := diffTransports(oldCfg.Transports, cfg.Transports, force); err != nil {
-		slog.Warn("config reload partially applied: transport diff failed; "+
-			"engine state may be inconsistent with currentCfg until next successful reload",
+	if err := diffTransports(oldCfg.Transports, cfg.Transports, force, act); err != nil {
+		act.rollback(oldCfg)
+		slog.Warn("config reload rolled back to pre-reload state: transport diff failed",
 			"error", err)
 		return fmt.Errorf("error updating transports: %w", err)
 	}
@@ -67,8 +74,12 @@ func ApplyConfig(cfg *core.Config, force bool) error {
 	// Step 5: Update rules
 	if force || !reflect.DeepEqual(oldCfg.Rules, cfg.Rules) {
 		if err := engine.SetRules(cfg.Rules); err != nil {
+			act.rollback(oldCfg)
+			slog.Warn("config reload rolled back to pre-reload state: rule update failed",
+				"error", err)
 			return fmt.Errorf("error updating rules: %w", err)
 		}
+		act.rulesApplied = true
 		slog.Info("rules updated", "count", len(cfg.Rules))
 	}
 
@@ -81,6 +92,13 @@ func ApplyConfig(cfg *core.Config, force bool) error {
 	if force || !reflect.DeepEqual(oldCfg.DerivedTags, cfg.DerivedTags) {
 		if applier, ok := engine.(core.DerivedTagApplier); ok && applier != nil {
 			if err := applier.ApplyDerivedTags(cfg.DerivedTags); err != nil {
+				// The evaluator itself is fail-safe (old set still
+				// running), but drivers/transports/rules may already
+				// have been swapped — roll them back so the engine
+				// matches the pre-reload config exactly.
+				act.rollback(oldCfg)
+				slog.Warn("config reload rolled back to pre-reload state: derived tags update failed",
+					"error", err)
 				return fmt.Errorf("error updating derived tags: %w", err)
 			}
 			slog.Info("derived tags updated", "count", len(cfg.DerivedTags))
