@@ -98,6 +98,10 @@ global:
     ## pprof configuration:
     # pprof-disabled: false         # set true to disable pprof endpoints entirely
     # pprof-addr: "127.0.0.1:6060"  # optional: run pprof on a separate port (no auth)
+    ## Dedicated metrics server (audit OBS-12): when set, /metrics is removed
+    ## from the main authenticated API and served credential-free on this
+    ## loopback-only address (Prometheus no longer needs the API secret).
+    # metrics-addr: "127.0.0.1:9109"
     ## Request tracing: the API middleware parses the W3C `traceparent` header
     ## and propagates the trace ID through the request context for log
     ## correlation. Outbound HTTP push requests inject `traceparent` so the

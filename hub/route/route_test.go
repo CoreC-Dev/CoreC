@@ -98,7 +98,7 @@ func TestRoutes(t *testing.T) { //nolint:gocyclo // comprehensive routing table 
 	defer func() { GetConfigFunc = nil }()
 
 	secret := "secret-123"
-	handler := router(context.Background(), secret, nil, 0, true)
+	handler := router(context.Background(), secret, nil, 0, true, false)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -202,7 +202,7 @@ func TestCORS(t *testing.T) {
 	SetEngine(me)
 
 	// Only explicitly allowed origins should receive CORS headers (M3 fix).
-	handler := router(context.Background(), "", []string{"http://localhost:3000"}, 0, true)
+	handler := router(context.Background(), "", []string{"http://localhost:3000"}, 0, true, false)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -238,7 +238,7 @@ func TestGetStats(t *testing.T) {
 	me := &mockEngine{}
 	SetEngine(me)
 
-	handler := router(context.Background(), "", nil, 0, true)
+	handler := router(context.Background(), "", nil, 0, true, false)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -268,7 +268,7 @@ func TestGetRulesWithStats(t *testing.T) {
 	}
 	SetEngine(me)
 
-	handler := router(context.Background(), "", nil, 0, true)
+	handler := router(context.Background(), "", nil, 0, true, false)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -301,7 +301,7 @@ func TestDisableRule(t *testing.T) {
 	me := &mockEngine{}
 	SetEngine(me)
 
-	handler := router(context.Background(), "", nil, 0, true)
+	handler := router(context.Background(), "", nil, 0, true, false)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -326,7 +326,7 @@ func TestDisableRuleByName(t *testing.T) {
 	me := &mockEngine{}
 	SetEngine(me)
 
-	handler := router(context.Background(), "", nil, 0, true)
+	handler := router(context.Background(), "", nil, 0, true, false)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -354,7 +354,7 @@ func TestDisableRuleNameWinsOverIndex(t *testing.T) {
 	me := &mockEngine{}
 	SetEngine(me)
 
-	handler := router(context.Background(), "", nil, 0, true)
+	handler := router(context.Background(), "", nil, 0, true, false)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -381,7 +381,7 @@ func TestAuthWithQueryToken(t *testing.T) {
 	SetEngine(me)
 
 	secret := "my-secret"
-	handler := router(context.Background(), secret, nil, 0, true)
+	handler := router(context.Background(), secret, nil, 0, true, false)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -434,7 +434,7 @@ func TestAuthWithQueryToken(t *testing.T) {
 // TestPprofDisabled verifies that when pprofEnabled is false, the pprof
 // endpoints are not registered on the main router.
 func TestPprofDisabled(t *testing.T) {
-	handler := router(context.Background(), "", nil, 0, false) // pprofEnabled = false
+	handler := router(context.Background(), "", nil, 0, false, false) // pprofEnabled = false
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -452,7 +452,7 @@ func TestPprofDisabled(t *testing.T) {
 // TestPprofEnabled verifies that when pprofEnabled is true, the pprof
 // endpoints are registered on the main router.
 func TestPprofEnabled(t *testing.T) {
-	handler := router(context.Background(), "", nil, 0, true) // pprofEnabled = true
+	handler := router(context.Background(), "", nil, 0, true, false) // pprofEnabled = true
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 

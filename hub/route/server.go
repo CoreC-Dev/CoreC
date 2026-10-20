@@ -78,6 +78,12 @@ type Config struct {
 	// Set to true to disable pprof entirely.
 	PprofDisabled bool
 
+	// MetricsAddr, when non-empty, starts a separate HTTP server serving
+	// only /metrics WITHOUT authentication (audit OBS-12 / roadmap #27).
+	// Bind to a loopback or private interface only; while set, /metrics
+	// is removed from the authenticated main API.
+	MetricsAddr string
+
 	// PprofAddr, when non-empty, starts a separate HTTP server for pprof
 	// endpoints on this address. This keeps profiling endpoints off the
 	// main API port. When empty, pprof is registered on the main server
@@ -95,7 +101,8 @@ var (
 	serverAddr       string                       // current listening address
 	handlerPtr       atomic.Pointer[http.Handler] // swapped atomically on hot-reload
 	pprofServer      *http.Server
-	pprofMu          sync.Mutex // protects pprofServer
+	metricsServer    *http.Server
+	pprofMu          sync.Mutex // protects pprofServer and metricsServer
 	engine           core.Engine
 	engineMu         sync.RWMutex
 	ReloadFunc       func(path, payload, remote string) error

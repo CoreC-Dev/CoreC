@@ -9,7 +9,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-func router(ctx context.Context, secret string, allowedOrigins []string, rateLimitPerSec int, pprofEnabled bool) *chi.Mux {
+func router(ctx context.Context, secret string, allowedOrigins []string, rateLimitPerSec int, pprofEnabled bool, metricsDedicated bool) *chi.Mux {
 	// Populate the package-level origin allowlist so that WebSocket Accept
 	// calls (which do their own Origin check, independent of CORS) honor the
 	// same allowed-origins config. Without this, cross-origin WS upgrades
@@ -113,8 +113,13 @@ func router(ctx context.Context, secret string, allowedOrigins []string, rateLim
 		// Observability: Prometheus-format metrics and pprof profiling
 		// endpoints. Both live inside the authenticated group so a
 		// scraper or profiling client must present the API secret,
-		// keeping them off the public surface.
-		r.Get("/metrics", promMetrics)
+		// keeping them off the public surface. When a dedicated
+		// metrics server is configured (api.metrics-addr, audit
+		// OBS-12), the authenticated copy is suppressed — one
+		// exposure path, the credential-free private interface.
+		if !metricsDedicated {
+			r.Get("/metrics", promMetrics)
+		}
 
 		// pprof profiling endpoints. Registered on the main server only
 		// when PprofEnabled is true and no separate pprof address is

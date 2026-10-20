@@ -425,6 +425,17 @@ type APIConfig struct {
 	// compatibility. Set to true to completely disable pprof.
 	PprofDisabled bool `yaml:"pprof-disabled,omitempty"`
 
+	// MetricsAddr, when non-empty, starts a separate HTTP server that
+	// serves ONLY GET /metrics without authentication (audit OBS-12 /
+	// roadmap #27): Prometheus scrapes a dedicated, credential-free
+	// interface instead of sharing the API secret — a secret that can
+	// PUT /configs was previously handed to every scraper. Must be
+	// bound to a loopback or private interface (enforced fail-closed
+	// like PprofAddr); while set, /metrics is removed from the main
+	// authenticated API. Empty = historical behaviour (metrics behind
+	// the main API's bearer auth).
+	MetricsAddr string `yaml:"metrics-addr,omitempty"`
+
 	// PprofAddr, when non-empty, starts a separate HTTP server for pprof
 	// on this address (e.g. "127.0.0.1:6060"). The separate server does
 	// NOT require authentication, so it should be bound to a loopback or

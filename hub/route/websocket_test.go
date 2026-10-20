@@ -3,6 +3,8 @@ package route
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -181,7 +183,7 @@ func TestRateLimitMiddleware(t *testing.T) {
 
 	// Create a server with rate limiting at 5 req/s.
 	SetEngine(eng)
-	ts := httptest.NewServer(router(context.Background(), "", nil, 5, true))
+	ts := httptest.NewServer(router(context.Background(), "", nil, 5, true, false))
 	defer ts.Close()
 
 	// Fire 10 rapid requests — some should be rate limited (429).
@@ -208,7 +210,7 @@ func TestRateLimitMiddleware(t *testing.T) {
 func TestCORSMiddleware(t *testing.T) {
 	eng := &mockEngineV2{}
 	SetEngine(eng)
-	ts := httptest.NewServer(router(context.Background(), "", nil, 0, true))
+	ts := httptest.NewServer(router(context.Background(), "", nil, 0, true, false))
 	defer ts.Close()
 
 	// Test permissive CORS (no allowed origins configured).
@@ -228,7 +230,7 @@ func TestCORSMiddlewareRestricted(t *testing.T) {
 	eng := &mockEngineV2{}
 	SetEngine(eng)
 	allowedOrigins := []string{"http://localhost:3000", "https://dashboard.example.com"}
-	ts := httptest.NewServer(router(context.Background(), "", allowedOrigins, 0, true))
+	ts := httptest.NewServer(router(context.Background(), "", allowedOrigins, 0, true, false))
 	defer ts.Close()
 
 	// Request with allowed origin.
@@ -588,7 +590,7 @@ func TestRateLimitMiddlewareSharedByHost(t *testing.T) {
 	// 2 req/s cap: 10 rapid requests across distinct connections must
 	// trip the limiter even though every request has a different
 	// source port.
-	ts := httptest.NewServer(router(context.Background(), "", nil, 2, true))
+	ts := httptest.NewServer(router(context.Background(), "", nil, 2, true, false))
 	defer ts.Close()
 
 	statusCodes := make(map[int]int)
@@ -613,4 +615,93 @@ func TestRateLimitMiddlewareSharedByHost(t *testing.T) {
 	if statusCodes[http.StatusTooManyRequests] == 0 {
 		t.Error("expected 429s: connection-cycling must share the per-host bucket, not reset it")
 	}
+}
+
+// TestMetricsDedicatedServer verifies the api.metrics-addr surface
+// (audit OBS-12 / roadmap #27): the dedicated server serves /metrics
+// credential-free on its own loopback listener, the authenticated main
+// API suppresses its /metrics copy while the dedicated address is
+// configured, and a non-loopback address is refused fail-closed.
+func TestMetricsDedicatedServer(t *testing.T) {
+	eng := &mockEngineV2{stats: core.EngineStats{TotalRead: 42}}
+	SetEngine(eng)
+	defer func() {
+		// Restore the default (non-dedicated) state for other tests.
+		SetEngine(&mockEngineV2{})
+	}()
+
+	t.Run("dedicated server serves /metrics without auth, main API suppresses it", func(t *testing.T) {
+		// Free loopback port for the dedicated listener.
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("listen: %v", err)
+		}
+		metricsAddr := ln.Addr().String()
+		ln.Close()
+
+		startMetricsServer(&Config{MetricsAddr: metricsAddr})
+		pprofMu.Lock()
+		srv := metricsServer
+		pprofMu.Unlock()
+		if srv == nil {
+			t.Fatal("dedicated metrics server not started")
+		}
+		defer func() {
+			pprofMu.Lock()
+			_ = srv.Close()
+			metricsServer = nil
+			pprofMu.Unlock()
+		}()
+
+		// The dedicated endpoint answers credential-free. The listener
+		// binds asynchronously — poll until the socket answers.
+		var resp *http.Response
+		for attempt := 0; attempt < 50; attempt++ {
+			resp, err = http.Get("http://" + metricsAddr + "/metrics")
+			if err == nil {
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		if err != nil {
+			t.Fatalf("scrape dedicated metrics: %v", err)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "corec_reads_total 42") {
+			t.Errorf("dedicated scrape: status=%d body=%q", resp.StatusCode, string(body)[:min(80, len(body))])
+		}
+
+		// The main API (with the dedicated addr configured) suppresses
+		// its authenticated /metrics copy.
+		ts := httptest.NewServer(router(context.Background(), "", nil, 0, true, true))
+		defer ts.Close()
+		mainResp, err := http.Get(ts.URL + "/metrics")
+		if err != nil {
+			t.Fatalf("main metrics: %v", err)
+		}
+		mainResp.Body.Close()
+		if mainResp.StatusCode != http.StatusNotFound {
+			t.Errorf("main API /metrics status = %d, want 404 while the dedicated server is configured", mainResp.StatusCode)
+		}
+	})
+
+	t.Run("non-loopback dedicated address is refused", func(t *testing.T) {
+		startMetricsServer(&Config{MetricsAddr: "0.0.0.0:9101"})
+		pprofMu.Lock()
+		srv := metricsServer
+		metricsServer = nil // clean any prior state
+		pprofMu.Unlock()
+		if srv != nil {
+			_ = srv.Close()
+			t.Error("metrics server started on a non-loopback address; must be refused fail-closed")
+		}
+	})
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

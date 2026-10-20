@@ -201,8 +201,10 @@ histogram_quantile(0.5, sum by (transport, le) (rate(corec_publish_latency_secon
 
 ### 抓取配置示例
 
-```yaml
-# prometheus.yml
+::: code-group
+
+```yaml [默认：随主 API 认证抓取]
+# prometheus.yml — /metrics 在主 API 端口上，位于 Bearer 认证组内
 scrape_configs:
   - job_name: corec
     scrape_interval: 15s
@@ -211,6 +213,20 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
 ```
+
+```yaml [生产推荐：专用免密指标接口]
+# CoreC 侧：global.api.metrics-addr: "127.0.0.1:9109"（仅回环）
+# Prometheus 侧：无需 token —— 抓取面拿不到能 PUT /configs 的主 API secret
+scrape_configs:
+  - job_name: corec
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['localhost:9109']
+```
+
+:::
+
+配置 `global.api.metrics-addr` 后：`/metrics` **从主 API 撤下**，只在专用端口上免认证提供（该端口除 `/metrics` 外无任何路由）。因无认证，**必须绑定回环地址**（与 pprof-addr 同样的 fail-closed 强制）；Prometheus 与 CoreC 同机或经 SSH 隧道/私有网桥时用此模式。audit OBS-12：此前每台 Prometheus 都要拿到能改配置的主 API secret。
 
 ### 常用 PromQL 查询
 

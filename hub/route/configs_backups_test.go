@@ -17,7 +17,7 @@ import (
 // backup endpoints.
 func newBackupsTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	ts := httptest.NewServer(router(context.Background(), "secret-123", nil, 0, true))
+	ts := httptest.NewServer(router(context.Background(), "secret-123", nil, 0, true, false))
 	t.Cleanup(ts.Close)
 	return ts
 }

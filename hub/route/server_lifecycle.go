@@ -71,7 +71,7 @@ func ReCreateServer(cfg *Config) {
 	// Build the new router and swap it atomically. If the server is
 	// already listening on the same address, this is the ONLY change —
 	// the listener and http.Server stay alive, achieving zero-downtime.
-	newHandler := router(ctx, cfg.Secret, cfg.AllowedOrigins, cfg.RateLimitPerSec, pprofOnMain)
+	newHandler := router(ctx, cfg.Secret, cfg.AllowedOrigins, cfg.RateLimitPerSec, pprofOnMain, cfg.MetricsAddr != "")
 	h := http.Handler(newHandler)
 	handlerPtr.Store(&h)
 
@@ -124,6 +124,49 @@ func ReCreateServer(cfg *Config) {
 
 	// Start a separate pprof server if PprofAddr is configured.
 	startPprofServer(cfg)
+
+	// Start the dedicated metrics server if MetricsAddr is configured
+	// (audit OBS-12 / roadmap #27).
+	startMetricsServer(cfg)
+}
+
+// startMetricsServer starts the dedicated credential-free /metrics
+// server when MetricsAddr is configured. Like the pprof sibling, it has
+// NO authentication, so a non-loopback bind is refused fail-closed —
+// the operator must use a loopback or otherwise network-isolated
+// interface (e.g. a docker bridge, a private VLAN, or an SSH tunnel).
+func startMetricsServer(cfg *Config) {
+	if cfg.MetricsAddr == "" {
+		return
+	}
+	if !isLoopbackAddr(cfg.MetricsAddr) {
+		log.Errorln("metrics server refusing to start on non-loopback address %s: "+
+			"the dedicated metrics endpoint has no authentication and must be bound to a "+
+			"loopback interface only (e.g. 127.0.0.1:<port> or localhost:<port>). "+
+			"Leave metrics-addr empty to serve /metrics behind the authenticated main API.",
+			cfg.MetricsAddr)
+		return
+	}
+	pprofMu.Lock()
+	if metricsServer != nil {
+		_ = metricsServer.Close()
+	}
+	mMux := http.NewServeMux()
+	mMux.HandleFunc("/metrics", promMetrics)
+	metricsServer = &http.Server{
+		Addr:              cfg.MetricsAddr,
+		Handler:           mMux,
+		ReadHeaderTimeout: defaultReadHeaderTimeout,
+		ReadTimeout:       defaultReadTimeout,
+	}
+	srv := metricsServer
+	pprofMu.Unlock()
+	go func() {
+		log.Infoln("metrics server listening at %s (no auth, /metrics only)", cfg.MetricsAddr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Errorln("metrics server error: %v", err)
+		}
+	}()
 }
 
 // resolveTimeouts applies configured timeouts, falling back to defaults
@@ -223,11 +266,15 @@ func CloseServer() error {
 		serverCancel = nil
 	}
 	if httpServer == nil {
-		// Still close pprof server if it exists
+		// Still close pprof/metrics servers if they exist
 		pprofMu.Lock()
 		if pprofServer != nil {
 			_ = pprofServer.Close()
 			pprofServer = nil
+		}
+		if metricsServer != nil {
+			_ = metricsServer.Close()
+			metricsServer = nil
 		}
 		pprofMu.Unlock()
 		return nil
@@ -248,11 +295,15 @@ func CloseServer() error {
 	serverAddr = ""
 	handlerPtr.Store(nil)
 
-	// Also close the pprof server if running.
+	// Also close the pprof/metrics servers if running.
 	pprofMu.Lock()
 	if pprofServer != nil {
 		_ = pprofServer.Close()
 		pprofServer = nil
+	}
+	if metricsServer != nil {
+		_ = metricsServer.Close()
+		metricsServer = nil
 	}
 	pprofMu.Unlock()
 
