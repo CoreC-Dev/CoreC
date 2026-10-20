@@ -55,6 +55,8 @@ CoreC 内置四套可观测性机制，无需任何外部依赖或第三方库�
 | `corec_driver_reconnect_total` | counter | `driver` | 该驱动的重连尝试次数 |
 | `corec_driver_tags` | gauge | `driver` | 该驱动配置的标签数量 |
 | `corec_driver_connected` | gauge | `driver` | 连接状态：`1`=已连接，`0`=未连接 |
+| `corec_driver_last_read_timestamp_seconds` | gauge | `driver` | 最近一次成功读取的 Unix 时间戳（秒）；首次读取前不输出该序列 |
+| `corec_driver_last_read_seconds` | gauge | `driver` | 距最近一次成功读取的秒数——采集停更告警的基础（如 `> 2 × 采集周期` 判定驱动静默）；首次读取前不输出该序列 |
 
 示例输出：
 
@@ -67,6 +69,10 @@ corec_driver_read_total{driver="plc2",type="s7"} 8721
 # TYPE corec_driver_connected gauge
 corec_driver_connected{driver="plc1"} 1
 corec_driver_connected{driver="plc2"} 0
+# HELP corec_driver_last_read_seconds Seconds since the driver's last successful read; use for staleness alerting (e.g. > 2x collection interval means the driver went quiet); omitted before the first read
+# TYPE corec_driver_last_read_seconds gauge
+corec_driver_last_read_seconds{driver="plc1"} 1.2
+corec_driver_last_read_seconds{driver="plc2"} 748.9
 ```
 
 ### 每传输指标
@@ -171,6 +177,9 @@ histogram_quantile(0.95, rate(corec_publish_latency_seconds_bucket[5m]))
 
 # 离线缓冲积压告警
 corec_offline_buffer_pending > 100
+
+# 驱动采集停更告警（距上次成功读取超过 60 秒即驱动静默）
+corec_driver_last_read_seconds > 60
 
 # 日志丢弃告警（日志在静默丢失）
 rate(corec_log_dropped_total[5m]) > 0

@@ -1,8 +1,10 @@
 package route
 
 import (
+	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -76,25 +78,30 @@ func TestPromMetricsBasic(t *testing.T) {
 }
 
 func TestPromMetricsWithDrivers(t *testing.T) {
+	lastRead := time.Now().Add(-3 * time.Second)
 	eng := &mockEngineV2{
 		stats: core.EngineStats{
 			TotalRead: 500,
 			DriverStats: map[string]core.DriverStatus{
 				"modbus1": {
-					Name:       "modbus1",
-					Type:       "modbus-tcp",
-					State:      core.StateConnected,
-					ReadCount:  400,
+					Name:      "modbus1",
+					Type:      "modbus-tcp",
+					State:     core.StateConnected,
+					ReadCount: 400,
 					ErrorCount: 2,
 					TagCount:   10,
+					LastRead:   lastRead,
 				},
 				"opcua1": {
-					Name:       "opcua1",
-					Type:       "opcua",
-					State:      core.StateDisconnected,
-					ReadCount:  100,
+					Name:      "opcua1",
+					Type:      "opcua",
+					State:     core.StateDisconnected,
+					ReadCount: 100,
 					ErrorCount: 5,
 					TagCount:   5,
+					// LastRead zero: never completed a read — the
+					// freshness series must be omitted for this driver
+					// instead of reporting a fabricated age.
 				},
 			},
 		},
@@ -120,6 +127,36 @@ func TestPromMetricsWithDrivers(t *testing.T) {
 	for _, s := range checks {
 		if !strings.Contains(output, s) {
 			t.Errorf("metrics output missing %q\nOutput:\n%s", s, output)
+		}
+	}
+
+	// Freshness gauges (audit OBS-5): modbus1 read 3s ago — the
+	// timestamp is exact and the age is ~3s (allow scheduling slack).
+	wantTS := fmt.Sprintf("corec_driver_last_read_timestamp_seconds{driver=\"modbus1\"} %d", lastRead.Unix())
+	if !strings.Contains(output, wantTS) {
+		t.Errorf("metrics output missing %q\nOutput:\n%s", wantTS, output)
+	}
+	idx := strings.Index(output, "\ncorec_driver_last_read_seconds{driver=\"modbus1\"} ")
+	if idx < 0 {
+		t.Fatalf("metrics output missing corec_driver_last_read_seconds sample for modbus1\nOutput:\n%s", output)
+	}
+	// Sample line: name{labels} value — the value is the second field.
+	ageField := strings.Fields(output[idx+1:])[1]
+	age, err := strconv.ParseFloat(ageField, 64)
+	if err != nil {
+		t.Fatalf("failed to parse last_read_seconds value %q: %v", ageField, err)
+	}
+	if age < 2.5 || age > 10 {
+		t.Errorf("last_read_seconds = %g, want ~3s (2.5..10 slack)", age)
+	}
+
+	// opcua1 never read: both freshness series must be absent.
+	for _, absent := range []string{
+		"corec_driver_last_read_timestamp_seconds{driver=\"opcua1\"}",
+		"corec_driver_last_read_seconds{driver=\"opcua1\"}",
+	} {
+		if strings.Contains(output, absent) {
+			t.Errorf("metrics output unexpectedly contains %q (never-read driver must omit the series)", absent)
 		}
 	}
 }
