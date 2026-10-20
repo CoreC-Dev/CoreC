@@ -120,6 +120,12 @@ func pointEnv(point core.DataPoint) map[string]any {
 		"quality": point.Quality.String(),
 		"type":    point.Type.String(),
 		"value":   point.Value,
+		// Unix milliseconds: numeric so comparisons work without date
+		// functions (roadmap #34 / audit RULE-3: time-window rules —
+		// "only alert during the day shift" — were previously
+		// inexpressible). No cardinality risk: it is a per-point value,
+		// never a metric label.
+		"timestamp": point.Timestamp.UnixMilli(),
 	}
 }
 

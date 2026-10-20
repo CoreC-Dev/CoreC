@@ -241,7 +241,7 @@ curl -H "Authorization: Bearer your-secret-token" http://localhost:9090/drivers
 |:---|:---|
 | `/logs` | 实时日志流（捕获所有 `slog` 调用） |
 | `/alerts/stream` | 实时告警生命周期事件流（fired/acked/cleared） |
-| `/traffic` | 实时吞吐量统计（每秒推送） |
+| `/traffic` | 实时吞吐速率流（服务端差分；`?mode=totals` 保留累计模式） |
 | `/tags/stream` | 实时数据点流（`?driver=xxx` 可过滤） |
 | `/memory` | 实时内存使用与 GC 统计 |
 

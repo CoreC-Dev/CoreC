@@ -342,6 +342,14 @@ headers:
 
 设置 `webhook-addr` 后，传输会启动一个 HTTP 服务接收上游 CoreC 实例或第三方 POST 请求中的数据（链式核心入站）。请求体可以是单个 `DataPoint` JSON 对象或 `[]DataPoint` 数组，经 `parser` 解析后进入引擎 DataBus。
 
+**响应**（`202 Accepted`，JSON 体）：批量请求的逐项结果计数（roadmap #36）——部分失败对发送方可见，不再是空白的 202：
+
+```json
+{ "received": 4, "accepted": 2, "parse_failed": 2, "queue_dropped": 0 }
+```
+
+`parse_failed` 是无法解析为数组元素的条目数；`queue_dropped` 是已解析但引擎入站队列满被丢弃的条目数。
+
 ```yaml
 settings:
   webhook-addr: "0.0.0.0:9091"

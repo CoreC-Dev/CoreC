@@ -190,14 +190,11 @@ histogram_quantile(0.5, sum by (transport, le) (rate(corec_publish_latency_secon
 | `corec_mem_heap_alloc_bytes` | gauge | 堆内存已分配且仍在使用的字节数 |
 | `corec_mem_heap_sys_bytes` | gauge | 从 OS 获取的堆内存字节数 |
 | `corec_mem_stack_inuse_bytes` | gauge | 栈内存使用字节数 |
-| `corec_mem_total_alloc_bytes` | gauge | 累计分配的内存字节数（含已释放） |
-| `corec_gc_count` | gauge | GC 完成次数 |
-| `corec_gc_pause_total_seconds` | gauge | GC 累计暂停时间（秒） |
+| `corec_mem_total_alloc_bytes` | counter | 累计分配的内存字节数（含已释放，单调递增） |
+| `corec_gc_count` | counter | GC 完成次数 |
+| `corec_gc_pause_total_seconds` | counter | GC 累计暂停时间（秒） |
 | `corec_cpu_count` | gauge | 进程可用的逻辑 CPU 数 |
 
-::: warning 运行时指标类型
-`corec_mem_total_alloc_bytes`、`corec_gc_count` 和 `corec_gc_pause_total_seconds` 在语义上是累计值（单调递增），但代码中按 gauge 类型暴露（非 counter），因为它们直接读取 `runtime.MemStats` 的累计字段，未经过 Prometheus counter 的递增封装。
-:::
 
 ### 抓取配置示例
 

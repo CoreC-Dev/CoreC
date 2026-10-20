@@ -122,15 +122,61 @@ func TestGetTrafficWebSocket(t *testing.T) {
 		t.Fatalf("failed to read traffic stats: %v", err)
 	}
 
-	// Verify the stats contain expected fields.
+	// Default mode pushes RATES (roadmap #32): the first frame carries
+	// the engine's windowed rate plus zero publish/drop rates (no diff
+	// baseline yet), never a bogus negative spike.
+	if _, ok := stats["read_rate"]; !ok {
+		t.Fatalf("expected rate fields, got %v", stats)
+	}
+	if _, ok := stats["publish_rate"]; !ok {
+		t.Error("expected publish_rate field")
+	}
+	if _, ok := stats["dropped_rate"]; !ok {
+		t.Error("expected dropped_rate field")
+	}
+	if v, ok := stats["publish_rate"].(float64); !ok || v != 0 {
+		t.Errorf("first-frame publish_rate = %v, want 0 (no baseline yet)", stats["publish_rate"])
+	}
+
+	c.Close(websocket.StatusNormalClosure, "")
+}
+
+// TestGetTrafficWebSocketTotals verifies mode=totals keeps the historical
+// cumulative-counter stream for clients that diff client-side.
+func TestGetTrafficWebSocketTotals(t *testing.T) {
+	eng := &mockEngineV2{
+		stats: core.EngineStats{
+			Status:       core.EngineStatusRunning,
+			TotalRead:    100,
+			TotalPublish: 50,
+			TotalDropped: 5,
+		},
+	}
+	ts := newTestServer("", eng)
+	defer ts.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/traffic?interval=50ms&mode=totals"
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	c, resp, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("websocket dial failed: %v", err)
+	}
+	if resp != nil && resp.Body != nil {
+		defer resp.Body.Close()
+	}
+	defer c.Close(websocket.StatusNormalClosure, "")
+
+	var stats map[string]any
+	if err := wsjson.Read(ctx, c, &stats); err != nil {
+		t.Fatalf("failed to read traffic stats: %v", err)
+	}
 	if read, ok := stats["read"].(float64); !ok || read != 100 {
-		t.Errorf("expected read=100, got %v", stats["read"])
+		t.Errorf("expected read=100 in totals mode, got %v", stats["read"])
 	}
 	if pub, ok := stats["publish"].(float64); !ok || pub != 50 {
-		t.Errorf("expected publish=50, got %v", stats["publish"])
-	}
-	if dropped, ok := stats["dropped"].(float64); !ok || dropped != 5 {
-		t.Errorf("expected dropped=5, got %v", stats["dropped"])
+		t.Errorf("expected publish=50 in totals mode, got %v", stats["publish"])
 	}
 
 	c.Close(websocket.StatusNormalClosure, "")

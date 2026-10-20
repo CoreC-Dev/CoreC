@@ -54,6 +54,7 @@ rules:
 | `value` | any | 数据值（按标签类型解释为数值或布尔） |
 | `type` | string | 数据类型名（如 `float32`） |
 | `quality` | string | 数据质量：`good` / `bad` / `uncertain` |
+| `timestamp` | int | 采集时刻的 **Unix 毫秒时间戳**（roadmap #34）——可做时间窗规则，如夜班抑制（UTC 22:00–06:00）：`timestamp % 86400000 >= 79200000 \|\| timestamp % 86400000 < 21600000` |
 
 ### 运算符
 
@@ -189,6 +190,10 @@ match: "ALL"
 ### mirror
 
 将同一数据点复制并分别发送到 `targets` 列表中的每个传输，实现多目的地冗余分发。
+
+::: info mirror 与 forward 的实现关系（audit RULE-1 澄清）
+`forward` 与 `mirror` 在引擎内部走**完全相同**的执行路径，且**两者都接受** `target`（单目标）或 `targets`（多目标列表）——区别只在语义意图：`mirror` 表达"冗余分发到多个目的地"，`forward` 表达"常规转发"。写 `action: forward` + `targets: [...]` 与写 `action: mirror` 效果一致；`mirror` 保留为意图标记（以及与多目标语义的兼容别名）。需要"命中后继续评估后续规则"时给两者配 `continue: true`。
+:::
 
 ```yaml
 - name: reactor-mirror

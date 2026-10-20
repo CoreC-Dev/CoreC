@@ -57,15 +57,18 @@ func writeRuntimeMetrics(b *strings.Builder) {
 	writePromHeader(b, "corec_mem_stack_inuse_bytes", "gauge", "Bytes of stack memory in use")
 	fmt.Fprintf(b, "corec_mem_stack_inuse_bytes %d\n", stackInuse)
 
-	// Memory: total alloc (counter-like, but exposed as gauge since it's cumulative)
-	writePromHeader(b, "corec_mem_total_alloc_bytes", "gauge", "Total bytes of memory allocated (cumulative)")
+	// Memory: total alloc is a monotonically increasing cumulative
+	// value — exposed as a counter per Prometheus convention (audit
+	// OBS-10 / roadmap #31: it was typed gauge, which misleads
+	// ecosystem tooling).
+	writePromHeader(b, "corec_mem_total_alloc_bytes", "counter", "Total bytes of memory allocated (cumulative)")
 	fmt.Fprintf(b, "corec_mem_total_alloc_bytes %d\n", totalAlloc)
 
 	// GC
-	writePromHeader(b, "corec_gc_count", "gauge", "Total number of GC completions")
+	writePromHeader(b, "corec_gc_count", "counter", "Total number of GC completions")
 	fmt.Fprintf(b, "corec_gc_count %d\n", numGC)
 
-	writePromHeader(b, "corec_gc_pause_total_seconds", "gauge", "Total GC pause time in seconds")
+	writePromHeader(b, "corec_gc_pause_total_seconds", "counter", "Total GC pause time in seconds")
 	fmt.Fprintf(b, "corec_gc_pause_total_seconds %g\n", pauseTotalSec)
 
 	// CPU: number of logical CPUs available to the process

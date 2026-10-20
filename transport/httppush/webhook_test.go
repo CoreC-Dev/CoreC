@@ -219,3 +219,72 @@ func TestNoWebhookOnDataNil(t *testing.T) {
 		t.Error("OnData should return nil when webhook-addr is not configured")
 	}
 }
+
+// TestWebhookBatchOutcomeCounts pins roadmap #36 (audit TRA-3): the batch
+// response body carries per-outcome counts so partial failures are
+// visible to the sender — parse failures and queue drops are counted
+// distinctly, previously invisible under a bare 202.
+func TestWebhookBatchOutcomeCounts(t *testing.T) {
+	addr := freePort(t)
+	config := core.TransportConfig{
+		Name: "test-webhook-counts",
+		Type: "http",
+		Settings: map[string]any{
+			"url":            "http://localhost:9999/no-such-server",
+			"webhook-addr":   addr,
+			"webhook-path":   "/ingest",
+			"webhook-secret": "test-secret",
+		},
+	}
+	transport, err := NewHTTPTransport(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := transport.Init(context.Background(), config); err != nil {
+		t.Fatal(err)
+	}
+	if err := transport.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer transport.Stop()
+
+	waitForServer(t, addr)
+
+	// Mixed array: two valid points and two malformed elements. A bare
+	// string and a bare number both fail the unmarshal into DataPoint
+	// (an object with only unknown fields would unmarshal to a zero
+	// DataPoint — valid JSON, not a parse failure).
+	payload := `[` +
+		`{"driver":"d1","tag":"t1","value":1.0,"type":"float64","timestamp":"` + time.Now().Format(time.RFC3339Nano) + `"},` +
+		`123,` +
+		`"not-even-an-object",` +
+		`{"driver":"d2","tag":"t2","value":2.0,"type":"float64","timestamp":"` + time.Now().Format(time.RFC3339Nano) + `"}]`
+	req, err := http.NewRequest(http.MethodPost, "http://"+addr+"/ingest", bytes.NewReader([]byte(payload)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer test-secret")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", resp.StatusCode)
+	}
+	var counts struct {
+		Received     int `json:"received"`
+		Accepted     int `json:"accepted"`
+		ParseFailed  int `json:"parse_failed"`
+		QueueDropped int `json:"queue_dropped"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&counts); err != nil {
+		t.Fatalf("decode counts: %v", err)
+	}
+	if counts.Received != 4 || counts.Accepted != 2 || counts.ParseFailed != 2 {
+		t.Errorf("counts = received:%d accepted:%d parse_failed:%d dropped:%d, want 4/2/2/0",
+			counts.Received, counts.Accepted, counts.ParseFailed, counts.QueueDropped)
+	}
+}

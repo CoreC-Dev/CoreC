@@ -70,20 +70,38 @@ func (t *HTTPTransport) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		rawElements = []json.RawMessage{body}
 	}
 
+	// Roadmap #36 (audit TRA-3): a batch caller previously got a bare
+	// 202 even when every element failed to parse or was dropped —
+	// partial failures were invisible to the sender. The response
+	// body now carries the per-outcome counts; the status stays 202
+	// because elements that DID parse are queued for the pipeline.
+	accepted, parsed, parseFailed, dropped := 0, 0, 0, 0
 	for _, raw := range rawElements {
 		dp, err := t.dataParser.Parse(raw, "")
 		if err != nil {
+			parseFailed++
 			slog.Error("http webhook: failed to parse payload", "error", err)
 			continue
 		}
+		parsed++
 		select {
 		case t.dataCh <- dp:
+			accepted++
 			t.received.Add(1)
 		default:
+			dropped++
 			slog.Warn("http webhook: data channel full, dropping data point",
 				"driver", dp.Driver, "tag", dp.Tag)
 		}
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(map[string]int{
+		"received":      len(rawElements),
+		"accepted":      accepted,
+		"parse_failed":  parseFailed,
+		"queue_dropped": dropped,
+	})
+	_ = parsed // kept for symmetry/debug readability
 }

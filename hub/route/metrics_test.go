@@ -68,6 +68,9 @@ func TestPromMetricsBasic(t *testing.T) {
 		"# TYPE corec_goroutines gauge",
 		"# HELP corec_mem_heap_alloc_bytes",
 		"# HELP corec_gc_count",
+		"# TYPE corec_mem_total_alloc_bytes counter",
+		"# TYPE corec_gc_count counter",
+		"# TYPE corec_gc_pause_total_seconds counter",
 		"# HELP corec_cpu_count",
 	}
 	for _, s := range required {

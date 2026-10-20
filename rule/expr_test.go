@@ -82,3 +82,30 @@ func TestPreviewMatchPropagatesEvalError(t *testing.T) {
 		t.Error("expected compile error for incomplete expression")
 	}
 }
+
+// TestTimestampInMatchExpression pins the roadmap #34 / RULE-3 fix:
+// the point's Unix-millisecond timestamp is available to match
+// expressions, so time-window rules (night-shift suppression, shift
+// rollover) are expressible without external plumbing.
+func TestTimestampInMatchExpression(t *testing.T) {
+	// 2026-10-20T02:30:00Z — 02:30 UTC: within the 22:00–06:00 night window.
+	night := core.DataPoint{
+		Driver: "plc", Tag: "temp", Value: 95, Type: core.TypeFloat64,
+		Quality: core.QualityGood, Timestamp: time.Date(2026, 10, 20, 2, 30, 0, 0, time.UTC),
+	}
+	noon := core.DataPoint{
+		Driver: "plc", Tag: "temp", Value: 95, Type: core.TypeFloat64,
+		Quality: core.QualityGood, Timestamp: time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC),
+	}
+
+	// Night window: hour >= 22 OR hour < 6 (UTC) in ms.
+	nightExpr := "timestamp % 86400000 >= 79200000 || timestamp % 86400000 < 21600000"
+	matched, err := PreviewMatch(nightExpr, night)
+	if err != nil || !matched {
+		t.Errorf("night point should match the night window, matched=%v err=%v", matched, err)
+	}
+	matched, err = PreviewMatch(nightExpr, noon)
+	if err != nil || matched {
+		t.Errorf("noon point should NOT match the night window, matched=%v err=%v", matched, err)
+	}
+}

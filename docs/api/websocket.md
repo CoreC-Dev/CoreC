@@ -187,12 +187,12 @@ wscat -c "ws://localhost:9090/logs?token=corec-secret-token"
 
 ## /traffic — 流量统计实时流
 
-定期推送引擎流量统计，包含累计读取、发布和丢弃数。适合用于仪表盘实时流量监控。
+定期推送引擎**吞吐速率**（读取/发布/丢弃，每秒），服务端完成差分——客户端拿到的就是可直接绘制的速率曲线，没有重启归零导致的负值帧，也没有"第一帧之前是死区"的问题。
 
 ### 请求
 
 ```http
-GET /traffic?interval={duration}
+GET /traffic?interval={duration}&mode={totals|rate}
 ```
 
 #### 查询参数
@@ -200,10 +200,23 @@ GET /traffic?interval={duration}
 | 参数 | 类型 | 必填 | 说明 |
 |:---|:---|:---|:---|
 | `interval` | string (duration) | 否 | 推送间隔，如 `1s`、`500ms`；省略时默认 `1s` |
+| `mode` | string | 否 | `rate`（默认）：速率帧；`totals`：历史累计计数帧（旧客户端的差分用法兼容） |
 
-### 消息格式
+### 消息格式（默认，速率）
 
-每次间隔推送一个统计对象：
+每次间隔推送一个速率对象（单位：次/秒，按 `interval` 差分）：
+
+```json
+{
+  "read_rate": 125.0,
+  "publish_rate": 124.8,
+  "dropped_rate": 0.0
+}
+```
+
+连接后的**第一帧**没有差分基线：`read_rate` 携带引擎的 60s 窗口速率（与 `corec_points_per_second` 同口径），`publish_rate`/`dropped_rate` 为 0——永不出现负值或空洞。
+
+### 消息格式（`mode=totals`，兼容）
 
 ```json
 {
@@ -217,12 +230,15 @@ GET /traffic?interval={duration}
 
 | 字段 | 类型 | 说明 |
 |:---|:---|:---|
-| `read` | uint64 | 累计读取次数（对应 `EngineStats.TotalRead`） |
-| `publish` | uint64 | 累计发布次数（对应 `EngineStats.TotalPublish`） |
-| `dropped` | uint64 | 累计丢弃数（对应 `EngineStats.TotalDropped`） |
+| `read_rate` | float | 读取速率（次/秒） |
+| `publish_rate` | float | 发布速率（次/秒） |
+| `dropped_rate` | float | 丢弃速率（次/秒） |
+| `read` | uint64 | 仅 `mode=totals`：累计读取（`EngineStats.TotalRead`） |
+| `publish` | uint64 | 仅 `mode=totals`：累计发布 |
+| `dropped` | uint64 | 仅 `mode=totals`：累计丢弃 |
 
 ::: info 推送频率
-默认每 1 秒推送一次（`time.NewTicker(wsPushInterval)`），可通过 `?interval=` 查询参数自定义间隔。
+默认每 1 秒推送一次，可通过 `?interval=` 自定义间隔。
 :::
 
 ### 示例

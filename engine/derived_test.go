@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -430,5 +431,60 @@ func TestExtractQualifiedRefs(t *testing.T) {
 	// is a builtin.
 	if len(vars) != 1 || vars[0] != "temp" {
 		t.Errorf("flat vars = %v, want just [temp]", vars)
+	}
+}
+
+// TestDerivedCycleDetection pins roadmap #38 (audit PIPE-4): two derived
+// tags referencing each other previously evaluated silently forever —
+// every tick computed garbage from ghost values with no signal
+// anywhere. Compilation now fails fast with the cycle path spelled out.
+func TestDerivedCycleDetection(t *testing.T) {
+	// Direct cycle: a -> b -> a.
+	_, err := newDerivedTagEvaluator([]core.DerivedTagConfig{
+		{Name: "a", Expr: "derived.b * 2", Interval: "1s"},
+		{Name: "b", Expr: "derived.a + 1", Interval: "1s"},
+	}, NewLatestCache(), NewDataBus(64))
+	if err == nil {
+		t.Fatal("expected cycle error for a -> b -> a")
+	}
+	if !strings.Contains(err.Error(), "cycle") || !strings.Contains(err.Error(), "a -> b -> a") {
+		t.Errorf("error should spell the cycle path, got: %v", err)
+	}
+
+	// Self-reference.
+	_, err = newDerivedTagEvaluator([]core.DerivedTagConfig{
+		{Name: "self", Expr: "derived.self * 2", Interval: "1s"},
+	}, NewLatestCache(), NewDataBus(64))
+	if err == nil || !strings.Contains(err.Error(), "cycle") {
+		t.Errorf("self-reference should be a cycle error, got: %v", err)
+	}
+
+	// Unqualified-name cycle (the flat view also resolves derived names).
+	_, err = newDerivedTagEvaluator([]core.DerivedTagConfig{
+		{Name: "x", Expr: "y + 1", Interval: "1s"},
+		{Name: "y", Expr: "x + 1", Interval: "1s"},
+	}, NewLatestCache(), NewDataBus(64))
+	if err == nil || !strings.Contains(err.Error(), "cycle") {
+		t.Errorf("unqualified cycle should error, got: %v", err)
+	}
+
+	// Acyclic chain is fine: c reads b reads a.
+	_, err = newDerivedTagEvaluator([]core.DerivedTagConfig{
+		{Name: "a", Expr: "raw * 2", Interval: "1s"},
+		{Name: "b", Expr: "derived.a + 1", Interval: "1s"},
+		{Name: "c", Expr: "derived.b * 3", Interval: "1s"},
+	}, NewLatestCache(), NewDataBus(64))
+	if err != nil {
+		t.Errorf("acyclic derived chain rejected: %v", err)
+	}
+
+	// A derived tag shadowing a real driver tag name is NOT a cycle:
+	// `driver.tag` qualified refs resolve per-driver, and the qualified
+	// edge only exists when the target is itself a derived tag.
+	_, err = newDerivedTagEvaluator([]core.DerivedTagConfig{
+		{Name: "pressure", Expr: "plc1.pressure * 2", Interval: "1s"},
+	}, NewLatestCache(), NewDataBus(64))
+	if err != nil {
+		t.Errorf("driver-tag reference misidentified as a cycle: %v", err)
 	}
 }

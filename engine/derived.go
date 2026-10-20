@@ -137,7 +137,74 @@ func newDerivedTagEvaluator(configs []core.DerivedTagConfig, cache *LatestCache,
 		}
 		tags = append(tags, ct)
 	}
+	// Cycle detection (roadmap #38 / audit PIPE-4): two derived tags
+	// referencing each other previously evaluated silently against
+	// stale/missing cache values forever — every tick computed garbage
+	// from ghosts with no signal anywhere. Compile-time detection
+	// fails fast with the cycle path spelled out.
+	if err := detectDerivedCycles(tags); err != nil {
+		return nil, err
+	}
 	return &derivedTagEvaluator{tags: tags, cache: cache, dataBus: dataBus}, nil
+}
+
+// detectDerivedCycles walks the derived→derived reference graph and
+// errors on the first cycle found (depth-first with a visiting set).
+func detectDerivedCycles(tags []*compiledDerivedTag) error {
+	// A derived tag reading another derived tag references (driver
+	// "derived", tag <name>) — find the referenced compiled tag and
+	// recurse.
+	byName := make(map[string]*compiledDerivedTag, len(tags))
+	for _, t := range tags {
+		byName[t.config.Name] = t
+	}
+	var visit func(t *compiledDerivedTag, path []string, visiting map[string]bool) error
+	visit = func(t *compiledDerivedTag, path []string, visiting map[string]bool) error {
+		name := t.config.Name
+		if visiting[name] {
+			// Splice the cycle segment out of the path for the message.
+			start := 0
+			for i, p := range path {
+				if p == name {
+					start = i
+					break
+				}
+			}
+			return fmt.Errorf("derived tags form a cycle: %s -> %s",
+				strings.Join(path[start:], " -> "), name)
+		}
+		visiting[name] = true
+		defer delete(visiting, name)
+		for _, q := range t.qualified {
+			if q.driver != derivedDriverName {
+				continue // plain driver tag: not a derived-to-derived edge
+			}
+			next, ok := byName[q.tag]
+			if !ok {
+				continue // references a driver tag or a future tag: not a cycle
+			}
+			if err := visit(next, append(path, name), visiting); err != nil {
+				return err
+			}
+		}
+		// Unqualified names could also name another derived tag (the
+		// flat view resolves them) — treat them as edges too.
+		for _, v := range t.vars {
+			if next, ok := byName[v]; ok {
+				if err := visit(next, append(path, name), visiting); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	visiting := make(map[string]bool, len(tags))
+	for _, t := range tags {
+		if err := visit(t, nil, visiting); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func compileDerivedTag(cfg core.DerivedTagConfig) (*compiledDerivedTag, error) {
