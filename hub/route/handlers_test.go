@@ -51,6 +51,10 @@ type mockEngineV2 struct {
 	// role (OBS-6).
 	dropBreakdown core.DroppedBreakdown
 
+	// driverMetrics backs the optional core.DriverMetricsProvider role
+	// (OBS-8).
+	driverMetrics []core.DriverMetric
+
 	// alerts/ackErr/alertStreamCh back the optional alert roles
 	// (core.AlertProvider / AlertStreamer / AlertMetricsProvider).
 	alerts          []core.Alert
@@ -85,6 +89,8 @@ func (m *mockEngineV2) AlertFireCounts() map[string]uint64 { return m.alertFireC
 func (m *mockEngineV2) ActiveAlertCount() int              { return len(m.alerts) }
 
 func (m *mockEngineV2) DroppedBreakdown() core.DroppedBreakdown { return m.dropBreakdown }
+
+func (m *mockEngineV2) DriverMetrics() []core.DriverMetric { return m.driverMetrics }
 
 func (m *mockEngineV2) ListDrivers() []core.DriverStatus { return m.drivers }
 

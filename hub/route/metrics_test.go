@@ -587,3 +587,35 @@ func TestPromMetricsDroppedBreakdown(t *testing.T) {
 		}
 	}
 }
+
+// TestPromMetricsDriverSeries verifies driver-emitted protocol metrics
+// render under their driver-owned names (audit OBS-8: the core.Metrics
+// port was previously wired only to NoopMetrics — emissions vanished).
+func TestPromMetricsDriverSeries(t *testing.T) {
+	eng := &mockEngineV2{
+		driverMetrics: []core.DriverMetric{
+			{Name: "modbus_exception_total", Kind: "counter",
+				Labels: map[string]string{"driver": "plc1", "code": "illegal-data-address"}, Value: 4},
+			{Name: "modbus_exception_total", Kind: "counter",
+				Labels: map[string]string{"driver": "plc2", "code": "server-device-failure"}, Value: 2},
+		},
+	}
+	ts := newTestServer("", eng)
+	defer ts.Close()
+
+	resp := authedGet(t, ts, "/metrics", "")
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	output := string(body)
+
+	checks := []string{
+		"# TYPE modbus_exception_total counter",
+		"modbus_exception_total{code=\"illegal-data-address\",driver=\"plc1\"} 4",
+		"modbus_exception_total{code=\"server-device-failure\",driver=\"plc2\"} 2",
+	}
+	for _, s := range checks {
+		if !strings.Contains(output, s) {
+			t.Errorf("metrics output missing %q\nOutput:\n%s", s, output)
+		}
+	}
+}

@@ -72,7 +72,10 @@ func (r *driverRegistry) AddDriver(config core.DriverConfig) error {
 		li.SetLogger(log.DefaultLogger())
 	}
 	if mi, ok := driver.(metricsInjector); ok {
-		mi.SetMetrics(core.NoopMetrics{})
+		// The engine's registry, not NoopMetrics: protocol-level driver
+		// metrics (modbus exception codes, ...) flow to /metrics via the
+		// core.DriverMetricsProvider role (audit OBS-8).
+		mi.SetMetrics(core.Metrics(r.eng.stats.driverMetrics))
 	}
 
 	if err := driver.Init(r.eng.runtime.ctx, config); err != nil {

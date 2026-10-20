@@ -98,6 +98,7 @@ func (b *modbusBase) Read(ctx context.Context, tags []string) ([]core.TagValue, 
 		}
 		if err != nil {
 			b.RecordError()
+			b.recordException(err)
 			b.Lock()
 			b.SetLastErrorLocked(err.Error())
 			b.Unlock()

@@ -23,6 +23,12 @@ type statsCollector struct {
 	totalErrors  atomic.Uint64
 	startTime    time.Time
 
+	// driverMetrics is the registry drivers emit protocol-level
+	// metrics into via the core.Metrics port (audit OBS-8: the port
+	// existed but was only ever wired to NoopMetrics — the last mile
+	// to /metrics was missing).
+	driverMetrics *metrics.Registry
+
 	// badQualityDropped counts points discarded by the
 	// on-bad-quality: drop policy (audit finding OBS-6: these were
 	// previously counted inside totalErrors, conflating a configured
@@ -188,6 +194,19 @@ func (s *statsCollector) FlushBatchesDropped() uint64 {
 		total += b.buf.flushBatchesDropped.Load()
 	}
 	return total
+}
+
+// DriverMetrics exposes the aggregated driver-metrics registry for the
+// route layer (core.DriverMetricsProvider, audit OBS-8).
+func (s *statsCollector) DriverMetrics() []core.DriverMetric {
+	snap := s.driverMetrics.Snapshot()
+	out := make([]core.DriverMetric, 0, len(snap))
+	for _, m := range snap {
+		out = append(out, core.DriverMetric{
+			Name: m.Name, Kind: string(m.Kind), Labels: m.Labels, Value: m.Value,
+		})
+	}
+	return out
 }
 
 // recordBadQualityDrop counts one point discarded by the drop policy.

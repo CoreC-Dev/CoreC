@@ -103,6 +103,45 @@ func writeDroppedBreakdown(b *strings.Builder) {
 	fmt.Fprintf(b, "corec_bad_quality_dropped_total %d\n", bd.BadQuality)
 }
 
+// writeDriverEmittedMetrics emits the driver-emitted protocol-level series
+// aggregated by the engine's registry (audit finding OBS-8: the
+// core.Metrics port existed but was only ever wired to NoopMetrics —
+// driver emissions went nowhere). Series render verbatim under their
+// driver-owned names (modbus_*, opcua_*, s7_*); HELP names the driver
+// namespace explicitly. Engines without the role omit the families.
+func writeDriverEmittedMetrics(b *strings.Builder) {
+	provider, ok := getEngine().(core.DriverMetricsProvider)
+	if !ok || provider == nil {
+		return
+	}
+	series := provider.DriverMetrics()
+	if len(series) == 0 {
+		return
+	}
+
+	// Emit one HELP/TYPE pair per metric name, then its series.
+	family := ""
+	for _, m := range series {
+		if m.Name != family {
+			family = m.Name
+			writePromHeader(b, m.Name, m.Kind, "Driver-emitted protocol metric (see docs/config/drivers.md)")
+		}
+		// Labels render in sorted key order so exposition is
+		// deterministic (Prometheus accepts any label order; stable
+		// text keeps test snapshots and scraping diffs meaningful).
+		labelKeys := make([]string, 0, len(m.Labels))
+		for k := range m.Labels {
+			labelKeys = append(labelKeys, k)
+		}
+		sort.Strings(labelKeys)
+		labelStr := ""
+		for _, k := range labelKeys {
+			labelStr += fmt.Sprintf("%s=%q,", k, promEscape(m.Labels[k]))
+		}
+		fmt.Fprintf(b, "%s{%s} %g\n", m.Name, strings.TrimSuffix(labelStr, ","), m.Value)
+	}
+}
+
 // writeAlertMetrics exposes the alert registry for alerting on alerts
 // (audit findings OBS-4/HUB-6): the cumulative fire count per rule and
 // the number of currently-active alerts. Engines without the

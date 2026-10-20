@@ -2,12 +2,14 @@ package modbus
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/CoreC-Dev/CoreC/common/testutil"
 	"github.com/CoreC-Dev/CoreC/core"
 	mb "github.com/simonvetter/modbus"
 )
@@ -475,4 +477,48 @@ func TestModbusWriteScaleRoundTrip(t *testing.T) {
 	if got := handler.holding[9]; got != 200 {
 		t.Errorf("raw write: device received %d, want 200", got)
 	}
+}
+
+// TestModbusExceptionMetricEmitted verifies the driver-emitted metrics
+// port is actually wired (audit OBS-8): a Modbus exception sentinel
+// recorded through the driver lands in the injected registry as
+// modbus_exception_total{driver=...,code=...}, which /metrics then
+// exposes via core.DriverMetricsProvider.
+func TestModbusExceptionMetricEmitted(t *testing.T) {
+	driverCfg := core.DriverConfig{
+		Name: "exc-plc", Type: "modbus-tcp",
+		Settings: map[string]any{"host": "127.0.0.1", "port": 15020, "slave-id": 1},
+		Tags: []core.TagConfig{
+			{Name: "temp", Address: "40001", Type: "uint16"},
+		},
+	}
+	drv, err := NewModbusTCPDriver(driverCfg)
+	if err != nil {
+		t.Fatalf("driver: %v", err)
+	}
+	if err := drv.Init(context.Background(), driverCfg); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	reg := testutil.NewCaptureMetrics()
+	// Call through the promoted methods — copying the embedded
+	// modbusBase value would copy its mutex (go vet: assignment copies
+	// lock value).
+	tcpDrv := drv.(*ModbusTCPDriver)
+	tcpDrv.SetMetrics(reg)
+
+	// The production code path under test: a library exception sentinel
+	// maps to a labeled protocol-level counter.
+	tcpDrv.recordException(mb.ErrIllegalDataAddress)
+	tcpDrv.recordException(mb.ErrIllegalDataAddress)
+	tcpDrv.recordException(mb.ErrServerDeviceBusy)
+	// Transport-class errors are connection concerns, not protocol
+	// responses — no counter for them.
+	tcpDrv.recordException(errors.New("connection refused"))
+
+	reg.AssertCounter(t, "modbus_exception_total",
+		map[string]string{"driver": "exc-plc", "code": "illegal-data-address"}, 2)
+	reg.AssertCounter(t, "modbus_exception_total",
+		map[string]string{"driver": "exc-plc", "code": "server-device-busy"}, 1)
+	reg.AssertAbsent(t, "modbus_exception_total", map[string]string{"code": "connection-refused"})
 }

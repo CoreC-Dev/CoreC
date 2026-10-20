@@ -154,6 +154,12 @@ func (e *CoreCEngine) DroppedBreakdown() core.DroppedBreakdown {
 	return e.stats.DroppedBreakdown()
 }
 
+// DriverMetrics forwards to the stats collector for the driver-metric
+// families (optional core.DriverMetricsProvider role, OBS-8).
+func (e *CoreCEngine) DriverMetrics() []core.DriverMetric {
+	return e.stats.DriverMetrics()
+}
+
 // --- Driver pause/resume (audit RES-4, roadmap #21) ---
 
 // PauseDriver suspends the named driver's collection tasks without

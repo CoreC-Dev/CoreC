@@ -53,6 +53,7 @@ func (b *modbusBase) Write(ctx context.Context, commands []core.WriteCommand) ([
 		err := b.writeTag(client, ai, cmd)
 		if err != nil {
 			b.RecordError()
+			b.recordException(err)
 			results[i] = core.WriteResult{Success: false, Error: err.Error()}
 			b.Logger().Error("modbus write failed", "tag", cmd.Tag, "error", err)
 			// Connection-class write failures tear the connection down

@@ -30,3 +30,24 @@ func (NoopMetrics) SetGauge(name string, value float64, labels map[string]string
 
 // Compile-time assertion that NoopMetrics satisfies Metrics.
 var _ Metrics = NoopMetrics{}
+
+// DriverMetric is one driver-emitted series snapshot for Prometheus
+// exposition (the /metrics view over the core.Metrics port, audit
+// finding OBS-8). Names are driver-owned; the convention is a
+// protocol prefix (modbus_*, opcua_*, s7_*) so families never collide
+// with the engine's corec_* namespace.
+type DriverMetric struct {
+	Name   string            `json:"name"`
+	Kind   string            `json:"kind"` // "counter" | "gauge"
+	Labels map[string]string `json:"labels,omitempty"`
+	Value  float64           `json:"value"`
+}
+
+// DriverMetricsProvider exposes the aggregated driver-metrics registry
+// for Prometheus exposure. The engine injects its registry into every
+// driver via the SetMetrics port; this role surfaces the accumulated
+// series to the route layer. Engines that do not implement it simply
+// omit the driver-metric families.
+type DriverMetricsProvider interface {
+	DriverMetrics() []DriverMetric
+}

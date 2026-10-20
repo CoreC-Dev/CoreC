@@ -73,6 +73,9 @@ func promMetrics(w http.ResponseWriter, r *http.Request) {
 	// ─── Dropped-by-cause breakdown (audit OBS-6) ─────────────────────
 	writeDroppedBreakdown(&b)
 
+	// ─── Driver-emitted protocol metrics (audit OBS-8) ────────────────
+	writeDriverEmittedMetrics(&b)
+
 	// ─── Offline buffer metrics ───────────────────────────────────────
 	writeOfflineBufferMetrics(&b)
 

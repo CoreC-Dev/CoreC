@@ -100,6 +100,14 @@ corec_driver_last_read_seconds{driver="plc2"} 748.9
 | `corec_scheduler_consecutive_errors` | gauge | `driver` | 该驱动采集任务的最差连续读失败次数（首次成功即归零） |
 | `corec_scheduler_overruns_total` | counter | `driver` | 该驱动"读取耗时超过采集周期"的累计次数（进程生命周期内单调递增，不清零） |
 
+### 驱动自报指标（audit OBS-8）
+
+驱动通过 `core.Metrics` 端口上报的协议级指标经引擎注册表汇聚后，按其**原生命名**（驱动侧命名空间，约定以协议为前缀：`modbus_*`、`opcua_*`、`s7_*`）原样暴露：
+
+| 指标 | 类型 | 标签 | 说明 |
+|:---|:---|:---|:---|
+| `modbus_exception_total` | counter | `driver`, `code` | Modbus 异常响应计数（如 `illegal-data-address`——通常是地址配置错误；`server-device-busy`——设备过载）。传输层错误（超时/拒绝）不计入——那属于连接层，由重连计数覆盖 |
+
 ### 每传输指标
 
 以下指标按传输实例名分组，按名称排序输出。

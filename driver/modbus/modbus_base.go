@@ -169,6 +169,46 @@ func (b *modbusBase) SetMetrics(m core.Metrics) {
 	b.Unlock()
 }
 
+// recordException emits a protocol-level exception-code counter via
+// the injected core.Metrics registry (audit OBS-8: the port existed
+// but was never wired to a real backend). Only genuine Modbus
+// exception responses count — transport errors (timeouts, refusals)
+// are connection concerns already covered by reconnect/error counters.
+// Safe on any driver state: nil registry or non-exception errors are
+// no-ops.
+func (b *modbusBase) recordException(err error) {
+	if err == nil || b.metrics == nil {
+		return
+	}
+	code := ""
+	switch err {
+	case mb.ErrIllegalFunction:
+		code = "illegal-function"
+	case mb.ErrIllegalDataAddress:
+		code = "illegal-data-address"
+	case mb.ErrIllegalDataValue:
+		code = "illegal-data-value"
+	case mb.ErrServerDeviceFailure:
+		code = "server-device-failure"
+	case mb.ErrAcknowledge:
+		code = "acknowledge"
+	case mb.ErrServerDeviceBusy:
+		code = "server-device-busy"
+	case mb.ErrMemoryParityError:
+		code = "memory-parity-error"
+	case mb.ErrGWPathUnavailable:
+		code = "gateway-path-unavailable"
+	case mb.ErrGWTargetFailedToRespond:
+		code = "gateway-target-failed-to-respond"
+	default:
+		return
+	}
+	b.metrics.IncCounter("modbus_exception_total", map[string]string{
+		"driver": b.Name(),
+		"code":   code,
+	})
+}
+
 // openClient creates, configures and opens a Modbus client from the given
 // library configuration, then stores it in the base.  The transport-specific
 // connect() methods build the ClientConfiguration and delegate to this
