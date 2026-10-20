@@ -93,6 +93,9 @@ func router(ctx context.Context, secret string, allowedOrigins []string, rateLim
 
 		r.Get("/tags", getAllTags)
 		r.Post("/write", writeTag)
+		// Batch writes (roadmap #37): sequential per-command execution;
+		// per-command results + counts, audit/DLQ identical to single.
+		r.Post("/write/batch", batchWrite)
 		r.Get("/write/failed", getFailedWrites)
 		r.Get("/write/history", getWriteHistory)
 

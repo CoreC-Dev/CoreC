@@ -223,6 +223,7 @@ curl -H "Authorization: Bearer your-secret-token" http://localhost:9090/drivers
 | GET | `/transports/{name}` | 查看单个传输 |
 | GET | `/tags` | 所有测点最新缓存值 |
 | POST | `/write` | 下发控制指令 `{"driver":"plc1","tag":"temp","value":50,"type":"float32"}` |
+| POST | `/write/batch` | 批量写入（顺序执行、逐条结果，上限 128 条） |
 | GET | `/write/failed` | 查询死信队列中重试耗尽的失败写入指令 |
 | GET | `/write/history` | 查询写入审计历史（最近 1000 条写记录，含成功与失败，新→旧） |
 | GET | `/alerts` | 查询活动规则告警 + 生命周期历史（active/ack/cleared 状态机） |

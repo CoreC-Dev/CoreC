@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -929,5 +930,99 @@ func TestWriteHistoryFiltering(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("bad since status = %d, want 400", resp.StatusCode)
+	}
+}
+
+// TestBatchWrite pins roadmap #37 (audit RES-5): POST /write/batch runs
+// commands sequentially with per-command outcomes — partial success is
+// visible, a total failure is 422 (well-formed but device-rejected),
+// oversized/empty batches are 400.
+func TestBatchWrite(t *testing.T) {
+	eng := &mockEngineV2{}
+	// WriteTag outcome driven by the tag name embedded in the test.
+	eng.writeTagHook = func(ctx context.Context, cmd core.WriteCommand) (*core.WriteResult, error) {
+		switch {
+		case cmd.Tag == "ok":
+			return &core.WriteResult{Success: true}, nil
+		case cmd.Tag == "missing-driver":
+			return nil, fmt.Errorf("driver not found: %s", cmd.Driver)
+		case cmd.Tag == "reject":
+			return &core.WriteResult{Success: false, Error: "device rejected"}, nil
+		}
+		return &core.WriteResult{Success: false, Error: "unhandled fixture tag"}, nil
+	}
+	ts := newTestServer("", eng)
+	defer ts.Close()
+
+	post := func(body string) (*http.Response, map[string]any) {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPost, ts.URL+"/write/batch", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := ts.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var out map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return resp, out
+	}
+
+	// Mixed outcomes → 200 with per-command results + counts.
+	resp, out := post(`{"writes":[
+		{"driver":"plc1","tag":"ok","value":1,"type":"int32"},
+		{"driver":"nope","tag":"missing-driver","value":2,"type":"int32"},
+		{"driver":"plc2","tag":"reject","value":3,"type":"int32"}
+	]}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("mixed batch status = %d, want 200", resp.StatusCode)
+	}
+	if out["succeeded"].(float64) != 1 || out["failed"].(float64) != 2 {
+		t.Errorf("counts = %v/%v, want 1/2", out["succeeded"], out["failed"])
+	}
+	results := out["results"].([]any)
+	if len(results) != 3 {
+		t.Fatalf("results = %d, want 3 (request order mirrored)", len(results))
+	}
+	if results[0].(map[string]any)["success"] != true {
+		t.Errorf("results[0] = %v, want success", results[0])
+	}
+	if !strings.Contains(results[1].(map[string]any)["error"].(string), "driver not found") {
+		t.Errorf("results[1] error = %v, want the verbatim driver-not-found reason", results[1])
+	}
+
+	// All failed → 422.
+	resp, _ = post(`{"writes":[{"driver":"nope","tag":"missing-driver","value":1,"type":"int32"}]}`)
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("all-failed batch status = %d, want 422", resp.StatusCode)
+	}
+
+	// Empty batch → 400.
+	resp, _ = post(`{"writes":[]}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("empty batch status = %d, want 400", resp.StatusCode)
+	}
+
+	// Oversized batch → 400 with the cap named.
+	var huge strings.Builder
+	huge.WriteString(`{"writes":[`)
+	for i := 0; i < 129; i++ {
+		if i > 0 {
+			huge.WriteByte(',')
+		}
+		fmt.Fprintf(&huge, `{"driver":"d","tag":"t%d","value":1,"type":"int32"}`, i)
+	}
+	huge.WriteString(`]}`)
+	resp, out = post(huge.String())
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("oversized batch status = %d, want 400", resp.StatusCode)
+	}
+	if !strings.Contains(out["error"].(string), "max 128") {
+		t.Errorf("oversized error = %v, want the cap named", out["error"])
 	}
 }

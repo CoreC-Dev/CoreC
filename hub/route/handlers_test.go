@@ -23,9 +23,11 @@ type mockEngineV2 struct {
 	tagsByDriver map[string]map[string]core.DataPoint
 	// flatTags backs LatestValues("") — the flattened all-tags view
 	// (cross-driver name collisions resolved last-writer-wins).
-	flatTags     map[string]core.DataPoint
-	writeErr     error
-	writeResult  core.WriteResult
+	flatTags    map[string]core.DataPoint
+	writeErr    error
+	writeResult core.WriteResult
+	// writeTagHook overrides WriteTag when set (batch-write tests).
+	writeTagHook func(ctx context.Context, cmd core.WriteCommand) (*core.WriteResult, error)
 	writeHistory []core.WriteAuditEntry
 	ruleStats    []core.RuleStat
 	disabledIdx  int
@@ -120,6 +122,11 @@ func (m *mockEngineV2) LatestValues(driver string) map[string]core.DataPoint {
 func (m *mockEngineV2) StaleThreshold() time.Duration { return 0 }
 
 func (m *mockEngineV2) WriteTag(ctx context.Context, cmd core.WriteCommand) (*core.WriteResult, error) {
+	// Per-tag hook for tests that need outcome-driven behaviour
+	// (batch writes); nil falls back to the static fixture.
+	if m.writeTagHook != nil {
+		return m.writeTagHook(ctx, cmd)
+	}
 	return &m.writeResult, m.writeErr
 }
 

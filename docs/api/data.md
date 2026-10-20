@@ -161,6 +161,42 @@ Content-Type: application/json
 }
 ```
 
+### 批量写入 — `POST /write/batch`
+
+配方下发、开机整定等场景一次提交一组写入指令（roadmap #37），**顺序执行、逐条返回结果**——部分失败不影响后续指令，每条尝试照常进入写入审计历史与（重试耗尽后的）死信队列，语义与单条写完全一致。
+
+```json
+{
+  "writes": [
+    { "driver": "plc1", "tag": "setpoint", "value": 50.0, "type": "float64" },
+    { "driver": "plc1", "tag": "motor_enable", "value": true, "type": "bool" }
+  ]
+}
+```
+
+| 状态码 | 说明 |
+|:---|:---|
+| `200 OK` | 至少一条成功（含部分失败）；`results` 按请求顺序逐条返回，`succeeded`/`failed` 汇总 |
+| `422 Unprocessable Entity` | 全部失败（请求合法、设备层面全部拒绝）——与 2xx 部分成功区分 |
+| `400 Bad Request` | 空数组、超过 128 条、或请求体非法 |
+
+**响应示例**：
+
+```json
+{
+  "results": [
+    { "success": true },
+    { "success": false, "error": "modbus: device rejected" }
+  ],
+  "succeeded": 1,
+  "failed": 1
+}
+```
+
+::: warning 顺序性与体积上限
+指令**严格按数组顺序执行**（不并行——保持与写信号量调度一致的可预测性）；单批上限 128 条（请求体同时受 1 MiB 全局上限约束），更大批次拆分为多个请求。
+:::
+
 ### WriteResult 字段说明
 
 | 字段 | 类型 | 说明 |

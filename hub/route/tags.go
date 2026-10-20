@@ -160,6 +160,73 @@ func getFailedWrites(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// batchWriteRequest is the body of POST /write/batch: a list of
+// WriteCommands (roadmap #37). Commands run sequentially and each
+// carries its own outcome — a partial failure never aborts the rest
+// and every attempt lands in the audit history and (on exhaustion)
+// the dead letter queue, exactly like single writes.
+type batchWriteRequest struct {
+	Writes []core.WriteCommand `json:"writes"`
+}
+
+// batchWrite executes a list of write commands one by one (roadmap
+// #37 / audit RES-5: recipe downloads and commissioning scripts
+// previously needed N round trips). The response mirrors the request
+// order; per-command errors are verbatim (driver-not-found etc.),
+// and the summary counts make partial success visible at a glance.
+func batchWrite(w http.ResponseWriter, r *http.Request) {
+	var req batchWriteRequest
+	if err := json.NewDecoder(limitedBody(r).Body).Decode(&req); err != nil {
+		renderError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	if len(req.Writes) == 0 {
+		renderError(w, r, http.StatusBadRequest, "writes is required and must not be empty")
+		return
+	}
+	// The shared 1 MiB body cap bounds the batch implicitly; an
+	// explicit ceiling keeps one request from pinning the write
+	// semaphore for minutes.
+	const maxBatchWrites = 128
+	if len(req.Writes) > maxBatchWrites {
+		renderError(w, r, http.StatusBadRequest,
+			fmt.Sprintf("batch too large: %d writes (max %d); split into multiple requests", len(req.Writes), maxBatchWrites))
+		return
+	}
+
+	var da core.DataAccessor = getEngine()
+	results := make([]core.WriteResult, len(req.Writes))
+	succeeded := 0
+	for i, cmd := range req.Writes {
+		cmd.Source = "api-batch"
+		cmd.Remote = r.RemoteAddr
+		res, err := da.WriteTag(r.Context(), cmd)
+		switch {
+		case err != nil:
+			results[i] = core.WriteResult{Success: false, Error: err.Error()}
+		case res != nil:
+			results[i] = *res
+			if res.Success {
+				succeeded++
+			}
+		default:
+			results[i] = core.WriteResult{Success: false, Error: "no result returned"}
+		}
+	}
+
+	status := http.StatusOK
+	if succeeded == 0 {
+		// Every command failed: 422 signals "well-formed request,
+		// device-level rejection" distinctly from a 2xx partial.
+		status = http.StatusUnprocessableEntity
+	}
+	render(w, r, status, map[string]any{
+		"results":   results,
+		"succeeded": succeeded,
+		"failed":    len(req.Writes) - succeeded,
+	})
+}
+
 // deadLetterEntriesForSource resolves the ?source= query parameter to
 // the right dead-letter store. The default (engine) path uses the
 // StatsProvider role; source=ingress type-asserts the optional
