@@ -98,8 +98,8 @@ var (
 	pprofMu          sync.Mutex // protects pprofServer
 	engine           core.Engine
 	engineMu         sync.RWMutex
-	ReloadFunc       func(path, payload string) error
-	PatchFunc        func(patch map[string]any) error
+	ReloadFunc       func(path, payload, remote string) error
+	PatchFunc        func(patch map[string]any, remote string) error
 	GetConfigFunc    func() *core.Config
 	GetRawConfigFunc func() (string, error)                 // Path A: GET /configs/raw — full YAML with secrets in plaintext
 	ValidateFunc     func(payload string) ([]string, error) // Path A: POST /configs/validate — dry-run; returns idle warnings + error

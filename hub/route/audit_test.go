@@ -48,7 +48,7 @@ func TestUpdateConfigsAuditLog(t *testing.T) {
 	defer ts.Close()
 
 	called := false
-	ReloadFunc = func(path, payload string) error {
+	ReloadFunc = func(path, payload, remote string) error {
 		called = true
 		return nil
 	}
@@ -93,7 +93,7 @@ func TestUpdateConfigsAuditLogFailure(t *testing.T) {
 	ts := newTestServer("", eng)
 	defer ts.Close()
 
-	ReloadFunc = func(path, payload string) error {
+	ReloadFunc = func(path, payload, remote string) error {
 		return errors.New("config parse error")
 	}
 	defer func() { ReloadFunc = nil }()
@@ -129,7 +129,7 @@ func TestPatchConfigsAuditLog(t *testing.T) {
 	defer ts.Close()
 
 	var received map[string]any
-	PatchFunc = func(patch map[string]any) error {
+	PatchFunc = func(patch map[string]any, remote string) error {
 		received = patch
 		return nil
 	}

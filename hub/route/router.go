@@ -55,6 +55,9 @@ func router(ctx context.Context, secret string, allowedOrigins []string, rateLim
 		r.Put("/configs", updateConfigs)
 		r.Patch("/configs", patchConfigs)
 		r.Post("/configs/validate", validateConfigs)
+		// Config change audit trail (audit HUB-4): who changed what,
+		// when — previously only a server log line.
+		r.Get("/configs/audit", getConfigAudit)
 
 		// Server-side config backups: snapshot copies of the persisted
 		// config (auto-created before every dashboard-driven change, plus

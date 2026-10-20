@@ -16,12 +16,12 @@ import (
 type Alert struct {
 	// Key is the stable identity "rule|driver|tag" used for ack and
 	// stream correlation.
-	Key        string `json:"key"`
-	Rule       string `json:"rule"`
-	Driver     string `json:"driver"`
-	Tag        string `json:"tag"`
-	Value      any    `json:"value,omitempty"`
-	Quality    Quality `json:"quality"`
+	Key        string    `json:"key"`
+	Rule       string    `json:"rule"`
+	Driver     string    `json:"driver"`
+	Tag        string    `json:"tag"`
+	Value      any       `json:"value,omitempty"`
+	Quality    Quality   `json:"quality"`
 	FirstFired time.Time `json:"first_fired"`
 	LastFired  time.Time `json:"last_fired"`
 	// Count is the number of fires while this alert has been active

@@ -545,3 +545,58 @@ func TestReloadErrorClassification(t *testing.T) {
 		}
 	})
 }
+
+// TestConfigAuditRecordsReloadAndPatch verifies the executor-side
+// recording (audit HUB-4 / roadmap #22): ReloadWithOrigin and
+// PatchWithOrigin append bounded, newest-first entries with the
+// caller's address and a change summary.
+func TestConfigAuditRecordsReloadAndPatch(t *testing.T) {
+	cfgAudit.mu.Lock()
+	cfgAudit.entries = nil
+	cfgAudit.mu.Unlock()
+
+	savedEngine, savedCfg, savedPath := engine, currentCfg, configPath
+	defer Init(savedEngine, savedCfg, savedPath)
+	Init(nil, &core.Config{
+		Global: core.GlobalConfig{LogLevel: "info"},
+	}, "")
+	// ApplyConfig requires a non-nil engine; the empty-diff path needs
+	// only Suspend/Resume.
+	mux.Lock()
+	engine = nilEngineOnlySuspendResume{}
+	mux.Unlock()
+
+	// Reload with origin.
+	if err := ReloadWithOrigin("", "global:\n  log-level: warn\n", "10.0.0.7:12345"); err != nil {
+		t.Fatalf("ReloadWithOrigin: %v", err)
+	}
+	// Patch with origin.
+	if err := PatchWithOrigin(map[string]any{"log-level": "debug"}, "10.0.0.7:99999"); err != nil {
+		t.Fatalf("PatchWithOrigin: %v", err)
+	}
+
+	entries := ConfigAuditHistory()
+	if len(entries) != 2 {
+		t.Fatalf("audit entries = %d, want 2", len(entries))
+	}
+	// Newest first: patch, then reload.
+	if entries[0].Action != "patch" || entries[0].Remote != "10.0.0.7:99999" {
+		t.Errorf("patch entry = %+v", entries[0])
+	}
+	if len(entries[0].Keys) != 1 || entries[0].Keys[0] != "log-level" {
+		t.Errorf("patch keys = %v, want [log-level]", entries[0].Keys)
+	}
+	if entries[1].Action != "reload" || entries[1].Remote != "10.0.0.7:12345" {
+		t.Errorf("reload entry = %+v", entries[1])
+	}
+	if len(entries[1].Keys) != 1 || entries[1].Keys[0] != "payload" {
+		t.Errorf("reload keys = %v, want [payload]", entries[1].Keys)
+	}
+}
+
+// nilEngineOnlySuspendResume is a core.Engine stub whose only live
+// methods are Suspend/Resume (the empty-diff ApplyConfig path).
+type nilEngineOnlySuspendResume struct{ core.Engine }
+
+func (nilEngineOnlySuspendResume) Suspend() error { return nil }
+func (nilEngineOnlySuspendResume) Resume() error  { return nil }

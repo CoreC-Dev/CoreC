@@ -109,6 +109,27 @@ Content-Type: application/json
 - `global.buffer`（离线缓冲）— 引擎启动时接线
 :::
 
+## 配置变更审计 — `GET /configs/audit`
+
+每次**成功**的配置变更（PUT `/configs` 重载、PATCH `/configs` 补丁、备份恢复）都会记入有界审计轨迹（内存态，最近 500 条，新→旧，重启清零——磁盘事实以配置文件与 `/configs/backups` 快照为准）：
+
+```json
+{
+  "changes": [
+    { "at": "2026-10-20T12:00:00Z", "action": "patch", "remote": "192.168.1.10:53412", "keys": ["log-level"] },
+    { "at": "2026-10-20T11:45:00Z", "action": "reload", "remote": "192.168.1.10:53400", "keys": ["payload"] }
+  ],
+  "count": 2
+}
+```
+
+| 字段 | 说明 |
+|:---|:---|
+| `at` | 变更生效时间 |
+| `action` | `reload`（PUT / configs、备份恢复）/ `patch`（PATCH /configs） |
+| `remote` | 调用方网络地址（来自服务端 RemoteAddr） |
+| `keys` | 变更摘要：PATCH 的键列表；PUT 为 `payload`（Dashboard/编辑器载荷）或 `path:<文件>` |
+
 ::: tip 重载失败自动回滚
 差量热更新过程中若任一步失败（驱动/传输无法重建、规则编译失败、派生标签表达式非法），引擎会把本次重载**已应用的变更全部回滚到重载前状态**（删除/新增/替换的组件与规则集均恢复），因此 `GET /configs/raw` 与运行态始终一致。回滚为尽力而为语义：个别组件恢复失败时记录服务端日志，其余组件继续回滚。
 :::

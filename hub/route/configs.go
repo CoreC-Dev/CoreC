@@ -15,6 +15,10 @@ type putConfigRequest struct {
 	Payload string `json:"payload"`
 }
 
+// ConfigAuditFunc serves GET /configs/audit (wired by the executor to
+// avoid an import cycle — same pattern as ReloadFunc/GetConfigFunc).
+var ConfigAuditFunc func() []core.ConfigAuditEntry
+
 // configOverview is a safe, secret-redacted summary of the active configuration
 // returned by GET /configs.
 type configOverview struct {
@@ -187,7 +191,7 @@ func updateConfigs(w http.ResponseWriter, r *http.Request) {
 		renderInternalError(w, r, fmt.Errorf("config reload endpoint not wired"))
 		return
 	}
-	if err := ReloadFunc(req.Path, req.Payload); err != nil {
+	if err := ReloadFunc(req.Path, req.Payload, r.RemoteAddr); err != nil {
 		// Config parse/validation failures are the caller's to fix:
 		// surface the reason verbatim with a 400. The messages name
 		// configuration fields (driver/rule/tag names, type lists) and
@@ -236,7 +240,7 @@ func patchConfigs(w http.ResponseWriter, r *http.Request) {
 		renderInternalError(w, r, fmt.Errorf("config patch endpoint not wired"))
 		return
 	}
-	if err := PatchFunc(req); err != nil {
+	if err := PatchFunc(req, r.RemoteAddr); err != nil {
 		slog.Error("config patch failed",
 			"method", r.Method,
 			"path", r.URL.Path,
@@ -252,4 +256,19 @@ func patchConfigs(w http.ResponseWriter, r *http.Request) {
 		"remote", r.RemoteAddr,
 		"keys", len(req))
 	renderNoContent(w)
+}
+
+// getConfigAudit serves GET /configs/audit: the bounded, newest-first
+// trail of successful configuration mutations (audit HUB-4 / roadmap
+// #22). Engines/executors without the wiring answer 501.
+func getConfigAudit(w http.ResponseWriter, r *http.Request) {
+	if ConfigAuditFunc == nil {
+		renderError(w, r, http.StatusNotImplemented, "config audit not supported by this engine")
+		return
+	}
+	entries := ConfigAuditFunc()
+	render(w, r, http.StatusOK, map[string]any{
+		"changes": entries,
+		"count":   len(entries),
+	})
 }

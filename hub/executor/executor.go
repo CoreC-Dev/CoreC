@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/CoreC-Dev/CoreC/config"
 	"github.com/CoreC-Dev/CoreC/core"
@@ -30,8 +31,8 @@ func Init(e core.Engine, initialCfg *core.Config, path string) {
 	configPath = path
 	mux.Unlock()
 
-	route.ReloadFunc = Reload
-	route.PatchFunc = Patch
+	route.ReloadFunc = ReloadWithOrigin
+	route.PatchFunc = PatchWithOrigin
 	route.GetConfigFunc = CurrentConfig
 	// Path A: expose the raw config (GET /configs/raw) and the dry-run
 	// validator (POST /configs/validate) to the route layer without creating an
@@ -45,6 +46,9 @@ func Init(e core.Engine, initialCfg *core.Config, path string) {
 	route.GetConfigBackupFunc = GetConfigBackup
 	route.CreateConfigBackupFunc = CreateConfigBackup
 	route.RestoreConfigBackupFunc = RestoreConfigBackup
+	// Config change audit trail (audit finding HUB-4 / roadmap #22):
+	// GET /configs/audit.
+	route.ConfigAuditFunc = ConfigAuditHistory
 }
 
 // CurrentConfig returns the current active configuration.
@@ -150,6 +154,12 @@ func resolveConfigPath(requested string) (string, error) {
 
 // Reload executes a full configuration reload either from a file or payload string.
 func Reload(path, payload string) error {
+	return ReloadWithOrigin(path, payload, "")
+}
+
+// ReloadWithOrigin is Reload with the mutation origin recorded in the
+// config audit trail (audit HUB-4): remote is the API caller's address.
+func ReloadWithOrigin(path, payload, remote string) error {
 	var (
 		cfg *core.Config
 		err error
@@ -207,6 +217,15 @@ func Reload(path, payload string) error {
 		return err
 	}
 
+	// Audit the accepted change (HUB-4): the apply succeeded, so the
+	// engine now runs this config; the persist below is best-effort.
+	recordConfigAudit(core.ConfigAuditEntry{
+		At:     time.Now(),
+		Action: "reload",
+		Remote: remote,
+		Keys:   reloadChangeKeys(path, payload),
+	})
+
 	// Persist the config to disk so changes survive a restart. When the reload
 	// came from a payload (dashboard PUT /configs), write it back to the active
 	// config file. Skip silently if no configPath is set (empty-config startup
@@ -254,6 +273,12 @@ var supportedPatchKeys = map[string]bool{
 }
 
 func Patch(patch map[string]any) error {
+	return PatchWithOrigin(patch, "")
+}
+
+// PatchWithOrigin is Patch with the mutation origin recorded in the
+// config audit trail (audit HUB-4).
+func PatchWithOrigin(patch map[string]any, remote string) error {
 	mux.Lock()
 	defer mux.Unlock()
 
@@ -290,10 +315,28 @@ func Patch(patch map[string]any) error {
 					currentCfg.Global.LogLevel = lvl
 				}
 				slog.Info("log level patched", "level", lvl)
+				recordConfigAudit(core.ConfigAuditEntry{
+					At:     time.Now(),
+					Action: "patch",
+					Remote: remote,
+					Keys:   []string{"log-level"},
+				})
 			} else {
 				return fmt.Errorf("invalid log-level %q", lvl)
 			}
 		}
 	}
 	return nil
+}
+
+// reloadChangeKeys summarizes what a reload touched for the audit trail:
+// "payload" (dashboard/editor PUT) or the config path it loaded from.
+func reloadChangeKeys(path, payload string) []string {
+	if payload != "" {
+		return []string{"payload"}
+	}
+	if path != "" {
+		return []string{"path:" + path}
+	}
+	return []string{"active-file"}
 }

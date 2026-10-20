@@ -117,6 +117,7 @@ API 内置 CORS 中间件，用于支持浏览器端仪表盘跨域访问。行�
 | `PUT` | `/configs` | 是 | 全量重载配置（变更前自动快照到服务端备份） |
 | `PATCH` | `/configs` | 是 | 增量更新配置 |
 | `POST` | `/configs/validate` | 是 | 配置 dry-run 校验（不应用） |
+| `GET` | `/configs/audit` | 是 | 配置变更审计轨迹（最近 500 次成功变更：何时、来自哪个调用方、改了什么） |
 | `GET` | `/configs/backups` | 是 | 列出服务端配置备份（新→旧，仅元数据，保留最近 10 份） |
 | `GET` | `/configs/backups/{name}` | 是 | 读取指定备份 YAML 原文（安全姿态同 `/configs/raw`） |
 | `POST` | `/configs/backups` | 是 | 手动创建当前磁盘配置快照 |

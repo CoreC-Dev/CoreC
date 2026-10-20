@@ -544,7 +544,7 @@ func (e fixableConfigErr) ClientFixable() bool { return true }
 
 func TestUpdateConfigsErrorClassification(t *testing.T) {
 	t.Run("validation failure answers 400 with the reason", func(t *testing.T) {
-		ReloadFunc = func(path, payload string) error {
+		ReloadFunc = func(path, payload, remote string) error {
 			return fixableConfigErr{msg: "config validation failed: duplicate driver name: plc1"}
 		}
 		defer func() { ReloadFunc = nil }()
@@ -567,7 +567,7 @@ func TestUpdateConfigsErrorClassification(t *testing.T) {
 	})
 
 	t.Run("apply failure stays a masked 500", func(t *testing.T) {
-		ReloadFunc = func(path, payload string) error {
+		ReloadFunc = func(path, payload, remote string) error {
 			return errors.New("failed to add transport mqtt1: connection refused to 10.0.0.5:1883")
 		}
 		defer func() { ReloadFunc = nil }()
@@ -692,5 +692,46 @@ func TestDriverPauseResumeEndpoints(t *testing.T) {
 	}
 	if got := do(http.MethodPost, "/drivers/nope/resume").StatusCode; got != http.StatusNotFound {
 		t.Errorf("resume unknown status = %d, want 404", got)
+	}
+}
+
+// TestGetConfigAudit verifies the config change audit trail (audit
+// HUB-4 / roadmap #22): reloads and patches append bounded, newest-first
+// entries with the caller's address, exposed via GET /configs/audit.
+func TestGetConfigAudit(t *testing.T) {
+	prevList := ConfigAuditFunc
+	ConfigAuditFunc = func() []core.ConfigAuditEntry {
+		return []core.ConfigAuditEntry{
+			{At: time.Now(), Action: "patch", Remote: "192.168.1.10:53412", Keys: []string{"log-level"}},
+			{At: time.Now().Add(-time.Minute), Action: "reload", Remote: "192.168.1.10:53400", Keys: []string{"payload"}},
+		}
+	}
+	defer func() { ConfigAuditFunc = prevList }()
+
+	eng := &mockEngineV2{}
+	ts := newTestServer("", eng)
+	defer ts.Close()
+
+	resp := authedGet(t, ts, "/configs/audit", "")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var body struct {
+		Changes []core.ConfigAuditEntry `json:"changes"`
+		Count   int                     `json:"count"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Count != 2 || len(body.Changes) != 2 {
+		t.Fatalf("count = %d, changes = %d, want 2/2", body.Count, len(body.Changes))
+	}
+	// Newest first: the patch (now) before the reload (a minute ago).
+	if body.Changes[0].Action != "patch" || body.Changes[1].Action != "reload" {
+		t.Errorf("order = %v then %v, want patch (newest) first", body.Changes[0].Action, body.Changes[1].Action)
+	}
+	if body.Changes[0].Remote == "" || body.Changes[0].Keys[0] != "log-level" {
+		t.Errorf("patch entry = %+v, want remote + log-level key", body.Changes[0])
 	}
 }
