@@ -46,7 +46,7 @@ func TestParseBadQualityPolicy(t *testing.T) {
 
 func TestDeadLetterQueue(t *testing.T) {
 	e := newEngineShell()
-	e.writes.deadLetterMaxLen = 1000
+	e.writes.deadLetters.maxLen = 1000
 
 	cmd := core.WriteCommand{Driver: "plc1", Tag: "setpoint", Value: 50.0}
 
@@ -78,7 +78,7 @@ func TestDeadLetterQueue(t *testing.T) {
 
 func TestDeadLetterQueueEviction(t *testing.T) {
 	e := newEngineShell()
-	e.writes.deadLetterMaxLen = 3 // small capacity
+	e.writes.deadLetters.maxLen = 3 // small capacity
 
 	cmd := core.WriteCommand{Driver: "plc1", Tag: "setpoint", Value: 50.0}
 
@@ -107,7 +107,7 @@ func TestDeadLetterQueueEviction(t *testing.T) {
 
 func TestDeadLetterQueueEmpty(t *testing.T) {
 	e := newEngineShell()
-	e.writes.deadLetterMaxLen = 1000
+	e.writes.deadLetters.maxLen = 1000
 
 	entries := e.DeadLetterEntries()
 	if len(entries) != 0 {

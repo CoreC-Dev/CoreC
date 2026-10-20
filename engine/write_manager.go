@@ -21,6 +21,23 @@ import (
 // CoreCEngine keeps thin forwarders so the core.DataAccessor (WriteTag),
 // core.StatsProvider (DeadLetterEntries), and optional core.WriteAuditor
 // method sets are unchanged.
+// deadLetterState groups the dead-letter queue, its bound, the lifetime
+// push counter, and the optional on-disk persistence store
+// (audit RES-2/OBS-3).
+type deadLetterState struct {
+	// mu guards queue.
+	mu    sync.Mutex
+	queue []core.DeadLetterEntry
+	// maxLen bounds the queue (oldest evicted when full).
+	maxLen int
+	// store is the optional on-disk persistence (RES-2 / roadmap #29).
+	// nil = disabled.
+	store *deadLetterStore
+	// pushed counts every command that ever entered the queue, for the
+	// corec_dead_letter_pushed_total Prometheus counter (audit OBS-3).
+	pushed atomic.Uint64
+}
+
 type writeManager struct {
 	writeRetryCount int
 
@@ -34,20 +51,9 @@ type writeManager struct {
 	commandConcurrency int
 	commandSem         chan struct{}
 
-	// deadLetterQueue holds write commands that failed after all retries.
-	// Bounded by deadLetterMaxLen; oldest entries are evicted when full.
-	deadLetterMu    sync.Mutex
-	deadLetterQueue []core.DeadLetterEntry
-
-	// deadLetterMaxLen bounds the dead letter queue.
-	deadLetterMaxLen int
-
-	// deadLetterPushed counts every command that ever entered the dead
-	// letter queue, for the corec_dead_letter_pushed_total Prometheus
-	// counter (audit OBS-3: queue depth + lifetime push count make
-	// "commands are piling up" alertable, which a capped query-only
-	// queue could not).
-	deadLetterPushed atomic.Uint64
+	// deadLetters groups the dead-letter queue, its bound, the lifetime
+	// push counter, and the optional on-disk store (CPLX ceiling).
+	deadLetters deadLetterState
 
 	// writeAuditHistory records the most recent write attempts —
 	// successes AND failures — for the GET /write/history audit trail.
@@ -411,12 +417,13 @@ func (w *writeManager) executeWriteWithRetry(cmd core.WriteCommand) {
 // addDeadLetter appends a failed write command to the dead letter queue,
 // evicting the oldest entry if the queue is full.
 func (w *writeManager) addDeadLetter(entry core.DeadLetterEntry) {
-	w.deadLetterMu.Lock()
-	defer w.deadLetterMu.Unlock()
-	w.deadLetterQueue = append(w.deadLetterQueue, entry)
-	w.deadLetterPushed.Add(1)
-	if len(w.deadLetterQueue) > w.deadLetterMaxLen {
-		w.deadLetterQueue = w.deadLetterQueue[len(w.deadLetterQueue)-w.deadLetterMaxLen:]
+	w.deadLetters.store.append(entry)
+	w.deadLetters.mu.Lock()
+	defer w.deadLetters.mu.Unlock()
+	w.deadLetters.queue = append(w.deadLetters.queue, entry)
+	w.deadLetters.pushed.Add(1)
+	if len(w.deadLetters.queue) > w.deadLetters.maxLen {
+		w.deadLetters.queue = w.deadLetters.queue[len(w.deadLetters.queue)-w.deadLetters.maxLen:]
 	}
 }
 
@@ -424,18 +431,18 @@ func (w *writeManager) addDeadLetter(entry core.DeadLetterEntry) {
 // lifetime number of commands pushed into the queue (counter), for
 // Prometheus exposure via the core.DeadLetterStatsProvider role.
 func (w *writeManager) DeadLetterStats() (size int, pushed uint64) {
-	w.deadLetterMu.Lock()
-	size = len(w.deadLetterQueue)
-	w.deadLetterMu.Unlock()
-	return size, w.deadLetterPushed.Load()
+	w.deadLetters.mu.Lock()
+	size = len(w.deadLetters.queue)
+	w.deadLetters.mu.Unlock()
+	return size, w.deadLetters.pushed.Load()
 }
 
 // DeadLetterEntries returns a copy of the current dead letter queue.
 func (w *writeManager) DeadLetterEntries() []core.DeadLetterEntry {
-	w.deadLetterMu.Lock()
-	defer w.deadLetterMu.Unlock()
-	result := make([]core.DeadLetterEntry, len(w.deadLetterQueue))
-	copy(result, w.deadLetterQueue)
+	w.deadLetters.mu.Lock()
+	defer w.deadLetters.mu.Unlock()
+	result := make([]core.DeadLetterEntry, len(w.deadLetters.queue))
+	copy(result, w.deadLetters.queue)
 	return result
 }
 

@@ -120,6 +120,16 @@ func (r *engineRuntime) Start(ctx context.Context, config *core.Config) error {
 
 	r.eng.processing.startProcessingWorkers()
 
+	// Replay persisted dead letters (audit RES-2): entries that
+	// survived a crash come back into the queryable/replayable queue.
+	if store := r.eng.writes.deadLetters.store; store != nil {
+		store.load(r.eng.writes.deadLetters.maxLen, func(e core.DeadLetterEntry) {
+			r.eng.writes.deadLetters.mu.Lock()
+			r.eng.writes.deadLetters.queue = append(r.eng.writes.deadLetters.queue, e)
+			r.eng.writes.deadLetters.mu.Unlock()
+		})
+	}
+
 	// Build this run's alert registry (audit OBS-4/HUB-6) with the
 	// configured active window and start its sweep loop. It is rebuilt
 	// on every Start alongside the rest of the pipeline state.
@@ -176,6 +186,10 @@ func (r *engineRuntime) Stop() error {
 	r.stopComponents()
 
 	r.wg.Wait()
+
+	// Close the dead-letter store (flush + fd release) after all
+	// writers are joined.
+	r.eng.writes.deadLetters.store.close()
 
 	// Stop the alert registry last: the engine-wide wait group has
 	// joined every processing worker, so no record() can race the
@@ -477,6 +491,17 @@ func (r *engineRuntime) applyEngineConfig(cfg *core.EngineConfig) error {
 	}
 	if d, err := time.ParseDuration(cfg.AlertActiveWindow); err == nil && d > 0 {
 		r.eng.processing.alertActiveWindow = d
+	}
+	// Dead-letter persistence (audit RES-2 / roadmap #29): open early
+	// so the runtime start below can replay. A failed open is a
+	// start-blocking error — the operator asked for durability and got
+	// none; failing fast beats discovering the loss after a crash.
+	if cfg.DeadLetterPath != "" {
+		store, err := newDeadLetterStore(cfg.DeadLetterPath, 0)
+		if err != nil {
+			return fmt.Errorf("dead-letter store: %w", err)
+		}
+		r.eng.writes.deadLetters.store = store
 	}
 	return nil
 }

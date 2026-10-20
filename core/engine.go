@@ -380,6 +380,13 @@ type EngineConfig struct {
 	// the default (2).
 	HighPriorityWorkers int `yaml:"high-priority-workers,omitempty"`
 
+	// DeadLetterPath enables on-disk persistence of the write dead-letter
+	// queue (audit RES-2 / roadmap #29): an append-only JSONL file that
+	// survives crashes and replays into the queue at startup. Empty =
+	// disabled (historical memory-only behaviour). The file rotates to
+	// <path>.old past 5 MiB, bounding disk at ~2×5 MiB.
+	DeadLetterPath string `yaml:"dead-letter-path,omitempty"`
+
 	// AlertActiveWindow is how long an alert stays active after its
 	// last fire. An alert that has not re-fired for a full window is
 	// cleared (moves to history and stops appearing in GET /alerts).

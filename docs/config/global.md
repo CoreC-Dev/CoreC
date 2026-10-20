@@ -194,6 +194,7 @@ wscat -c "ws://localhost:9090/tags/stream?token=corec-secret-token"
 | `engine.command-concurrency` | int | 否 | `16` | 写入指令最大并行数，超限施加背压并溢入死信队列；设 `1` 恢复串行 |
 | `engine.high-priority-workers` | int | 否 | `2` | 快间隔标签（`interval` ≤ 1s）专用处理协程数，与批量读取协程隔离 |
 | `engine.alert-active-window` | duration | 否 | `15m` | 告警活动窗口——告警静默满该时长后自动清除（移入历史）。确认（ack）不会清除告警，只有静默会；详见 [告警 API](../api/alerts.md) |
+| `engine.dead-letter-path` | string | 否 | `""`（禁用） | 写死信队列**落盘持久化**：追加式 JSONL 文件，崩溃/断电后重启时回放进内存队列（`GET /write/failed` 可查、可重放）。文件超过 5MiB 轮转为 `<path>.old`，磁盘占用上限约 2×5MiB（轮转丢弃更早世代，与滚动日志同语义）。审计 RES-2：此前死信只在内存，最需要它的崩溃场景恰恰会连同死信一起丢 |
 
 ```yaml
 global:

@@ -16,7 +16,7 @@ import (
 // queue saturates.
 func TestDeadLetterStats(t *testing.T) {
 	e := New().(*CoreCEngine)
-	e.writes.deadLetterMaxLen = 3
+	e.writes.deadLetters.maxLen = 3
 
 	for i := 0; i < 5; i++ {
 		e.writes.addDeadLetter(core.DeadLetterEntry{

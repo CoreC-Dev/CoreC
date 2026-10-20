@@ -111,7 +111,7 @@ func New() core.Engine {
 	e.writes.writeRetryCount = 3
 	e.writes.commandConcurrency = core.DefaultCommandConcurrency
 	e.processing.numHighPriorityWorkers = core.DefaultHighPriorityWorkers
-	e.writes.deadLetterMaxLen = core.DefaultDeadLetterMaxLen
+	e.writes.deadLetters.maxLen = core.DefaultDeadLetterMaxLen
 	e.driverReg.tagFileWatchers = make(map[string]*tagFileWatcher)
 	e.driverReg.driverConfigs = make(map[string]core.DriverConfig)
 	e.stats.readRate = metrics.NewRateWindow()
