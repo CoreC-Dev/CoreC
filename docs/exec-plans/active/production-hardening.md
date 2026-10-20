@@ -1,6 +1,6 @@
 # 执行计划：生产级加固（audit-backend-functionality P0/P1 落地）
 
-> 状态：P0+P1 已落地（12/12）+ P2 已落地 5 项（#13 #15 #16 #18 #21，TRA-1 复核为误报）；余 P2/P3 清单见路线图
+> 状态：P0+P1 已落地（12/12）+ P2 已落地 9 项（#12 #13 #14 #15 #16 #18 #20 #21 #24 #28）；TRA-1 复核为误报；余 P2/P3 见路线图
 > 来源：`docs/audits/backend-functionality-audit-2026-10-19.md`（2026-10-19 后端功能完整性审计，40 项路线图）
 > 业务行为影响：**变更行为**（写路径反演、PUT /configs 错误码、指标新增/删除——每项单独登记，见各行）
 > 跨仓库：CoreC-Dashboard 需同步的项标注 [FE]；文档需同步的项标注 [DOC]
@@ -33,6 +33,11 @@
 | 21 | 驱动 pause/resume 端点 | ✅ | `2d29981`（FE `0751461`） |
 | 13 | 删除 statistic 双轨计数包 | ✅ | `08f90b9` |
 | 19 | webhook fail-open | 复核为误报（守卫+测试 aee3946 已在） | `24bc9d2`（审计更正） |
+| 12 | 丢弃归因：per-cause 族 + bad-quality 不再计入 errors | OBS-6 | `ad68303` |
+| 14 | core.Metrics 端口端到端接通 + modbus 异常码指标 | OBS-8 | `1c3b996` |
+| 20 | MQTT 遗嘱消息（LWT） | TRA-2 | `3175fbd` |
+| 24 | /configs/raw 材料化陷阱文档化 | CFG-5 | `a75e219` |
+| 28 | offline buffer 字节水位 gauge | 路线图#28 | `a124349` |
 
 ## 1. 目标
 
