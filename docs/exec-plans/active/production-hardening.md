@@ -1,6 +1,6 @@
 # 执行计划：生产级加固（audit-backend-functionality P0/P1 落地）
 
-> 状态：P0+P1（12/12）+ P2（17/17）已落地；P3 已落地 6 项（#31 #32 #33 #34 #36 #38）；余 P3：#35（/tags、/write/history 过滤分页）、#37（批量写 API）、#39（docs 残留同步）
+> 状态：P0+P1（12/12）+ P2（17/17）+ P3 已落地 7 项（#31 #32 #33 #34 #35 #36 #38）；余 P3：#37（批量写 API）、#39（docs 残留同步）
 > 来源：`docs/audits/backend-functionality-audit-2026-10-19.md`（2026-10-19 后端功能完整性审计，40 项路线图）
 > 业务行为影响：**变更行为**（写路径反演、PUT /configs 错误码、指标新增/删除——每项单独登记，见各行）
 > 跨仓库：CoreC-Dashboard 需同步的项标注 [FE]；文档需同步的项标注 [DOC]
@@ -57,6 +57,7 @@
 | 34 | 规则环境加 timestamp | RULE-3 | `92c7aef` |
 | 36 | webhook 批量响应逐项计数 | TRA-3 | `92c7aef` |
 | 38 | 派生标签编译期循环检测 | PIPE-4 | `92c7aef` |
+| 35 | /tags 与 /write/history 服务端过滤 | HUB-5 | `2bcdd02`（FE `6f63879`） |
 
 ## 1. 目标
 
