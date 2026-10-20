@@ -46,9 +46,14 @@ type nodeInfo struct {
 
 // endpoint describes a data channel.
 type endpoint struct {
-	Type  string `json:"type"`            // "mqtt" or "http"
+	// Type is the channel kind. Only "mqtt" is currently constructed
+	// (audit finding RES-3): the "http" spelling is an experimental
+	// wire-format forward-compat — nothing emits it and reconcile()
+	// explicitly skips non-mqtt endpoints, so a malformed/malicious
+	// heartbeat advertising one can never inject a transport config.
+	Type  string `json:"type"`
 	Topic string `json:"topic,omitempty"` // for mqtt: subscription pattern
-	URL   string `json:"url,omitempty"`   // for http: full URL
+	URL   string `json:"url,omitempty"`   // for http: full URL (experimental, unused)
 }
 
 // brokerEndpoint pairs a broker URL with the publish endpoint active on it.
@@ -297,7 +302,21 @@ func (d *Discovery) reconcile() {
 		if !found {
 			continue
 		}
-		if info.Publish == nil || info.Publish.Type != "mqtt" {
+		if info.Publish == nil {
+			// No advertised channel at all.
+			slog.Debug("discovery: upstream advertises no publish endpoint",
+				"upstream", upstreamID)
+			continue
+		}
+		if info.Publish.Type != "mqtt" {
+			// Non-mqtt publish endpoints (the experimental "http"
+			// spelling, or garbage from a malformed heartbeat) are
+			// skipped with a visible debug line: they can never become
+			// an auto-added transport (audit RES-3 — previously this
+			// was a bare silent continue).
+			slog.Debug("discovery: upstream publish endpoint is not auto-subscribable",
+				"upstream", upstreamID,
+				"endpoint_type", info.Publish.Type)
 			continue
 		}
 

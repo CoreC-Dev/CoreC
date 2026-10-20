@@ -337,3 +337,52 @@ func TestDiscoveryStopWithoutStart(t *testing.T) {
 	d, _ := newTestDiscovery("node-a", "edge", nil, nil, nil)
 	d.Stop() // must not panic
 }
+
+// TestReconcileSkipsNonMQTTPublishEndpoints pins the RES-3 disposition:
+// the "http" endpoint spelling is experimental wire-format — nothing
+// emits it, and reconcile must skip it (with a visible debug line)
+// rather than ever constructing a transport from it. A malformed or
+// malicious heartbeat can therefore never inject config.
+func TestReconcileSkipsNonMQTTPublishEndpoints(t *testing.T) {
+	var added []core.TransportConfig
+	addTransport := func(tc core.TransportConfig) error {
+		added = append(added, tc)
+		return nil
+	}
+	brokers := []brokerEndpoint{
+		{Broker: "tcp://127.0.0.1:1883", Publish: &endpoint{Type: "mqtt", Topic: "data/a"}},
+	}
+	d, _ := newTestDiscovery("node-a", "edge", []string{"node-b", "node-c", "node-d"}, brokers, addTransport)
+
+	d.regMu.Lock()
+	d.registry["node-b"] = &nodeInfo{
+		ID:       "node-b",
+		Publish:  &endpoint{Type: "http", URL: "http://10.0.0.9:8080/data"}, // experimental spelling
+		lastSeen: time.Now(),
+	}
+	d.registry["node-c"] = &nodeInfo{
+		ID:       "node-c",
+		Publish:  &endpoint{Type: "bogus-kind"}, // garbage from a malformed heartbeat
+		lastSeen: time.Now(),
+	}
+	d.registry["node-d"] = &nodeInfo{
+		ID:       "node-d",
+		Publish:  nil, // no advertised channel at all
+		lastSeen: time.Now(),
+	}
+	d.regMu.Unlock()
+
+	d.reconcile()
+
+	if len(added) != 0 {
+		t.Fatalf("transports added for non-mqtt endpoints: %+v", added)
+	}
+	// The skip is recorded (not a silent continue): the upstream stays
+	// absent from autoAdded, so a future well-formed heartbeat for the
+	// same upstream can still be subscribed.
+	d.addedMu.Lock()
+	defer d.addedMu.Unlock()
+	if len(d.autoAdded) != 0 {
+		t.Errorf("autoAdded = %v, want empty (skipped endpoints must not consume slots)", d.autoAdded)
+	}
+}
