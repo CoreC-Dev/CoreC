@@ -311,7 +311,7 @@ CoreC 后端的**工程底子很好**：构建/vet/测试全绿，历史两轮�
 
 | # | 问题 | 级别 | 证据 | 影响 |
 |:--|:---|:---|:---|:---|
-| TRA-1 | **入站 webhook 默认无认证（fail-open）**：未配 `webhook-secret` 时任意 POST 的数据点直接进管线；与 MQTT 命令的 fail-closed（无 secret 拒绝启动）姿态相反 | P2·已验证 | `httppush/webhook.go:26-52`（`if t.webhookSecret != ""` 才校验）；对照 `mqtt/publisher.go:294-302`（无 secret 直接拒绝启动） | 数据面投毒：伪造测点经规则链洗白后可达云/MES。风险低于控制面但真实存在。建议至少对齐 MQTT：配置 webhook-addr 而未配 secret 时拒绝启动或打印显式启动告警（现在完全静默） |
+| TRA-1 | **【复核更正：误报，原审计发布时该防护已存在】** 入站 webhook 并非 fail-open：`push.go` 的 `Start` 在配置了 `webhook-addr` 而 `webhook-secret` 为空时**拒绝启动**（fail-closed，且与 MQTT 命令路径同姿态），并有 `TestWebhookNoSecretFailClosed` 回归测试。原审计只核对了 `webhook.go` 的逐请求认证门（`if t.webhookSecret != ""` 才校验——那是认证方式分支，不是放行开关），漏看了 Start 的守卫 | ~~P2~~·误报（2026-10-20 复核） | `httppush/push.go` Start 守卫（aee3946 即存在）+ `webhook_auth_test.go:130-132` | 无需修复 |
 | TRA-2 | **MQTT 无 LWT（遗嘱消息）**：全仓无 `SetWill` | P2·已验证 | grep `Will\|LWT` transport/mqtt 无结果 | CoreC 节点掉线时 broker 侧无感知，下游无法通过遗嘱主题感知网关离线；只能靠 scraping connected gauge。边缘场景标配能力缺失 |
 | TRA-3 | webhook 批量 payload 逐条解析失败仅跳过，仍统一回 202；调用方不知道几条成功 | P3·已验证 | `httppush/webhook.go:73-88` | 批量上游无法感知部分失败；建议响应体带 accepted/skipped 计数 |
 | TRA-4 | 入站命令丢弃进 transport 本地死信不可见（与 RES-1 同源，从传输视角：dropped_commands_total 有计数、无明细） | P1·已验证 | 同 RES-1 | 同 RES-1 |
