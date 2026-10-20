@@ -2,8 +2,11 @@ package rule
 
 import (
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/CoreC-Dev/CoreC/core"
 	"github.com/expr-lang/expr"
@@ -38,21 +41,70 @@ import (
 
 type exprNode interface {
 	eval(point core.DataPoint) bool
+	// evalErrors reports how many evaluation attempts failed (type
+	// mismatches, unknown fields) and when the last failure happened.
+	// Backs RuleStat.eval_errors (audit findings PIPE-3/RULE-2: a
+	// type-mismatched rule silently never matched with no signal
+	// anywhere).
+	evalErrors() (count uint64, at time.Time)
 }
 
 // exprLangNode wraps a compiled expr-lang/expr program.
 type exprLangNode struct {
 	program *vm.Program
+
+	// errCount/errAt track evaluation failures for RuleStat exposure.
+	errCount atomic.Uint64
+	errAt    atomicTime
+	// warned suppresses the "expression evaluation failed" log to
+	// exactly once per rule — every subsequent failure is visible in
+	// eval_errors instead of flooding the log at point frequency.
+	warned atomic.Bool
 }
 
 func (n *exprLangNode) eval(point core.DataPoint) bool {
 	env := pointEnv(point)
 	result, err := expr.Run(n.program, env)
 	if err != nil {
+		n.recordError(err)
 		return false
 	}
 	b, ok := result.(bool)
 	return ok && b
+}
+
+// evalErr is the error-propagating twin of eval, used by the preview
+// path (POST /rules/preview) where the caller must learn WHY a match
+// failed instead of seeing a bare false.
+func (n *exprLangNode) evalErr(point core.DataPoint) (bool, error) {
+	env := pointEnv(point)
+	result, err := expr.Run(n.program, env)
+	if err != nil {
+		n.recordError(err)
+		return false, fmt.Errorf("expression evaluation failed: %w", err)
+	}
+	b, ok := result.(bool)
+	if !ok {
+		return false, fmt.Errorf("expression evaluated to non-boolean %T", result)
+	}
+	return b, nil
+}
+
+func (n *exprLangNode) evalErrors() (uint64, time.Time) {
+	return n.errCount.Load(), n.errAt.Load()
+}
+
+func (n *exprLangNode) recordError(err error) {
+	n.errCount.Add(1)
+	n.errAt.Store(time.Now())
+	if n.warned.CompareAndSwap(false, true) {
+		// One log per rule per process: the rule keeps silently
+		// returning false on every failing point (eval_errors shows
+		// the ongoing count), so the first occurrence carries the
+		// full diagnosis.
+		slog.Warn("rule match expression evaluation failed; the rule never matches on failing points until fixed (see rules eval_errors stat)",
+			"error", err)
+	}
 }
 
 // pointEnv builds the evaluation environment from a DataPoint.
@@ -174,3 +226,29 @@ func compileExpr(exprStr string) (exprNode, error) {
 type allNode struct{}
 
 func (n *allNode) eval(_ core.DataPoint) bool { return true }
+
+func (n *allNode) evalErrors() (uint64, time.Time) { return 0, time.Time{} }
+
+// PreviewMatch compiles a standalone match expression and evaluates it
+// against the sample point, PROPAGATING the evaluation error (audit
+// findings PIPE-3/RULE-2): a type mismatch must be visible to the rule
+// author instead of silently reading as "not matched". Used by
+// POST /rules/preview via core.RulePreviewer; the active rule set is
+// never touched.
+func PreviewMatch(match string, point core.DataPoint) (bool, error) {
+	trimmed := strings.TrimSpace(match)
+	if trimmed == "" {
+		return false, fmt.Errorf("empty expression")
+	}
+	if strings.EqualFold(trimmed, "ALL") {
+		return true, nil
+	}
+	node, err := compileExpr(trimmed)
+	if err != nil {
+		return false, err
+	}
+	if en, ok := node.(*exprLangNode); ok {
+		return en.evalErr(point)
+	}
+	return node.eval(point), nil
+}

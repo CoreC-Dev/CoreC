@@ -80,4 +80,10 @@ type RuleStat struct {
 	HitAt     time.Time `json:"hit_at"`
 	MissCount uint64    `json:"miss_count"`
 	MissAt    time.Time `json:"miss_at"`
+	// EvalErrors counts match-expression evaluation failures (e.g. a
+	// type mismatch: `value > 90` against a string). Previously such a
+	// rule silently never matched — invisible in logs, stats, and the
+	// preview endpoint (audit findings PIPE-3/RULE-2). Zero = healthy.
+	EvalErrors uint64    `json:"eval_errors"`
+	EvalAt     time.Time `json:"eval_at"`
 }

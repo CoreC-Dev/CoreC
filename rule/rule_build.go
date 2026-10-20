@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/CoreC-Dev/CoreC/core"
 )
@@ -176,6 +177,14 @@ func (e *Engine) RuleStats() []core.RuleStat {
 			MissCount: w.MissCount(),
 			MissAt:    w.MissAt(),
 		})
+		// Match-expression evaluation failures (audit PIPE-3/RULE-2):
+		// a type-mismatched rule silently never matched; the counter
+		// makes it visible in GET /rules.
+		if ec, ok := inner.(interface {
+			EvalErrors() (uint64, time.Time)
+		}); ok {
+			result[i].EvalErrors, result[i].EvalAt = ec.EvalErrors()
+		}
 	}
 	return result
 }
@@ -368,6 +377,17 @@ func (r *simpleRule) Payload() string                  { return r.matchExpr }
 func (r *simpleRule) RuleType() string                 { return "simple" }
 func (r *simpleRule) Transform() *core.TransformConfig { return r.transform }
 func (r *simpleRule) Continue() bool                   { return r.continue_ }
+
+// EvalErrors surfaces the match expression's evaluation-failure counter
+// and last-failure time for RuleStat (audit PIPE-3/RULE-2). Rules
+// whose match is the ALL literal (no expression node) report zero.
+func (r *simpleRule) EvalErrors() (uint64, time.Time) {
+	if r.expr == nil {
+		return 0, time.Time{}
+	}
+	return r.expr.evalErrors()
+}
+
 func (r *simpleRule) String() string {
 	return fmt.Sprintf("Rule{name=%s, match=%s, action=%d, target=%s, priority=%d}",
 		r.name, r.matchExpr, r.action, r.target, r.priority)

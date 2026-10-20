@@ -56,9 +56,33 @@ func TestPreviewRuleInvalidExpression(t *testing.T) {
 		t.Fatal(`expected a compile error for the invalid expression "tag ==", got nil`)
 	}
 	// The error must be verbatim enough for the frontend to display it:
-	// it identifies the rule ("preview") and the underlying expr error.
-	if !strings.Contains(err.Error(), "preview") {
-		t.Errorf("error should identify the scratch rule by name, got %q", err.Error())
+	// it quotes the offending expression and carries the underlying
+	// expr-lang error (audit PIPE-3/RULE-2 also surfaced EVALUATION
+	// errors here — previously they silently read as "not matched").
+	if !strings.Contains(err.Error(), "tag ==") {
+		t.Errorf("error should quote the offending expression, got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "unexpected token") {
+		t.Errorf("error should carry the underlying parser error, got %q", err.Error())
+	}
+}
+
+// TestPreviewRulePropagatesEvalError pins the PIPE-3/RULE-2 fix at the
+// engine boundary: a type-mismatched expression must return the
+// evaluation error, not a silent matched=false.
+func TestPreviewRulePropagatesEvalError(t *testing.T) {
+	e := newPreviewEngine(t)
+	strPoint := core.DataPoint{Tag: "name", Value: "hello", Type: core.TypeString}
+
+	matched, err := e.PreviewRule("value > 90", strPoint)
+	if err == nil {
+		t.Fatalf("expected evaluation error for numeric comparison on string value, got matched=%v", matched)
+	}
+	if matched {
+		t.Error("matched=true alongside an error")
+	}
+	if !strings.Contains(err.Error(), "expression evaluation failed") {
+		t.Errorf("error = %q, want the evaluation-failure diagnosis", err.Error())
 	}
 }
 

@@ -78,6 +78,8 @@ GET /rules
 | `hit_at` | string (RFC 3339) | 最近一次命中时间 |
 | `miss_count` | uint64 | 累计未命中次数 |
 | `miss_at` | string (RFC 3339) | 最近一次未命中时间 |
+| `eval_errors` | uint64 | 匹配表达式**求值失败**次数（如对 string 值做 `value > 90` 数值比较）。非零说明该规则在失败点上永远不匹配且无任何信号——修复表达式或值类型（此前该类失败被静默吞成"未命中"） |
+| `eval_at` | string (RFC 3339) | 最近一次求值失败时间 |
 
 ### 动作类型（action）
 
@@ -213,7 +215,9 @@ curl -X PATCH http://localhost:9090/rules/disable \
 
 离线试算：将一条 match 表达式在**临时规则引擎**中编译，并对一个样例数据点求值——**不触碰生产规则集**（不修改任何规则、不影响命中统计）。用于在保存规则前验证表达式的语法与语义，避免"保存后靠生产数据暴露编译错误"。
 
-试算用的临时规则使用合成名 `preview` 与 `forward` 动作：`action`/`target` 的合法性属于配置校验（config.validate）的职责，试算只关心 `match` 表达式本身。
+试算直接编译并求值 `match` 表达式：`action`/`target` 的合法性属于配置校验（config.validate）的职责，试算只关心 `match` 表达式本身。
+
+试算把**编译错误**与**求值错误**都原样返回给规则作者（求值错误此前被静默吞成"未匹配"）：写错类型（如对 string 值做 `value > 90`）会得到 400 与具体原因，而不是一个无声的 `matched: false`。
 
 ### 请求
 
