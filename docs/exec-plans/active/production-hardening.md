@@ -1,6 +1,6 @@
 # 执行计划：生产级加固（audit-backend-functionality P0/P1 落地）
 
-> 状态：P0+P1 已落地（12/12）+ P2 已落地 15 项（#12 #13 #14 #15 #16 #17 #18 #20 #21 #22 #23 #24 #27 #28 #29 #30）；TRA-1 复核为误报；余 P2（#25 #26）+ P3 见路线图
+> 状态：P0+P1（12/12）+ P2 已全部落地（17/17：#12–#30，TRA-1 复核为误报）；P3 打磨项见路线图 #31–#40
 > 来源：`docs/audits/backend-functionality-audit-2026-10-19.md`（2026-10-19 后端功能完整性审计，40 项路线图）
 > 业务行为影响：**变更行为**（写路径反演、PUT /configs 错误码、指标新增/删除——每项单独登记，见各行）
 > 跨仓库：CoreC-Dashboard 需同步的项标注 [FE]；文档需同步的项标注 [DOC]
@@ -44,6 +44,8 @@
 | 30 | discovery HTTP 分支处置：标注 experimental + 可见跳过 | RES-3 | `48d9a27` |
 | 29 | 死信落盘选项（dead-letter-path） | RES-2 | `a989e9c` |
 | 27 | 专用免密 metrics 端口（metrics-addr） | OBS-12 | `bfa1577` |
+| 25 | settings 键名校验（typo 拒绝 + 漂移测试） | CFG-4 | `005cfdc` |
+| 26 | 资源级 DELETE 端点（drivers/transports/rules） | HUB-3 | `ed64736`（FE `02cc612`） |
 
 ## 1. 目标
 
