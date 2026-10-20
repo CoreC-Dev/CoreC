@@ -147,3 +147,22 @@ func (e *CoreCEngine) AlertFireCounts() map[string]uint64 {
 func (e *CoreCEngine) ActiveAlertCount() int {
 	return e.processing.alerts.activeCount()
 }
+
+// --- Driver pause/resume (audit RES-4, roadmap #21) ---
+
+// PauseDriver suspends the named driver's collection tasks without
+// removing them (the scheduler flags them; ticks skip while paused).
+// The route layer validates the driver exists first.
+func (e *CoreCEngine) PauseDriver(name string) error {
+	return e.lifecycle.scheduler.PauseDriver(name)
+}
+
+// ResumeDriver clears the pause flag; tasks resume at their next tick.
+func (e *CoreCEngine) ResumeDriver(name string) error {
+	return e.lifecycle.scheduler.ResumeDriver(name)
+}
+
+// PausedDrivers returns the sorted names of currently-paused drivers.
+func (e *CoreCEngine) PausedDrivers() []string {
+	return e.lifecycle.scheduler.PausedDrivers()
+}

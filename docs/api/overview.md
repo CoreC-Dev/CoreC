@@ -125,6 +125,9 @@ API 内置 CORS 中间件，用于支持浏览器端仪表盘跨域访问。行�
 | `GET` | `/drivers/{name}` | 是 | 获取指定驱动状态 |
 | `GET` | `/drivers/{name}/tags` | 是 | 获取指定驱动最新标签值 |
 | `POST` | `/drivers/test` | 是 | 驱动连通性测试（临时实例，不落配置，5s 超时） |
+| `GET` | `/drivers/paused` | 是 | 列出当前暂停采集的驱动名 |
+| `POST` | `/drivers/{name}/pause` | 是 | 暂停指定驱动的采集任务（不动配置；设备维修/换传感器场景） |
+| `POST` | `/drivers/{name}/resume` | 是 | 恢复指定驱动的采集（下一 tick 起效） |
 | `GET` | `/transports` | 是 | 列出所有传输状态 |
 | `GET` | `/transports/{name}` | 是 | 获取指定传输状态 |
 | `GET` | `/tags` | 是 | 获取所有驱动最新标签值 |

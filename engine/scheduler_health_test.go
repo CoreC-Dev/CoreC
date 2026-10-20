@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -81,4 +82,84 @@ func TestSchedulerHealthNilAndEmpty(t *testing.T) {
 	if got := s.Health(); got != nil {
 		t.Errorf("taskless scheduler Health() = %+v, want nil", got)
 	}
+}
+
+// TestSchedulerPauseResumeRoundTrip verifies the pause/resume semantics
+// the API exposes (audit RES-4, roadmap #21): paused drivers stop
+// collecting, resume restores the cadence, and PausedDrivers reports
+// the set.
+func TestSchedulerPauseResumeRoundTrip(t *testing.T) {
+	var mu sync.Mutex
+	var readsByDriver = make(map[string]int)
+	readFn := func(ctx context.Context, driver string, tags []string) ([]core.TagValue, error) {
+		mu.Lock()
+		readsByDriver[driver]++
+		mu.Unlock()
+		return []core.TagValue{{Tag: tags[0], Value: 1, Timestamp: time.Now()}}, nil
+	}
+	s := NewScheduler(readFn, func(driver string, values []core.TagValue, priority int) {},
+		0, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := s.Start(ctx); err != nil {
+		t.Fatalf("scheduler start: %v", err)
+	}
+	defer s.Stop()
+
+	const fastInterval = 10 * time.Millisecond
+	for _, d := range []string{"a", "b"} {
+		if err := s.AddTask(core.ScheduleTask{
+			ID: d + "_t", Driver: d, Tags: []string{"x"}, Interval: fastInterval,
+		}); err != nil {
+			t.Fatalf("AddTask(%s): %v", d, err)
+		}
+	}
+
+	// Baseline: both drivers collect.
+	snapshotReads := func() map[string]int {
+		mu.Lock()
+		defer mu.Unlock()
+		cp := make(map[string]int, len(readsByDriver))
+		for k, v := range readsByDriver {
+			cp[k] = v
+		}
+		return cp
+	}
+	waitFor := func(cond func() bool, window time.Duration, msg string) {
+		t.Helper()
+		deadline := time.Now().Add(window)
+		for !cond() {
+			if time.Now().After(deadline) {
+				t.Fatalf("timed out: %s (reads=%v)", msg, snapshotReads())
+			}
+			time.Sleep(fastInterval)
+		}
+	}
+	waitFor(func() bool { return snapshotReads()["a"] >= 2 && snapshotReads()["b"] >= 2 },
+		2*time.Second, "both drivers should collect")
+
+	// Pause a: its reads freeze while b keeps going.
+	if err := s.PauseDriver("a"); err != nil {
+		t.Fatalf("PauseDriver: %v", err)
+	}
+	if paused := s.PausedDrivers(); len(paused) != 1 || paused[0] != "a" {
+		t.Fatalf("PausedDrivers = %v, want [a]", paused)
+	}
+	before := snapshotReads()["a"]
+	waitFor(func() bool { return snapshotReads()["b"] >= before+2 },
+		2*time.Second, "b must keep collecting while a is paused")
+	if got := snapshotReads()["a"]; got != before {
+		t.Errorf("paused driver collected: %d -> %d reads", before, got)
+	}
+
+	// Resume a: collection restarts at the next tick.
+	if err := s.ResumeDriver("a"); err != nil {
+		t.Fatalf("ResumeDriver: %v", err)
+	}
+	if paused := s.PausedDrivers(); len(paused) != 0 {
+		t.Fatalf("PausedDrivers after resume = %v, want empty", paused)
+	}
+	resumedAt := snapshotReads()["a"]
+	waitFor(func() bool { return snapshotReads()["a"] >= resumedAt+2 },
+		2*time.Second, "resumed driver must collect again")
 }

@@ -67,9 +67,18 @@ func router(ctx context.Context, secret string, allowedOrigins []string, rateLim
 		r.Post("/configs/backups/{name}/restore", restoreConfigBackup)
 
 		r.Get("/drivers", getDrivers)
+		// Static segment before the {name} wildcard so the paused list
+		// is not swallowed by the parameter route (chi prefers static
+		// segments; the order also documents the intent).
+		r.Get("/drivers/paused", getPausedDrivers)
 		r.Get("/drivers/{name}", getDriver)
 		r.Get("/drivers/{name}/tags", getDriverTags)
 		r.Post("/drivers/test", testDriver)
+		// Pause/resume a driver's collection without touching its
+		// config (audit RES-4): the scheduler flags exist; these expose
+		// them for device-maintenance scenarios.
+		r.Post("/drivers/{name}/pause", pauseDriver)
+		r.Post("/drivers/{name}/resume", resumeDriver)
 
 		r.Get("/transports", getTransports)
 		r.Get("/transports/{name}", getTransport)

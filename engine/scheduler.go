@@ -241,6 +241,32 @@ func (s *scheduler) PauseDriver(name string) error {
 	return nil
 }
 
+// ResumeDriver clears the driver's paused flag so its tasks resume at
+// their next tick (audit finding RES-4: the pause capability existed
+// but was engine-internal only — maintenance scenarios had to rewrite
+// the whole config to stop collecting from a device under repair).
+func (s *scheduler) ResumeDriver(name string) error {
+	s.mu.Lock()
+	delete(s.paused, name)
+	s.mu.Unlock()
+	slog.Info("driver resumed", "driver", name)
+	return nil
+}
+
+// PausedDrivers returns the sorted names of currently-paused drivers.
+func (s *scheduler) PausedDrivers() []string {
+	s.mu.RLock()
+	names := make([]string, 0, len(s.paused))
+	for name, paused := range s.paused {
+		if paused {
+			names = append(names, name)
+		}
+	}
+	s.mu.RUnlock()
+	sort.Strings(names)
+	return names
+}
+
 func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) {
 	defer s.wg.Done()
 

@@ -348,3 +348,43 @@ curl -X POST http://localhost:9090/drivers/test \
 # → {"ok": true, "connected": true, ...} 后再写入配置并 PUT /configs
 # → {"ok": false, "error": "connection refused", ...} 时修正 host/port 再试
 ```
+
+---
+
+## 暂停与恢复驱动采集
+
+设备维修、更换传感器等场景需要在**不动配置**的情况下临时停止某驱动的采集（此前只能整份改配置，走一次完整的删除+重建）。暂停只标记调度器：任务保留、驱动连接保持、恢复后从下一 tick 继续。
+
+### 暂停 — `POST /drivers/{name}/pause`
+
+```bash
+curl -X POST http://localhost:9090/drivers/plc1/pause \
+  -H "Authorization: Bearer corec-secret-token"
+```
+
+| 状态码 | 说明 |
+|:---|:---|
+| `204 No Content` | 已暂停 |
+| `404 Not Found` | 驱动不存在 |
+| `501 Not Implemented` | 引擎不支持暂停 |
+
+暂停期间：该驱动的所有采集任务跳过 tick（不读、不产生数据点）；驱动连接**不关闭**（恢复即读，无重连延迟）；`/tags` 中的既有缓存值随 `stale-threshold` 标记为陈旧。
+
+### 恢复 — `POST /drivers/{name}/resume`
+
+| 状态码 | 说明 |
+|:---|:---|
+| `204 No Content` | 已恢复（下一 tick 起采集） |
+| `404 Not Found` | 驱动不存在 |
+
+### 查询暂停列表 — `GET /drivers/paused`
+
+```json
+{
+  "paused": ["plc1", "plc3"]
+}
+```
+
+::: info 与配置删除的区别
+暂停是**调度器级**开关：配置、连接、缓存全部保留，恢复零成本。删除驱动（改配置）则拆除连接、清除任务，恢复需完整重建与重连。注意：暂停状态不落盘，进程重启后清零。
+:::

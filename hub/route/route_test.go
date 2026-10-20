@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -604,4 +605,93 @@ func putConfigs(t *testing.T, ts *httptest.Server, body string) *http.Response {
 		t.Fatalf("PUT /configs failed: %v", err)
 	}
 	return resp
+}
+
+// TestDriverPauseResumeEndpoints verifies the pause/resume API family
+// (audit RES-4, roadmap #21): 204 on pause and resume, 404 for unknown
+// drivers, and GET /drivers/paused listing the paused set (also proving
+// the static /drivers/paused route is not swallowed by /drivers/{name}).
+type mockEnginePausable struct {
+	mockEngineV2
+	pausedSet map[string]bool
+}
+
+func (m *mockEnginePausable) PauseDriver(name string) error {
+	m.pausedSet[name] = true
+	return nil
+}
+func (m *mockEnginePausable) ResumeDriver(name string) error {
+	delete(m.pausedSet, name)
+	return nil
+}
+func (m *mockEnginePausable) PausedDrivers() []string {
+	names := make([]string, 0, len(m.pausedSet))
+	for n := range m.pausedSet {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func TestDriverPauseResumeEndpoints(t *testing.T) {
+	eng := &mockEnginePausable{
+		pausedSet: make(map[string]bool),
+		drivers: []core.DriverStatus{
+			{Name: "plc1", Type: "modbus-tcp"},
+		},
+	}
+	ts := newTestServer("", eng)
+	defer ts.Close()
+
+	do := func(method, path string) *http.Response {
+		req, err := http.NewRequest(method, ts.URL+path, http.NoBody)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := ts.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp
+	}
+
+	// Pause an existing driver.
+	if got := do(http.MethodPost, "/drivers/plc1/pause").StatusCode; got != http.StatusNoContent {
+		t.Errorf("pause status = %d, want 204", got)
+	}
+	// The paused list reflects it — and the static route wins over
+	// /drivers/{name}.
+	resp := authedGet(t, ts, "/drivers/paused", "")
+	defer resp.Body.Close()
+	var body struct {
+		Paused []string `json:"paused"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode paused list: %v", err)
+	}
+	if len(body.Paused) != 1 || body.Paused[0] != "plc1" {
+		t.Errorf("paused = %v, want [plc1]", body.Paused)
+	}
+
+	// Resume clears it.
+	if got := do(http.MethodPost, "/drivers/plc1/resume").StatusCode; got != http.StatusNoContent {
+		t.Errorf("resume status = %d, want 204", got)
+	}
+	resp2 := authedGet(t, ts, "/drivers/paused", "")
+	defer resp2.Body.Close()
+	if err := json.NewDecoder(resp2.Body).Decode(&body); err != nil {
+		t.Fatalf("decode paused list: %v", err)
+	}
+	if len(body.Paused) != 0 {
+		t.Errorf("paused after resume = %v, want empty", body.Paused)
+	}
+
+	// Unknown drivers 404.
+	if got := do(http.MethodPost, "/drivers/nope/pause").StatusCode; got != http.StatusNotFound {
+		t.Errorf("pause unknown status = %d, want 404", got)
+	}
+	if got := do(http.MethodPost, "/drivers/nope/resume").StatusCode; got != http.StatusNotFound {
+		t.Errorf("resume unknown status = %d, want 404", got)
+	}
 }
