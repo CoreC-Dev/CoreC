@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -679,3 +680,127 @@ type patchableEngine struct {
 func (p *patchableEngine) SetStaleThreshold(d time.Duration) { p.threshold = d }
 func (p *patchableEngine) Suspend() error                    { return nil }
 func (p *patchableEngine) Resume() error                     { return nil }
+
+// TestRemoveResourceByNames verifies the executor side of the
+// resource-level DELETE endpoints (audit HUB-3 / roadmap #26): removing
+// one entry by name runs the full validate → apply → persist chain,
+// 404-maps missing names, and validation fallout (deleting a transport
+// that rules target) surfaces as the client-fixable 400 class.
+func TestRemoveResourceByNames(t *testing.T) {
+	cfgAudit.mu.Lock()
+	cfgAudit.entries = nil
+	cfgAudit.mu.Unlock()
+
+	savedEngine, savedCfg, savedPath := engine, currentCfg, configPath
+	defer Init(savedEngine, savedCfg, savedPath)
+
+	full := &core.Config{
+		Drivers: []core.DriverConfig{
+			{Name: "plc-a", Type: "modbus-tcp",
+				Settings: map[string]any{"host": "127.0.0.1", "port": 15020, "slave-id": 1},
+				Tags:     []core.TagConfig{{Name: "t", Address: "40001", Type: "uint16"}}},
+		},
+		Transports: []core.TransportConfig{
+			{Name: "mqtt-a", Type: "mqtt", Settings: map[string]any{"broker": "tcp://127.0.0.1:18831"}},
+		},
+		Rules: []core.RuleConfig{
+			{Name: "fwd", Match: "ALL", Action: "forward", Target: "mqtt-a"},
+		},
+	}
+	eng := &resourceTestEngine{}
+	Init(eng, full, "")
+	// Engine must also serve as the driver/transport manager for the diff.
+	eng.AddedDrivers, eng.RemovedDrivers = nil, nil
+
+	// Missing name → ErrResourceNotFound (route maps to 404).
+	if err := RemoveDriverByName("nope", "r"); !errors.Is(err, ErrResourceNotFound) {
+		t.Errorf("missing driver: err = %v, want ErrResourceNotFound", err)
+	}
+
+	// Driver removal walks the diff chain (engine sees RemoveDriver).
+	if err := RemoveDriverByName("plc-a", "10.0.0.1:1"); err != nil {
+		t.Fatalf("RemoveDriverByName: %v", err)
+	}
+	if len(eng.RemovedDrivers) != 1 || eng.RemovedDrivers[0] != "plc-a" {
+		t.Errorf("engine removed drivers = %v, want [plc-a]", eng.RemovedDrivers)
+	}
+	if cur := CurrentConfig(); len(cur.Drivers) != 0 {
+		t.Errorf("currentCfg still has %d drivers after removal", len(cur.Drivers))
+	}
+
+	// Transport removal that leaves a dangling rule target → ConfigError
+	// (route maps to 400 with the reason).
+	err := RemoveTransportByName("mqtt-a", "10.0.0.1:2")
+	var cfe *ConfigError
+	if !errors.As(err, &cfe) {
+		t.Fatalf("removing referenced transport: err = %v, want ConfigError", err)
+	}
+	if !strings.Contains(err.Error(), "fwd") {
+		t.Errorf("error should name the affected rule, got: %v", err)
+	}
+
+	// Rule removal clears the dependency; the transport then removes.
+	if err := RemoveRuleByName("fwd", "10.0.0.1:3"); err != nil {
+		t.Fatalf("RemoveRuleByName: %v", err)
+	}
+	if err := RemoveTransportByName("mqtt-a", "10.0.0.1:4"); err != nil {
+		t.Fatalf("RemoveTransportByName after rule removal: %v", err)
+	}
+	if cur := CurrentConfig(); len(cur.Rules) != 0 || len(cur.Transports) != 0 {
+		t.Errorf("config not empty after removals: %+v", cur)
+	}
+
+	// Every successful removal recorded an audit entry naming the
+	// resource (ReloadWithOrigin also records its own "payload" entry —
+	// the removal entry is the one carrying the delete-* key, newest
+	// first: resource entry then the reload's payload entry).
+	entries := ConfigAuditHistory()
+	var deleteKeys []string
+	for _, e := range entries {
+		for _, k := range e.Keys {
+			if strings.HasPrefix(k, "delete-") {
+				deleteKeys = append(deleteKeys, k)
+			}
+		}
+	}
+	want := []string{
+		"delete-transport:mqtt-a",
+		"delete-rule:fwd",
+		"delete-driver:plc-a",
+	}
+	if !reflect.DeepEqual(deleteKeys, want) {
+		t.Errorf("delete audit keys = %v, want %v", deleteKeys, want)
+	}
+}
+
+// resourceTestEngine implements the roles the reload chain needs
+// (driver/transport manager + suspend) while recording removals.
+type resourceTestEngine struct {
+	core.Engine
+	AddedDrivers, RemovedDrivers       []string
+	AddedTransports, RemovedTransports []string
+	RulesSet                           int
+}
+
+func (e *resourceTestEngine) AddDriver(c core.DriverConfig) error {
+	e.AddedDrivers = append(e.AddedDrivers, c.Name)
+	return nil
+}
+func (e *resourceTestEngine) RemoveDriver(name string) error {
+	e.RemovedDrivers = append(e.RemovedDrivers, name)
+	return nil
+}
+func (e *resourceTestEngine) AddTransport(c core.TransportConfig) error {
+	e.AddedTransports = append(e.AddedTransports, c.Name)
+	return nil
+}
+func (e *resourceTestEngine) RemoveTransport(name string) error {
+	e.RemovedTransports = append(e.RemovedTransports, name)
+	return nil
+}
+func (e *resourceTestEngine) SetRules(rules []core.RuleConfig) error {
+	e.RulesSet++
+	return nil
+}
+func (e *resourceTestEngine) Suspend() error { return nil }
+func (e *resourceTestEngine) Resume() error  { return nil }

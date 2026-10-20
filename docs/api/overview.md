@@ -126,11 +126,13 @@ API 内置 CORS 中间件，用于支持浏览器端仪表盘跨域访问。行�
 | `GET` | `/drivers/{name}` | 是 | 获取指定驱动状态 |
 | `GET` | `/drivers/{name}/tags` | 是 | 获取指定驱动最新标签值 |
 | `POST` | `/drivers/test` | 是 | 驱动连通性测试（临时实例，不落配置，5s 超时） |
+| `DELETE` | `/drivers/{name}` | 是 | 删除单个驱动——服务端拼接配置并走完整校验/应用/持久化链（含备份快照与审计） |
 | `GET` | `/drivers/paused` | 是 | 列出当前暂停采集的驱动名 |
 | `POST` | `/drivers/{name}/pause` | 是 | 暂停指定驱动的采集任务（不动配置；设备维修/换传感器场景） |
 | `POST` | `/drivers/{name}/resume` | 是 | 恢复指定驱动的采集（下一 tick 起效） |
 | `GET` | `/transports` | 是 | 列出所有传输状态 |
 | `GET` | `/transports/{name}` | 是 | 获取指定传输状态 |
+| `DELETE` | `/transports/{name}` | 是 | 删除单个传输——被规则引用时返回 400 并说明原因；同上走完整安全链 |
 | `GET` | `/tags` | 是 | 获取所有驱动最新标签值 |
 | `POST` | `/write` | 是 | 向设备写入标签值 |
 | `GET` | `/write/failed` | 是 | 查询死信队列中失败的写入指令 |
@@ -138,6 +140,7 @@ API 内置 CORS 中间件，用于支持浏览器端仪表盘跨域访问。行�
 | `GET` | `/rules` | 是 | 列出所有规则统计 |
 | `PATCH` | `/rules/disable` | 是 | 启用/禁用指定规则（按 name 推荐，index 向后兼容） |
 | `POST` | `/rules/preview` | 是 | 规则试算——离线验证 match 表达式（不影响生产规则集） |
+| `DELETE` | `/rules/{name}` | 是 | 删除单条规则（按 name）——同上走完整安全链 |
 | `GET` | `/alerts` | 是 | 查询活动规则告警 + 有界生命周期历史（详见 [告警 API](alerts.md)） |
 | `POST` | `/alerts/ack` | 是 | 确认（Acknowledge）一条活动告警（详见 [告警 API](alerts.md)） |
 | `GET` | `/stats` | 是 | 获取引擎运行统计 |

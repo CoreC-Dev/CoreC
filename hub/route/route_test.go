@@ -735,3 +735,91 @@ func TestGetConfigAudit(t *testing.T) {
 		t.Errorf("patch entry = %+v, want remote + log-level key", body.Changes[0])
 	}
 }
+
+// TestResourceDeleteEndpoints verifies the resource-level DELETE sugar
+// (audit HUB-3 / roadmap #26): removing a single driver/transport/rule
+// by name without splicing YAML client-side; 404 for stale names, 400
+// with the reason when removal breaks config validity, 204 on success.
+func TestResourceDeleteEndpoints(t *testing.T) {
+	prevRemoveDriver, prevRemoveTransport, prevRemoveRule, prevClassify := RemoveDriverFunc, RemoveTransportFunc, RemoveRuleFunc, ClassifyResourceError
+	defer func() {
+		RemoveDriverFunc, RemoveTransportFunc, RemoveRuleFunc, ClassifyResourceError = prevRemoveDriver, prevRemoveTransport, prevRemoveRule, prevClassify
+	}()
+
+	// Fake executor behaviour driven by a mutable map of resources.
+	resources := map[string]bool{"plc1": true, "mqtt1": true, "rule-hot": true}
+	remove := func(kind string) func(name, remote string) error {
+		return func(name, remote string) error {
+			if !resources[kind+":"+name] && !resources[name] {
+				return errMissingResource
+			}
+			delete(resources, name)
+			return nil
+		}
+	}
+	ClassifyResourceError = func(err error) int {
+		if errors.Is(err, errMissingResource) {
+			return 1
+		}
+		if errors.Is(err, errConfigRejected) {
+			return 2
+		}
+		return 0
+	}
+	RemoveDriverFunc = remove("driver")
+	RemoveTransportFunc = func(name, remote string) error {
+		// Deleting a transport that rules still target is rejected by
+		// validation with the actionable reason.
+		if name == "mqtt1" && resources["rule-hot"] {
+			return errConfigRejected
+		}
+		return remove("transport")(name, remote)
+	}
+	RemoveRuleFunc = remove("rule")
+
+	eng := &mockEngineV2{}
+	ts := newTestServer("", eng)
+	defer ts.Close()
+
+	do := func(path string) *http.Response {
+		req, err := http.NewRequest(http.MethodDelete, ts.URL+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := ts.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp
+	}
+
+	// Success: driver removed, 204.
+	if got := do("/drivers/plc1").StatusCode; got != http.StatusNoContent {
+		t.Errorf("DELETE /drivers/plc1 = %d, want 204", got)
+	}
+	if resources["plc1"] {
+		t.Error("driver not removed")
+	}
+	// Stale name: 404.
+	if got := do("/drivers/plc1").StatusCode; got != http.StatusNotFound {
+		t.Errorf("DELETE stale /drivers/plc1 = %d, want 404", got)
+	}
+	// Config fallout: transport still referenced by a rule → 400.
+	if got := do("/transports/mqtt1").StatusCode; got != http.StatusBadRequest {
+		t.Errorf("DELETE referenced /transports/mqtt1 = %d, want 400", got)
+	}
+	// Rule removal succeeds, then the transport becomes removable.
+	if got := do("/rules/rule-hot").StatusCode; got != http.StatusNoContent {
+		t.Errorf("DELETE /rules/rule-hot = %d, want 204", got)
+	}
+	if got := do("/transports/mqtt1").StatusCode; got != http.StatusNoContent {
+		t.Errorf("DELETE /transports/mqtt1 after rule removal = %d, want 204", got)
+	}
+}
+
+// Sentinel errors for the fake executor above.
+var (
+	errMissingResource = errors.New("resource not found")
+	errConfigRejected  = errors.New("config validation failed: rule r1: target transport \"mqtt1\" not found")
+)

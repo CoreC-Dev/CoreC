@@ -82,10 +82,14 @@ func router(ctx context.Context, secret string, allowedOrigins []string, rateLim
 		// them for device-maintenance scenarios.
 		r.Post("/drivers/{name}/pause", pauseDriver)
 		r.Post("/drivers/{name}/resume", resumeDriver)
+		// Resource-level removal (audit HUB-3): splice internally, run
+		// the full PUT /configs safety chain.
+		r.Delete("/drivers/{name}", deleteResourceDriver)
 
 		r.Get("/transports", getTransports)
 		r.Get("/transports/{name}", getTransport)
 		r.Post("/transports/{name}/test", testTransport)
+		r.Delete("/transports/{name}", deleteResourceTransport)
 
 		r.Get("/tags", getAllTags)
 		r.Post("/write", writeTag)
@@ -95,6 +99,7 @@ func router(ctx context.Context, secret string, allowedOrigins []string, rateLim
 		r.Get("/rules", getRules)
 		r.Patch("/rules/disable", disableRule)
 		r.Post("/rules/preview", previewRule)
+		r.Delete("/rules/{name}", deleteResourceRule)
 
 		// First-class alerts (audit OBS-4/HUB-6): active state +
 		// bounded history + ack + real-time lifecycle stream. The

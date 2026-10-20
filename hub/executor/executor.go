@@ -49,6 +49,11 @@ func Init(e core.Engine, initialCfg *core.Config, path string) {
 	// Config change audit trail (audit finding HUB-4 / roadmap #22):
 	// GET /configs/audit.
 	route.ConfigAuditFunc = ConfigAuditHistory
+	// Resource-level DELETE endpoints (audit HUB-3 / roadmap #26).
+	route.RemoveDriverFunc = RemoveDriverByName
+	route.RemoveTransportFunc = RemoveTransportByName
+	route.RemoveRuleFunc = RemoveRuleByName
+	route.ClassifyResourceError = classifyResourceError
 }
 
 // CurrentConfig returns the current active configuration.
@@ -400,4 +405,106 @@ func reloadChangeKeys(path, payload string) []string {
 		return []string{"path:" + path}
 	}
 	return []string{"active-file"}
+}
+
+// --- Resource-level sugar endpoints (audit HUB-3 / roadmap #26) ---
+//
+// Removing a single driver/transport/rule previously required the caller
+// to fetch the full YAML, splice it, and PUT the whole config. These
+// helpers do exactly that internally — mutate the active config, then
+// run the SAME validate → apply → persist chain as PUT /configs
+// (including rollback on failure, the pre-change backup snapshot, and
+// the audit entry) — so the narrow API gets every safety rail for free.
+
+// removeFromConfig removes one named entry from the given slice and
+// reports whether it existed. Generics keep it copy-free at the call
+// sites (the slices are small; simplicity wins).
+func removeNamedDriver(cfg *core.Config, name string) bool {
+	for i, d := range cfg.Drivers {
+		if d.Name == name {
+			cfg.Drivers = append(cfg.Drivers[:i], cfg.Drivers[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+func removeNamedTransport(cfg *core.Config, name string) bool {
+	for i, t := range cfg.Transports {
+		if t.Name == name {
+			cfg.Transports = append(cfg.Transports[:i], cfg.Transports[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+func removeNamedRule(cfg *core.Config, name string) bool {
+	for i, r := range cfg.Rules {
+		if r.Name == name {
+			cfg.Rules = append(cfg.Rules[:i], cfg.Rules[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// removeResource is the shared body: snapshot the active config, drop
+// the named entry, and reload through the full chain. Returns
+// os.ErrNotExist-style error when the name is missing (the route maps
+// it to 404).
+func removeResource(kind, name, remote string, drop func(*core.Config) bool) error {
+	mux.Lock()
+	var snapshot *core.Config
+	if currentCfg != nil {
+		clone := *currentCfg
+		snapshot = &clone
+	}
+	mux.Unlock()
+	if snapshot == nil {
+		return fmt.Errorf("no active configuration")
+	}
+	if !drop(snapshot) {
+		return ErrResourceNotFound
+	}
+	payload, err := yaml.Marshal(snapshot)
+	if err != nil {
+		return fmt.Errorf("failed to re-marshal config: %w", err)
+	}
+	if err := ReloadWithOrigin("", string(payload), remote); err != nil {
+		return err
+	}
+	recordConfigAudit(core.ConfigAuditEntry{
+		At:      time.Now(),
+		Action:  "reload",
+		Remote:  remote,
+		Keys:    []string{"delete-" + kind + ":" + name},
+		Details: kind + " " + name + " removed via resource endpoint",
+	})
+	return nil
+}
+
+// ErrResourceNotFound reports a DELETE on a name the active config does
+// not carry (stale client state).
+var ErrResourceNotFound = fmt.Errorf("resource not found")
+
+// RemoveDriverByName removes one driver through the full reload chain.
+func RemoveDriverByName(name, remote string) error {
+	return removeResource("driver", name, remote, func(cfg *core.Config) bool {
+		return removeNamedDriver(cfg, name)
+	})
+}
+
+// RemoveTransportByName removes one transport through the full reload chain.
+func RemoveTransportByName(name, remote string) error {
+	return removeResource("transport", name, remote, func(cfg *core.Config) bool {
+		return removeNamedTransport(cfg, name)
+	})
+}
+
+// RemoveRuleByName removes one rule through the full reload chain.
+func RemoveRuleByName(name, remote string) error {
+	return removeResource("rule", name, remote, func(cfg *core.Config) bool {
+		return removeNamedRule(cfg, name)
+	})
 }

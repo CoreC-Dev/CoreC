@@ -218,6 +218,7 @@ curl -H "Authorization: Bearer your-secret-token" http://localhost:9090/drivers
 | GET | `/drivers/{name}` | 查看单个驱动 |
 | GET | `/drivers/{name}/tags` | 查看驱动下所有测点最新值 |
 | POST | `/drivers/test` | 驱动连通性测试（临时实例，不落配置，连接即关，5s 超时） |
+| DELETE | `/drivers/{name}` | 删除单个驱动（服务端拼接配置，走完整校验/应用/持久化链） |
 | GET | `/transports` | 列出所有北向传输及状态 |
 | GET | `/transports/{name}` | 查看单个传输 |
 | GET | `/tags` | 所有测点最新缓存值 |
@@ -227,6 +228,7 @@ curl -H "Authorization: Bearer your-secret-token" http://localhost:9090/drivers
 | GET | `/alerts` | 查询活动规则告警 + 生命周期历史（active/ack/cleared 状态机） |
 | POST | `/alerts/ack` | 确认（Acknowledge）一条活动告警 |
 | GET | `/rules` | 列出规则 + **命中/未命中统计** |
+| DELETE | `/rules/{name}` | 删除单条规则（按 name） |
 | PATCH | `/rules/disable` | 运行时启用/禁用规则 `{"index":0,"disabled":true}` |
 | POST | `/rules/preview` | 规则试算：离线验证 match 表达式（不影响生产规则集） |
 | GET | `/stats` | 引擎运行统计 |

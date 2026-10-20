@@ -1,6 +1,9 @@
 package executor
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // ConfigError marks a configuration problem the caller can fix: the
 // payload failed to parse or failed validation (audit findings
@@ -39,4 +42,19 @@ func (e *ConfigError) ClientFixable() bool { return true }
 // preserving the ConfigError marker.
 func wrapConfigError(format string, args ...any) *ConfigError {
 	return NewConfigError(fmt.Errorf(format, args...))
+}
+
+// classifyResourceError maps removeResource failures to the route's
+// HTTP classes (injected as route.ClassifyResourceError to break the
+// import cycle): missing name → 404; client-fixable config fallout →
+// 400 with the reason; everything else → masked 500.
+func classifyResourceError(err error) int {
+	switch {
+	case errors.Is(err, ErrResourceNotFound):
+		return 1
+	case errors.As(err, new(*ConfigError)):
+		return 2
+	default:
+		return 0
+	}
 }
