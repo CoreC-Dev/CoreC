@@ -387,3 +387,48 @@ func TestPromMetricsLatencyAndDataAge(t *testing.T) {
 		}
 	}
 }
+
+// TestPromMetricsSchedulerHealth verifies the scheduler health families
+// render from the optional SchedulerHealthProvider role (audit OBS-5 /
+// roadmap #7): a degraded driver with an error streak and cumulative
+// overruns is visible to Prometheus, and an engine that does not report
+// scheduler health (nil role data) omits the families entirely.
+func TestPromMetricsSchedulerHealth(t *testing.T) {
+	eng := &mockEngineV2{
+		schedulerHealth: []core.TaskHealth{
+			{Driver: "plc1", Degraded: true, ConsecutiveErrors: 6, OverrunsTotal: 42},
+			{Driver: "plc2", Degraded: false, ConsecutiveErrors: 0, OverrunsTotal: 0},
+		},
+	}
+	ts := newTestServer("", eng)
+	defer ts.Close()
+
+	resp := authedGet(t, ts, "/metrics", "")
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	output := string(body)
+
+	checks := []string{
+		"corec_scheduler_degraded{driver=\"plc1\"} 1",
+		"corec_scheduler_degraded{driver=\"plc2\"} 0",
+		"corec_scheduler_consecutive_errors{driver=\"plc1\"} 6",
+		"corec_scheduler_overruns_total{driver=\"plc1\"} 42",
+	}
+	for _, s := range checks {
+		if !strings.Contains(output, s) {
+			t.Errorf("metrics output missing %q\nOutput:\n%s", s, output)
+		}
+	}
+
+	// A mock with no scheduler health must omit the families rather
+	// than emitting headers with zero samples.
+	engNone := &mockEngineV2{}
+	ts2 := newTestServer("", engNone)
+	defer ts2.Close()
+	resp2 := authedGet(t, ts2, "/metrics", "")
+	body2, _ := io.ReadAll(resp2.Body)
+	resp2.Body.Close()
+	if strings.Contains(string(body2), "corec_scheduler_degraded") {
+		t.Errorf("metrics output unexpectedly contains scheduler families for a health-less engine")
+	}
+}

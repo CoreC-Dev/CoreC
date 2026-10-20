@@ -64,6 +64,9 @@ func promMetrics(w http.ResponseWriter, r *http.Request) {
 	// ─── Per-driver metrics ───────────────────────────────────────────
 	writeDriverMetrics(&b, stats.DriverStats)
 
+	// ─── Scheduler health (degraded/error-streak/overrun) ─────────────
+	writeSchedulerMetrics(&b)
+
 	// ─── Per-transport metrics ────────────────────────────────────────
 	writeTransportMetrics(&b, stats.TransportStats)
 

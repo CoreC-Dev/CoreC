@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"math"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -56,9 +57,14 @@ type taskRunner struct {
 	lastErrMsg string
 	errCount   uint64
 
-	// Overrun throttling state
+	// Overrun throttling state. overrunCount is the windowed counter
+	// printed by the throttled log (reset each time the log fires);
+	// overrunsTotal is the cumulative lifetime count exposed via
+	// Health() for Prometheus — never reset (audit OBS-5: the old
+	// windowed counter silently lost history after each log).
 	lastOverrunLog time.Time
 	overrunCount   uint64
+	overrunsTotal  uint64
 
 	inError           bool
 	consecutiveErrors int  // consecutive error ticks for auto-degrade
@@ -147,6 +153,54 @@ func (s *scheduler) AddTask(task core.ScheduleTask) error {
 
 	slog.Info("task added", "id", task.ID, "driver", task.Driver, "interval", task.Interval, "tags", len(task.Tags))
 	return nil
+}
+
+// Health aggregates per-driver scheduler health for Prometheus
+// exposure (core.SchedulerHealthProvider). Safe on a nil scheduler (an
+// engine that has not started has no scheduler yet): returns nil so
+// the metrics route simply omits the families.
+//
+// Aggregation per driver across all of its tasks: Degraded is true if
+// ANY task is auto-degraded; ConsecutiveErrors is the worst streak
+// (max) so a single sick task cannot hide behind healthy siblings;
+// OverrunsTotal is the sum of the drivers' lifetime overrun counts.
+// Drivers are emitted in sorted name order for deterministic output.
+func (s *scheduler) Health() []core.TaskHealth {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if len(s.tasks) == 0 {
+		return nil
+	}
+	byDriver := make(map[string]*core.TaskHealth, len(s.tasks))
+	for _, t := range s.tasks {
+		h, ok := byDriver[t.task.Driver]
+		if !ok {
+			h = &core.TaskHealth{Driver: t.task.Driver}
+			byDriver[t.task.Driver] = h
+		}
+		if t.degraded {
+			h.Degraded = true
+		}
+		if t.consecutiveErrors > h.ConsecutiveErrors {
+			h.ConsecutiveErrors = t.consecutiveErrors
+		}
+		h.OverrunsTotal += t.overrunsTotal
+	}
+
+	names := make([]string, 0, len(byDriver))
+	for name := range byDriver {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]core.TaskHealth, 0, len(names))
+	for _, name := range names {
+		out = append(out, *byDriver[name])
+	}
+	return out
 }
 
 func (s *scheduler) Pause() error {
@@ -270,6 +324,7 @@ func (s *scheduler) logOverrunIfNeeded(runner *taskRunner, task core.ScheduleTas
 		return
 	}
 	runner.overrunCount++
+	runner.overrunsTotal++
 	if time.Since(runner.lastOverrunLog) < s.errorThrottleWindow {
 		return
 	}

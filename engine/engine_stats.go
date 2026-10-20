@@ -72,3 +72,11 @@ func (e *CoreCEngine) PublishLatencyHistogram() core.LatencySnapshot {
 func (e *CoreCEngine) DataAgeHistogram() core.LatencySnapshot {
 	return e.stats.DataAgeHistogram()
 }
+
+// SchedulerHealth forwards to the scheduler for the metrics route's
+// optional core.SchedulerHealthProvider role. The nil-receiver guard
+// lives inside scheduler.Health so this stays a pure forwarder even
+// before Start().
+func (e *CoreCEngine) SchedulerHealth() []core.TaskHealth {
+	return e.lifecycle.scheduler.Health()
+}

@@ -75,6 +75,16 @@ corec_driver_last_read_seconds{driver="plc1"} 1.2
 corec_driver_last_read_seconds{driver="plc2"} 748.9
 ```
 
+### 调度器健康指标
+
+调度器的运行状态（自动降级、连续读失败、读超限）此前只出现在节流日志里，无法用于告警。以下指标按驱动分组（聚合该驱动全部采集任务）：
+
+| 指标 | 类型 | 标签 | 说明 |
+|:---|:---|:---|:---|
+| `corec_scheduler_degraded` | gauge | `driver` | `1`=该驱动任一采集任务处于自动降级（连续读失败后拉长间隔），`0`=正常 |
+| `corec_scheduler_consecutive_errors` | gauge | `driver` | 该驱动采集任务的最差连续读失败次数（首次成功即归零） |
+| `corec_scheduler_overruns_total` | counter | `driver` | 该驱动"读取耗时超过采集周期"的累计次数（进程生命周期内单调递增，不清零） |
+
 ### 每传输指标
 
 以下指标按传输实例名分组，按名称排序输出。
@@ -180,6 +190,9 @@ corec_offline_buffer_pending > 100
 
 # 驱动采集停更告警（距上次成功读取超过 60 秒即驱动静默）
 corec_driver_last_read_seconds > 60
+
+# 调度器降级告警（驱动因连续读失败被自动降频采集）
+corec_scheduler_degraded == 1
 
 # 日志丢弃告警（日志在静默丢失）
 rate(corec_log_dropped_total[5m]) > 0

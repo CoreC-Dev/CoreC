@@ -29,9 +29,15 @@ type mockEngineV2 struct {
 	disabledVal  bool
 	disabledName string
 	disabledErr  error
+	// schedulerHealth backs the optional core.SchedulerHealthProvider
+	// role; nil (zero value) means "no scheduler health" so existing
+	// mocks keep omitting the scheduler metric families.
+	schedulerHealth []core.TaskHealth
 }
 
 func (m *mockEngineV2) Stats() core.EngineStats { return m.stats }
+
+func (m *mockEngineV2) SchedulerHealth() []core.TaskHealth { return m.schedulerHealth }
 
 func (m *mockEngineV2) ListDrivers() []core.DriverStatus { return m.drivers }
 
