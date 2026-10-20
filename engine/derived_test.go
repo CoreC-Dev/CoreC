@@ -55,8 +55,8 @@ func TestBuildEnvMissing(t *testing.T) {
 	snapshot := map[string]core.DataPoint{
 		"a": {Tag: "a", Value: float64(10), Timestamp: time.Now()},
 	}
-	env, missing, stale := buildEnv([]string{"a", "b"}, snapshot, 0)
-	if env["a"] != 10 {
+	env, missing, stale := buildEnv([]string{"a", "b"}, nil, snapshot, NewLatestCache(), 0)
+	if env["a"].(float64) != 10 {
 		t.Fatalf("env[a] = %v, want 10", env["a"])
 	}
 	if len(missing) != 1 || missing[0] != "b" {
@@ -72,7 +72,7 @@ func TestBuildEnvStale(t *testing.T) {
 	snapshot := map[string]core.DataPoint{
 		"a": {Tag: "a", Value: float64(10), Timestamp: old},
 	}
-	_, _, stale := buildEnv([]string{"a"}, snapshot, time.Minute)
+	_, _, stale := buildEnv([]string{"a"}, nil, snapshot, NewLatestCache(), time.Minute)
 	if !stale {
 		t.Fatal("should be stale")
 	}
@@ -344,5 +344,91 @@ func TestEvaluateUnit(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out")
+	}
+}
+
+// TestDerivedQualifiedRefs pins the driver.tag qualified-reference fix
+// (audit finding PIPE-2): the flattened cache view collapses same-named
+// tags across drivers, so `temp` alone read whichever driver won the
+// map race. Expressions can now name the exact pair: `plc1.temp`.
+func TestDerivedQualifiedRefs(t *testing.T) {
+	cache := NewLatestCache()
+	// Two drivers, same tag name, different values — the collision case.
+	cache.Update(core.DataPoint{Driver: "plc1", Tag: "temp", Value: float64(90), Timestamp: time.Now()})
+	cache.Update(core.DataPoint{Driver: "plc2", Tag: "temp", Value: float64(40), Timestamp: time.Now()})
+	cache.Update(core.DataPoint{Driver: "plc2", Tag: "hum", Value: float64(55), Timestamp: time.Now()})
+
+	bus := NewDataBus(64)
+	ev, err := newDerivedTagEvaluator([]core.DerivedTagConfig{
+		{Name: "spread", Expr: "plc1.temp - plc2.temp", Type: core.TypeFloat64, Interval: "5s"},
+		{Name: "legacy", Expr: "hum", Type: core.TypeFloat64, Interval: "5s"},
+	}, cache, bus)
+	if err != nil {
+		t.Fatalf("newDerivedTagEvaluator: %v", err)
+	}
+
+	byTag := make(map[string]core.DataPoint)
+	ev.evaluate(ev.tags[0]) // spread
+	ev.evaluate(ev.tags[1]) // legacy
+	for i := 0; i < 2; i++ {
+		select {
+		case dp := <-bus.Channel():
+			byTag[dp.Tag] = dp
+		default:
+		}
+	}
+
+	if got := byTag["spread"]; got.Value != float64(50) {
+		t.Errorf("plc1.temp - plc2.temp = %v, want 50 (qualified refs must read distinct drivers)", got.Value)
+	}
+	if got := byTag["legacy"]; got.Value != float64(55) {
+		t.Errorf("unqualified `hum` = %v, want 55 (legacy flat refs keep working)", got.Value)
+	}
+}
+
+// TestDerivedQualifiedRefsMissingPolicy verifies missing qualified refs
+// flow through the on-missing policies exactly like flat refs.
+func TestDerivedQualifiedRefsMissingPolicy(t *testing.T) {
+	cache := NewLatestCache()
+	cache.Update(core.DataPoint{Driver: "plc1", Tag: "temp", Value: float64(90), Timestamp: time.Now()})
+	// plc2 has NO temp — the qualified ref is missing.
+
+	bus := NewDataBus(64)
+	ev, err := newDerivedTagEvaluator([]core.DerivedTagConfig{
+		{Name: "sum", Expr: "plc1.temp + plc2.temp", Type: core.TypeFloat64, Interval: "5s", OnMissing: "bad-quality"},
+	}, cache, bus)
+	if err != nil {
+		t.Fatalf("newDerivedTagEvaluator: %v", err)
+	}
+	ev.evaluate(ev.tags[0])
+
+	select {
+	case dp := <-bus.Channel():
+		if dp.Quality != core.QualityBad {
+			t.Errorf("quality = %v, want QualityBad for a missing qualified ref", dp.Quality)
+		}
+		if dp.Value != float64(90) {
+			t.Errorf("value = %v, want 90 (missing side zero-injects: 90 + 0)", dp.Value)
+		}
+	default:
+		t.Fatal("no point pushed for bad-quality missing policy")
+	}
+}
+
+// TestExtractQualifiedRefs verifies the extraction: qualified pairs are
+// captured, deduplicated, and excluded from the flat var list.
+func TestExtractQualifiedRefs(t *testing.T) {
+	refs := extractQualifiedRefs("plc1.temp + plc2.temp * plc1.temp + temp + len([1,2])")
+	if len(refs) != 2 {
+		t.Fatalf("qualified refs = %+v, want 2 unique pairs", refs)
+	}
+	if refs[0] != (qualifiedRef{driver: "plc1", tag: "temp"}) || refs[1] != (qualifiedRef{driver: "plc2", tag: "temp"}) {
+		t.Errorf("refs = %+v, want plc1.temp then plc2.temp in order", refs)
+	}
+	vars := extractVars("plc1.temp + plc2.temp * plc1.temp + temp + len([1,2])")
+	// Only the standalone `temp` survives the qualified blanking; `len`
+	// is a builtin.
+	if len(vars) != 1 || vars[0] != "temp" {
+		t.Errorf("flat vars = %v, want just [temp]", vars)
 	}
 }

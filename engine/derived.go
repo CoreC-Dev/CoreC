@@ -21,6 +21,19 @@ const derivedDriverName = "derived"
 // identRe matches identifiers in an expression (potential tag names).
 var identRe = regexp.MustCompile(`[a-zA-Z_]\w*`)
 
+// qualifiedRefRe matches driver-qualified tag references in an
+// expression, e.g. plc1.temp in "plc1.temp * 2" (audit finding
+// PIPE-2: the flattened tag view collapses same-named tags across
+// drivers, so derived expressions could silently read whichever
+// driver won the map race).
+var qualifiedRefRe = regexp.MustCompile(`([a-zA-Z_]\w*)\.([a-zA-Z_]\w*)`)
+
+// qualifiedRef is one driver.tag reference extracted from an expression.
+type qualifiedRef struct {
+	driver string
+	tag    string
+}
+
 // exprBuiltins is the set of expr-lang/expr built-in function names and
 // keywords to exclude when extracting referenced tag names.
 var exprBuiltins = map[string]bool{
@@ -35,10 +48,16 @@ var exprBuiltins = map[string]bool{
 	"kind": true, "isNil": true,
 }
 
-// extractVars returns the set of tag names referenced in an expression,
-// excluding built-in functions and language keywords.
+// extractVars returns the set of unqualified tag names referenced in an
+// expression, excluding built-in functions, language keywords, and the
+// identifiers consumed by driver.tag qualified references (audit
+// finding PIPE-2: those resolve per-driver and must not be treated as
+// flat tag names).
 func extractVars(exprStr string) []string {
-	matches := identRe.FindAllString(exprStr, -1)
+	// Blank out qualified refs first so neither their driver nor tag
+	// component is scanned as a flat reference.
+	blanked := qualifiedRefRe.ReplaceAllString(exprStr, "‗‗‗‗")
+	matches := identRe.FindAllString(blanked, -1)
 	seen := make(map[string]bool)
 	var vars []string
 	for _, m := range matches {
@@ -51,11 +70,29 @@ func extractVars(exprStr string) []string {
 	return vars
 }
 
+// extractQualifiedRefs returns the driver.tag references in an
+// expression, deduplicated, in first-occurrence order.
+func extractQualifiedRefs(exprStr string) []qualifiedRef {
+	matches := qualifiedRefRe.FindAllStringSubmatch(exprStr, -1)
+	seen := make(map[qualifiedRef]bool)
+	var refs []qualifiedRef
+	for _, m := range matches {
+		ref := qualifiedRef{driver: m[1], tag: m[2]}
+		if seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		refs = append(refs, ref)
+	}
+	return refs
+}
+
 // compiledDerivedTag is a single derived tag with its compiled program.
 type compiledDerivedTag struct {
 	config     core.DerivedTagConfig
 	program    *vm.Program
-	vars       []string // referenced tag names
+	vars       []string       // referenced unqualified tag names
+	qualified  []qualifiedRef // driver.tag references (audit PIPE-2)
 	interval   time.Duration
 	staleGuard time.Duration
 	onMissing  onMissingPolicy
@@ -129,7 +166,10 @@ func compileDerivedTag(cfg core.DerivedTagConfig) (*compiledDerivedTag, error) {
 	default:
 		return nil, fmt.Errorf("invalid on-missing %q (want skip|bad-quality|zero)", cfg.OnMissing)
 	}
-	program, err := expr.Compile(cfg.Expr, expr.Env(map[string]float64{}), expr.AllowUndefinedVariables())
+	// Env hint is any-typed: unqualified refs resolve to float64 values,
+	// while driver.tag qualified refs resolve to per-driver maps (expr
+	// member access) — both evaluate dynamically at runtime.
+	program, err := expr.Compile(cfg.Expr, expr.Env(map[string]any{}), expr.AllowUndefinedVariables())
 	if err != nil {
 		return nil, fmt.Errorf("compile expr %q: %w", cfg.Expr, err)
 	}
@@ -137,6 +177,7 @@ func compileDerivedTag(cfg core.DerivedTagConfig) (*compiledDerivedTag, error) {
 		config:     cfg,
 		program:    program,
 		vars:       extractVars(cfg.Expr),
+		qualified:  extractQualifiedRefs(cfg.Expr),
 		interval:   interval,
 		staleGuard: staleGuard,
 		onMissing:  onMissing,
@@ -182,16 +223,16 @@ func (d *derivedTagEvaluator) runTask(ctx context.Context, wg *sync.WaitGroup, t
 // evaluate computes one derived tag and pushes the result to the data bus.
 func (d *derivedTagEvaluator) evaluate(tag *compiledDerivedTag) {
 	snapshot := d.cache.GetAll()
-	env, missing, stale := buildEnv(tag.vars, snapshot, tag.staleGuard)
+	env, missing, stale := buildEnv(tag.vars, tag.qualified, snapshot, d.cache, tag.staleGuard)
 
 	if len(missing) > 0 && tag.onMissing == onMissingSkip {
 		return
 	}
-	if len(missing) > 0 && tag.onMissing == onMissingZero {
-		for _, m := range missing {
-			env[m] = 0
-		}
-	}
+	// on-missing: buildEnv already zero-injects every missing ref
+	// (flat and qualified), so the zero policy needs no extra work —
+	// the distinction is purely that "zero" publishes a good-quality
+	// point built from those zeros, while bad-quality flags it and
+	// skip returns above.
 
 	result, err := expr.Run(tag.program, env)
 	if err != nil {
@@ -236,21 +277,77 @@ func (d *derivedTagEvaluator) evaluate(tag *compiledDerivedTag) {
 
 // buildEnv constructs the evaluation environment from the cache snapshot.
 // Returns the env, the list of missing tags, and whether any tag is stale.
-func buildEnv(vars []string, snapshot map[string]core.DataPoint, staleGuard time.Duration) (env map[string]float64, missing []string, stale bool) {
-	env = make(map[string]float64, len(vars))
+func buildEnv(
+	vars []string,
+	qualified []qualifiedRef,
+	snapshot map[string]core.DataPoint,
+	cache *LatestCache,
+	staleGuard time.Duration,
+) (env map[string]any, missing []string, stale bool) {
+	env = make(map[string]any, len(vars)+len(qualified))
 	now := time.Now()
+
+	// Zero-injects keep evaluation numerically well-defined for every
+	// policy: the missing list drives the on-missing policy (skip /
+	// zero / bad-quality), and the env still contains an explicit 0 so
+	// the expression compiles+runs identically under the any-typed env
+	// hint that qualified expressions require (the legacy float64
+	// typed hint let undefined variables evaluate to zero implicitly).
+	injectMissing := func(name string, driver, tag string) {
+		missing = append(missing, name)
+		if driver == "" {
+			env[name] = float64(0)
+			return
+		}
+		driverEnv, ok := env[driver].(map[string]float64)
+		if !ok {
+			driverEnv = make(map[string]float64)
+			env[driver] = driverEnv
+		}
+		driverEnv[tag] = 0
+	}
+
+	// Unqualified refs: legacy semantics against the flattened
+	// snapshot (last driver with the tag name wins — the documented
+	// legacy behavior; qualified refs are the fix for collisions).
 	for _, v := range vars {
 		dp, ok := snapshot[v]
 		if !ok {
-			missing = append(missing, v)
+			injectMissing(v, "", "")
 			continue
 		}
-		f, ok := toFloat64(dp.Value)
-		if !ok {
-			missing = append(missing, v)
+		f, okNum := toFloat64(dp.Value)
+		if !okNum {
+			injectMissing(v, "", "")
 			continue
 		}
 		env[v] = f
+		if staleGuard > 0 && now.Sub(dp.Timestamp) > staleGuard {
+			stale = true
+		}
+	}
+
+	// Qualified refs (audit PIPE-2): resolve the exact (driver, tag)
+	// pair through the cache, so same-named tags across drivers stay
+	// distinct. expr evaluates them as member access on per-driver
+	// maps: env[driver] = {tag: value}.
+	for _, q := range qualified {
+		dp, ok := cache.Get(q.driver, q.tag)
+		if !ok {
+			injectMissing(q.driver+"."+q.tag, q.driver, q.tag)
+			continue
+		}
+		f, okNum := toFloat64(dp.Value)
+		if !okNum {
+			injectMissing(q.driver+"."+q.tag, q.driver, q.tag)
+			continue
+		}
+		driverEnv, ok := env[q.driver].(map[string]float64)
+		if !ok {
+			driverEnv = make(map[string]float64)
+			env[q.driver] = driverEnv
+		}
+		driverEnv[q.tag] = f
 		if staleGuard > 0 && now.Sub(dp.Timestamp) > staleGuard {
 			stale = true
 		}

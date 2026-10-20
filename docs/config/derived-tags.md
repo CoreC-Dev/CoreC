@@ -43,6 +43,18 @@ derived-tags:
 
 表达式中的标识符（如 `availability`）解析为缓存中同名标签的值。跨驱动标签通过 `LatestCache.GetAll()` 聚合，以标签名为键。
 
+::: warning 跨驱动同名标签：用限定引用（audit PIPE-2）
+上面的扁平解析在**多个驱动存在同名标签**时是不确定的——`temp` 读到的是"最后写入"的那个驱动的值。用 `驱动名.标签名` 的限定引用精确点名：
+
+```yaml
+- name: spread
+  expr: "plc1.temp - plc2.temp"   # 各自读各自驱动，不受同名冲突影响
+  interval: 5s
+```
+
+限定引用参与 on-missing 策略与 stale-guard 的方式与扁平引用完全一致。`derived.kpi1` 还可以引用其它派生标签（求值时读的是它们的最新缓存值）。
+:::
+
 ## on-missing 策略
 
 | 策略 | 行为 |
