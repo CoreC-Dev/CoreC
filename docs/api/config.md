@@ -111,9 +111,19 @@ Content-Type: application/json
 
 无响应体。
 
-#### 重载失败 — `500 Internal Server Error`
+#### 配置无效 — `400 Bad Request`
 
-具体错误原因（如 YAML 解析失败、驱动重建失败等）仅记录在服务端日志中，响应体始终返回脱敏的通用错误，避免泄露内部路径与细节：
+提交的配置**解析失败或未通过校验**（可由调用方修复）时，响应携带真实原因，操作者无需再查服务端日志或先跑一遍 `POST /configs/validate`：
+
+```json
+{
+  "error": "config validation failed: duplicate driver name: plc1"
+}
+```
+
+#### 应用失败 — `500 Internal Server Error`
+
+配置校验通过、但应用到运行引擎时失败（如驱动/传输无法初始化）。此类错误可能包含内部细节（连接地址等），响应体返回脱敏的通用错误，真实原因仅记录在服务端日志：
 
 ```json
 {

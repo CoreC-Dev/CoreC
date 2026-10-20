@@ -159,6 +159,18 @@ func buildConfigOverview(cfg *core.Config) configOverview {
 	return overview
 }
 
+// clientFixableConfigError is the marker interface the executor's
+// ConfigError implements (parse/validation failures). The route cannot
+// import the executor package (executor imports route for wiring), so
+// the classification is duck-typed: when the reload error says the
+// CALLER's payload is at fault, answer 400 with the actual reason —
+// the operator otherwise learns nothing but "internal server error"
+// and must go dig through server logs (audit findings CFG-3/HUB-2).
+// Apply-stage failures do not implement this and keep the masked 500.
+type clientFixableConfigError interface {
+	ClientFixable() bool
+}
+
 func updateConfigs(w http.ResponseWriter, r *http.Request) {
 	var req putConfigRequest
 	if err := json.NewDecoder(limitedBody(r).Body).Decode(&req); err != nil {
@@ -176,6 +188,20 @@ func updateConfigs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := ReloadFunc(req.Path, req.Payload); err != nil {
+		// Config parse/validation failures are the caller's to fix:
+		// surface the reason verbatim with a 400. The messages name
+		// configuration fields (driver/rule/tag names, type lists) and
+		// never contain credentials or internal addresses.
+		if cfe, ok := err.(clientFixableConfigError); ok && cfe.ClientFixable() {
+			slog.Info("config update rejected: invalid config",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"config_path", req.Path,
+				"remote", r.RemoteAddr,
+				"error", err)
+			renderError(w, r, http.StatusBadRequest, err.Error())
+			return
+		}
 		slog.Error("config update failed",
 			"method", r.Method,
 			"path", r.URL.Path,

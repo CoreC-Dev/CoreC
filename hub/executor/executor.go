@@ -182,12 +182,18 @@ func Reload(path, payload string) error {
 	}
 
 	if err != nil {
-		return fmt.Errorf("failed to parse config for reload: %w", err)
+		// Parse failures are client-fixable (the payload is broken
+		// YAML): mark them so the route can answer 400 with the reason
+		// instead of a masked 500 (audit CFG-3/HUB-2).
+		return NewConfigError(fmt.Errorf("failed to parse config for reload: %w", err))
 	}
 
 	// Validate the parsed config.
 	if err := config.Validate(cfg); err != nil {
-		return fmt.Errorf("config validation failed: %w", err)
+		// Validation failures name the offending field/rule — safe
+		// and actionable for the caller, unlike apply-stage errors
+		// which may leak internal details and stay masked 500s.
+		return NewConfigError(fmt.Errorf("config validation failed: %w", err))
 	}
 
 	// Surface non-blocking idle-mode warnings for the config being applied.

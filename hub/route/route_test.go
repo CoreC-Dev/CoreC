@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -527,4 +529,79 @@ func TestGetFailedWritesSource(t *testing.T) {
 	if resp4.StatusCode != http.StatusBadRequest {
 		t.Errorf("source=bogus status = %d, want 400", resp4.StatusCode)
 	}
+}
+
+// TestUpdateConfigsErrorClassification verifies PUT /configs answers
+// config parse/validation failures with a 400 carrying the actual
+// reason (client-fixable), while apply-stage failures keep the masked
+// 500 (audit findings CFG-3/HUB-2). The route never imports the
+// executor package, so the client-fixable marker is duck-typed.
+type fixableConfigErr struct{ msg string }
+
+func (e fixableConfigErr) Error() string       { return e.msg }
+func (e fixableConfigErr) ClientFixable() bool { return true }
+
+func TestUpdateConfigsErrorClassification(t *testing.T) {
+	t.Run("validation failure answers 400 with the reason", func(t *testing.T) {
+		ReloadFunc = func(path, payload string) error {
+			return fixableConfigErr{msg: "config validation failed: duplicate driver name: plc1"}
+		}
+		defer func() { ReloadFunc = nil }()
+
+		ts := newTestServer("", &mockEngineV2{})
+		defer ts.Close()
+
+		resp := putConfigs(t, ts, `{"payload":"drivers: []"}`)
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400", resp.StatusCode)
+		}
+		var body map[string]string
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if !strings.Contains(body["error"], "duplicate driver name: plc1") {
+			t.Errorf("error = %q, want the validation reason, not a masked message", body["error"])
+		}
+	})
+
+	t.Run("apply failure stays a masked 500", func(t *testing.T) {
+		ReloadFunc = func(path, payload string) error {
+			return errors.New("failed to add transport mqtt1: connection refused to 10.0.0.5:1883")
+		}
+		defer func() { ReloadFunc = nil }()
+
+		ts := newTestServer("", &mockEngineV2{})
+		defer ts.Close()
+
+		resp := putConfigs(t, ts, `{"payload":"transports: []"}`)
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500", resp.StatusCode)
+		}
+		var body map[string]string
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if body["error"] != "internal server error" {
+			t.Errorf("error = %q, want masked internal server error (apply failures can leak internals)", body["error"])
+		}
+	})
+}
+
+
+// putConfigs issues an authenticated PUT /configs with the given JSON
+// body and returns the raw response.
+func putConfigs(t *testing.T, ts *httptest.Server, body string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest("PUT", ts.URL+"/configs", bytes.NewBufferString(body))
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatalf("PUT /configs failed: %v", err)
+	}
+	return resp
 }

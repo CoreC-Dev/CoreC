@@ -1,8 +1,10 @@
 package executor
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/CoreC-Dev/CoreC/core"
@@ -481,4 +483,65 @@ func TestValidate_EmptyPayload(t *testing.T) {
 	if _, err := Validate(""); err == nil {
 		t.Error("expected error for empty payload")
 	}
+}
+
+// TestReloadErrorClassification verifies the PUT /configs error
+// semantics fix (audit CFG-3/HUB-2): parse and validation failures are
+// wrapped as client-fixable ConfigError (the route answers 400 with the
+// reason), while apply-stage failures stay unmarked (masked 500).
+func TestReloadErrorClassification(t *testing.T) {
+	// Bypass the package-level engine wiring: Reload's parse and
+	// validate stages run before any engine access, so a nil engine is
+	// only reached (and fatal) at the apply stage.
+	t.Run("parse failure is client-fixable", func(t *testing.T) {
+		err := Reload("", "\tbad: [yaml")
+		if err == nil {
+			t.Fatal("expected error for malformed YAML")
+		}
+		var cfe *ConfigError
+		if !errors.As(err, &cfe) {
+			t.Errorf("parse failure not classified as ConfigError: %v", err)
+		}
+	})
+
+	t.Run("validation failure is client-fixable", func(t *testing.T) {
+		// api.listen without secret fails validation.
+		cfg := "global:\n  api:\n    listen: 127.0.0.1:9090\n"
+		err := Reload("", cfg)
+		if err == nil {
+			t.Fatal("expected validation error")
+		}
+		var cfe *ConfigError
+		if !errors.As(err, &cfe) {
+			t.Errorf("validation failure not classified as ConfigError: %v", err)
+		}
+		if !strings.Contains(err.Error(), "api.secret") {
+			t.Errorf("error = %v, want the underlying validation reason", err)
+		}
+	})
+
+	t.Run("apply failure is not client-fixable", func(t *testing.T) {
+		// A valid config that requires the engine (a driver) reaches
+		// the apply stage; with no engine wired the failure is an
+		// internal one and must NOT be marked ConfigError. The
+		// package-level engine/config/path are saved and restored so
+		// this subtest is hermetic regardless of the state other
+		// tests in the package left behind.
+		savedEngine, savedCfg, savedPath := engine, currentCfg, configPath
+		t.Cleanup(func() { Init(savedEngine, savedCfg, savedPath) })
+		Init(nil, nil, "")
+
+		cfg := "drivers:\n  - name: d1\n    type: modbus-tcp\n    settings:\n      host: 127.0.0.1\n      port: 1502\n    tags:\n      - name: t1\n        address: \"40001\"\n        type: uint16\n"
+		err := Reload("", cfg)
+		if err == nil {
+			t.Fatal("expected apply-stage error (no engine wired)")
+		}
+		if !strings.Contains(err.Error(), "engine not initialized") {
+			t.Fatalf("error = %v, want the deterministic unwired-engine apply failure", err)
+		}
+		var cfe *ConfigError
+		if errors.As(err, &cfe) {
+			t.Errorf("apply failure wrongly classified as client-fixable: %v", err)
+		}
+	})
 }
