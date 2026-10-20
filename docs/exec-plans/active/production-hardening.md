@@ -1,8 +1,27 @@
 # 执行计划：生产级加固（audit-backend-functionality P0/P1 落地）
 
-> 状态：执行中 · 来源：`/root/DSH/audit-backend-functionality.md`（2026-10-19 后端功能完整性审计，40 项路线图）
+> 状态：执行中（P0+P1 共 12 项，已落地 11 项；余 #6 告警一等公民化）
+> 来源：`docs/audits/backend-functionality-audit-2026-10-19.md`（2026-10-19 后端功能完整性审计，40 项路线图）
 > 业务行为影响：**变更行为**（写路径反演、PUT /configs 错误码、指标新增/删除——每项单独登记，见各行）
 > 跨仓库：CoreC-Dashboard 需同步的项标注 [FE]；文档需同步的项标注 [DOC]
+
+## 进度（2026-10-20 更新）
+
+| # | 项 | 状态 | Commit |
+|---|---|---|---|
+| 1 | 写路径 scale/offset 反演（P0） | ✅ | `2d2b9c1`（含 ApplyTransform 全类型覆盖修复；FE 类型同步 `dcb0f03`） |
+| 2 | points_per_second 60s 窗口速率 | ✅ | `299251d` |
+| 3 | corec_driver_last_read_* 新鲜度 gauge | ✅ | `8e1ba83` |
+| 4 | 延迟直方图 driver/transport 标签 | ✅ | `51dd697` |
+| 5 | 死信可观测 + /write/failed?source=ingress | ✅ | `f4b3f30`（FE 类型同步 `3180b32`） |
+| 6 | 告警一等公民化（/alerts + stream + 引擎层去重） | ⏳ 下一批 | — |
+| 7 | 调度器健康指标（降级/连续错误/超限累计） | ✅ | `58b2da3` |
+| 8 | derived-tags 热应用 + node/buffer 重启警告 | ✅ | `6685acb` |
+| 9 | reload 失败自动回滚 | ✅ | `d063afd` |
+| 10 | PUT /configs 400 语义修复 | ✅ | `6ff8ccd` |
+| 11 | OPC UA 订阅质量映射 | ✅ | `5c0ad6c` |
+
+审计文档基线注册：`58f7d6e`。
 
 ## 1. 目标
 
