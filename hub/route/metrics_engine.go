@@ -35,6 +35,15 @@ func writeOfflineBufferMetrics(b *strings.Builder) {
 	// engine optionally provides the eviction count; the role is
 	// asserted locally rather than added to core because it is a single
 	// consumer's concern.
+	// Byte-level water mark (roadmap #28): batch count alone cannot
+	// answer "how much disk is the outage consuming?"
+	if bp, ok := eng.(interface {
+		OfflineBufferBytes() int64
+	}); ok && bp != nil {
+		writePromHeader(b, "corec_offline_buffer_bytes", "gauge", "Total on-disk bytes held by the offline buffer awaiting replay")
+		fmt.Fprintf(b, "corec_offline_buffer_bytes %d\n", bp.OfflineBufferBytes())
+	}
+
 	if ep, ok := eng.(interface {
 		OfflineBufferEvictions() uint64
 	}); ok && ep != nil {

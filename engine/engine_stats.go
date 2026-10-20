@@ -48,6 +48,12 @@ func (e *CoreCEngine) OfflineBufferEvictions() uint64 {
 	return e.stats.OfflineBufferEvictions()
 }
 
+// OfflineBufferBytes forwards to the stats collector for the byte-level
+// gauge corec_offline_buffer_bytes (roadmap #28).
+func (e *CoreCEngine) OfflineBufferBytes() int64 {
+	return e.stats.OfflineBufferBytes()
+}
+
 func (e *CoreCEngine) FlushBatchesDropped() uint64 {
 	return e.stats.FlushBatchesDropped()
 }

@@ -165,6 +165,18 @@ func (s *statsCollector) OfflineBufferStats() (pending int, drained, pushed uint
 // hub/route optional-role assertion (stage-B audit finding B2.1:
 // capacity-based evictions drop real data and must be observable, not
 // just logged).
+// OfflineBufferBytes returns the total on-disk bytes held by the shared
+// offline buffer (gauge corec_offline_buffer_bytes, roadmap #28).
+func (s *statsCollector) OfflineBufferBytes() int64 {
+	s.eng.mu.RLock()
+	buf := s.eng.transportMgr.offlineBuffer
+	s.eng.mu.RUnlock()
+	if buf == nil {
+		return 0
+	}
+	return buf.PendingBytes()
+}
+
 func (s *statsCollector) OfflineBufferEvictions() uint64 {
 	s.eng.mu.RLock()
 	buf := s.eng.transportMgr.offlineBuffer

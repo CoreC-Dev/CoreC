@@ -380,6 +380,35 @@ func (ob *OfflineBuffer) PendingCount() int {
 	return ob.Len()
 }
 
+// PendingBytes returns the total on-disk size, in bytes, of the
+// buffered batch files awaiting replay (roadmap #28, from audit
+// OBS/B2.1 follow-up: the batch-count gauge alone cannot answer "how
+// much disk is the outage consuming?" — with large batches a handful
+// of pending files can mean gigabytes). Summing entry sizes needs the
+// same directory read Len() performs; callers scrape both gauges in
+// one /metrics pull, so the extra stat pass is scrape-rate, not
+// push-rate. It is safe for concurrent use.
+func (ob *OfflineBuffer) PendingBytes() int64 {
+	ob.mu.Lock()
+	defer ob.mu.Unlock()
+	entries, err := os.ReadDir(ob.dir)
+	if err != nil {
+		return 0
+	}
+	var total int64
+	for _, ent := range entries {
+		if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".json") {
+			continue
+		}
+		info, err := ent.Info()
+		if err != nil {
+			continue // vanished mid-scan; the next scrape reflects reality
+		}
+		total += info.Size()
+	}
+	return total
+}
+
 // DrainCount returns the total number of batches successfully replayed by
 // Drain since the buffer was created. It is a monotonically increasing
 // counter, read atomically and lock-free, suitable for exposure as a

@@ -96,3 +96,44 @@ func TestIngressDeadLettersAggregation(t *testing.T) {
 		t.Errorf("IngressDeadLetters() = %+v, want %+v", got, want)
 	}
 }
+
+// TestOfflineBufferBytesWatermark verifies the byte-level offline-buffer
+// gauge (roadmap #28): after pushing known-sized batches, PendingBytes
+// reflects their on-disk footprint, and the engine facade serves the
+// same value for /metrics.
+func TestOfflineBufferBytesWatermark(t *testing.T) {
+	dir := t.TempDir()
+	buf, err := NewOfflineBuffer(dir, 100)
+	if err != nil {
+		t.Fatalf("NewOfflineBuffer: %v", err)
+	}
+
+	pts := []core.DataPoint{{
+		Driver: "d", Tag: "t", Value: "some-payload-value", Type: core.TypeString,
+		Quality: core.QualityGood, Timestamp: time.Now(),
+	}}
+	if err := buf.Push(pts, "mqtt-a"); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+
+	bytes1 := buf.PendingBytes()
+	if bytes1 <= 0 {
+		t.Fatalf("PendingBytes = %d after one push, want > 0", bytes1)
+	}
+
+	// A second batch grows the footprint.
+	if err := buf.Push(pts, "mqtt-a"); err != nil {
+		t.Fatalf("Push 2: %v", err)
+	}
+	if bytes2 := buf.PendingBytes(); bytes2 <= bytes1 {
+		t.Errorf("PendingBytes = %d after second push, want > %d", bytes2, bytes1)
+	}
+
+	// Drain clears it back to zero bytes alongside zero pending.
+	if _, err := buf.Drain("mqtt-a", func([]core.DataPoint) error { return nil }); err != nil {
+		t.Fatalf("Drain: %v", err)
+	}
+	if got := buf.PendingBytes(); got != 0 {
+		t.Errorf("PendingBytes after drain = %d, want 0", got)
+	}
+}

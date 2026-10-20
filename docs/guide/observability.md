@@ -130,6 +130,7 @@ corec_driver_last_read_seconds{driver="plc2"} 748.9
 | `corec_offline_buffer_drained_total` | counter | 成功重放的批次总数 |
 | `corec_offline_buffer_pushed_total` | counter | 重试耗尽后写入缓冲区的批次总数 |
 | `corec_offline_buffer_evicted_total` | counter | 缓冲区满时被逐出的最旧批次总数（新数据优先） |
+| `corec_offline_buffer_bytes` | gauge | 缓冲区占用的磁盘字节数——批次计数回答"积压多少批"，字节数回答"断网吃掉多少磁盘"（告警建议按磁盘容量设阈值） |
 
 ### 死信队列指标
 
