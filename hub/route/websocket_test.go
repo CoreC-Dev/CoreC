@@ -573,3 +573,44 @@ func TestPprofAddrLoopbackAccepted(t *testing.T) {
 		t.Fatal("expected pprofServer to be created for loopback PprofAddr")
 	}
 }
+
+// TestRateLimitMiddlewareSharedByHost verifies the limiter keys by the
+// HOST portion of RemoteAddr (audit HUB-1): the old code keyed on the
+// full "host:port" string, handing every new TCP connection a fresh
+// full token bucket — a client cycling connections bypassed the limit
+// entirely. Two separate connections (different source ports) from the
+// same loopback host must SHARE one bucket.
+func TestRateLimitMiddlewareSharedByHost(t *testing.T) {
+	eng := &mockEngineV2{
+		drivers: []core.DriverStatus{{Name: "plc1", Type: "modbus-tcp"}},
+	}
+	SetEngine(eng)
+	// 2 req/s cap: 10 rapid requests across distinct connections must
+	// trip the limiter even though every request has a different
+	// source port.
+	ts := httptest.NewServer(router(context.Background(), "", nil, 2, true))
+	defer ts.Close()
+
+	statusCodes := make(map[int]int)
+	for i := 0; i < 10; i++ {
+		// A fresh client forces a new TCP connection (new source port)
+		// per request — the exact shape a connection-cycling attacker
+		// produces.
+		client := &http.Client{Transport: &http.Transport{
+			DisableKeepAlives: true,
+		}}
+		resp, err := client.Get(ts.URL + "/drivers")
+		if err != nil {
+			t.Fatalf("request %d failed: %v", i, err)
+		}
+		statusCodes[resp.StatusCode]++
+		resp.Body.Close()
+	}
+
+	if statusCodes[http.StatusOK] == 0 {
+		t.Error("expected at least one 200 response")
+	}
+	if statusCodes[http.StatusTooManyRequests] == 0 {
+		t.Error("expected 429s: connection-cycling must share the per-host bucket, not reset it")
+	}
+}

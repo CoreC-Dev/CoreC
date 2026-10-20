@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -123,7 +124,18 @@ func rateLimitMiddleware(ctx context.Context, perSec int) func(http.Handler) htt
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Always use the direct remote address. Never trust
 			// client-supplied forwarding headers for rate-limit keying.
-			ip := r.RemoteAddr
+			//
+			// Key by the HOST portion only (audit HUB-1): RemoteAddr
+			// is "host:port", and keying on the full string handed every
+			// new TCP connection (new source port) a fresh full token
+			// bucket — a brute-forcer cycling connections bypassed the
+			// limit entirely while long-lived clients were strictly
+			// throttled. SplitHostPort falls back to the raw address
+			// for malformed inputs.
+			ip, _, err := net.SplitHostPort(r.RemoteAddr)
+			if err != nil {
+				ip = r.RemoteAddr
+			}
 			now := time.Now()
 
 			bucketsMu.Lock()
