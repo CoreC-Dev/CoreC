@@ -113,7 +113,7 @@ API 内置 CORS 中间件，用于支持浏览器端仪表盘跨域访问。行�
 | `GET` | `/healthz/live` | 否 | 存活探针（Kubernetes liveness） |
 | `GET` | `/healthz/ready` | 否 | 就绪探针（Kubernetes readiness） |
 | `GET` | `/configs` | 是 | 获取当前配置概要（脱敏） |
-| `GET` | `/configs/raw` | 是 | 获取完整配置 YAML 原文（含明文凭据，供配置中心编辑器） |
+| `GET` | `/configs/raw` | 是 | 获取完整配置 YAML 原文（含明文凭据与环境变量展开值，供配置中心编辑器；注意回存会材料化 `${ENV}` 引用） |
 | `PUT` | `/configs` | 是 | 全量重载配置（变更前自动快照到服务端备份） |
 | `PATCH` | `/configs` | 是 | 增量更新配置 |
 | `POST` | `/configs/validate` | 是 | 配置 dry-run 校验（不应用） |
