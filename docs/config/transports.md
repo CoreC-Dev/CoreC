@@ -148,6 +148,14 @@ transports:
 | `subscribe-timeout` | duration | 否 | `5s` | 订阅操作超时 |
 | `publish-timeout` | duration | 否 | `5s` | 发布操作超时 |
 | `disconnect-quiesce` | duration | 否 | `1s` | 断开连接时的静默等待时长 |
+| `will-topic` | string | 否 | — | **遗嘱消息（LWT）**主题：CoreC 异常掉线（崩溃/断网/断电，无 DISCONNECT 包）时由 Broker 代发的主题。下游系统据此获得 Broker 侧的网关存活信号，无需依赖指标抓取间隔。与 `will-payload` 同时设置才生效 |
+| `will-payload` | string | 否 | — | 遗嘱消息内容（如 `offline`） |
+| `will-qos` | int | 否 | `0` | 遗嘱消息 QoS |
+| `will-retain` | bool | 否 | `true` | 遗嘱消息是否保留——保留后迟到的订阅者也能立即看到离线状态 |
+
+::: tip 遗嘱与重连的关系
+LWT 只在**异常掉线**时触发；CoreC 优雅退出（SIGINT/SIGTERM）会正常发送 DISCONNECT，遗嘱不触发。断网后 paho 自动重连成功则 Broker 清除遗嘱状态——因此上游应订阅 `will-topic` 并结合 `$SYS` 或重连日志判断网关当前是否可达。
+:::
 | `parser` | object | 否 | — | 入站数据解析器配置，见[解析器配置](#解析器配置-parser) |
 
 ::: info ¹ 自动发现

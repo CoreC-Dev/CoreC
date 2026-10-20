@@ -404,6 +404,17 @@ global:
 #       ##     that predate timestamp enforcement.
 #       # command-max-skew: 5m
 #       # command-strict-replay: false
+#       ## Last Will and Testament (audit TRA-2): the broker publishes the
+#       ## will message on will-topic if this CoreC disconnects without a
+#       ## DISCONNECT packet (crash, network cut, power loss) — the standard
+#       ## edge-gateway liveness signal for downstream systems. Arming
+#       ## requires both will-topic and will-payload; will-qos defaults to 0
+#       ## and will-retain to true (retained, so late subscribers see the
+#       ## offline state immediately).
+#       # will-topic: "factory/gateway-1/status"
+#       # will-payload: "offline"
+#       # will-qos: 1
+#       # will-retain: true
 #       ## --- Chained Core Command Passthrough (relay nodes) ---
 #       ## When a relay node receives a command via command-topic but has no
 #       ## local driver for the target, it forwards the command to downstream

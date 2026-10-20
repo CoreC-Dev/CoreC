@@ -506,3 +506,40 @@ var (
 	_ pahomqtt.Message = (*mockMessage)(nil)
 	_ pahomqtt.Token   = (*neverDoneToken)(nil)
 )
+
+// TestMQTTWillOptionsArmed verifies the LWT wiring (audit TRA-2):
+// will-topic + will-payload arm SetBinaryWill; either missing leaves
+// the will unset (back-compat default).
+func TestMQTTWillOptionsArmed(t *testing.T) {
+	// No will settings: the connect packet must carry no will.
+	bare := newInitdTransport(t, "will-none", map[string]any{
+		"broker": "tcp://127.0.0.1:1",
+	})
+	if opts := bare.buildMQTTOptions(); opts.WillEnabled {
+		t.Error("will armed without will-topic/will-payload; must stay unset for back-compat")
+	}
+
+	armed := newInitdTransport(t, "will-on", map[string]any{
+		"broker":       "tcp://127.0.0.1:1",
+		"will-topic":   "factory/gw-1/status",
+		"will-payload": "offline",
+		"will-qos":     1,
+		"will-retain":  true,
+	})
+	opts := armed.buildMQTTOptions()
+	if !opts.WillEnabled {
+		t.Fatal("will not armed despite will-topic + will-payload")
+	}
+	if opts.WillTopic != "factory/gw-1/status" {
+		t.Errorf("will topic = %q", opts.WillTopic)
+	}
+	if string(opts.WillPayload) != "offline" {
+		t.Errorf("will payload = %q", string(opts.WillPayload))
+	}
+	if opts.WillQos != 1 {
+		t.Errorf("will qos = %d", opts.WillQos)
+	}
+	if !opts.WillRetained {
+		t.Error("will retain = false, want true (default)")
+	}
+}

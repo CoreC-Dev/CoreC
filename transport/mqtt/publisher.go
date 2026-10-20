@@ -42,12 +42,22 @@ type MQTTTransport struct {
 	client pahomqtt.Client
 
 	// MQTT settings
-	broker               string
-	clientID             string
-	username             string
-	password             string
-	qos                  byte
-	retained             bool
+	broker   string
+	clientID string
+	username string
+	password string
+	qos      byte
+	retained bool
+
+	// Last Will and Testament (audit finding TRA-2): when configured,
+	// the broker publishes the will message on this topic if the client
+	// disconnects ungracefully (crash, network cut, power loss) — the
+	// standard edge-gateway liveness signal. Empty will-topic disables
+	// it (back-compat default).
+	willTopic            string
+	willPayload          []byte
+	willQoS              byte
+	willRetain           bool
 	topicTemplate        *template.Template
 	commandTopic         string        // MQTT topic to subscribe for write commands
 	commandSecret        string        // HMAC-SHA256 secret for authenticating command messages; empty = no auth
@@ -210,6 +220,19 @@ func (t *MQTTTransport) Init(ctx context.Context, config core.TransportConfig) e
 	// Parse command and forward settings
 	t.parseCommandSettings(settings)
 
+	// Last Will and Testament (audit finding TRA-2): will-topic +
+	// will-payload (both required to arm), will-qos (default 0),
+	// will-retain (default true — edge liveness states are usually
+	// retained so late subscribers see the offline state immediately).
+	t.willTopic = util.GetStringSetting(settings, "will-topic", "")
+	if wp, ok := settings["will-payload"].(string); ok {
+		t.willPayload = []byte(wp)
+	}
+	t.willQoS = byte(util.GetIntSetting(settings, "will-qos", 0))
+	if util.GetBoolSetting(settings, "will-retain", true) {
+		t.willRetain = true
+	}
+
 	// Initialize the replay-detection cache. When a command secret is
 	// configured, each authenticated command's hash is recorded so that
 	// the same message cannot be accepted twice within the skew window.
@@ -343,6 +366,15 @@ func (t *MQTTTransport) buildMQTTOptions() *pahomqtt.ClientOptions {
 	}
 	if t.password != "" {
 		opts.SetPassword(t.password)
+	}
+	// Arm the Last Will when configured (TRA-2): the broker publishes
+	// it if this CoreC instance disappears without a DISCONNECT —
+	// downstream systems get a broker-side liveness signal instead of
+	// waiting for scrape gaps.
+	if t.willTopic != "" && len(t.willPayload) > 0 {
+		opts.SetBinaryWill(t.willTopic, t.willPayload, t.willQoS, t.willRetain)
+		slog.Info("mqtt last-will armed",
+			"name", t.name, "topic", t.willTopic, "qos", t.willQoS, "retain", t.willRetain)
 	}
 	// Apply TLS configuration when present. paho only uses this config for
 	// TLS-scheme brokers (mqtts://, tls://, ssl://, ...); for plaintext
