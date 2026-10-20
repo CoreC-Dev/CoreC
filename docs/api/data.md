@@ -108,8 +108,13 @@ Content-Type: application/json
 | `driver` | string | 是 | 目标驱动实例名称 |
 | `device` | string | 否 | 目标设备标识（当前未使用，保留字段） |
 | `tag` | string | 是 | 目标标签名称 |
-| `value` | any | 是 | 待写入的值 |
+| `value` | any | 是 | 待写入的值（默认为**工程值**，见下方 scale 说明） |
 | `type` | string \| int | 是 | 值的数据类型。接受可读字符串（如 `"float32"`，推荐）或历史整数形式（`10` = float64）。完整映射：`bool=0, int8=1, int16=2, int32=3, int64=4, uint8=5, uint16=6, uint32=7, uint64=8, float32=9, float64=10, string=11, bytes=12` |
+| `raw` | bool | 否 | 默认 `false`。设为 `true` 时跳过 scale/offset 反演，把 `value` 按设备原始值直接编码（用于调试/原始报文下发场景） |
+
+::: tip 与 scale/offset 的关系（写路径反演）
+读取方向配置了 `scale`/`offset` 的标签，读取上报的是工程值（`原始值 × scale + offset`）。写入时默认接受**工程值**，驱动在编码前自动反演回原始值（`(value - offset) / scale`），保证读写往返一致：UI 显示 1.5（scale=0.01），下发 1.5，设备寄存器收到 150。需要直接写设备原始值的调试场景，传 `"raw": true`。`bool`/`string`/`bytes` 类型不参与变换，原样透传。
+:::
 
 ::: warning 请求体限制
 请求体最大 1 MiB。超出限制时，JSON 解码将失败并返回 `400 Bad Request`。
@@ -319,6 +324,7 @@ GET /write/history
 | `error` | string | 失败信息（仅失败时出现） |
 | `source` | string | 写来源：`api`（`POST /write` 直写）或 `command`（反向流指令，即 MQTT/HTTP 命令通道触发的写） |
 | `remote` | string | `source=api` 时为调用方网络地址（`r.RemoteAddr`）；`source=command` 时省略（无对端地址） |
+| `raw` | bool | `true` 表示该写跳过了 scale/offset 反演（记录的 `value` 即设备原始值）；默认省略（`value` 为工程值） |
 
 ::: info 审计来源不可伪造
 `source` 与 `remote` 由服务端在信任边界处写入：`POST /write` 在解码请求体**之后**统一盖章 `source="api"` + 调用方地址；引擎命令监听器对每条来自传输通道的指令统一盖章 `source="command"`。请求体或指令载荷中携带的同名字段一律被覆盖，外部输入无法污染审计历史。

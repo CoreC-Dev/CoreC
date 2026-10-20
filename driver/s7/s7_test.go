@@ -1051,3 +1051,56 @@ func TestS7WriteConnectionErrorTriggersReconnect(t *testing.T) {
 		t.Fatalf("connection-class write failure must trigger reconnect teardown, state = %v", got)
 	}
 }
+
+// TestS7WriteScaleRoundTrip pins the write-side inverse of the read path's
+// scale/offset transform at the encode boundary (audit finding DRV-1). A
+// float32 tag with scale 0.5 reads raw 73.0 as 36.5; writing engineering
+// 36.5 must encode raw 73.0 into the write buffer — previously the
+// un-inverted write encoded 36.5 directly, off by the scale factor. The
+// raw escape hatch must bypass the inversion.
+func TestS7WriteScaleRoundTrip(t *testing.T) {
+	raw73 := make([]byte, 4)
+	binary.BigEndian.PutUint32(raw73, math.Float32bits(73.0))
+
+	mock := &mockS7Client{}
+	d := initConnectedMockDriver(t, []core.TagConfig{
+		{Name: "temp", Address: "DB1.DBD0", Type: "float32", Scale: 0.5},
+	}, mock)
+
+	results, err := d.Write(context.Background(), []core.WriteCommand{
+		{Tag: "temp", Value: float64(36.5), Type: core.TypeFloat32},
+	})
+	if err != nil {
+		t.Fatalf("Write returned error: %v", err)
+	}
+	if len(results) != 1 || !results[0].Success {
+		t.Fatalf("expected 1 successful result, got %+v", results)
+	}
+	wc, ok := mock.lastWrite()
+	if !ok {
+		t.Fatal("expected a write call to be recorded")
+	}
+	if !bytesEqual(wc.data, raw73) {
+		t.Errorf("write data = % X, want raw float32(73.0) = % X", wc.data, raw73)
+	}
+
+	// Raw escape hatch: the device-side value is written as-is.
+	direct := make([]byte, 4)
+	binary.BigEndian.PutUint32(direct, math.Float32bits(36.5))
+	results, err = d.Write(context.Background(), []core.WriteCommand{
+		{Tag: "temp", Value: float32(36.5), Type: core.TypeFloat32, Raw: true},
+	})
+	if err != nil {
+		t.Fatalf("Write (raw) returned error: %v", err)
+	}
+	if len(results) != 1 || !results[0].Success {
+		t.Fatalf("expected 1 successful raw result, got %+v", results)
+	}
+	wc, ok = mock.lastWrite()
+	if !ok {
+		t.Fatal("expected a second write call to be recorded")
+	}
+	if !bytesEqual(wc.data, direct) {
+		t.Errorf("raw write data = % X, want float32(36.5) = % X", wc.data, direct)
+	}
+}

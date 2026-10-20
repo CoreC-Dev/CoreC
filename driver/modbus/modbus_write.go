@@ -6,6 +6,7 @@ import (
 
 	"github.com/CoreC-Dev/CoreC/common/util"
 	"github.com/CoreC-Dev/CoreC/core"
+	"github.com/CoreC-Dev/CoreC/driverbase"
 	mb "github.com/simonvetter/modbus"
 )
 
@@ -23,6 +24,7 @@ func (b *modbusBase) Write(ctx context.Context, commands []core.WriteCommand) ([
 	for i, cmd := range commands {
 		b.RLock()
 		ai, ok := b.addrs[cmd.Tag]
+		cfg := b.tags[cmd.Tag]
 		b.RUnlock()
 
 		if !ok {
@@ -41,6 +43,12 @@ func (b *modbusBase) Write(ctx context.Context, commands []core.WriteCommand) ([
 			}
 			continue
 		}
+
+		// Convert the engineering value back to the raw device
+		// representation unless the command explicitly requests a raw
+		// write (audit finding DRV-1: reads apply raw×scale+offset, so
+		// an un-inverted write lands off by the scale factor).
+		cmd.Value = driverbase.WriteValueForTag(cmd, cfg)
 
 		err := b.writeTag(client, ai, cmd)
 		if err != nil {

@@ -232,6 +232,14 @@ func ToUint16(v any) uint16 {
 
 // ApplyTransform applies scale and offset to a numeric value.
 // If scale and offset are both 0, the value is returned unchanged.
+//
+// All integer widths and both float widths are covered (int8…int64,
+// uint8…uint64, float32/float64): the docs promise
+// "输出值 = 原始值 × scale + offset" with no per-type exceptions, and an
+// earlier version silently skipped int/int8/uint8/int64/uint64, so those
+// tag types bypassed the configured transform on reads (audit finding
+// DRV-1 follow-up, pinned by TestApplyTransformAllNumericTypes). Scaled
+// integers become float64, matching the documented transform output.
 func ApplyTransform(value any, scale, offset float64) any {
 	if scale == 0 && offset == 0 {
 		return value
@@ -245,6 +253,10 @@ func ApplyTransform(value any, scale, offset float64) any {
 		return float32(float64(v)*scale + offset)
 	case float64:
 		return v*scale + offset
+	case int8:
+		return float64(v)*scale + offset
+	case uint8:
+		return float64(v)*scale + offset
 	case int16:
 		return float64(v)*scale + offset
 	case uint16:
@@ -253,6 +265,62 @@ func ApplyTransform(value any, scale, offset float64) any {
 		return float64(v)*scale + offset
 	case uint32:
 		return float64(v)*scale + offset
+	case int64:
+		return float64(v)*scale + offset
+	case uint64:
+		return float64(v)*scale + offset
+	case int:
+		return float64(v)*scale + offset
+	default:
+		return value
+	}
+}
+
+// InvertTransform inverts the read-side linear transform applied by
+// ApplyTransform so a write carrying the engineering value is converted
+// back to the raw device representation before the driver encodes it:
+// raw = (value - offset) / scale.
+//
+// The zero-value normalization mirrors ApplyTransform exactly so the two
+// stay inverse under every configuration spelling:
+//   - scale==0 && offset==0 means "no transform configured" — pass through.
+//   - scale==0 with offset!=0 reads as value+offset (ApplyTransform
+//     normalizes the zero scale to 1), so the inverse is value-offset.
+//
+// Non-numeric values (bool, string, bytes) are never scaled on the read
+// path and pass through unchanged here as well, keeping reads and writes
+// symmetric per tag type.
+func InvertTransform(value any, scale, offset float64) any {
+	if scale == 0 && offset == 0 {
+		return value
+	}
+	if scale == 0 {
+		scale = 1
+	}
+
+	switch v := value.(type) {
+	case float32:
+		return (float64(v) - offset) / scale
+	case float64:
+		return (v - offset) / scale
+	case int8:
+		return (float64(v) - offset) / scale
+	case uint8:
+		return (float64(v) - offset) / scale
+	case int16:
+		return (float64(v) - offset) / scale
+	case uint16:
+		return (float64(v) - offset) / scale
+	case int32:
+		return (float64(v) - offset) / scale
+	case uint32:
+		return (float64(v) - offset) / scale
+	case int64:
+		return (float64(v) - offset) / scale
+	case uint64:
+		return (float64(v) - offset) / scale
+	case int:
+		return (float64(v) - offset) / scale
 	default:
 		return value
 	}

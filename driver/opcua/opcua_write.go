@@ -6,6 +6,7 @@ import (
 
 	"github.com/CoreC-Dev/CoreC/common/util"
 	"github.com/CoreC-Dev/CoreC/core"
+	"github.com/CoreC-Dev/CoreC/driverbase"
 	"github.com/gopcua/opcua"
 	"github.com/gopcua/opcua/ua"
 )
@@ -32,6 +33,7 @@ func (d *OPCUADriver) Write(ctx context.Context, commands []core.WriteCommand) (
 	for i, cmd := range commands {
 		d.RLock()
 		nodeID, ok := d.nodeIDs[cmd.Tag]
+		cfg := d.tags[cmd.Tag]
 		d.RUnlock()
 
 		if !ok {
@@ -41,6 +43,12 @@ func (d *OPCUADriver) Write(ctx context.Context, commands []core.WriteCommand) (
 			}
 			continue
 		}
+
+		// Convert the engineering value back to the raw device
+		// representation unless the command explicitly requests a raw
+		// write (audit finding DRV-1: reads apply raw×scale+offset, so
+		// an un-inverted write lands off by the scale factor).
+		cmd.Value = driverbase.WriteValueForTag(cmd, cfg)
 
 		variant, err := ua.NewVariant(cmd.Value)
 		if err != nil {

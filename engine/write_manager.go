@@ -105,6 +105,7 @@ func (w *writeManager) recordWriteAudit(cmd core.WriteCommand, success bool, err
 		Error:     errMsg,
 		Source:    cmd.Source,
 		Remote:    cmd.Remote,
+		Raw:       cmd.Raw,
 	}
 	w.writeAuditMu.Lock()
 	defer w.writeAuditMu.Unlock()

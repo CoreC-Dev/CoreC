@@ -352,6 +352,193 @@ func TestApplyTransform(t *testing.T) {
 	})
 }
 
+// TestApplyTransformAllNumericTypes pins the read-side transform to every
+// numeric Go type a driver can decode (int8…int64, uint8…uint64, floats).
+// An earlier version silently skipped int/int8/uint8/int64/uint64, so
+// those tag types bypassed the configured scale/offset on reads while
+// 16/32-bit siblings were transformed (audit finding DRV-1 follow-up).
+func TestApplyTransformAllNumericTypes(t *testing.T) {
+	cases := []struct {
+		name  string
+		raw   any
+		scale float64
+		off   float64
+		want  float64
+	}{
+		{"int8", int8(100), 2.0, 1.0, 201},
+		{"uint8", uint8(100), 2.0, 1.0, 201},
+		{"int16", int16(100), 2.0, 1.0, 201},
+		{"uint16", uint16(100), 2.0, 1.0, 201},
+		{"int32", int32(100), 2.0, 1.0, 201},
+		{"uint32", uint32(100), 2.0, 1.0, 201},
+		{"int64", int64(100), 2.0, 1.0, 201},
+		{"uint64", uint64(100), 2.0, 1.0, 201},
+		{"int", int(100), 2.0, 1.0, 201},
+		{"float32", float32(100), 2.0, 1.0, 201},
+		{"float64", float64(100), 2.0, 1.0, 201},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ApplyTransform(tc.raw, tc.scale, tc.off)
+			// float32 inputs keep their width on the read path (the
+			// transform result is a float32); every other numeric
+			// spelling widens to float64.
+			if tc.name == "float32" {
+				g, ok := got.(float32)
+				if !ok {
+					t.Fatalf("expected float32 result for float32, got %T", got)
+				}
+				if g != float32(tc.want) {
+					t.Errorf("ApplyTransform(%v, %v, %v) = %v, want %v", tc.raw, tc.scale, tc.off, g, tc.want)
+				}
+				return
+			}
+			g, ok := got.(float64)
+			if !ok {
+				t.Fatalf("expected float64 result for %s, got %T", tc.name, got)
+			}
+			if g != tc.want {
+				t.Errorf("ApplyTransform(%v, %v, %v) = %v, want %v", tc.raw, tc.scale, tc.off, g, tc.want)
+			}
+		})
+	}
+}
+
+// --- InvertTransform ---
+
+func TestInvertTransform(t *testing.T) {
+	// No-op when both scale and offset are 0 (mirrors ApplyTransform).
+	t.Run("identity when scale and offset zero", func(t *testing.T) {
+		got := InvertTransform(float32(42.0), 0, 0)
+		if got.(float32) != 42.0 {
+			t.Errorf("expected 42.0, got %v", got)
+		}
+	})
+
+	// Scale only: raw = value / scale.
+	t.Run("scale only", func(t *testing.T) {
+		got := InvertTransform(float64(20.0), 2.0, 0)
+		if got.(float64) != 10.0 {
+			t.Errorf("expected 10.0, got %v", got)
+		}
+	})
+
+	// Offset only (scale 0 → reset to 1, mirroring ApplyTransform).
+	t.Run("offset only (scale reset to 1)", func(t *testing.T) {
+		got := InvertTransform(float64(15.0), 0, 5.0)
+		if got.(float64) != 10.0 {
+			t.Errorf("expected 10.0, got %v", got)
+		}
+	})
+
+	// Both scale and offset: raw = (value - offset) / scale.
+	t.Run("scale and offset", func(t *testing.T) {
+		got := InvertTransform(float64(15.0), 0.1, 5.0)
+		// (15 - 5) / 0.1 = 100
+		if got.(float64) != 100.0 {
+			t.Errorf("expected 100.0, got %v", got)
+		}
+	})
+
+	// Integer inputs invert to the raw float representation.
+	t.Run("integer input", func(t *testing.T) {
+		got := InvertTransform(uint16(15), 0.1, 5.0)
+		if got.(float64) != 100.0 {
+			t.Errorf("expected 100.0, got %v", got)
+		}
+	})
+
+	// Non-numeric values are never scaled on reads; writes pass through.
+	t.Run("non-numeric passthrough", func(t *testing.T) {
+		got := InvertTransform(true, 0.1, 5.0)
+		if got.(bool) != true {
+			t.Errorf("expected unchanged bool, got %v", got)
+		}
+	})
+
+	// Round-trip: InvertTransform is the exact inverse of ApplyTransform
+	// for every numeric spelling and every transform configuration.
+	// A relative tolerance absorbs the float32→float64 representation
+	// gap (engineering values stored as float32 carry ~1e-7 relative
+	// error before the inverse divides it back out).
+	t.Run("round-trips ApplyTransform", func(t *testing.T) {
+		transforms := [][2]float64{
+			{0, 0}, {2.0, 0}, {0.01, 0}, {0, 5.0}, {0.1, 5.0}, {-2.0, 3.0},
+		}
+		raws := []any{
+			float32(73.5), float64(-12.25), int8(100), uint8(200), int16(100), uint16(100),
+			int32(-7), uint32(7), int64(12345), uint64(12345), int(9),
+		}
+		for _, tr := range transforms {
+			scale, offset := tr[0], tr[1]
+			for _, raw := range raws {
+				engineering := ApplyTransform(raw, scale, offset)
+				back := InvertTransform(engineering, scale, offset)
+				want := toFloat64(t, raw)
+				if got := toFloat64(t, back); !nearlyEqual(got, want) {
+					t.Errorf("round-trip failed for raw %v (%T), scale=%v, offset=%v: got %v, want %v",
+						raw, raw, scale, offset, got, want)
+				}
+			}
+		}
+	})
+}
+
+// nearlyEqual compares two floats with a relative tolerance chosen to
+// absorb one float32 rounding (the read path stores float32 engineering
+// values) while still failing on any real asymmetry between the forward
+// and inverse transforms.
+func nearlyEqual(got, want float64) bool {
+	if got == want {
+		return true
+	}
+	diff := got - want
+	if diff < 0 {
+		diff = -diff
+	}
+	scale := want
+	if scale < 0 {
+		scale = -scale
+	}
+	if scale < 1 {
+		scale = 1
+	}
+	return diff <= 1e-6*scale
+}
+
+// toFloat64 converts a numeric test value to float64 for comparison,
+// failing the test for non-numeric inputs.
+func toFloat64(t *testing.T, v any) float64 {
+	t.Helper()
+	switch n := v.(type) {
+	case float32:
+		return float64(n)
+	case float64:
+		return n
+	case int:
+		return float64(n)
+	case int8:
+		return float64(n)
+	case uint8:
+		return float64(n)
+	case int16:
+		return float64(n)
+	case uint16:
+		return float64(n)
+	case int32:
+		return float64(n)
+	case uint32:
+		return float64(n)
+	case int64:
+		return float64(n)
+	case uint64:
+		return float64(n)
+	default:
+		t.Fatalf("non-numeric value in numeric test: %v (%T)", v, v)
+		return 0
+	}
+}
+
 // --- ReconnectLoopWithBreaker (breaker disabled: maxFailures=0) ---
 
 func TestReconnectLoop(t *testing.T) {

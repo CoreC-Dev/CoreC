@@ -378,3 +378,101 @@ func TestModbusNonBoolOnBitArea(t *testing.T) {
 		t.Errorf("expected 'not supported' error, got: %v", writeResults[0].Error)
 	}
 }
+
+// TestModbusWriteScaleRoundTrip pins the write-side inverse of the
+// read path's scale/offset transform end-to-end through a real loopback
+// Modbus server (audit finding DRV-1). A tag configured with
+// scale: 0.01 reads raw 150 as engineering 1.5; writing the engineering
+// value 1.5 must land raw 150 in the holding register — previously the
+// un-inverted write landed 1, off by the scale factor, while reporting
+// "write success". The raw escape hatch must bypass the inversion.
+func TestModbusWriteScaleRoundTrip(t *testing.T) {
+	port, err := getFreePort()
+	if err != nil {
+		t.Fatalf("failed to find free port: %v", err)
+	}
+
+	handler := &testModbusHandler{
+		coils:          map[uint16]bool{},
+		discreteInputs: map[uint16]bool{},
+		holding:        map[uint16]uint16{9: 150},
+		inputRegs:      map[uint16]uint16{},
+	}
+
+	server, err := mb.NewServer(&mb.ServerConfiguration{
+		URL:     fmt.Sprintf("tcp://127.0.0.1:%d", port),
+		Timeout: 5 * time.Second,
+	}, handler)
+	if err != nil {
+		t.Fatalf("failed to create modbus server: %v", err)
+	}
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start modbus server: %v", err)
+	}
+	defer server.Stop()
+
+	driverCfg := core.DriverConfig{
+		Name: "scaled-plc",
+		Type: "modbus-tcp",
+		Settings: map[string]any{
+			"host":     "127.0.0.1",
+			"port":     port,
+			"slave-id": 1,
+			"timeout":  "2s",
+		},
+		Tags: []core.TagConfig{
+			{Name: "pressure", Address: "40010", Type: "uint16", Scale: 0.01},
+		},
+	}
+
+	drv, err := NewModbusTCPDriver(driverCfg)
+	if err != nil {
+		t.Fatalf("NewModbusTCPDriver error: %v", err)
+	}
+	ctx := context.Background()
+	if err := drv.Init(ctx, driverCfg); err != nil {
+		t.Fatalf("Init error: %v", err)
+	}
+	if err := drv.Start(ctx); err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+	defer drv.Stop()
+
+	// Read side reports the engineering value (raw 150 × 0.01 = 1.5).
+	values, err := drv.Read(ctx, []string{"pressure"})
+	if err != nil {
+		t.Fatalf("Read error: %v", err)
+	}
+	if got, ok := values[0].Value.(float64); !ok || got != 1.5 {
+		t.Fatalf("read: expected engineering 1.5, got %v (%T)", values[0].Value, values[0].Value)
+	}
+
+	// Write the engineering value back: the device must receive the raw
+	// representation 150, not 1 (the pre-fix behaviour).
+	writeResults, err := drv.Write(ctx, []core.WriteCommand{
+		{Driver: "scaled-plc", Tag: "pressure", Value: 1.5, Type: core.TypeUint16},
+	})
+	if err != nil {
+		t.Fatalf("Write error: %v", err)
+	}
+	if len(writeResults) != 1 || !writeResults[0].Success {
+		t.Fatalf("expected 1 successful result, got %+v", writeResults)
+	}
+	if got := handler.holding[9]; got != 150 {
+		t.Errorf("device received %d, want raw 150", got)
+	}
+
+	// Raw escape hatch writes the device-side representation as-is.
+	writeResults, err = drv.Write(ctx, []core.WriteCommand{
+		{Driver: "scaled-plc", Tag: "pressure", Value: uint16(200), Type: core.TypeUint16, Raw: true},
+	})
+	if err != nil {
+		t.Fatalf("Write (raw) error: %v", err)
+	}
+	if len(writeResults) != 1 || !writeResults[0].Success {
+		t.Fatalf("expected 1 successful raw result, got %+v", writeResults)
+	}
+	if got := handler.holding[9]; got != 200 {
+		t.Errorf("raw write: device received %d, want 200", got)
+	}
+}

@@ -596,13 +596,18 @@ func TestS7ReadMergedValuesMatchImage(t *testing.T) {
 // expectedWordValue decodes the value the PLC image holds at start for
 // the tag's type, applying the transform the configuration asks for
 // (tags with index ≡ 3 mod 7 carry scale 2 / offset 1, mirroring
-// util.ApplyTransform's per-type behaviour; uint8 values bypass the
-// transform entirely).
+// util.ApplyTransform's per-type behaviour — every numeric width is
+// transformed; uint8 included since the ApplyTransform type-coverage
+// fix, with scaled integers decoding as float64).
 func expectedWordValue(i int, typeName string, start int) any {
-	scaled := i%7 == 3 && typeName != "uint8"
+	scaled := i%7 == 3
 	switch typeName {
 	case "uint8":
-		return expectSimUint8(start)
+		v := expectSimUint8(start)
+		if scaled {
+			return float64(v)*2 + 1
+		}
+		return v
 	case "uint16":
 		v := expectSimUint16(start)
 		if scaled {

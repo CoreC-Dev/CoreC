@@ -95,6 +95,28 @@ func (d *BaseDriver) ParseReconnectSettings(settings map[string]any) {
 	d.maxReconnectFailures = util.GetIntSetting(settings, "max-reconnect-failures", core.DefaultMaxReconnectFailures)
 }
 
+// WriteValueForTag resolves the device-side value for a write command by
+// inverting the read path's scale/offset transform. The read path reports
+// engineering values (raw×scale + offset, via util.ApplyTransform); a write
+// carrying an engineering value must therefore be converted back to the
+// raw device representation before encoding, or a scaled tag receives a
+// value off by its scale factor (audit finding DRV-1).
+//
+// cmd.Raw is the explicit escape hatch for operators that need to write
+// the pre-transform device representation directly (e.g. commissioning,
+// or a tag whose scale is configured for a different consumer): when
+// true the command value passes through untouched.
+//
+// All three southbound drivers (modbus, s7, opcua) route their Write paths
+// through this helper so the read/write transform pair stays symmetric in
+// exactly one place.
+func WriteValueForTag(cmd core.WriteCommand, cfg core.TagConfig) any {
+	if cmd.Raw {
+		return cmd.Value
+	}
+	return util.InvertTransform(cmd.Value, cfg.Scale, cfg.Offset)
+}
+
 // Start attempts the initial connection. On failure, transitions to
 // StateConnecting and starts the reconnect loop in the background.
 func (d *BaseDriver) Start(ctx context.Context) error {

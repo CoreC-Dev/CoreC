@@ -248,6 +248,7 @@ func (d *S7Driver) Write(ctx context.Context, commands []core.WriteCommand) ([]c
 	for i, cmd := range commands {
 		d.RLock()
 		addr, ok := d.addrs[cmd.Tag]
+		cfg := d.tags[cmd.Tag]
 		d.RUnlock()
 
 		if !ok {
@@ -257,6 +258,12 @@ func (d *S7Driver) Write(ctx context.Context, commands []core.WriteCommand) ([]c
 			}
 			continue
 		}
+
+		// Convert the engineering value back to the raw device
+		// representation unless the command explicitly requests a raw
+		// write (audit finding DRV-1: reads apply raw×scale+offset, so
+		// an un-inverted write lands off by the scale factor).
+		cmd.Value = driverbase.WriteValueForTag(cmd, cfg)
 
 		err := d.writeAddress(client, addr, cmd)
 		if err != nil {
