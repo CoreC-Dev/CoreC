@@ -2,6 +2,9 @@ package route
 
 import (
 	"net/http"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/CoreC-Dev/CoreC/core"
 )
@@ -24,7 +27,52 @@ func getWriteHistory(w http.ResponseWriter, r *http.Request) {
 		renderError(w, r, http.StatusNotImplemented, "write history not supported by this engine")
 		return
 	}
+	// Roadmap #35: server-side filtering for the compliance trail —
+	// the full 1000-entry response is queryable by driver, tag, and
+	// since-time (RFC 3339), with an optional result limit.
 	entries := auditor.WriteHistory()
+	// Filters allocate fresh slices: the WriteAuditor contract returns a
+	// copy, but defensive copying here keeps the handler correct against
+	// any implementation (the first draft reused the backing array via
+	// entries[:0] and clobbered a mock's stored history).
+	q := r.URL.Query()
+	if d := q.Get("driver"); d != "" {
+		filtered := make([]core.WriteAuditEntry, 0, len(entries))
+		for _, e := range entries {
+			if e.Driver == d {
+				filtered = append(filtered, e)
+			}
+		}
+		entries = filtered
+	}
+	if t := q.Get("tag"); t != "" {
+		filtered := make([]core.WriteAuditEntry, 0, len(entries))
+		for _, e := range entries {
+			if strings.Contains(e.Tag, t) {
+				filtered = append(filtered, e)
+			}
+		}
+		entries = filtered
+	}
+	if sv := q.Get("since"); sv != "" {
+		since, err := time.Parse(time.RFC3339, sv)
+		if err != nil {
+			renderError(w, r, http.StatusBadRequest, "since must be RFC 3339 (e.g. 2026-10-20T12:00:00Z)")
+			return
+		}
+		filtered := make([]core.WriteAuditEntry, 0, len(entries))
+		for _, e := range entries {
+			if !e.Timestamp.Before(since) {
+				filtered = append(filtered, e)
+			}
+		}
+		entries = filtered
+	}
+	if lv := q.Get("limit"); lv != "" {
+		if n, err := strconv.Atoi(lv); err == nil && n >= 0 && n < len(entries) {
+			entries = entries[:n]
+		}
+	}
 	render(w, r, http.StatusOK, map[string]any{
 		"writes": entries,
 		"count":  len(entries),

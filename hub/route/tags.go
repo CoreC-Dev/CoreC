@@ -41,6 +41,36 @@ func getAllTags(w http.ResponseWriter, r *http.Request) {
 	var da core.DataAccessor = e
 	var sp core.StatsProvider = e
 	tags := annotateStaleness(da.LatestValues(""), sp.StaleThreshold())
+
+	// Roadmap #35: server-side filtering so thousand-tag deployments
+	// stop shipping the full map per query. ?driver= serves one driver
+	// (the cheap per-driver snapshot path); ?tag= matches substrings
+	// across the flattened view; ?prefix= matches tag-name prefixes.
+	q := r.URL.Query()
+	if d := q.Get("driver"); d != "" {
+		tags = da.LatestValues(d)
+		if tags != nil {
+			tags = annotateStaleness(tags, sp.StaleThreshold())
+		}
+	}
+	if p := q.Get("prefix"); p != "" {
+		filtered := make(map[string]core.DataPoint, len(tags))
+		for k, v := range tags {
+			if strings.HasPrefix(k, p) {
+				filtered[k] = v
+			}
+		}
+		tags = filtered
+	}
+	if t := q.Get("tag"); t != "" {
+		filtered := make(map[string]core.DataPoint, len(tags))
+		for k, v := range tags {
+			if strings.Contains(k, t) {
+				filtered[k] = v
+			}
+		}
+		tags = filtered
+	}
 	render(w, r, http.StatusOK, map[string]any{"tags": tags})
 }
 

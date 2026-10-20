@@ -17,7 +17,20 @@ description: CoreC 数据读写 API，包含获取所有标签最新值（GET /t
 
 ```http
 GET /tags
+GET /tags?driver={name}
+GET /tags?prefix={prefix}
+GET /tags?tag={substr}
 ```
+
+#### 查询参数（roadmap #35）
+
+| 参数 | 类型 | 必填 | 说明 |
+|:---|:---|:---|:---|
+| `driver` | string | 否 | 只返回该驱动的最新值快照（跨驱动同名标签不受平铺冲突影响） |
+| `prefix` | string | 否 | 标签名**前缀**匹配（如 `?prefix=temp_`） |
+| `tag` | string | 否 | 标签名**子串**匹配（如 `?tag=hum`） |
+
+多个参数可组合（如 `?driver=plc2&tag=hum`）。数千 tag 部署建议按驱动或前缀分片查询，避免整表拉取。
 
 ### 响应
 
@@ -285,7 +298,20 @@ curl http://localhost:9090/write/failed \
 
 ```http
 GET /write/history
+GET /write/history?driver={name}&tag={substr}
+GET /write/history?since={rfc3339}&limit={n}
 ```
+
+#### 查询参数（roadmap #35）
+
+| 参数 | 类型 | 必填 | 说明 |
+|:---|:---|:---|:---|
+| `driver` | string | 否 | 只返回该驱动的写记录（精确匹配） |
+| `tag` | string | 否 | 标签**子串**匹配 |
+| `since` | string (RFC 3339) | 否 | 只返回该时刻**及之后**的记录（如 `2026-10-20T12:00:00Z`；非法值返回 400） |
+| `limit` | int | 否 | 最多返回前 n 条（新→旧截断） |
+
+参数可组合，过滤在服务端完成——合规检索不再需要拉全量 1000 条后客户端过滤。
 
 ### 响应
 

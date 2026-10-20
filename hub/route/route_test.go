@@ -823,3 +823,111 @@ var (
 	errMissingResource = errors.New("resource not found")
 	errConfigRejected  = errors.New("config validation failed: rule r1: target transport \"mqtt1\" not found")
 )
+
+// TestTagsFiltering pins roadmap #35: server-side ?driver=/?tag=/?prefix=
+// on GET /tags — thousand-tag deployments stop shipping the full map
+// per query.
+func TestTagsFiltering(t *testing.T) {
+	eng := &mockEngineV2{
+		tagsByDriver: map[string]map[string]core.DataPoint{
+			"plc1": {
+				"temperature": {Driver: "plc1", Tag: "temperature", Value: 90.0},
+				"pressure":    {Driver: "plc1", Tag: "pressure", Value: 1.5},
+			},
+			"plc2": {
+				"temperature": {Driver: "plc2", Tag: "temperature", Value: 40.0},
+				"humidity":    {Driver: "plc2", Tag: "humidity", Value: 55.0},
+			},
+		},
+		flatTags: map[string]core.DataPoint{
+			// Flattened view: last writer wins for the shared name.
+			"temperature": {Driver: "plc2", Tag: "temperature", Value: 40.0},
+			"pressure":    {Driver: "plc1", Tag: "pressure", Value: 1.5},
+			"humidity":    {Driver: "plc2", Tag: "humidity", Value: 55.0},
+		},
+	}
+	ts := newTestServer("", eng)
+	defer ts.Close()
+
+	get := func(q string) map[string]core.DataPoint {
+		t.Helper()
+		resp := authedGet(t, ts, "/tags"+q, "")
+		defer resp.Body.Close()
+		var body struct {
+			Tags map[string]core.DataPoint `json:"tags"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return body.Tags
+	}
+
+	// driver filter: only that driver's snapshot.
+	if got := get("?driver=plc2"); len(got) != 2 || got["humidity"].Driver != "plc2" {
+		t.Errorf("?driver=plc2 = %v", got)
+	}
+	// prefix filter on the flattened view (last writer wins for the
+	// shared temperature name: plc2's 40).
+	if got := get("?prefix=temp"); len(got) != 1 || got["temperature"].Value != 40.0 {
+		t.Errorf("?prefix=temp = %v (flattened: last writer wins)", got)
+	}
+	// substring filter.
+	if got := get("?tag=hum"); len(got) != 1 || got["humidity"].Value != 55.0 {
+		t.Errorf("?tag=hum = %v", got)
+	}
+	// combined driver + tag narrows within the driver.
+	if got := get("?driver=plc2&tag=hum"); len(got) != 1 || got["humidity"].Value != 55.0 {
+		t.Errorf("?driver=plc2&tag=hum = %v", got)
+	}
+}
+
+// TestWriteHistoryFiltering pins roadmap #35: ?driver=/?tag=/?since=/?limit=
+// server-side filters on the compliance trail.
+func TestWriteHistoryFiltering(t *testing.T) {
+	old, older, oldest := time.Now(), time.Now().Add(-time.Hour), time.Now().Add(-2*time.Hour)
+	eng := &mockEngineV2{
+		writeHistory: []core.WriteAuditEntry{
+			{Timestamp: old, Driver: "plc1", Tag: "setpoint", Success: true},
+			{Timestamp: older, Driver: "plc2", Tag: "motor_enable", Success: false},
+			{Timestamp: oldest, Driver: "plc1", Tag: "motor_enable", Success: true},
+		},
+	}
+	ts := newTestServer("", eng)
+	defer ts.Close()
+
+	get := func(q string) []core.WriteAuditEntry {
+		t.Helper()
+		resp := authedGet(t, ts, "/write/history"+q, "")
+		defer resp.Body.Close()
+		var body struct {
+			Writes []core.WriteAuditEntry `json:"writes"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return body.Writes
+	}
+
+	if got := get("?driver=plc1"); len(got) != 2 {
+		t.Errorf("?driver=plc1 = %d entries, want 2", len(got))
+	}
+	if got := get("?tag=motor"); len(got) != 2 {
+		t.Errorf("?tag=motor = %d entries, want 2", len(got))
+	}
+	if got := get("?driver=plc1&tag=setpoint"); len(got) != 1 || got[0].Success != true {
+		t.Errorf("?driver=plc1&tag=setpoint = %+v", got)
+	}
+	// since: entries at-or-after the cutoff (newest-first list).
+	if got := get("?since=" + older.Format(time.RFC3339)); len(got) != 2 {
+		t.Errorf("?since = %d entries, want 2 (old and older)", len(got))
+	}
+	if got := get("?limit=1"); len(got) != 1 || !got[0].Timestamp.Equal(old) {
+		t.Errorf("?limit=1 = %+v, want the newest entry", got)
+	}
+	// Malformed since → 400.
+	resp := authedGet(t, ts, "/write/history?since=yesterday", "")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("bad since status = %d, want 400", resp.StatusCode)
+	}
+}

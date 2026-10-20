@@ -21,6 +21,9 @@ type mockEngineV2 struct {
 	drivers      []core.DriverStatus
 	transports   []core.TransportStatus
 	tagsByDriver map[string]map[string]core.DataPoint
+	// flatTags backs LatestValues("") — the flattened all-tags view
+	// (cross-driver name collisions resolved last-writer-wins).
+	flatTags     map[string]core.DataPoint
 	writeErr     error
 	writeResult  core.WriteResult
 	writeHistory []core.WriteAuditEntry
@@ -98,7 +101,11 @@ func (m *mockEngineV2) ListTransports() []core.TransportStatus { return m.transp
 
 func (m *mockEngineV2) LatestValues(driver string) map[string]core.DataPoint {
 	if driver == "" {
-		// Aggregate all drivers
+		// Explicit flat view wins when provided (deterministic
+		// last-writer-wins for collision tests); otherwise aggregate.
+		if m.flatTags != nil {
+			return m.flatTags
+		}
 		all := make(map[string]core.DataPoint)
 		for _, tags := range m.tagsByDriver {
 			for k := range tags {
@@ -118,7 +125,13 @@ func (m *mockEngineV2) WriteTag(ctx context.Context, cmd core.WriteCommand) (*co
 
 // WriteHistory satisfies core.WriteAuditor so GET /write/history can be
 // exercised with a populated audit trail.
-func (m *mockEngineV2) WriteHistory() []core.WriteAuditEntry { return m.writeHistory }
+func (m *mockEngineV2) WriteHistory() []core.WriteAuditEntry {
+	// Copy per the WriteAuditor contract ("newest-first copy"), so
+	// handler-side mutation can never clobber the fixture.
+	cp := make([]core.WriteAuditEntry, len(m.writeHistory))
+	copy(cp, m.writeHistory)
+	return cp
+}
 
 func (m *mockEngineV2) GetRuleStats() []core.RuleStat { return m.ruleStats }
 
