@@ -134,6 +134,8 @@ API 内置 CORS 中间件，用于支持浏览器端仪表盘跨域访问。行�
 | `GET` | `/rules` | 是 | 列出所有规则统计 |
 | `PATCH` | `/rules/disable` | 是 | 启用/禁用指定规则（按 name 推荐，index 向后兼容） |
 | `POST` | `/rules/preview` | 是 | 规则试算——离线验证 match 表达式（不影响生产规则集） |
+| `GET` | `/alerts` | 是 | 查询活动规则告警 + 有界生命周期历史（详见 [告警 API](alerts.md)） |
+| `POST` | `/alerts/ack` | 是 | 确认（Acknowledge）一条活动告警（详见 [告警 API](alerts.md)） |
 | `GET` | `/stats` | 是 | 获取引擎运行统计 |
 | `GET` | `/metrics` | 是 | Prometheus 文本格式指标 |
 | `GET` | `/debug/pprof/*` | 是 | pprof 性能分析端点（可配置关闭或独立端口） |
@@ -148,6 +150,7 @@ API 内置 CORS 中间件，用于支持浏览器端仪表盘跨域访问。行�
 |:---|:---|:---|
 | `/tags/stream` | 是 | 实时数据点流（支持 `?driver=` 过滤） |
 | `/logs` | 是 | 实时日志流 |
+| `/alerts/stream` | 是 | 实时告警生命周期事件流（fired/acked/cleared） |
 | `/traffic` | 是 | 实时流量统计（默认每秒推送，支持 `?interval=`） |
 | `/memory` | 是 | 实时内存统计（默认每秒推送，支持 `?interval=`） |
 

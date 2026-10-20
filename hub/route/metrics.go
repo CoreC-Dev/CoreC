@@ -79,6 +79,9 @@ func promMetrics(w http.ResponseWriter, r *http.Request) {
 	// ─── Write dead-letter queue ─────────────────────────────────────
 	writeDeadLetterMetrics(&b)
 
+	// ─── Alert registry (audit OBS-4/HUB-6) ───────────────────────────
+	writeAlertMetrics(&b)
+
 	// ─── HTTP request metrics ──────────────────────────────────────────
 	writeHTTPMetrics(&b)
 

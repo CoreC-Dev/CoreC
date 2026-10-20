@@ -341,6 +341,12 @@ const (
 	// worker pool (IMPROVEMENTS #5).
 	DefaultHighPriorityInterval = time.Second
 
+	// DefaultAlertActiveWindow is how long an alert stays active after
+	// its last fire before being cleared to history (overridable via
+	// global.engine.alert-active-window). Audit finding OBS-4/HUB-6:
+	// alerts need state and history, not just a log line.
+	DefaultAlertActiveWindow = 15 * time.Minute
+
 	// DefaultBatchSize is the default batch size for transport batchers
 	// when TransportConfig.BatchSize is not set.
 	DefaultBatchSize = 100

@@ -224,6 +224,8 @@ curl -H "Authorization: Bearer your-secret-token" http://localhost:9090/drivers
 | POST | `/write` | 下发控制指令 `{"driver":"plc1","tag":"temp","value":50,"type":"float32"}` |
 | GET | `/write/failed` | 查询死信队列中重试耗尽的失败写入指令 |
 | GET | `/write/history` | 查询写入审计历史（最近 1000 条写记录，含成功与失败，新→旧） |
+| GET | `/alerts` | 查询活动规则告警 + 生命周期历史（active/ack/cleared 状态机） |
+| POST | `/alerts/ack` | 确认（Acknowledge）一条活动告警 |
 | GET | `/rules` | 列出规则 + **命中/未命中统计** |
 | PATCH | `/rules/disable` | 运行时启用/禁用规则 `{"index":0,"disabled":true}` |
 | POST | `/rules/preview` | 规则试算：离线验证 match 表达式（不影响生产规则集） |
@@ -236,6 +238,7 @@ curl -H "Authorization: Bearer your-secret-token" http://localhost:9090/drivers
 | 路径 | 说明 |
 |:---|:---|
 | `/logs` | 实时日志流（捕获所有 `slog` 调用） |
+| `/alerts/stream` | 实时告警生命周期事件流（fired/acked/cleared） |
 | `/traffic` | 实时吞吐量统计（每秒推送） |
 | `/tags/stream` | 实时数据点流（`?driver=xxx` 可过滤） |
 | `/memory` | 实时内存使用与 GC 统计 |

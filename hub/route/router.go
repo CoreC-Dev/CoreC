@@ -84,6 +84,13 @@ func router(ctx context.Context, secret string, allowedOrigins []string, rateLim
 		r.Patch("/rules/disable", disableRule)
 		r.Post("/rules/preview", previewRule)
 
+		// First-class alerts (audit OBS-4/HUB-6): active state +
+		// bounded history + ack + real-time lifecycle stream. The
+		// legacy /logs stream keeps serving raw log lines.
+		r.Get("/alerts", getAlerts)
+		r.Post("/alerts/ack", ackAlert)
+		r.Get("/alerts/stream", streamAlerts)
+
 		r.Get("/stats", getStats)
 		r.Get("/memory", getMemory)
 

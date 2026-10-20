@@ -118,6 +118,8 @@ func New() core.Engine {
 	e.driverReg.driverConfigs = make(map[string]core.DriverConfig)
 	e.stats.readRate = metrics.NewRateWindow()
 	e.stats.labeled = newLabeledLatencyStore()
+	e.processing.alerts = newAlertManager(0)
+	e.processing.alertActiveWindow = core.DefaultAlertActiveWindow
 	return e
 }
 

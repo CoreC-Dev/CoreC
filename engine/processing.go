@@ -24,6 +24,19 @@ type processingCore struct {
 	// Alert handlers
 	alertHandlers []func(point core.DataPoint, rule core.Rule)
 
+	// alerts is the first-class alert registry (audit findings
+	// OBS-4/HUB-6: alerts previously degenerated to a log line). It is
+	// re-created by every engine Start alongside the other pipeline
+	// state; nil-safe guards keep direct processPoint calls (tests)
+	// working on unstarted engines.
+	alerts *alertManager
+
+	// alertActiveWindow is the alert lifetime after its last fire,
+	// parsed from global.engine.alert-active-window (default
+	// core.DefaultAlertActiveWindow) and consumed when Start builds the
+	// registry.
+	alertActiveWindow time.Duration
+
 	// badQualityPolicy controls how DataPoints with QualityBad are
 	// handled in the processing pipeline (set from
 	// GlobalConfig.Engine.OnBadQuality).
@@ -348,6 +361,14 @@ func (p *processingCore) publishToTargets(point core.DataPoint, targets []string
 }
 
 func (p *processingCore) fireAlert(point core.DataPoint, r core.Rule) {
+	// Record the fire in the engine's first-class alert registry BEFORE
+	// fan-out (audit OBS-4/HUB-6): the alert exists even if an
+	// embedding host registered no OnAlert handler at all — the old
+	// fire-and-forget path made alerts invisible in that case.
+	if p.alerts != nil {
+		p.alerts.record(r, point)
+	}
+
 	p.eng.mu.RLock()
 	handlers := make([]func(core.DataPoint, core.Rule), len(p.alertHandlers))
 	copy(handlers, p.alertHandlers)

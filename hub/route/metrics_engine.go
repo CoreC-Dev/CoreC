@@ -78,6 +78,33 @@ func writeDeadLetterMetrics(b *strings.Builder) {
 	fmt.Fprintf(b, "corec_dead_letter_pushed_total %d\n", pushed)
 }
 
+// writeAlertMetrics exposes the alert registry for alerting on alerts
+// (audit findings OBS-4/HUB-6): the cumulative fire count per rule and
+// the number of currently-active alerts. Engines without the
+// core.AlertMetricsProvider role (test mocks) omit the families.
+func writeAlertMetrics(b *strings.Builder) {
+	provider, ok := getEngine().(core.AlertMetricsProvider)
+	if !ok || provider == nil {
+		return
+	}
+
+	fires := provider.AlertFireCounts()
+	if len(fires) > 0 {
+		rules := make([]string, 0, len(fires))
+		for rule := range fires {
+			rules = append(rules, rule)
+		}
+		sort.Strings(rules)
+		writePromHeader(b, "corec_alerts_total", "counter", "Total rule alert fires per rule (raw, not deduplicated); rate() shows firing frequency")
+		for _, rule := range rules {
+			fmt.Fprintf(b, "corec_alerts_total{rule=%q} %d\n", promEscape(rule), fires[rule])
+		}
+	}
+
+	writePromHeader(b, "corec_alerts_active", "gauge", "Currently-active alerts (fired within the active window, acknowledged or not)")
+	fmt.Fprintf(b, "corec_alerts_active %d\n", provider.ActiveAlertCount())
+}
+
 // writeLatencyMetrics emits the read and publish latency histogram
 // families plus the data-age (freshness) family.
 //

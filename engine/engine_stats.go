@@ -109,3 +109,41 @@ func (e *CoreCEngine) IngressDeadLetters() []core.DeadLetterEntry {
 func (e *CoreCEngine) ApplyDerivedTags(configs []core.DerivedTagConfig) error {
 	return e.lifecycle.applyDerivedTags(configs)
 }
+
+// --- Alert registry (audit OBS-4/HUB-6) ---
+
+// ActiveAlerts forwards to the alert registry for GET /alerts
+// (optional core.AlertProvider role).
+func (e *CoreCEngine) ActiveAlerts() []core.Alert {
+	return e.processing.alerts.activeAlerts()
+}
+
+// AlertHistory forwards to the alert registry for GET /alerts
+// (optional core.AlertProvider role).
+func (e *CoreCEngine) AlertHistory() []core.AlertEvent {
+	return e.processing.alerts.alertHistory()
+}
+
+// AckAlert acknowledges the active alert with the given key
+// (optional core.AlertProvider role).
+func (e *CoreCEngine) AckAlert(key string) error {
+	return e.processing.alerts.ack(key)
+}
+
+// SubscribeAlerts forwards to the alert registry for WS /alerts/stream
+// (optional core.AlertStreamer role).
+func (e *CoreCEngine) SubscribeAlerts() (<-chan core.AlertEvent, func()) {
+	return e.processing.alerts.subscribe()
+}
+
+// AlertFireCounts forwards to the alert registry for
+// corec_alerts_total{rule} (optional core.AlertMetricsProvider role).
+func (e *CoreCEngine) AlertFireCounts() map[string]uint64 {
+	return e.processing.alerts.fireCounts()
+}
+
+// ActiveAlertCount forwards to the alert registry for
+// corec_alerts_active (optional core.AlertMetricsProvider role).
+func (e *CoreCEngine) ActiveAlertCount() int {
+	return e.processing.alerts.activeCount()
+}

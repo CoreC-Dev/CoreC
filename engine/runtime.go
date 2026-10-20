@@ -120,6 +120,12 @@ func (r *engineRuntime) Start(ctx context.Context, config *core.Config) error {
 
 	r.eng.processing.startProcessingWorkers()
 
+	// Build this run's alert registry (audit OBS-4/HUB-6) with the
+	// configured active window and start its sweep loop. It is rebuilt
+	// on every Start alongside the rest of the pipeline state.
+	r.eng.processing.alerts = newAlertManager(r.eng.processing.alertActiveWindow)
+	r.eng.processing.alerts.start(r.ctx)
+
 	// Start derived tag evaluator if configured.
 	if len(config.DerivedTags) > 0 {
 		if err := r.eng.lifecycle.startDerivedTags(config); err != nil {
@@ -170,6 +176,14 @@ func (r *engineRuntime) Stop() error {
 	r.stopComponents()
 
 	r.wg.Wait()
+
+	// Stop the alert registry last: the engine-wide wait group has
+	// joined every processing worker, so no record() can race the
+	// event-channel close (audit OBS-4).
+	if r.eng.processing.alerts != nil {
+		r.eng.processing.alerts.stop()
+	}
+
 	r.eng.mu.Lock()
 	r.status = core.EngineStatusStopped
 	r.eng.mu.Unlock()
@@ -463,6 +477,9 @@ func (r *engineRuntime) applyEngineConfig(cfg *core.EngineConfig) error {
 	}
 	if cfg.HighPriorityWorkers > 0 {
 		r.eng.processing.numHighPriorityWorkers = cfg.HighPriorityWorkers
+	}
+	if d, err := time.ParseDuration(cfg.AlertActiveWindow); err == nil && d > 0 {
+		r.eng.processing.alertActiveWindow = d
 	}
 	return nil
 }

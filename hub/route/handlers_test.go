@@ -46,6 +46,14 @@ type mockEngineV2 struct {
 	// ingressDeadLetters backs the optional core.IngressDeadLetterProvider
 	// role (/write/failed?source=ingress).
 	ingressDeadLetters []core.DeadLetterEntry
+
+	// alerts/ackErr/alertStreamCh back the optional alert roles
+	// (core.AlertProvider / AlertStreamer / AlertMetricsProvider).
+	alerts          []core.Alert
+	alertHistory    []core.AlertEvent
+	ackErr          error
+	alertFireCounts map[string]uint64
+	alertStreamCh   chan core.AlertEvent
 }
 
 func (m *mockEngineV2) Stats() core.EngineStats { return m.stats }
@@ -57,6 +65,20 @@ func (m *mockEngineV2) DeadLetterEntries() []core.DeadLetterEntry { return m.dea
 func (m *mockEngineV2) DeadLetterStats() (int, uint64) { return m.dlqSize, m.dlqPushed }
 
 func (m *mockEngineV2) IngressDeadLetters() []core.DeadLetterEntry { return m.ingressDeadLetters }
+
+func (m *mockEngineV2) ActiveAlerts() []core.Alert      { return m.alerts }
+func (m *mockEngineV2) AlertHistory() []core.AlertEvent { return m.alertHistory }
+func (m *mockEngineV2) AckAlert(key string) error {
+	if m.ackErr != nil {
+		return m.ackErr
+	}
+	return nil
+}
+func (m *mockEngineV2) SubscribeAlerts() (<-chan core.AlertEvent, func()) {
+	return m.alertStreamCh, func() {}
+}
+func (m *mockEngineV2) AlertFireCounts() map[string]uint64 { return m.alertFireCounts }
+func (m *mockEngineV2) ActiveAlertCount() int              { return len(m.alerts) }
 
 func (m *mockEngineV2) ListDrivers() []core.DriverStatus { return m.drivers }
 
@@ -76,7 +98,7 @@ func (m *mockEngineV2) LatestValues(driver string) map[string]core.DataPoint {
 	return m.tagsByDriver[driver]
 }
 
-func (m *mockEngineV2) StaleThreshold() time.Duration             { return 0 }
+func (m *mockEngineV2) StaleThreshold() time.Duration { return 0 }
 
 func (m *mockEngineV2) WriteTag(ctx context.Context, cmd core.WriteCommand) (*core.WriteResult, error) {
 	return &m.writeResult, m.writeErr

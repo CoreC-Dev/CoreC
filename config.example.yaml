@@ -117,6 +117,7 @@ global:
 #     # write-retry-count: 3              # write command retry count before entering dead letter queue (default 3)
 #     # command-concurrency: 16           # max parallel write commands; excess applies backpressure→dead-letter (default 16; set 1 for serial)
 #     # high-priority-workers: 2          # dedicated workers for fast-interval tags (interval≤1s); isolated from bulk-read workers (default 2)
+#     # alert-active-window: 15m           # how long an alert stays active after its last fire; silence clears it to history (default 15m)
 
   ## Offline buffer (optional): persists failed publish batches to disk
   ## for replay after transport recovery. Enabled per-engine, applies to all

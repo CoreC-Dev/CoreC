@@ -119,6 +119,15 @@ corec_driver_last_read_seconds{driver="plc2"} 748.9
 
 入站丢弃（命令通道满）见 `corec_transport_dropped_commands_total`（每传输）与 `GET /write/failed?source=ingress`（丢弃明细）。
 
+### 告警指标
+
+一等告警注册表（`GET /alerts`）的监控面（详见 [告警 API](../api/alerts.md)）：
+
+| 指标 | 类型 | 标签 | 说明 |
+|:---|:---|:---|:---|
+| `corec_alerts_total` | counter | `rule` | 每条规则的累计触发次数（原始计数）；`rate()` 反映触发频率 |
+| `corec_alerts_active` | gauge | — | 当前活动告警数（触发中且未静默清除，含已确认） |
+
 ### HTTP 请求指标
 
 `httpMetricsMiddleware` 中间件自动记录所有 HTTP 请求（包括 `/healthz` 探针）：

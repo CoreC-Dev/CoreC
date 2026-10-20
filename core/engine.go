@@ -338,6 +338,13 @@ type EngineConfig struct {
 	// bulk reads cannot starve high-frequency collection. Unset or 0 uses
 	// the default (2).
 	HighPriorityWorkers int `yaml:"high-priority-workers,omitempty"`
+
+	// AlertActiveWindow is how long an alert stays active after its
+	// last fire. An alert that has not re-fired for a full window is
+	// cleared (moves to history and stops appearing in GET /alerts).
+	// Acknowledgement does not clear an alert — only silence does.
+	// Default: 15m. Parse as a duration string, e.g. "15m".
+	AlertActiveWindow string `yaml:"alert-active-window,omitempty"`
 }
 
 // APIConfig holds API server settings.
