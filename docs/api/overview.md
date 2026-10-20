@@ -132,6 +132,7 @@ API 内置 CORS 中间件，用于支持浏览器端仪表盘跨域访问。行�
 | `POST` | `/drivers/{name}/resume` | 是 | 恢复指定驱动的采集（下一 tick 起效） |
 | `GET` | `/transports` | 是 | 列出所有传输状态 |
 | `GET` | `/transports/{name}` | 是 | 获取指定传输状态 |
+| `POST` | `/transports/{name}/test` | 是 | 传输连通性测试（临时实例，不落配置） |
 | `DELETE` | `/transports/{name}` | 是 | 删除单个传输——被规则引用时返回 400 并说明原因；同上走完整安全链 |
 | `GET` | `/tags` | 是 | 获取所有驱动最新标签值 |
 | `POST` | `/write` | 是 | 向设备写入标签值 |

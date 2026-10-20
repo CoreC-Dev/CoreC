@@ -1,5 +1,7 @@
 # CoreC 代码质量与架构综合评估报告
 
+> 注（2026-10-20）：本文件为历史评估快照。其中提及的 `engine/statistic/` 包已在审计 OBS-7/PIPE-5 修复中删除（commit 08f90b9）；本文不再随代码演进更新，当前事实以 `ARCHITECTURE.md` 与 `docs/exec-plans/` 为准。
+
 > 由 6 个独立 AI Agent 并行多维度评估生成，后续多 Agent 实施改进  
 > 评估日期: 2025-09-15 · 改进日期: 2026-09-15 · 订正日期: 2026-09-15  
 > 项目: CoreC (Connect · Collect · Control) — 工业物联网数据采集与控制核心  

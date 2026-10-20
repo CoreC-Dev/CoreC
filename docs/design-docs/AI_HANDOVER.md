@@ -337,9 +337,8 @@ MQTT Command Topic ──> Transport.OnCommand() ──> Engine.startCommandList
 3. **Observable 日志总线 (`common/observable/`, `log/`)**：
    - 泛型 Observable 事件总线，非阻塞扇出至 WebSocket 订阅端。
    - **`ObservableHandler` 包装 `slog.Handler`**：自动捕获全代码库所有 `slog.Info`/`slog.Error` 调用，无需改动现有代码即可实现日志流。
-4. **吞吐量与性能统计 (`engine/statistic/`)**：
-   - 原子计数器模式 (`PushRead`, `PushPublish`, `PushError`, `Snapshot`)，无后台 goroutine，调用方按需读取快照。
-   - **`statistic.Manager` 已从包级全局单例改为引擎实例字段**（`CoreCEngine.statManager`），通过 `NewScheduler` 注入 scheduler，多实例嵌入不再共享计数器（ADR-003）。
+4. **吞吐量与性能统计（`engine/stats_collector.go` 单一口径）**：
+   - `engine/statistic/` 包已于 2026-10-20 **删除**（审计 OBS-7/PIPE-5：与 statsCollector 双轨计数、口径可漂移、生产代码无读者）。读写吞吐与错误计数现在只有 statsCollector 一处：`totalRead`/`totalPublish`/`totalErrors` 原子计数 + `readRate` 60s 滑动窗口速率。
 5. **规则命中统计与运行时禁用 (`rule/engine.go`)**：
    - `RuleWrapper` 的 `HitCount`/`MissCount`/`HitAt`/`MissAt` 原子计数。
    - `PATCH /rules/disable` 支持运行时启用/禁用规则，无需重载配置。

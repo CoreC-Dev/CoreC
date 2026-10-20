@@ -132,6 +132,12 @@ corec_driver_last_read_seconds{driver="plc2"} 748.9
 | `corec_offline_buffer_evicted_total` | counter | 缓冲区满时被逐出的最旧批次总数（新数据优先） |
 | `corec_offline_buffer_bytes` | gauge | 缓冲区占用的磁盘字节数——批次计数回答"积压多少批"，字节数回答"断网吃掉多少磁盘"（告警建议按磁盘容量设阈值） |
 
+### 批处理背压指标
+
+| 指标 | 类型 | 说明 |
+|:---|:---|:---|
+| `corec_flush_batches_dropped_total` | counter | 异步 flush 队列满载时被逐出的整批批次数（持续增长即传输端持续消费不动） |
+
 ### 死信队列指标
 
 写指令的死信队列（`GET /write/failed`）的监控面：

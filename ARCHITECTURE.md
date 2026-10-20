@@ -87,13 +87,15 @@ cmd/corec/main.go
 ```
 signal.Notify(SIGINT, SIGTERM) → hub.Stop() → engine.Stop()
   → cancel()（级联取消所有子 ctx）
-  → discovery.Stop() → scheduler.Stop()（wg 屏障：生产者先于消费者静默）
+  → discovery.Stop() → alertRegistry.Stop()（告警扫描器，须先于 dataBus 关闭）
+  → scheduler.Stop()（wg 屏障：生产者先于消费者静默）
   → stopComponents():
       drivers（逐个带超时）
       排空 dataBus（滞留点位计数 + Warn 日志后丢弃）
       batchers（带超时；flushFinal 余量发布）
       transports（逐个带超时）
       dataBus.Close() → ruleProviders → tagWatchers
+  → deadLetterStore.Close()（fsync 落盘后的 fd 释放；须在写者全部 join 后）
   → wg.Wait()（收集 processingLoop/listener goroutine）
 ```
 

@@ -50,8 +50,8 @@
   - **写入重试与死信队列**: 控制指令下发失败自动重试，耗尽后进入死信队列供查询和手动重试。
   - **传输故障降级**: 配置 `fallback` 备用传输，主传输失败时自动切换。
   - **毫秒级优雅退出**: 信号中断即时捕获，倒序清理协程与网络连接，零资源泄露。
-- **External Controller RESTful API**: 提供完整的控制面 API，支持配置热重载、规则命中统计与运行时禁用、实时日志/数据/流量 WebSocket 流。
-- **生产级可观测性**: Prometheus `/metrics` 端点（计数器/仪表盘指标 + Go 运行时/进程指标 [goroutine/heap/GC/CPU]，Prometheus 文本格式）、pprof 性能分析端点（可配置开关与独立端口）、W3C Trace Context 请求追踪（解析/注入 `traceparent` 跨服务传播、管线内 span 计时 [engine.readFromDriver]、基于 context 的日志关联；注：未配置 OTLP 导出后端，span 仅以 slog.Debug 记录）。
+- **External Controller RESTful API**: 提供完整的控制面 API——配置热重载（派生标签热应用 + 失败自动回滚 + 变更审计轨迹 + 服务端备份/恢复）、驱动/传输/规则**资源级增删**、驱动采集 pause/resume、规则命中统计/运行时禁用/试算（编译与求值错误原样透出）、批量写（128 条/批）、一等告警（状态/历史/Ack + 实时流）、实时日志/数据/吞吐速率/内存 WebSocket 流、服务端过滤的历史与标签查询。
+- **生产级可观测性**: Prometheus `/metrics` 端点——引擎级计数器 + **按驱动/传输拆分的指标族**（读延迟/发布延迟直方图带 driver/transport 标签、last_read 新鲜度、调度器降级/超限、丢弃归因、死信深度、规则告警计数、驱动自报协议指标 [如 modbus 异常码]）+ Go 运行时/进程指标，主 API 认证后暴露或经 `api.metrics-addr` 专用免密回环端口；pprof 性能分析端点（可配置开关与独立端口）；**一等告警注册表**（active/ack/生命周期历史 + `WS /alerts/stream` 实时流 + `POST /alerts/ack`）；W3C Trace Context 请求追踪（解析/注入 `traceparent`；注：未配置 OTLP 导出后端，span 仅以 slog.Debug 记录）。
 - **传输层加密**: MQTT 支持 TLS/mTLS（`mqtts://` + 客户端证书 + CA 验证），API 支持 HTTPS。
 
 ---
@@ -210,6 +210,7 @@ curl -H "Authorization: Bearer your-secret-token" http://localhost:9090/drivers
 | PUT | `/configs` | 热重载配置（`{"path":"config.yaml"}` 或 `{"payload":"<yaml>"}` ；变更前自动快照） |
 | PATCH | `/configs` | 修改运行时设置（如 `{"log-level":"debug"}` ） |
 | POST | `/configs/validate` | 配置 dry-run 校验（不应用） |
+| GET | `/configs/audit` | 配置变更审计轨迹（最近 500 次成功变更） |
 | GET | `/configs/backups` | 服务端配置备份列表（新→旧，保留最近 10 份，仅元数据） |
 | GET | `/configs/backups/{name}` | 读取指定备份 YAML 原文 |
 | POST | `/configs/backups` | 手动创建当前磁盘配置快照 |
@@ -218,9 +219,13 @@ curl -H "Authorization: Bearer your-secret-token" http://localhost:9090/drivers
 | GET | `/drivers/{name}` | 查看单个驱动 |
 | GET | `/drivers/{name}/tags` | 查看驱动下所有测点最新值 |
 | POST | `/drivers/test` | 驱动连通性测试（临时实例，不落配置，连接即关，5s 超时） |
+| GET | `/drivers/paused` | 列出当前暂停采集的驱动 |
+| POST | `/drivers/{name}/pause` | 暂停驱动采集（不动配置/连接；维修场景） |
+| POST | `/drivers/{name}/resume` | 恢复驱动采集（下一 tick 起效） |
 | DELETE | `/drivers/{name}` | 删除单个驱动（服务端拼接配置，走完整校验/应用/持久化链） |
 | GET | `/transports` | 列出所有北向传输及状态 |
 | GET | `/transports/{name}` | 查看单个传输 |
+| DELETE | `/transports/{name}` | 删除单个传输（被规则引用时 400 并说明原因） |
 | GET | `/tags` | 所有测点最新缓存值 |
 | POST | `/write` | 下发控制指令 `{"driver":"plc1","tag":"temp","value":50,"type":"float32"}` |
 | POST | `/write/batch` | 批量写入（顺序执行、逐条结果，上限 128 条） |

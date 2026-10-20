@@ -1,5 +1,7 @@
 # CoreC 项目改进建议
 
+> 注（2026-10-20）：本文件为历史评估快照。其中提及的 `engine/statistic/` 包已在审计 OBS-7/PIPE-5 修复中删除（commit 08f90b9）；本文不再随代码演进更新，当前事实以 `ARCHITECTURE.md` 与 `docs/exec-plans/` 为准。
+
 > 基于全量源码阅读 + `go build`/`go vet` 验证 + 关键路径代码核查。所有建议标注了具体代码位置与优先级。
 > 先说结论：**这是一个工程质量相当高的项目**——测试文件数(78)多于源文件数(73)，几乎无 TODO/FIXME 残留，OfflineBuffer 已做 fsync+目录fsync+原子rename（崩溃安全），延迟直方图已实现并暴露。以下建议聚焦"从优秀到卓越"的改进空间。
 
