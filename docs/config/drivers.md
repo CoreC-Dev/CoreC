@@ -454,6 +454,9 @@ tags:
 同一 `group` 下的标签建议使用相同 `interval`，核心可将其合并为一次批量读请求，显著降低通信开销。
 :::
 
+::: tip settings 键名校验（audit CFG-4）
+每个驱动的 `settings` 支持的键在配置校验时即被检查：**拼错的键（如 `slve-id`）会在 `PUT /configs`/`POST /configs/validate` 时直接报错并列出全部合法键**，而不是静默忽略后用默认值连到错误的设备。各驱动支持的键以下文的配置表为准。
+
 ### scale 与 offset
 
 对原始读值做线性变换，常用于传感器量程转换：

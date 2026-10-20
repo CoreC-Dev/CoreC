@@ -4,8 +4,10 @@ package util
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -466,4 +468,35 @@ func ReconnectLoopWithBreakerCounted(ctx context.Context, name string, connect f
 		}
 		return
 	}
+}
+
+// RejectUnknownSettings fails with an actionable error listing the valid
+// keys when a settings map contains keys outside the known set (audit
+// finding CFG-4 / roadmap #25): settings maps are map[string]any, so a
+// typo like `slve-id` previously sailed through validation and was
+// silently ignored at Init — the component then ran against defaults,
+// often the wrong device/endpoint. known must list every key the
+// component's Init parses; the per-package drift tests enforce that.
+func RejectUnknownSettings(settings map[string]any, known map[string]bool, kind string) error {
+	if len(settings) == 0 {
+		return nil
+	}
+	var unknown []string
+	for k := range settings {
+		if known[k] {
+			continue
+		}
+		unknown = append(unknown, k)
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	sort.Strings(unknown)
+	valid := make([]string, 0, len(known))
+	for k := range known {
+		valid = append(valid, k)
+	}
+	sort.Strings(valid)
+	return fmt.Errorf("unknown %s setting(s): %s (valid: %s)", kind,
+		strings.Join(unknown, ", "), strings.Join(valid, ", "))
 }

@@ -37,6 +37,10 @@ func validate(cfg *core.Config, drivers DriverRegistry, transports TransportRegi
 	registeredDrivers := toSet(drivers.RegisteredDrivers())
 	registeredTransports := toSet(transports.RegisteredTransports())
 
+	// Type/shape checks first: they produce the most actionable
+	// messages (e.g. the misplaced-batch-size hint names the exact
+	// fix), and unknown keys inside a syntactically wrong map would
+	// otherwise mask them with a generic allowlist error.
 	if err := validateDrivers(cfg, registeredDrivers, drivers.RegisteredDrivers()); err != nil {
 		return err
 	}
@@ -45,6 +49,15 @@ func validate(cfg *core.Config, drivers DriverRegistry, transports TransportRegi
 	}
 	transportNames, err := validateTransports(cfg, registeredTransports, transports.RegisteredTransports())
 	if err != nil {
+		return err
+	}
+	// Settings-key validation (audit CFG-4 / roadmap #25) runs after
+	// the shape pass so its unknown-key errors are the FIRST message
+	// only for genuinely unknown settings, not misplaced ones.
+	if err := validateDriverSettings(cfg); err != nil {
+		return err
+	}
+	if err := validateTransportSettings(cfg); err != nil {
 		return err
 	}
 	if err := validateRules(cfg, transportNames); err != nil {
@@ -378,6 +391,46 @@ func validateDerivedTags(cfg *core.Config) error {
 		}
 		if strings.TrimSpace(dt.Interval) == "" {
 			return fmt.Errorf("derived tag %q has empty interval", dt.Name)
+		}
+	}
+	return nil
+}
+
+// validateDriverSettings runs each driver's optional core.SettingsValidator
+// (audit CFG-4 / roadmap #25): construct via the factory, type-assert the
+// role, validate, discard. Construction is pure (no connection); the
+// earlier validateDrivers pass already rejects unknown TYPES, so factory
+// misses here are type-existence bugs, not user error. A driver that
+// implements no validator keeps the historical behaviour (no extra
+// checks), so the pass strictly widens validation coverage.
+func validateDriverSettings(cfg *core.Config) error {
+	for _, d := range cfg.Drivers {
+		driver, err := core.CreateDriver(d)
+		if err != nil {
+			// Unknown type: reported by validateDrivers below with the
+			// registered-type listing; skip here.
+			continue
+		}
+		if v, ok := driver.(core.SettingsValidator); ok {
+			if err := v.ValidateSettings(d.Settings); err != nil {
+				return fmt.Errorf("driver %s: %w", d.Name, err)
+			}
+		}
+	}
+	return nil
+}
+
+// validateTransportSettings is the transport twin of validateDriverSettings.
+func validateTransportSettings(cfg *core.Config) error {
+	for _, t := range cfg.Transports {
+		transport, err := core.CreateTransport(t)
+		if err != nil {
+			continue // unknown type: validateTransports reports it
+		}
+		if v, ok := transport.(core.SettingsValidator); ok {
+			if err := v.ValidateSettings(t.Settings); err != nil {
+				return fmt.Errorf("transport %s: %w", t.Name, err)
+			}
 		}
 	}
 	return nil

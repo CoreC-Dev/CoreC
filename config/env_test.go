@@ -520,9 +520,9 @@ drivers:
   - name: plc
     type: modbus-tcp
     settings:
-      host: 192.168.1.100
+      host: ${COREC_TEST_CONN}
       port: 502
-      connection: ${COREC_TEST_CONN}
+      slave-id: 1
     tags:
       - { name: temp, address: "40001", type: float32 }
 transports:
@@ -535,7 +535,7 @@ rules:
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
-	conn := cfg.Drivers[0].Settings["connection"]
+	conn := cfg.Drivers[0].Settings["host"]
 	if conn != "user:pass@host:3306" {
 		t.Errorf("expected 'user:pass@host:3306', got %v", conn)
 	}

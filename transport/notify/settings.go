@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"text/template"
 	"time"
+
+	"github.com/CoreC-Dev/CoreC/core"
 )
 
 var (
@@ -143,3 +146,39 @@ func optTemplate(settings map[string]any, key, def string) (*template.Template, 
 	}
 	return template.New(key).Parse(raw)
 }
+
+// ValidateSettings implements core.SettingsValidator (audit CFG-4 /
+// roadmap #25): rejects unknown keys and checks the string-typed values
+// at config-validate time (the full channel-specific parsing — required
+// fields, durations, templates — still runs at Init). The drift test
+// (transport/settings_drift_test.go) fails when a key parsed by the
+// channel senders is missing here.
+func (t *NotifyTransport) ValidateSettings(settings map[string]any) error {
+	known := map[string]bool{
+		"channel": true, "cooldown": true, "template": true,
+		"webhook-url": true, "url": true, "method": true, "headers": true,
+		"body-template": true,
+		"smtp-host":     true, "smtp-port": true, "smtp-user": true, "smtp-pass": true,
+		"from": true, "to": true, "subject": true, "body": true,
+	}
+	for key, val := range settings {
+		if !known[key] {
+			valid := make([]string, 0, len(known))
+			for k := range known {
+				valid = append(valid, k)
+			}
+			sort.Strings(valid)
+			return fmt.Errorf("unknown notify setting %q (valid: %s)", key, strings.Join(valid, ", "))
+		}
+		// Strings except the two intentionally non-string fields.
+		if key == "headers" || key == "to" {
+			continue
+		}
+		if _, ok := val.(string); !ok {
+			return fmt.Errorf("notify setting %q must be a string", key)
+		}
+	}
+	return nil
+}
+
+var _ core.SettingsValidator = (*NotifyTransport)(nil)

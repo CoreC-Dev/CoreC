@@ -3,8 +3,10 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/CoreC-Dev/CoreC/core"
 	_ "github.com/CoreC-Dev/CoreC/driver/all"
 	_ "github.com/CoreC-Dev/CoreC/transport/all"
 )
@@ -673,4 +675,74 @@ func indexOf(s, substr string) int {
 		}
 	}
 	return -1
+}
+
+// TestValidateRejectsUnknownDriverSettings pins the CFG-4/roadmap #25
+// fix: a typo'd settings key (slve-id instead of slave-id) previously
+// sailed through validation and silently ran the driver against
+// defaults — the wrong device. The factory-constructed component's
+// SettingsValidator now rejects it at config-validate time with the
+// valid keys listed.
+func TestValidateRejectsUnknownDriverSettings(t *testing.T) {
+	cfg := &core.Config{
+		Drivers: []core.DriverConfig{{
+			Name: "plc1", Type: "modbus-tcp",
+			Settings: map[string]any{
+				"host":    "127.0.0.1",
+				"port":    502,
+				"slve-id": 7, // typo: slave-id
+			},
+			Tags: []core.TagConfig{{Name: "t", Address: "40001", Type: "uint16"}},
+		}},
+	}
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("expected unknown-settings error for the typo'd key")
+	}
+	if !strings.Contains(err.Error(), "slve-id") || !strings.Contains(err.Error(), "slave-id") {
+		t.Errorf("error should name the typo and list the valid keys, got: %v", err)
+	}
+
+	// The correctly spelled key passes.
+	cfg.Drivers[0].Settings = map[string]any{"host": "127.0.0.1", "port": 502, "slave-id": 7}
+	if err := Validate(cfg); err != nil {
+		t.Errorf("correct settings rejected: %v", err)
+	}
+}
+
+// TestValidateRejectsUnknownTransportSettings is the transport twin:
+// brokr instead of broker fails validation with the valid keys listed.
+func TestValidateRejectsUnknownTransportSettings(t *testing.T) {
+	cfg := &core.Config{
+		Transports: []core.TransportConfig{{
+			Name: "cloud", Type: "mqtt",
+			Settings: map[string]any{"brokr": "tcp://127.0.0.1:1883"},
+		}},
+	}
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("expected unknown-settings error for the typo'd broker key")
+	}
+	if !strings.Contains(err.Error(), "brokr") || !strings.Contains(err.Error(), "broker") {
+		t.Errorf("error should name the typo and list the valid keys, got: %v", err)
+	}
+}
+
+// TestValidateMisplacedFieldHintWinsOverAllowlist pins the ordering:
+// batch-size inside settings must keep the actionable "move it out one
+// indentation level" hint, not the generic unknown-settings error.
+func TestValidateMisplacedFieldHintWinsOverAllowlist(t *testing.T) {
+	cfg := &core.Config{
+		Transports: []core.TransportConfig{{
+			Name: "t1", Type: "mqtt",
+			Settings: map[string]any{"broker": "tcp://127.0.0.1:1883", "batch-size": 100},
+		}},
+	}
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("expected misplaced-field error")
+	}
+	if !strings.Contains(err.Error(), "one indentation level") {
+		t.Errorf("expected the actionable misplaced-field hint, got: %v", err)
+	}
 }
