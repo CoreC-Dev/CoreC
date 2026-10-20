@@ -1,6 +1,6 @@
 # 执行计划：生产级加固（audit-backend-functionality P0/P1 落地）
 
-> 状态：P0+P1 已落地（12/12）+ P2 已落地 12 项（#12 #13 #14 #15 #16 #17 #18 #20 #21 #22 #23 #24 #28）；TRA-1 复核为误报；余 P2（#25 #26 #27 #29 #30）+ P3 见路线图
+> 状态：P0+P1 已落地（12/12）+ P2 已落地 15 项（#12 #13 #14 #15 #16 #17 #18 #20 #21 #22 #23 #24 #27 #28 #29 #30）；TRA-1 复核为误报；余 P2（#25 #26）+ P3 见路线图
 > 来源：`docs/audits/backend-functionality-audit-2026-10-19.md`（2026-10-19 后端功能完整性审计，40 项路线图）
 > 业务行为影响：**变更行为**（写路径反演、PUT /configs 错误码、指标新增/删除——每项单独登记，见各行）
 > 跨仓库：CoreC-Dashboard 需同步的项标注 [FE]；文档需同步的项标注 [DOC]
@@ -40,7 +40,10 @@
 | 28 | offline buffer 字节水位 gauge | 路线图#28 | `a124349` |
 | 17 | 派生标签 `driver.tag` 限定引用 | PIPE-2 | `201e2d0` |
 | 22 | GET /configs/audit 配置变更审计 | HUB-4 | `8c36395`（FE `4f93757`） |
-| 23 | PATCH 扩面（log-format / stale-threshold） | CFG-6 | 本批（FE `ba135d3`） |
+| 23 | PATCH 扩面（log-format / stale-threshold） | CFG-6 | `3b5e399`（FE `ba135d3`） |
+| 30 | discovery HTTP 分支处置：标注 experimental + 可见跳过 | RES-3 | `48d9a27` |
+| 29 | 死信落盘选项（dead-letter-path） | RES-2 | `a989e9c` |
+| 27 | 专用免密 metrics 端口（metrics-addr） | OBS-12 | `bfa1577` |
 
 ## 1. 目标
 
