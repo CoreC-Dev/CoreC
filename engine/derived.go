@@ -71,12 +71,19 @@ const (
 
 // derivedTagEvaluator periodically evaluates derived tag expressions against
 // the latest cache and pushes the results into the data bus.
+//
+// The evaluator owns its goroutines (per-evaluator wait group and a
+// cancelable child context) instead of borrowing the engine's runtime
+// wait group: reload must be able to stop and join JUST the evaluator's
+// goroutines while the engine keeps running (audit finding CFG-1 —
+// derived-tags changes were previously silently ignored on reload).
 type derivedTagEvaluator struct {
 	tags    []*compiledDerivedTag
 	cache   *LatestCache
 	dataBus *DataBus
 	ctx     context.Context
-	wg      *sync.WaitGroup
+	cancel  context.CancelFunc
+	wg      sync.WaitGroup
 }
 
 // newDerivedTagEvaluator compiles all derived tag configs. Returns nil (no
@@ -136,18 +143,29 @@ func compileDerivedTag(cfg core.DerivedTagConfig) (*compiledDerivedTag, error) {
 	}, nil
 }
 
-// start launches a goroutine per derived tag, each ticking at its interval.
-func (d *derivedTagEvaluator) start(ctx context.Context, wg *sync.WaitGroup) {
-	d.ctx = ctx
-	d.wg = wg
+// start launches a goroutine per derived tag under a cancelable child
+// of the parent (engine) context. The goroutines join the evaluator's
+// own wait group so stop() can wait for exactly this evaluator's
+// goroutines — the engine-wide group no longer tracks them.
+func (d *derivedTagEvaluator) start(parent context.Context) {
+	d.ctx, d.cancel = context.WithCancel(parent)
 	for _, tag := range d.tags {
-		wg.Add(1)
-		go d.runTag(ctx, wg, tag)
+		d.wg.Add(1)
+		go d.runTask(d.ctx, &d.wg, tag)
 	}
 }
 
-// runTag evaluates a single derived tag on its interval until ctx is cancelled.
-func (d *derivedTagEvaluator) runTag(ctx context.Context, wg *sync.WaitGroup, tag *compiledDerivedTag) {
+// stop cancels the evaluator's context and waits for its goroutines to
+// exit. Safe on a never-started evaluator (cancel nil, empty group).
+func (d *derivedTagEvaluator) stop() {
+	if d.cancel != nil {
+		d.cancel()
+	}
+	d.wg.Wait()
+}
+
+// runTask evaluates a single derived tag on its interval until ctx is cancelled.
+func (d *derivedTagEvaluator) runTask(ctx context.Context, wg *sync.WaitGroup, tag *compiledDerivedTag) {
 	defer wg.Done()
 	ticker := time.NewTicker(tag.interval)
 	defer ticker.Stop()

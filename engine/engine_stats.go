@@ -94,3 +94,9 @@ func (e *CoreCEngine) DeadLetterStats() (size int, pushed uint64) {
 func (e *CoreCEngine) IngressDeadLetters() []core.DeadLetterEntry {
 	return e.transportMgr.ingressDeadLetters()
 }
+
+// ApplyDerivedTags forwards to the lifecycle role for hot-reloading the
+// derived tag set (optional core.DerivedTagApplier role, audit CFG-1).
+func (e *CoreCEngine) ApplyDerivedTags(configs []core.DerivedTagConfig) error {
+	return e.lifecycle.applyDerivedTags(configs)
+}

@@ -72,6 +72,23 @@ func ApplyConfig(cfg *core.Config, force bool) error {
 		slog.Info("rules updated", "count", len(cfg.Rules))
 	}
 
+	// Step 5b: Hot-apply derived tags (audit finding CFG-1: changes to
+	// derived-tags were previously ignored by ApplyConfig — PUT
+	// returned success and nothing happened). The engine compiles the
+	// new set before stopping the old evaluator, so a broken expression
+	// keeps the previous tags running. Engines without the role keep
+	// the restart-required warning path below.
+	if force || !reflect.DeepEqual(oldCfg.DerivedTags, cfg.DerivedTags) {
+		if applier, ok := engine.(core.DerivedTagApplier); ok && applier != nil {
+			if err := applier.ApplyDerivedTags(cfg.DerivedTags); err != nil {
+				return fmt.Errorf("error updating derived tags: %w", err)
+			}
+			slog.Info("derived tags updated", "count", len(cfg.DerivedTags))
+		} else {
+			slog.Warn("derived-tags changed but this engine does not support hot-apply; requires restart to take effect")
+		}
+	}
+
 	currentCfg = cfg
 	slog.Info("configuration reload completed successfully")
 	return nil
@@ -84,7 +101,11 @@ func ApplyConfig(cfg *core.Config, force bool) error {
 //     boot; reload cannot rebind or re-authenticate it (m8),
 //   - rule-providers, rule-groups, and engine tuning parameters — silently
 //     ignored by ApplyConfig; warn so operators know a restart is needed
-//     (problem 5).
+//     (problem 5),
+//   - node (topology auto-discovery) and global.buffer (offline buffer) —
+//     wired once at engine start; warn so operators know a restart is
+//     needed (audit finding CFG-1: these were previously ignored with
+//     no warning at all).
 //
 // Extracted from ApplyConfig to reduce its cyclomatic complexity (CPLX-017).
 func warnRestartRequired(oldCfg, cfg *core.Config) {
@@ -109,5 +130,11 @@ func warnRestartRequired(oldCfg, cfg *core.Config) {
 	}
 	if !reflect.DeepEqual(oldCfg.Global.Engine, cfg.Global.Engine) {
 		slog.Warn("engine tuning parameters changed but require restart to take effect")
+	}
+	if !reflect.DeepEqual(oldCfg.Node, cfg.Node) {
+		slog.Warn("node (auto-discovery) config changed but requires restart to take effect")
+	}
+	if !reflect.DeepEqual(oldCfg.Global.Buffer, cfg.Global.Buffer) {
+		slog.Warn("global.buffer (offline buffer) config changed but requires restart to take effect")
 	}
 }

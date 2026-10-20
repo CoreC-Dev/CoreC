@@ -59,8 +59,8 @@ func (l *lifecycleSupport) startScheduler() error {
 
 // startDerivedTags compiles and launches the derived tag evaluator. The
 // evaluator reads the latest cache and pushes computed points into the data
-// bus. Each derived tag runs in its own goroutine bound to the engine
-// context/wait group.
+// bus. Each derived tag runs in its own goroutine, tracked by the
+// evaluator's own wait group (hot-reload support).
 func (l *lifecycleSupport) startDerivedTags(config *core.Config) error {
 	if err := validateDerivedTags(config.DerivedTags); err != nil {
 		return fmt.Errorf("derived tags config: %w", err)
@@ -69,12 +69,49 @@ func (l *lifecycleSupport) startDerivedTags(config *core.Config) error {
 	if err != nil {
 		return fmt.Errorf("derived tags: %w", err)
 	}
-	l.eng.mu.Lock()
-	l.derivedEvaluator = ev
-	l.eng.mu.Unlock()
-	ev.start(l.eng.runtime.ctx, &l.eng.runtime.wg)
+	l.swapDerivedEvaluator(ev)
+	ev.start(l.eng.runtime.ctx)
 	slog.Info("derived tag evaluator started", "count", len(config.DerivedTags))
 	return nil
+}
+
+// applyDerivedTags hot-swaps the derived tag set on a config reload
+// (audit finding CFG-1: derived-tags changes were previously silently
+// ignored — PUT returned success, nothing happened). The new set is
+// validated and compiled BEFORE the old evaluator is stopped, so a
+// broken expression keeps the previous tags running (fail-safe swap);
+// the old goroutines are joined before the new ones start, so exactly
+// one evaluator is live at any moment.
+func (l *lifecycleSupport) applyDerivedTags(configs []core.DerivedTagConfig) error {
+	if l.eng.runtime.ctx == nil {
+		return fmt.Errorf("engine not started: derived tags can only be applied to a running engine")
+	}
+	if err := validateDerivedTags(configs); err != nil {
+		return fmt.Errorf("derived tags config: %w", err)
+	}
+	ev, err := newDerivedTagEvaluator(configs, l.eng.processing.cache, l.eng.processing.dataBus)
+	if err != nil {
+		return fmt.Errorf("derived tags: %w", err)
+	}
+	old := l.swapDerivedEvaluator(ev)
+	if old != nil {
+		old.stop()
+	}
+	ev.start(l.eng.runtime.ctx)
+	slog.Info("derived tags applied", "count", len(configs))
+	return nil
+}
+
+// swapDerivedEvaluator atomically installs the given evaluator (may be
+// nil to detach the current one, e.g. at engine shutdown) and returns
+// the previously active evaluator so the caller can stop it outside
+// any engine lock.
+func (l *lifecycleSupport) swapDerivedEvaluator(ev *derivedTagEvaluator) *derivedTagEvaluator {
+	l.eng.mu.Lock()
+	old := l.derivedEvaluator
+	l.derivedEvaluator = ev
+	l.eng.mu.Unlock()
+	return old
 }
 
 // startDiscovery launches the topology auto-discovery module if node config

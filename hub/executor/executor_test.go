@@ -16,6 +16,7 @@ type mockEngineForExecutor struct {
 	rulesSet       []core.RuleConfig
 	suspended      bool
 	resumed        bool
+	derivedApplied [][]core.DerivedTagConfig
 }
 
 func (m *mockEngineForExecutor) Suspend() error {
@@ -154,5 +155,59 @@ rules:
 	}
 	if log.Level() != slog.LevelWarn {
 		t.Errorf("expected log level Warn, got %v", log.Level())
+	}
+}
+
+func (m *mockEngineForExecutor) ApplyDerivedTags(configs []core.DerivedTagConfig) error {
+	m.derivedApplied = append(m.derivedApplied, configs)
+	return nil
+}
+
+// TestApplyConfigHotAppliesDerivedTags pins the reload diff's derived-tags
+// step (audit finding CFG-1): ApplyConfig previously ignored
+// derived-tags changes entirely — PUT returned success and nothing
+// happened. The mock implements core.DerivedTagApplier, so the diff
+// must forward changed sets to the engine and skip unchanged ones.
+func TestApplyConfigHotAppliesDerivedTags(t *testing.T) {
+	eng := &mockEngineForExecutor{}
+	initial := &core.Config{
+		DerivedTags: []core.DerivedTagConfig{
+			{Name: "kpi1", Expr: "x * 2", Interval: "5s"},
+		},
+	}
+	Init(eng, initial, filepath.Join(t.TempDir(), "config.yaml"))
+	defer Init(nil, nil, "")
+
+	// Same derived set: no apply.
+	if err := ApplyConfig(initial, false); err != nil {
+		t.Fatalf("ApplyConfig(unchanged): %v", err)
+	}
+	if len(eng.derivedApplied) != 0 {
+		t.Fatalf("unchanged derived tags applied %d times, want 0", len(eng.derivedApplied))
+	}
+
+	// Changed derived set: applied exactly once with the new set.
+	changed := &core.Config{
+		DerivedTags: []core.DerivedTagConfig{
+			{Name: "kpi2", Expr: "x * 3", Interval: "5s"},
+		},
+	}
+	if err := ApplyConfig(changed, false); err != nil {
+		t.Fatalf("ApplyConfig(changed): %v", err)
+	}
+	if len(eng.derivedApplied) != 1 {
+		t.Fatalf("changed derived tags applied %d times, want 1", len(eng.derivedApplied))
+	}
+	got := eng.derivedApplied[0]
+	if len(got) != 1 || got[0].Name != "kpi2" {
+		t.Errorf("applied set = %+v, want [kpi2]", got)
+	}
+
+	// force=true reapplies even identical sets.
+	if err := ApplyConfig(changed, true); err != nil {
+		t.Fatalf("ApplyConfig(force): %v", err)
+	}
+	if len(eng.derivedApplied) != 2 {
+		t.Fatalf("force apply count = %d, want 2", len(eng.derivedApplied))
 	}
 }

@@ -149,6 +149,15 @@ func (r *engineRuntime) Stop() error {
 		r.eng.lifecycle.discovery = nil
 	}
 
+	// Stop the derived tag evaluator: its goroutines run on the
+	// evaluator's own wait group (hot-reload support), so they are
+	// joined here explicitly rather than by the engine-wide wg.Wait.
+	// It must stop before stopComponents closes the data bus it
+	// pushes into.
+	if ev := r.eng.lifecycle.swapDerivedEvaluator(nil); ev != nil {
+		ev.stop()
+	}
+
 	// Stop scheduler
 	if r.eng.lifecycle.scheduler != nil {
 		if err := r.eng.lifecycle.scheduler.Stop(); err != nil {
@@ -163,7 +172,6 @@ func (r *engineRuntime) Stop() error {
 	r.wg.Wait()
 	r.eng.mu.Lock()
 	r.status = core.EngineStatusStopped
-	r.eng.lifecycle.derivedEvaluator = nil
 	r.eng.mu.Unlock()
 	slog.Info("CoreC engine stopped")
 	return nil

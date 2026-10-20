@@ -193,6 +193,16 @@ type IngressDeadLetterProvider interface {
 	IngressDeadLetters() []DeadLetterEntry
 }
 
+// DerivedTagApplier exposes hot-reload of the derived tag set (audit
+// finding CFG-1: derived-tags changes were previously ignored by
+// ApplyConfig — PUT returned success while nothing happened). The
+// executor type-asserts this role during config reload; engines that
+// do not implement it keep the restart-required warning.
+// *CoreCEngine satisfies this interface; test mocks are free to omit it.
+type DerivedTagApplier interface {
+	ApplyDerivedTags(configs []DerivedTagConfig) error
+}
+
 // Config is the top-level configuration structure.
 type Config struct {
 	Node          NodeConfig              `yaml:"node,omitempty"`
