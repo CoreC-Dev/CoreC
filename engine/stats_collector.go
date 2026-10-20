@@ -23,6 +23,12 @@ type statsCollector struct {
 	totalErrors  atomic.Uint64
 	startTime    time.Time
 
+	// badQualityDropped counts points discarded by the
+	// on-bad-quality: drop policy (audit finding OBS-6: these were
+	// previously counted inside totalErrors, conflating a configured
+	// discard policy with processing errors).
+	badQualityDropped atomic.Uint64
+
 	// readRate tracks points-per-second over the last minute so
 	// EngineStats.PointsPerSec reports a true current rate. The
 	// lifetime average previously reported (totalRead / uptime) decayed
@@ -184,6 +190,26 @@ func (s *statsCollector) FlushBatchesDropped() uint64 {
 	return total
 }
 
+// recordBadQualityDrop counts one point discarded by the drop policy.
+func (s *statsCollector) recordBadQualityDrop() {
+	s.badQualityDropped.Add(1)
+}
+
+// DroppedBreakdown decomposes the drop counters by cause
+// (core.DroppedBreakdownProvider).
+func (s *statsCollector) DroppedBreakdown() core.DroppedBreakdown {
+	bd := core.DroppedBreakdown{
+		BadQuality: s.badQualityDropped.Load(),
+		LogEvents:  uint64(log.Dropped()),
+	}
+	if s.eng.processing.dataBus != nil {
+		bd.DataBusMain = uint64(s.eng.processing.dataBus.PushDropped())
+		bd.DataBusPriority = uint64(s.eng.processing.dataBus.HighPriorityPushDropped())
+		bd.SlowSubscriber = uint64(s.eng.processing.dataBus.Dropped())
+	}
+	return bd
+}
+
 // recordRead counts n points entering the pipeline (driver reads and
 // chained-transport inbound points alike): the lifetime total and the
 // windowed per-second rate behind EngineStats.PointsPerSec.
@@ -202,7 +228,7 @@ func (s *statsCollector) recordRead(n int) {
 // the statistic manager's publish counter accurate for batched transports,
 // where the real PublishBatch happens asynchronously after publish()
 // returns (Finding 4 fix: previously publish.go counted totalPublish and
-// statManager.PushPublish immediately after the near-instant enqueue, which
+// enqueue-time counting immediately after the near-instant enqueue, which
 // inflated the publish counter and undercounted errors when batches later
 // failed after retries).
 func (s *statsCollector) onBatchPublish(n int) {

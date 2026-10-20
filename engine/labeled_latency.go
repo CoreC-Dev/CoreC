@@ -57,10 +57,10 @@ type labeledLatencyStore struct {
 // aggregate histograms on their default bucket scales.
 func newLabeledLatencyStore() *labeledLatencyStore {
 	return &labeledLatencyStore{
-		globalRead:    metrics.NewLatencyHistogram(metrics.DefaultReadLatencyBuckets),
-		globalPublish: metrics.NewLatencyHistogram(metrics.DefaultPublishLatencyBuckets),
-		globalAge:     metrics.NewLatencyHistogram(metrics.DefaultDataAgeBuckets),
-		readByDriver:  make(map[string]*metrics.LatencyHistogram),
+		globalRead:     metrics.NewLatencyHistogram(metrics.DefaultReadLatencyBuckets),
+		globalPublish:  metrics.NewLatencyHistogram(metrics.DefaultPublishLatencyBuckets),
+		globalAge:      metrics.NewLatencyHistogram(metrics.DefaultDataAgeBuckets),
+		readByDriver:   make(map[string]*metrics.LatencyHistogram),
 		pubByTransport: make(map[string]*metrics.LatencyHistogram),
 		ageByTransport: make(map[string]*metrics.LatencyHistogram),
 	}

@@ -36,7 +36,7 @@ type writeManager struct {
 
 	// deadLetterQueue holds write commands that failed after all retries.
 	// Bounded by deadLetterMaxLen; oldest entries are evicted when full.
-	deadLetterMu     sync.Mutex
+	deadLetterMu    sync.Mutex
 	deadLetterQueue []core.DeadLetterEntry
 
 	// deadLetterMaxLen bounds the dead letter queue.

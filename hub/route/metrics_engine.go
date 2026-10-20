@@ -78,6 +78,31 @@ func writeDeadLetterMetrics(b *strings.Builder) {
 	fmt.Fprintf(b, "corec_dead_letter_pushed_total %d\n", pushed)
 }
 
+// writeDroppedBreakdown emits the per-cause drop counters so operators
+// can attribute loss instead of diffing the umbrella total (audit
+// finding OBS-6: corec_dropped_total historically summed four unrelated
+// kinds of loss — data-bus overflow, slow subscribers, bad-quality
+// policy discards, and dropped log events — with no labels). The
+// umbrella family stays for backward compatibility; engines without
+// the core.DroppedBreakdownProvider role omit the breakdown.
+func writeDroppedBreakdown(b *strings.Builder) {
+	provider, ok := getEngine().(core.DroppedBreakdownProvider)
+	if !ok || provider == nil {
+		return
+	}
+	bd := provider.DroppedBreakdown()
+
+	writePromHeader(b, "corec_databus_dropped_total", "counter", "Data points dropped from the internal data bus because it was full, by channel (oldest evicted per push)")
+	fmt.Fprintf(b, "corec_databus_dropped_total{channel=\"main\"} %d\n", bd.DataBusMain)
+	fmt.Fprintf(b, "corec_databus_dropped_total{channel=\"priority\"} %d\n", bd.DataBusPriority)
+
+	writePromHeader(b, "corec_slow_subscriber_dropped_total", "counter", "Data points dropped because a /tags/stream subscriber fell behind (bounded per-subscriber buffers)")
+	fmt.Fprintf(b, "corec_slow_subscriber_dropped_total %d\n", bd.SlowSubscriber)
+
+	writePromHeader(b, "corec_bad_quality_dropped_total", "counter", "Data points discarded by the on-bad-quality: drop policy (a configured policy, not a processing error)")
+	fmt.Fprintf(b, "corec_bad_quality_dropped_total %d\n", bd.BadQuality)
+}
+
 // writeAlertMetrics exposes the alert registry for alerting on alerts
 // (audit findings OBS-4/HUB-6): the cumulative fire count per rule and
 // the number of currently-active alerts. Engines without the

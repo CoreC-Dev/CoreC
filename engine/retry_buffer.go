@@ -48,7 +48,7 @@ func (r *batcherRetryPolicy) publishWithRetryAndBuffer(ctx context.Context, batc
 
 		if lastErr == nil {
 			// Count the real publish (not just the enqueue) so the
-			// engine's totalPublish and statManager reflect actual
+			// engine's totalPublish reflects actual
 			// successful publishes (Finding 4 fix: previously counted
 			// prematurely in publish.go right after the near-instant
 			// enqueue).

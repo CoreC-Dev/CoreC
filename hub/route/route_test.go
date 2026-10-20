@@ -590,7 +590,6 @@ func TestUpdateConfigsErrorClassification(t *testing.T) {
 	})
 }
 
-
 // putConfigs issues an authenticated PUT /configs with the given JSON
 // body and returns the raw response.
 func putConfigs(t *testing.T, ts *httptest.Server, body string) *http.Response {

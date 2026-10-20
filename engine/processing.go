@@ -135,8 +135,11 @@ func (p *processingCore) processPoint(point core.DataPoint) {
 	if point.Quality == core.QualityBad {
 		switch p.badQualityPolicy {
 		case badQualityDrop:
-			p.eng.stats.totalErrors.Add(1)
-						return // discard entirely
+			// A configured discard policy is not a processing error:
+			// count it as a bad-quality drop (OBS-6) so total_errors
+			// stops conflating policy with faults.
+			p.eng.stats.recordBadQualityDrop()
+			return // discard entirely
 		case badQualityMarkAndPublish:
 			point.Value = nil // keep quality=bad, clear value
 		case badQualityAlert:
@@ -321,7 +324,7 @@ func (p *processingCore) publishToTargets(point core.DataPoint, targets []string
 			// observing here would record enqueue time, not real
 			// transport latency.
 			//
-			// totalPublish and statManager.PushPublish are also counted
+			// totalPublish is also counted
 			// inside the batcher via the onPublish callback (called when
 			// the batch is actually published, not just enqueued). This
 			// avoids inflating the publish counter for points that are
@@ -335,7 +338,7 @@ func (p *processingCore) publishToTargets(point core.DataPoint, targets []string
 			if err != nil {
 				slog.Error("batch dropped from flush queue", "target", entry.name, "error", err)
 				p.eng.stats.totalErrors.Add(1)
-								p.eng.transportMgr.tryFallback(point, entry.name, fallbackSnapshot)
+				p.eng.transportMgr.tryFallback(point, entry.name, fallbackSnapshot)
 			}
 			continue
 		}
@@ -349,7 +352,7 @@ func (p *processingCore) publishToTargets(point core.DataPoint, targets []string
 		if err != nil {
 			slog.Error("publish failed", "target", entry.name, "error", err)
 			p.eng.stats.totalErrors.Add(1)
-						p.eng.transportMgr.tryFallback(point, entry.name, fallbackSnapshot)
+			p.eng.transportMgr.tryFallback(point, entry.name, fallbackSnapshot)
 		} else {
 			p.eng.stats.totalPublish.Add(1)
 		}

@@ -3,6 +3,8 @@ package engine
 import (
 	"testing"
 	"time"
+
+	"github.com/CoreC-Dev/CoreC/core"
 )
 
 // TestStatsPointsPerSecWindowedRate pins EngineStats.PointsPerSec to the
@@ -48,5 +50,28 @@ func TestStatsPointsPerSecWindowedRate(t *testing.T) {
 	after := e2.stats.Stats()
 	if after.TotalRead != before.TotalRead {
 		t.Fatalf("recordRead(0) changed TotalRead: %d -> %d", before.TotalRead, after.TotalRead)
+	}
+}
+
+// TestBadQualityDropCounting pins the OBS-6 split: the drop policy's
+// discards increment the dedicated bad-quality counter and no longer
+// pollute total_errors (a configured policy is not a fault).
+func TestBadQualityDropCounting(t *testing.T) {
+	e := New().(*CoreCEngine)
+	e.processing.dataBus = NewDataBus(64)
+	e.processing.badQualityPolicy = badQualityDrop
+
+	for i := 0; i < 3; i++ {
+		e.processing.processPoint(core.DataPoint{
+			Driver: "d", Tag: "t", Value: 1.0, Quality: core.QualityBad,
+			Timestamp: time.Now(),
+		})
+	}
+
+	if got := e.DroppedBreakdown().BadQuality; got != 3 {
+		t.Errorf("bad_quality dropped = %d, want 3", got)
+	}
+	if got := e.stats.totalErrors.Load(); got != 0 {
+		t.Errorf("total_errors = %d, want 0 (drop policy is not an error)", got)
 	}
 }

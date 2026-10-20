@@ -190,6 +190,38 @@ type FlushBatchesDroppedProvider interface {
 	FlushBatchesDropped() uint64
 }
 
+// DroppedBreakdown decomposes the dropped-point counters by cause so
+// operators can attribute loss instead of diffing the umbrella total
+// (audit finding OBS-6: corec_dropped_total summed four unrelated
+// kinds of loss with no labels).
+type DroppedBreakdown struct {
+	// DataBusMain is the number of points dropped from the main data
+	// bus channel when it was full (oldest evicted).
+	DataBusMain uint64 `json:"databus_main"`
+	// DataBusPriority is the same for the high-priority (fast-interval)
+	// channel.
+	DataBusPriority uint64 `json:"databus_priority"`
+	// SlowSubscriber is the number of points dropped because a
+	// /tags/stream subscriber fell behind.
+	SlowSubscriber uint64 `json:"slow_subscriber"`
+	// BadQuality is the number of points discarded by the
+	// on-bad-quality: drop policy (previously counted inside
+	// total_errors, conflating config policy with processing errors).
+	BadQuality uint64 `json:"bad_quality"`
+	// LogEvents is the number of log events dropped by a full log
+	// buffer or slow log subscribers (exposed separately as
+	// corec_log_dropped_total; included here because it summed into the
+	// umbrella total historically).
+	LogEvents uint64 `json:"log_events"`
+}
+
+// DroppedBreakdownProvider exposes the per-cause drop counters for
+// Prometheus exposure. A separate role interface the route layer
+// type-asserts optionally; *CoreCEngine satisfies it.
+type DroppedBreakdownProvider interface {
+	DroppedBreakdown() DroppedBreakdown
+}
+
 // DeadLetterStatsProvider exposes the dead-letter queue depth (gauge)
 // and the lifetime number of commands pushed into it (counter) for
 // Prometheus exposure (audit finding OBS-3 / roadmap #5). Previously

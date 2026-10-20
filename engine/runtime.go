@@ -342,8 +342,6 @@ func (r *engineRuntime) stopComponents() {
 	// until now this drop was completely silent: no log, no counter.
 	if dropped := r.drainDataBusOnShutdown(); dropped > 0 {
 		r.eng.stats.totalErrors.Add(dropped)
-		for range dropped {
-					}
 		slog.Warn("shutdown: dropped data points still queued in data bus",
 			"points", dropped,
 		)

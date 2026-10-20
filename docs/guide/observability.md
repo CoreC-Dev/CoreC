@@ -44,6 +44,21 @@ CoreC 内置四套可观测性机制，无需任何外部依赖或第三方库�
 | `corec_uptime_seconds` | 引擎运行时长（秒） | `EngineStats.Uptime` |
 | `corec_points_per_second` | 近 60 秒滑动窗口的数据处理速率（点/秒）；采集停止超过 1 分钟后归零（窗口内速率，非启动以来均值） | `EngineStats.PointsPerSec` |
 
+### 丢弃归因指标（audit OBS-6）
+
+`corec_dropped_total` 是四类丢弃的总和（历史兼容保留）。以下按因拆分的族让"到底丢在哪一层"可以直接回答与告警：
+
+| 指标 | 类型 | 标签 | 说明 |
+|:---|:---|:---|:---|
+| `corec_databus_dropped_total` | counter | `channel` | 内部数据总线满载逐出的点数：`main`（普通通道）/ `priority`（快间隔高优通道） |
+| `corec_slow_subscriber_dropped_total` | counter | — | `/tags/stream` 订阅者消费过慢被丢的点数 |
+| `corec_bad_quality_dropped_total` | counter | — | `on-bad-quality: drop` 策略丢弃的点数（配置行为，**不再**计入 `corec_errors_total`） |
+
+```promql
+# 任一丢弃原因出现都值得知道
+corec_databus_dropped_total > 0 or corec_slow_subscriber_dropped_total > 0 or corec_bad_quality_dropped_total > 0
+```
+
 ### 每驱动指标
 
 以下指标按驱动实例名分组，按名称排序输出（确保快照确定性）。

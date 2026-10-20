@@ -47,6 +47,10 @@ type mockEngineV2 struct {
 	// role (/write/failed?source=ingress).
 	ingressDeadLetters []core.DeadLetterEntry
 
+	// dropBreakdown backs the optional core.DroppedBreakdownProvider
+	// role (OBS-6).
+	dropBreakdown core.DroppedBreakdown
+
 	// alerts/ackErr/alertStreamCh back the optional alert roles
 	// (core.AlertProvider / AlertStreamer / AlertMetricsProvider).
 	alerts          []core.Alert
@@ -79,6 +83,8 @@ func (m *mockEngineV2) SubscribeAlerts() (<-chan core.AlertEvent, func()) {
 }
 func (m *mockEngineV2) AlertFireCounts() map[string]uint64 { return m.alertFireCounts }
 func (m *mockEngineV2) ActiveAlertCount() int              { return len(m.alerts) }
+
+func (m *mockEngineV2) DroppedBreakdown() core.DroppedBreakdown { return m.dropBreakdown }
 
 func (m *mockEngineV2) ListDrivers() []core.DriverStatus { return m.drivers }
 

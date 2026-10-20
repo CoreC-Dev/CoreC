@@ -70,6 +70,9 @@ func promMetrics(w http.ResponseWriter, r *http.Request) {
 	// ─── Per-transport metrics ────────────────────────────────────────
 	writeTransportMetrics(&b, stats.TransportStats)
 
+	// ─── Dropped-by-cause breakdown (audit OBS-6) ─────────────────────
+	writeDroppedBreakdown(&b)
+
 	// ─── Offline buffer metrics ───────────────────────────────────────
 	writeOfflineBufferMetrics(&b)
 

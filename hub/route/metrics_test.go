@@ -554,3 +554,36 @@ func TestPromMetricsUnlabeledLatencyFallback(t *testing.T) {
 		t.Errorf("unlabeled fallback unexpectedly contains labeled series\nOutput:\n%s", output)
 	}
 }
+
+// TestPromMetricsDroppedBreakdown verifies the per-cause drop families
+// (audit OBS-6): the breakdown must be scrapeable, not just diffable
+// from the umbrella total.
+func TestPromMetricsDroppedBreakdown(t *testing.T) {
+	eng := &mockEngineV2{
+		dropBreakdown: core.DroppedBreakdown{
+			DataBusMain:     7,
+			DataBusPriority: 3,
+			SlowSubscriber:  12,
+			BadQuality:      40,
+		},
+	}
+	ts := newTestServer("", eng)
+	defer ts.Close()
+
+	resp := authedGet(t, ts, "/metrics", "")
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	output := string(body)
+
+	checks := []string{
+		"corec_databus_dropped_total{channel=\"main\"} 7",
+		"corec_databus_dropped_total{channel=\"priority\"} 3",
+		"corec_slow_subscriber_dropped_total 12",
+		"corec_bad_quality_dropped_total 40",
+	}
+	for _, s := range checks {
+		if !strings.Contains(output, s) {
+			t.Errorf("metrics output missing %q\nOutput:\n%s", s, output)
+		}
+	}
+}

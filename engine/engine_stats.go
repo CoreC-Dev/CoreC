@@ -148,6 +148,12 @@ func (e *CoreCEngine) ActiveAlertCount() int {
 	return e.processing.alerts.activeCount()
 }
 
+// DroppedBreakdown forwards to the stats collector for the per-cause
+// drop families (optional core.DroppedBreakdownProvider role, OBS-6).
+func (e *CoreCEngine) DroppedBreakdown() core.DroppedBreakdown {
+	return e.stats.DroppedBreakdown()
+}
+
 // --- Driver pause/resume (audit RES-4, roadmap #21) ---
 
 // PauseDriver suspends the named driver's collection tasks without
