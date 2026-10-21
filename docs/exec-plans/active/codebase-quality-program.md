@@ -12,7 +12,7 @@
 | 0 | 跨仓契约修复：F1 日志 level 字符串契约 / F2 流量面板死亡 / F3 安全文档虚假声明 / D6 边界 schema 化 | ✅ 完成 | FE `1a3e0d0` |
 | H | Harness：H1 lint 钉版+钩子硬失败 / H2 version-check 死代码迁移 / H3 server.mjs 纳管 / H4 CI 对齐本地门禁 | ✅ 完成 | `f11fdf1`(H1+H2) `ce52840`(H4) · FE `5e8295d`(H3) |
 | C | 后端清理：B1 守卫缺口 / B2 复杂度 / B3+B4 死代码 / B5 守卫薄弱 / B6 数字漂移 / B7 命名与重复 / B8 巨型结构（并入 CPLX-001） | 🔄 主体完成（B1–B7 除 mock 合并与 ParseDurationOr 外；B8 随 CPLX-001 拆分单独排期） | `fbddb4c` `a1b03df` `4334dc5` + 本批 |
-| F | 前端清理：D1 staged API 决策 / D2 脚手架去重与豁免清零 / D3 i18n 死键 / D4 分层 / D5 死导出 | 🔄 D1-D5 主体完成（D2 的页族拆分与 God 豁免清零单列） | FE `b7f88bd` `0ccd1b0` `5c01c5a` |
+| F | 前端清理：D1 staged API 决策 / D2 脚手架去重与豁免清零 / D3 i18n 死键 / D4 分层 / D5 死导出 | 🔄 D1-D5 + 两个最大豁免已拆（RuleGroupEditor 890→324/290/310、configSchema 811→450/291/53/37；豁免 6→4）；余 4 个豁免（Detail×2 677/656、Wizard 645、DriversPage 637）与页族脚手架抽取 | FE `b7f88bd` `0ccd1b0` `5c01c5a` `7ea6490` |
 | G | 文档：G1+G2 巨型参考退役 / G3 可达性 / G4 对账 / G5 零散 | ⏳ 待做 | — |
 | W | 仓库卫生：H6 清单 | ⏳ 待做 | — |
 
