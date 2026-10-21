@@ -21,9 +21,10 @@ import (
 )
 
 var (
-	version    = "dev" // injected via ldflags: -X main.version=1.0.0
-	configPath string
-	logLevel   string
+	version     = "dev" // injected via ldflags: -X main.version=1.0.0
+	configPath  string
+	logLevel    string
+	versionOnly bool
 )
 
 func main() {
@@ -34,7 +35,17 @@ func run() int {
 	flag.StringVar(&configPath, "config", "config.yaml", "path to configuration file")
 	flag.StringVar(&configPath, "c", "config.yaml", "path to configuration file (shorthand)")
 	flag.StringVar(&logLevel, "log-level", "", "override log level (debug, info, warn, error)")
+	// -version prints the injected version and exits — the behavioral hook
+	// the release workflow's version-consistency guard asserts against
+	// (H2, quality audit 2026-10-21): the guard builds with the tag's
+	// ldflags and requires the BINARY to report exactly the tag.
+	flag.BoolVar(&versionOnly, "version", false, "print version and exit")
 	flag.Parse()
+
+	if versionOnly {
+		fmt.Println(version)
+		return 0
+	}
 
 	verStr := version
 	if verStr != "dev" {

@@ -69,9 +69,9 @@
 - **豁免**：无
 
 ### G9: 版本一致性（D3）
-- **失败含义**：git tag 不符合 semver，或 release.yml 未通过 ldflags 注入 `main.version` 和 `hub/route.Version`
-- **触发**：仅在 tag push 时运行
-- **修复指引**：确保 tag 格式为 `vX.Y.Z`，release.yml 含 `-ldflags "-X main.version=... -X github.com/.../hub/route.Version=..."`
+- **失败含义**：git tag 不符合 semver，或以 tag ldflags 构建出的二进制 `-version` 输出与 tag 不符
+- **触发**：tag push 时的 `release.yml` version-check job（2026-10-21 审计 H2：此前该守卫位于 ci.yml 且因分支过滤不可达——文档曾声称它存在但从未运行；现为行为断言：构建后 `./corec -version` 必须等于 tag）
+- **修复指引**：确保 tag 格式为 `vX.Y.Z`；检查 `cmd/corec/main.go` 的 `version` 变量与 `hub/route.Version` 注入点未被重命名
 - **豁免**：无
 
 ### G10: 交叉编译

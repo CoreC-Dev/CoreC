@@ -18,8 +18,8 @@
 
 | 文件 | 触发条件 | 覆盖平台 | 是否自动发布 | 备注 |
 |---|---|---|---|---|
-| `.github/workflows/ci.yml` | push 到 `main` + PR 到 `main`（`paths-ignore: docs/**, README.md, deploy-docs.yml`） | ubuntu-latest（test/vet/lint/gates/doc-gate/coverage/version-check）；build-check matrix: linux/darwin/windows × amd64/arm64（排除 windows/arm64） | 否 | `go test -race -short`、`go vet`、`golangci-lint v2.14.0`、多平台 `go build`；**阶段 3 新增**：archtest(T7)/tastetest(T1/T6)/doc-gate(T9)/coverage(T10 ≥75%)/version-check(D3) |
-| `.github/workflows/release.yml` | push tag `v*` | ubuntu-latest；build matrix: linux{amd64,arm64,armv7}、darwin{amd64,arm64}、windows{amd64,arm64} | **是**（直接正式 Release，非 draft） | test→build（ldflags 注入版本号到 `main.version` 与 `hub/route.Version`）→打包 tar.gz/zip+checksums→`softprops/action-gh-release@v3`（`generate_release_notes: true`） |
+| `.github/workflows/ci.yml` | push 到 `main` + PR 到 `main`（`paths-ignore: docs/**, README.md, deploy-docs.yml`） | ubuntu-latest（test/vet/lint/gates/doc-gate/coverage）；build-check matrix: linux/darwin/windows × amd64/arm64（排除 windows/arm64） | 否 | `go test -race -short`、`go vet`、`make lint`（golangci-lint 钉版在 Makefile，自装）、多平台 `go build`；**阶段 3 新增**：archtest(T7)/tastetest(T1/T6)/doc-gate(T9)/coverage(T10 ≥75%) |
+| `.github/workflows/release.yml` | push tag `v*` | ubuntu-latest；build matrix: linux{amd64,arm64,armv7}、darwin{amd64,arm64}、windows{amd64,arm64} | **是**（直接正式 Release，非 draft） | test+vet → **version-check(D3)**（行为断言：以 tag ldflags 构建后要求 `./corec -version` 输出等于 tag——2026-10-21 审计 H2 修复：原 ci.yml 内的 version-check job 因分支过滤工作流不响应 tag push 而**不可达**，已迁入本工作流并从文本 grep 升级为真实行为检查）→build（ldflags 注入版本号到 `main.version` 与 `hub/route.Version`）→打包 tar.gz/zip+checksums→`softprops/action-gh-release@v3`（`generate_release_notes: true`） |
 | `.github/workflows/deploy-docs.yml` | push 到 `main` 且 `paths: docs/**`；`workflow_dispatch` | ubuntu-latest | 否（部署 GitHub Pages） | VitePress 构建（`docs/package.json`，Node 24）→ GitHub Pages |
 
 **已有发布链路现状**：

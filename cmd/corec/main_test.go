@@ -5,11 +5,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -416,5 +418,40 @@ func TestRunMissingConfigFlag(t *testing.T) {
 	exitCode := runWithTimeout(t, 5*time.Second)
 	if exitCode != 1 {
 		t.Errorf("expected exit code 1 for missing default config, got %d", exitCode)
+	}
+}
+
+// TestVersionFlagPrintsInjectedVersion pins the behavioral contract the
+// release workflow's version-check guard asserts (H2, quality audit
+// 2026-10-21): `-version` prints exactly the ldflags-injected value and
+// exits 0. The guard builds with the tag and requires equality — a
+// regression here (renamed var, flag removed, banner instead of bare
+// output) fails the release, not silently ships.
+func TestVersionFlagPrintsInjectedVersion(t *testing.T) {
+	// run() registers flags on the global flag set; under `go test` the
+	// testing framework already owns it, so re-registering panics with
+	// "flag redefined". Swap in a fresh FlagSet for the duration — run()
+	// registers and parses against it, and the original is restored.
+	prevCommandLine, prevArgs, prevOut := flag.CommandLine, os.Args, os.Stdout
+	defer func() { flag.CommandLine, os.Args, os.Stdout = prevCommandLine, prevArgs, prevOut }()
+	flag.CommandLine = flag.NewFlagSet("corec", flag.ContinueOnError)
+	os.Args = []string{"corec", "-version"}
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	code := run()
+	_ = w.Close()
+	out, _ := io.ReadAll(r)
+
+	if code != 0 {
+		t.Errorf("-version exit code = %d, want 0", code)
+	}
+	// The test binary's `version` var is the ldflags default "dev" unless
+	// the test build injects; assert it prints the CURRENT value verbatim.
+	if got := strings.TrimSpace(string(out)); got != version {
+		t.Errorf("-version output = %q, want %q", got, version)
 	}
 }
