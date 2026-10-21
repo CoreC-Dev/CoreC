@@ -1,6 +1,6 @@
 # 代码库质量提升计划（冗余消除 / 架构质量 / 文档 / Harness）
 
-> **状态**：进行中（0/H/C/F/G/W 完成；CPLX-001 publisher 拆分已退役（豁免表清空）；前端豁免 6→2（Detail×2 已拆）；余：DriverWizard 645、DriversPage 637）
+> **状态**：**全部完成（2026-10-21）**：七批次（0/H/C/F/G/W + B8）全部落地；CoreC taste 豁免表**清空**（publisher 768→297/221/279）；Dashboard SIZE_EXEMPTIONS **清空**（6 个 God 文件全部拆分：890/811/677/656/645/637 → 各文件均 <500）。P3 尾巴（route mock 合并、ParseDurationOr）记为后续低优先级项。
 > **来源**：`docs/audits/redundancy-quality-audit-2026-10-21.md`（2026-10-21 四路并行审计：后端冗余 / 前端冗余 / 文档质量 / Harness 工程化，全部发现含 file:line 证据并经主会话二次复核）
 > **范围**：CoreC + CoreC-Dashboard 双仓。审计发现汇总、优先级、批次规划与验收标准见来源文档 §0–§3；本文件只跟踪执行进度。
 > **纪律**：每批次独立可验证（两仓门禁 + 测试全绿 + CI 绿）；重构零行为变化；F1/F2/F3 为 bug 修复，按 R2 登记于 commit message；B11——本计划的批次取舍决策记录在来源文档。
@@ -12,7 +12,7 @@
 | 0 | 跨仓契约修复：F1 日志 level 字符串契约 / F2 流量面板死亡 / F3 安全文档虚假声明 / D6 边界 schema 化 | ✅ 完成 | FE `1a3e0d0` |
 | H | Harness：H1 lint 钉版+钩子硬失败 / H2 version-check 死代码迁移 / H3 server.mjs 纳管 / H4 CI 对齐本地门禁 | ✅ 完成 | `f11fdf1`(H1+H2) `ce52840`(H4) · FE `5e8295d`(H3) |
 | C | 后端清理：B1 守卫缺口 / B2 复杂度 / B3+B4 死代码 / B5 守卫薄弱 / B6 数字漂移 / B7 命名与重复 / B8 巨型结构（并入 CPLX-001） | ✅ B8 完成（publisher.go 768→297/221/279，taste 豁免表清空）；B7 余 mock 合并与 ParseDurationOr 为 P3 尾巴 | `fbddb4c` `a1b03df` `4334dc5` `1605dc8` |
-| F | 前端清理：D1 staged API 决策 / D2 脚手架去重与豁免清零 / D3 i18n 死键 / D4 分层 / D5 死导出 | 🔄 D1-D5 + 两个最大豁免已拆（RuleGroupEditor 890→324/290/310、configSchema 811→450/291/53/37；豁免 6→4）；余 4 个豁免（Detail×2 677/656、Wizard 645、DriversPage 637）与页族脚手架抽取 | FE `b7f88bd` `0ccd1b0` `5c01c5a` `7ea6490` |
+| F | 前端清理：D1 staged API 决策 / D2 脚手架去重与豁免清零 / D3 i18n 死键 / D4 分层 / D5 死导出 | ✅ 全部完成——豁免 6→0（RuleGroupEditor 890、configSchema 811、TransportDetail 677、DriverDetail 656、DriverWizard 645、DriversPage 637 全部按关注点拆分达标） | FE `b7f88bd` `0ccd1b0` `5c01c5a` `7ea6490` `2b8ef48` `9919712` |
 | G | 文档：G1+G2 巨型参考冻结 / G3 工程中心枢纽 / G4 对账 / G5 零散 | ✅ 完成 | `5d350b8` · FE `ffbc5d7` |
 | W | 仓库卫生：H6 清单（工具链单源/SHA 钉版/dependabot/CODEOWNERS/SECURITY/LICENSE/.editorconfig/gitignore） | ✅ 完成 | `99fa04a` · FE `df39029` |
 
