@@ -1,6 +1,6 @@
 # 代码库质量提升计划（冗余消除 / 架构质量 / 文档 / Harness）
 
-> **状态**：进行中（0/H/C/F/G 完成；余：4 个前端豁免（页族脚手架）、B8 publisher 拆分、批次 W 卫生）
+> **状态**：进行中（0/H/C/F/G/W 完成；余两项：4 个前端豁免（页族脚手架抽取）与 B8/CPLX-001 publisher 拆分（768 行 + MQTTTransport 50 字段分解））
 > **来源**：`docs/audits/redundancy-quality-audit-2026-10-21.md`（2026-10-21 四路并行审计：后端冗余 / 前端冗余 / 文档质量 / Harness 工程化，全部发现含 file:line 证据并经主会话二次复核）
 > **范围**：CoreC + CoreC-Dashboard 双仓。审计发现汇总、优先级、批次规划与验收标准见来源文档 §0–§3；本文件只跟踪执行进度。
 > **纪律**：每批次独立可验证（两仓门禁 + 测试全绿 + CI 绿）；重构零行为变化；F1/F2/F3 为 bug 修复，按 R2 登记于 commit message；B11——本计划的批次取舍决策记录在来源文档。
@@ -14,7 +14,7 @@
 | C | 后端清理：B1 守卫缺口 / B2 复杂度 / B3+B4 死代码 / B5 守卫薄弱 / B6 数字漂移 / B7 命名与重复 / B8 巨型结构（并入 CPLX-001） | 🔄 主体完成（B1–B7 除 mock 合并与 ParseDurationOr 外；B8 随 CPLX-001 拆分单独排期） | `fbddb4c` `a1b03df` `4334dc5` + 本批 |
 | F | 前端清理：D1 staged API 决策 / D2 脚手架去重与豁免清零 / D3 i18n 死键 / D4 分层 / D5 死导出 | 🔄 D1-D5 + 两个最大豁免已拆（RuleGroupEditor 890→324/290/310、configSchema 811→450/291/53/37；豁免 6→4）；余 4 个豁免（Detail×2 677/656、Wizard 645、DriversPage 637）与页族脚手架抽取 | FE `b7f88bd` `0ccd1b0` `5c01c5a` `7ea6490` |
 | G | 文档：G1+G2 巨型参考冻结 / G3 工程中心枢纽 / G4 对账 / G5 零散 | ✅ 完成 | `5d350b8` · FE `ffbc5d7` |
-| W | 仓库卫生：H6 清单 | ⏳ 待做 | — |
+| W | 仓库卫生：H6 清单（工具链单源/SHA 钉版/dependabot/CODEOWNERS/SECURITY/LICENSE/.editorconfig/gitignore） | ✅ 完成 | `99fa04a` · FE `df39029` |
 
 ## 批次内明细跟踪
 
