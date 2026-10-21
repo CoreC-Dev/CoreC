@@ -48,6 +48,20 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      # Workflow-file validation (2026-10-21): the release.yml 'needs' bug —
+      # a plain-scalar needs parsed as ONE invalid job id — made every push
+      # since its introduction produce a phantom 0-job failure and would
+      # have run NOTHING on a tagged release. YAML linters accept that
+      # syntax; actionlint is the GitHub-workflow-aware validator. Both
+      # repos' workflows are pinned clean by it; this step keeps them that
+      # way (the same lesson as the golangci-lint single-sourcing in H1:
+      # the gate that CI runs must run locally too — 'bash
+      # scripts/download-actionlint.bash && ./actionlint').
+      - name: Validate GitHub workflow files (actionlint)
+        run: |
+          bash <(curl -sL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint
+
       - name: golangci-lint (pinned via Makefile — single source of truth)
         # H1 (quality audit 2026-10-21): the version lives in the Makefile
         # (GOLANGCI_VERSION) and `make lint` self-installs it, so local and
