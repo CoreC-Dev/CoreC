@@ -128,7 +128,8 @@ Content-Type: application/json
 | `at` | 变更生效时间 |
 | `action` | `reload`（PUT / configs、备份恢复）/ `patch`（PATCH /configs） |
 | `remote` | 调用方网络地址（来自服务端 RemoteAddr） |
-| `keys` | 变更摘要：PATCH 的键列表；PUT 为 `payload`（Dashboard/编辑器载荷）或 `path:<文件>` |
+| `keys` | 变更摘要：PATCH 的键列表（`log-level` / `log-format` / `stale-threshold`）；PUT 为 `payload`（Dashboard/编辑器载荷）或 `path:<文件>`；资源级 DELETE 为 `delete-<kind>:<name>`（kind ∈ driver/transport/rule） |
+| `details` | 人类可读的变更说明（资源级 DELETE 记录 `"<kind> <name> removed via resource endpoint"`；可缺省） |
 
 ::: tip 重载失败自动回滚
 差量热更新过程中若任一步失败（驱动/传输无法重建、规则编译失败、派生标签表达式非法），引擎会把本次重载**已应用的变更全部回滚到重载前状态**（删除/新增/替换的组件与规则集均恢复），因此 `GET /configs/raw` 与运行态始终一致。回滚为尽力而为语义：个别组件恢复失败时记录服务端日志，其余组件继续回滚。
@@ -238,7 +239,7 @@ Content-Type: application/json
 
 ```json
 {
-  "error": "unsupported patch key(s): [global.api.secret] (supported: log-level)"
+  "error": "unsupported patch key(s): [global.api.secret] (supported: log-format, log-level, stale-threshold)"
 }
 ```
 

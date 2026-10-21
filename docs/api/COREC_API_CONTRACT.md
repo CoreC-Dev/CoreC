@@ -1,5 +1,11 @@
 # CoreC API Contract
 
+::: warning 历史快照（2026-10-21 质量审计 G1/G2 处置）
+本文件为**冻结的历史参考**，不再随代码演进维护——它的端点清单与字段表已落后于现状（缺 `configs/audit`、`write/batch`、`drivers/pause|resume`、资源级 `DELETE`、`/alerts*` 端点族，且与 #23/#35 的 PATCH 三键/过滤参数存在直接矛盾）。**当前事实源**：[API 索引（api/overview.md）](overview.md) + 各主题页（config.md / data.md / drivers.md / rules.md / alerts.md / stats.md / websocket.md）+ [README 端点表](https://github.com/CoreC-Dev/CoreC)。重复清单是本文件过期的根因——五份并行端点清单中只有 living 三份持续对账。
+:::
+
+# CoreC API Contract
+
 Precise, source-derived reference for the CoreC Go backend HTTP/WebSocket API.
 Every field name, type, and JSON tag below is taken directly from the Go source
 under `CoreC/` (router: `hub/route/server.go`; handlers: `hub/route/*.go`;

@@ -1,11 +1,11 @@
 ---
 title: WebSocket 实时流
-description: CoreC WebSocket 实时流接口，包含数据点流（/tags/stream）、日志流（/logs）、流量统计（/traffic）和内存监控（/memory）的连接方式与消息格式。
+description: CoreC WebSocket 实时流接口，包含数据点流（/tags/stream）、日志流（/logs）、流量统计（/traffic）、内存监控（/memory）与告警流（/alerts/stream）的连接方式与消息格式。
 ---
 
 # WebSocket 实时流
 
-CoreC 提供四个 WebSocket 端点，用于实时推送数据点、日志、流量统计和内存信息。所有端点均通过 HTTP GET 升级为 WebSocket 连接，使用 `github.com/coder/websocket` 库实现。
+CoreC 提供五个 WebSocket 端点，用于实时推送数据点、日志、流量统计、内存信息与告警事件。所有端点均通过 HTTP GET 升级为 WebSocket 连接，使用 `github.com/coder/websocket` 库实现。
 
 所有 WebSocket 端点均需认证。
 
@@ -184,6 +184,20 @@ wscat -c "ws://localhost:9090/logs?token=corec-secret-token"
 ```
 
 ---
+
+## /alerts/stream — 一等告警实时流
+
+服务端告警注册表（audit OBS-4/HUB-6）的事件流：每次告警触发/确认（ack）/清除（静默到期）推送一个 `AlertEvent` 对象。字段与语义详见 [告警 API](alerts.md)（`GET /alerts` 活动告警 + `POST /alerts/ack` 确认 + 历史）。
+
+连接方式与 `/logs` 相同（Bearer 认证，`?token=` 查询串亦受支持）。消息格式：
+
+```json
+{
+  "type": "fired | acked | cleared",
+  "alert": { "key": "high-temp|plc1|temp", "rule": "high-temp", "driver": "plc1", "tag": "temp", "count": 3, "acked": true, "last_fired": "2026-10-21T12:00:00Z" },
+  "at": "2026-10-21T12:00:00Z"
+}
+```
 
 ## /traffic — 流量统计实时流
 

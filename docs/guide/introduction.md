@@ -100,7 +100,7 @@ CoreC 由六个核心组件构成，各司其职：
 | 组件 | 职责 |
 |:---|:---|
 | `Driver`（南向驱动） | 连接工业设备并读写数据，支持 Modbus、Siemens S7、OPC UA 等协议 |
-| `Transport`（北向传输） | 将数据点发往外部系统，支持 MQTT、HTTP Push/Webhook 等 |
+| `Transport`（北向传输） | 将数据点发往外部系统，支持 MQTT、HTTP Push/Webhook、以及 Slack/Teams/Email/Webhook 告警通知（notify）|
 | `Engine`（核心引擎） | 数据总线消费、生命周期管理、双向指令调度 |
 | `Scheduler`（主动调度器） | 按点位采集周期主动触发读取，工业采集独有 |
 | `Rule`（规则引擎） | 优先级规则链匹配，`forward` / `drop` / `alert` / `transform` / `mirror` |

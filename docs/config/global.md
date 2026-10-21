@@ -24,6 +24,7 @@ global:
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
 | `log-level` | string | 否 | `info` | 日志输出级别 |
+| `log-format` | string | 否 | `text` | 日志输出格式（`text` / `json`；可经 `PATCH /configs` 运行时切换） |
 | `api` | object | 否 | — | 管理 API（RESTful + WebSocket）服务配置 |
 | `engine` | object | 否 | — | 引擎运行参数（数据总线、worker、超时等） |
 | `buffer` | object | 否 | — | 离线持久化缓冲配置，传输失败时将数据落盘以防丢失，详见下文 |
@@ -68,6 +69,7 @@ CoreC 内置管理 API，提供驱动管理、数据读写、规则热更新、�
 | --- | --- | --- | --- | --- |
 | `api.listen` | string | 否 | — | 监听地址，格式 `host:port`；未设置则不启用管理 API |
 | `api.secret` | string | **是**† | — | 鉴权令牌，客户端需以 `Authorization: Bearer <secret>` 携带 |
+| `api.metrics-addr` | string | 否 | `""`（禁用） | 专用免密 metrics 端口：设置后 `/metrics` 从主 API 撤下，仅在此回环地址上无认证提供（Prometheus 不再需要主 API secret；**必须绑定回环**，与 pprof-addr 同款 fail-closed）。详见[可观测性指南](../guide/observability.md) |
 | `api.tls-cert` | string | 否 | — | TLS 证书文件路径，启用 HTTPS 时需与 `tls-key` 同时设置 |
 | `api.tls-key` | string | 否 | — | TLS 私钥文件路径 |
 | `api.allowed-origins` | string[] | 否 | — | CORS 允许的来源列表；留空则默认放行所有来源（`*`），生产公网直连建议显式配置（见下方 allowed-origins 节） |

@@ -176,8 +176,9 @@ WebSocket 端点同样受认证中间件保护。由于浏览器 WebSocket API �
 3. **SafeRequestLogger** — 计算耗时并记录访问日志（自动脱敏 `token` 查询参数，防止凭证泄露）
 4. **Recoverer** — 捕获 panic，返回 `500` 防止进程崩溃
 5. **CORS** — 跨域处理
-6. **RateLimit**（仅当 `global.api.rate-limit-per-sec > 0` 时启用）— 按客户端 IP 令牌桶限速，超限返回 `429 Too Many Requests`
-7. **Authentication**（仅受保护路由，且 `global.api.secret` 非空时启用）— Bearer Token 校验
+6. **HTTP Metrics** — 记录 `corec_http_requests_total` / `corec_http_request_duration_seconds`（直方图，见[可观测性指南](../guide/observability.md)）
+7. **RateLimit**（仅当 `global.api.rate-limit-per-sec > 0` 时启用）— 按客户端 IP 令牌桶限速，超限返回 `429 Too Many Requests`
+8. **Authentication**（仅受保护路由，且 `global.api.secret` 非空时启用）— Bearer Token 校验
 
 ## 快速验证
 

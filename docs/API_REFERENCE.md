@@ -1,9 +1,15 @@
 # CoreC Control-Plane API Reference
 
-> **Single source of truth for the frontend dashboard rewrite.**
+::: warning 历史快照（2026-10-21 质量审计 G1/G2 处置）
+本文件为**冻结的历史参考**，不再随代码演进维护——它的端点清单与字段表已落后于现状（缺 `configs/audit`、`write/batch`、`drivers/pause|resume`、资源级 `DELETE`、`/alerts*` 端点族，且与 #23/#35 的 PATCH 三键/过滤参数存在直接矛盾）。**当前事实源**：[API 索引（api/overview.md）](api/overview.md) + 各主题页（config.md / data.md / drivers.md / rules.md / alerts.md / stats.md / websocket.md）+ [README 端点表](https://github.com/CoreC-Dev/CoreC)。重复清单是本文件过期的根因——五份并行端点清单中只有 living 三份持续对账。
+:::
+
+# CoreC Control-Plane API Reference
+
+> ~~**Single source of truth for the frontend dashboard rewrite.**~~（已由上方的冻结声明取代）
 >
-> CoreC exposes a RESTful control plane (JSON over HTTP) plus four real-time
-> WebSocket streams. This document is generated from the actual handler code in
+> CoreC exposes a RESTful control plane (JSON over HTTP) plus five real-time
+> WebSocket streams（第五条为 /alerts/stream，本文未收录）. This document is generated from the actual handler code in
 > `hub/route/` and the core types in `core/` — every field, type, and enum value
 > below is what the server literally emits.
 

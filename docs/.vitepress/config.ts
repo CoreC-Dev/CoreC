@@ -20,6 +20,7 @@ export default defineConfig({
       { text: '架构', link: '/architecture/overview' },
       { text: '配置', link: '/config/global' },
       { text: 'API', link: '/api/overview' },
+      { text: '工程', link: '/eng' },
       { text: '许可证', link: '/license' },
     ],
 
@@ -70,6 +71,27 @@ export default defineConfig({
           ],
         },
       ],
+      '/audits/': [
+        {
+          text: '审计记录',
+          items: [
+            { text: '功能审计（2026-10-19）', link: '/audits/backend-functionality-audit-2026-10-19' },
+            { text: '质量审计（2026-10-21）', link: '/audits/redundancy-quality-audit-2026-10-21' },
+            { text: '工程与质量中心', link: '/eng' },
+          ],
+        },
+      ],
+      '/exec-plans/': [
+        {
+          text: '执行计划',
+          items: [
+            { text: '进行中', link: '/exec-plans/active/codebase-quality-program' },
+            { text: '技术债跟踪', link: '/exec-plans/tech-debt-tracker' },
+            { text: '已完成的计划', link: '/exec-plans/completed/production-hardening' },
+            { text: '工程与质量中心', link: '/eng' },
+          ],
+        },
+      ],
       '/api/': [
         {
           text: 'API 参考',
@@ -80,9 +102,10 @@ export default defineConfig({
             { text: '配置管理', link: '/api/config' },
             { text: '规则管理', link: '/api/rules' },
             { text: 'WebSocket', link: '/api/websocket' },
+            { text: '告警', link: '/api/alerts' },
             { text: '统计监控', link: '/api/stats' },
-            { text: 'API 契约', link: '/api/COREC_API_CONTRACT' },
-            { text: 'API 完整参考', link: '/API_REFERENCE' },
+            { text: 'API 契约（冻结快照）', link: '/api/COREC_API_CONTRACT' },
+            { text: 'API 完整参考（冻结快照）', link: '/API_REFERENCE' },
           ],
         },
       ],

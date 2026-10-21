@@ -395,8 +395,8 @@ GET /write/history?since={rfc3339}&limit={n}
 | `type` | string | 值的数据类型（`DataType`，按字符串序列化） |
 | `success` | bool | 该次尝试是否成功 |
 | `error` | string | 失败信息（仅失败时出现） |
-| `source` | string | 写来源：`api`（`POST /write` 直写）或 `command`（反向流指令，即 MQTT/HTTP 命令通道触发的写） |
-| `remote` | string | `source=api` 时为调用方网络地址（`r.RemoteAddr`）；`source=command` 时省略（无对端地址） |
+| `source` | string | 写来源：`api`（`POST /write` 直写）、`api-batch`（`POST /write/batch` 批量写，逐条各记一条）或 `command`（反向流指令，即 MQTT/HTTP 命令通道触发的写） |
+| `remote` | string | `source=api` / `api-batch` 时为调用方网络地址（`r.RemoteAddr`）；`source=command` 时省略（无对端地址） |
 | `raw` | bool | `true` 表示该写跳过了 scale/offset 反演（记录的 `value` 即设备原始值）；默认省略（`value` 为工程值） |
 
 ::: info 审计来源不可伪造

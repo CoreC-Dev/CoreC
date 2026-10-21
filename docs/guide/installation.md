@@ -98,7 +98,7 @@ CoreC 通过空白导入 `driver/all` 与 `transport/all` 注册所有内置驱�
 ```go
 import (
     _ "github.com/CoreC-Dev/CoreC/driver/all"    // 注册 modbus-tcp/rtu/rtuovertcp/udp/rtuoverudp/tls, s7, opcua
-    _ "github.com/CoreC-Dev/CoreC/transport/all" // 注册 mqtt, http
+    _ "github.com/CoreC-Dev/CoreC/transport/all" // 注册 mqtt, http, notify
 )
 ```
 
@@ -116,7 +116,7 @@ chmod +x corec
 ./corec -h
 ```
 
-预编译二进制已包含全部内置驱动（`modbus-tcp`、`modbus-rtu`、`modbus-rtuovertcp`、`modbus-udp`、`modbus-rtuoverudp`、`modbus-tls`、`s7`、`opcua`）与传输（`mqtt`、`http`），开箱即用。
+预编译二进制已包含全部内置驱动（`modbus-tcp`、`modbus-rtu`、`modbus-rtuovertcp`、`modbus-udp`、`modbus-rtuoverudp`、`modbus-tls`、`s7`、`opcua`）与传输（`mqtt`、`http`、`notify`——多通道告警通知：Slack/Teams/Email/通用 webhook，见 [传输配置](../config/transports.md#notify-传输)），开箱即用。
 
 ## 方式三：Go install
 
@@ -245,7 +245,7 @@ cp config.example.yaml config.yaml
 
 ```text
 INFO registered drivers types=[modbus-tcp modbus-rtu modbus-rtuovertcp modbus-udp modbus-rtuoverudp modbus-tls s7 opcua]
-INFO registered transports types=[mqtt http]
+INFO registered transports types=[mqtt http notify]
 INFO CoreC engine starting drivers=1 transports=2 rules=2
 INFO CoreC engine started successfully
 INFO CoreC is running config=config.yaml

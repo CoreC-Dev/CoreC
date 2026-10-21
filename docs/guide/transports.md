@@ -5,7 +5,7 @@ description: 北向传输概念 —— Transport 接口、Publish/PublishBatch �
 
 # 传输（Transports）
 
-传输是 CoreC 的**北向抽象面**，负责将采集到的数据点发往外部系统（云平台、MES、数据湖等）。所有传输实现统一的 `core.Transport` 接口，并可通过反向通道接收控制指令。本章详解接口契约、批量策略与两种内置传输的配置。
+传输是 CoreC 的**北向抽象面**，负责将采集到的数据点发往外部系统（云平台、MES、数据湖等）。所有传输实现统一的 `core.Transport` 接口，并可通过反向通道接收控制指令。本章详解接口契约、批量策略与三种内置传输的配置。
 
 ## Transport 接口
 
@@ -309,19 +309,20 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 ## 内置传输对比
 
-| 特性 | MQTT | HTTP |
-|:---|:---|:---|
-| 客户端模型 | Paho 异步 | net/http 同步连接池 |
-| 发布方式 | 逐条发布（QoS 保证） | 批量 JSON 数组 POST |
-| 反向指令 | ✅ Command Topic 订阅 | ❌ 单向推送（`OnCommand()` 通道存在但无消息来源） |
-| 重连 | Paho 内置自动重连 | 无状态，每次请求独立 |
-| 主题/路由 | 动态主题模板 | 固定 URL |
-| 典型用途 | IoT 上云、双向控制 | MES 推送、数据湖入库 |
+| 特性 | MQTT | HTTP | Notify |
+|:---|:---|:---|:---|
+| 客户端模型 | Paho 异步 | net/http 同步连接池 | net/http 按通道发送 |
+| 发布方式 | 逐条发布（QoS 保证） | 批量 JSON 数组 POST | 按规则触发、冷却去重 |
+| 反向指令 | ✅ Command Topic 订阅 | ❌ 单向推送（`OnCommand()` 通道存在但无消息来源） | ❌ 单向通知 |
+| 重连 | Paho 内置自动重连 | 无状态，每次请求独立 | 无状态，每次请求独立 |
+| 通道/路由 | 动态主题模板 | 固定 URL | `channel` 选择 Slack/Teams/Email/Webhook |
+| 典型用途 | IoT 上云、双向控制 | MES 推送、数据湖入库 | 越限/异常的人到位通知 |
 
 ::: tip 如何选择
 - 需要双向通信、低延迟、弱网容忍 → **MQTT**
 - 对接已有 RESTful API、批量入库、无需反向控制 → **HTTP Push**
-- 两者可以同时配置，通过 `mirror` 规则将同一份数据同时推送到两端
+- 越限告警需要人到（值班群、邮箱）→ **Notify**（与 `alert` 规则动作配合；配置见 [传输配置](../config/transports.md#notify-传输)）
+- 三者可以同时配置，通过规则路由各取所需
 :::
 
 ## 编写自定义传输
