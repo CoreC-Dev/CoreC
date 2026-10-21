@@ -456,53 +456,18 @@ func (r *engineRuntime) Reload(config *core.Config) error {
 // applyEngineConfig overrides engine tuning parameters from the global
 // config. Zero/empty values fall back to the defaults already set in New().
 func (r *engineRuntime) applyEngineConfig(cfg *core.EngineConfig) error {
-	if cfg.DataBusSize > 0 {
-		r.eng.processing.dataBusSize = cfg.DataBusSize
-	}
-	if cfg.Workers > 0 {
-		r.eng.processing.numWorkers = cfg.Workers
+	r.eng.processing.applyConfig(cfg)
+	r.eng.lifecycle.applyConfig(cfg)
+	r.eng.reads.applyConfig(cfg)
+	if cfg.OnBadQuality != "" {
+		if err := r.eng.processing.applyBadQualityPolicy(cfg.OnBadQuality); err != nil {
+			return err
+		}
 	}
 	if d, err := time.ParseDuration(cfg.ShutdownTimeout); err == nil && d > 0 {
 		r.shutdownTimeout = d
 	}
-	if d, err := time.ParseDuration(cfg.ErrorThrottleWindow); err == nil && d > 0 {
-		r.eng.lifecycle.errorThrottleWin = d
-	}
-	if d, err := time.ParseDuration(cfg.DefaultTagInterval); err == nil && d > 0 {
-		r.eng.lifecycle.defaultTagInterval = d
-	}
-	if cfg.OnBadQuality != "" {
-		p, err := parseBadQualityPolicy(cfg.OnBadQuality)
-		if err != nil {
-			return err
-		}
-		r.eng.processing.badQualityPolicy = p
-	}
-	if d, err := time.ParseDuration(cfg.StaleThreshold); err == nil && d > 0 {
-		r.eng.reads.staleThreshold.Store(int64(d))
-	}
-	if cfg.WriteRetryCount > 0 {
-		r.eng.writes.writeRetryCount = cfg.WriteRetryCount
-	}
-	if cfg.CommandConcurrency > 0 {
-		r.eng.writes.commandConcurrency = cfg.CommandConcurrency
-	}
-	if cfg.HighPriorityWorkers > 0 {
-		r.eng.processing.numHighPriorityWorkers = cfg.HighPriorityWorkers
-	}
-	if d, err := time.ParseDuration(cfg.AlertActiveWindow); err == nil && d > 0 {
-		r.eng.processing.alertActiveWindow = d
-	}
-	// Dead-letter persistence (audit RES-2 / roadmap #29): open early
-	// so the runtime start below can replay.
-	if cfg.DeadLetterPath != "" {
-		store, err := openDeadLetterStore(cfg.DeadLetterPath)
-		if err != nil {
-			return err
-		}
-		r.eng.writes.deadLetters.store = store
-	}
-	return nil
+	return r.eng.writes.applyConfig(cfg)
 }
 
 // openDeadLetterStore opens the configured persistence file. A failed

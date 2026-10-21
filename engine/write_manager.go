@@ -459,3 +459,24 @@ func (e *CoreCEngine) WriteHistory() []core.WriteAuditEntry {
 func (e *CoreCEngine) DeadLetterEntries() []core.DeadLetterEntry {
 	return e.writes.DeadLetterEntries()
 }
+
+// applyConfig covers the write manager's knobs and the optional
+// dead-letter persistence (audit RES-2 / roadmap #29): opened early so
+// the runtime start can replay. A failed open is start-blocking — the
+// operator asked for durability and got none. (B2, quality audit 2026-10-21.)
+func (w *writeManager) applyConfig(cfg *core.EngineConfig) error {
+	if cfg.WriteRetryCount > 0 {
+		w.writeRetryCount = cfg.WriteRetryCount
+	}
+	if cfg.CommandConcurrency > 0 {
+		w.commandConcurrency = cfg.CommandConcurrency
+	}
+	if cfg.DeadLetterPath != "" {
+		store, err := openDeadLetterStore(cfg.DeadLetterPath)
+		if err != nil {
+			return err
+		}
+		w.deadLetters.store = store
+	}
+	return nil
+}

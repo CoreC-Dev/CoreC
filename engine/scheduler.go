@@ -311,7 +311,7 @@ func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) {
 		s.logOverrunIfNeeded(runner, task, latency, interval)
 
 		if err != nil {
-			s.handleReadError(runner, task, err, interval, degradedInterval, degradeAfterErrors, ticker)
+			handleReadError(runner, task, err, interval, degradedInterval, degradeAfterErrors, s.errorThrottleWindow, ticker)
 			continue
 		}
 
@@ -353,14 +353,14 @@ func (s *scheduler) logOverrunIfNeeded(runner *taskRunner, task core.ScheduleTas
 
 // handleReadError records the error, logs it (throttled), and auto-degrades
 // the ticker if sustained errors reach the threshold.
-func (s *scheduler) handleReadError(runner *taskRunner, task core.ScheduleTask, err error, interval, degradedInterval time.Duration, degradeAfterErrors int, ticker *time.Ticker) {
+func handleReadError(runner *taskRunner, task core.ScheduleTask, err error, interval, degradedInterval time.Duration, degradeAfterErrors int, errorThrottleWindow time.Duration, ticker *time.Ticker) {
 	errMsg := err.Error()
 	runner.errCount++
 	now := time.Now()
 
 	// Log immediately on first failure or when error message changes,
 	// otherwise throttle to once per errorThrottleWindow.
-	if !runner.inError || errMsg != runner.lastErrMsg || now.Sub(runner.lastErrLog) >= s.errorThrottleWindow {
+	if !runner.inError || errMsg != runner.lastErrMsg || now.Sub(runner.lastErrLog) >= errorThrottleWindow {
 		slog.Error("read failed",
 			"task", task.ID,
 			"driver", task.Driver,

@@ -181,9 +181,23 @@ func (am *alertManager) record(rule core.Rule, point core.DataPoint) {
 
 	// Registry cap: under a pathological rule (matching every tag), the
 	// oldest-fired alerts are cleared first rather than growing the map
-	// without limit.
+	// without limit. (Inlined from a helper — single caller — B1,
+	// quality audit 2026-10-21: the alertManager sat at 13 methods, one
+	// over the role ceiling and outside the guard lists.)
 	if len(am.active) > alertRegistryCap {
-		am.evictOldestLocked(now)
+		byLastFired := make([]*core.Alert, 0, len(am.active))
+		for _, a := range am.active {
+			byLastFired = append(byLastFired, a)
+		}
+		sort.Slice(byLastFired, func(i, j int) bool {
+			return byLastFired[i].LastFired.Before(byLastFired[j].LastFired)
+		})
+		for _, a := range byLastFired[:len(am.active)-alertRegistryCap] {
+			delete(am.active, a.Key)
+			ev := core.AlertEvent{Type: core.AlertCleared, Alert: *a, At: now}
+			am.appendHistoryLocked(ev)
+			am.publish(ev)
+		}
 	}
 	if ev != nil {
 		am.appendHistoryLocked(*ev)
@@ -192,24 +206,6 @@ func (am *alertManager) record(rule core.Rule, point core.DataPoint) {
 
 	if ev != nil {
 		am.publish(*ev)
-	}
-}
-
-// evictOldestLocked clears just enough oldest-fired alerts to bring
-// the registry back under its cap. Caller holds am.mu.
-func (am *alertManager) evictOldestLocked(now time.Time) {
-	byLastFired := make([]*core.Alert, 0, len(am.active))
-	for _, a := range am.active {
-		byLastFired = append(byLastFired, a)
-	}
-	sort.Slice(byLastFired, func(i, j int) bool {
-		return byLastFired[i].LastFired.Before(byLastFired[j].LastFired)
-	})
-	for _, a := range byLastFired[:len(am.active)-alertRegistryCap] {
-		delete(am.active, a.Key)
-		ev := core.AlertEvent{Type: core.AlertCleared, Alert: *a, At: now}
-		am.appendHistoryLocked(ev)
-		am.publish(ev)
 	}
 }
 

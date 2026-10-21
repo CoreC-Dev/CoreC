@@ -241,3 +241,14 @@ func (l *lifecycleSupport) onDriverData(driver string, values []core.TagValue, p
 		}
 	}
 }
+
+// applyConfig covers the lifecycle role's timing knobs. Zero/unset
+// values keep the defaults (B2, quality audit 2026-10-21).
+func (l *lifecycleSupport) applyConfig(cfg *core.EngineConfig) {
+	if d, err := time.ParseDuration(cfg.ErrorThrottleWindow); err == nil && d > 0 {
+		l.errorThrottleWin = d
+	}
+	if d, err := time.ParseDuration(cfg.DefaultTagInterval); err == nil && d > 0 {
+		l.defaultTagInterval = d
+	}
+}

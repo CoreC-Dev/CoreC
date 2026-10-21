@@ -75,3 +75,11 @@ func (r *readAccessor) SetStaleThreshold(d time.Duration) {
 	r.staleThreshold.Store(int64(d))
 	slog.Info("stale threshold patched", "threshold", d)
 }
+
+// applyConfig covers the read accessor's staleness threshold. Zero/unset
+// keeps the default (B2, quality audit 2026-10-21).
+func (r *readAccessor) applyConfig(cfg *core.EngineConfig) {
+	if d, err := time.ParseDuration(cfg.StaleThreshold); err == nil && d > 0 {
+		r.staleThreshold.Store(int64(d))
+	}
+}

@@ -419,3 +419,34 @@ func (e *CoreCEngine) SubscribeWithBuffer(filter string, size int) (ch <-chan co
 func (e *CoreCEngine) OnAlert(handler func(point core.DataPoint, rule core.Rule)) {
 	e.processing.OnAlert(handler)
 }
+
+// applyConfig covers the processing pipeline's tuning knobs. Zero/unset
+// values keep the New() defaults (explicit-overrides-auto). B2, quality
+// audit 2026-10-21: extracted from the engineRuntime dispatcher, which
+// sat at the CI complexity cap (gocyclo 20) with one config branch left
+// before failure.
+func (p *processingCore) applyConfig(cfg *core.EngineConfig) {
+	if cfg.DataBusSize > 0 {
+		p.dataBusSize = cfg.DataBusSize
+	}
+	if cfg.Workers > 0 {
+		p.numWorkers = cfg.Workers
+	}
+	if cfg.HighPriorityWorkers > 0 {
+		p.numHighPriorityWorkers = cfg.HighPriorityWorkers
+	}
+	if d, err := time.ParseDuration(cfg.AlertActiveWindow); err == nil && d > 0 {
+		p.alertActiveWindow = d
+	}
+}
+
+// applyBadQualityPolicy parses and installs the on-bad-quality policy —
+// the one engine config field that can fail (unknown policy name).
+func (p *processingCore) applyBadQualityPolicy(name string) error {
+	policy, err := parseBadQualityPolicy(name)
+	if err != nil {
+		return err
+	}
+	p.badQualityPolicy = policy
+	return nil
+}

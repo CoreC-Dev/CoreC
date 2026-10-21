@@ -53,6 +53,11 @@ func godObjectStructs() []struct {
 		{"writeManager", reflect.TypeOf(writeManager{})},
 		{"processingCore", reflect.TypeOf(processingCore{})},
 		{"lifecycleSupport", reflect.TypeOf(lifecycleSupport{})},
+		// B1 (quality audit 2026-10-21): these two roles grew past the
+		// method ceiling AFTER the split, outside both guard lists —
+		// now pinned. Both sit AT the 10-field limit.
+		{"alertManager", reflect.TypeOf(alertManager{})},
+		{"scheduler", reflect.TypeOf(scheduler{})},
 		{"transportBatcher", reflect.TypeOf(transportBatcher{})},
 		{"batcherRetryPolicy", reflect.TypeOf(batcherRetryPolicy{})},
 		{"batcherBufferState", reflect.TypeOf(batcherBufferState{})},
@@ -125,6 +130,11 @@ func TestRoleMethodLimit(t *testing.T) {
 		"driverRegistry", "transportManager", "writeManager",
 		"processingCore", "lifecycleSupport", "transportBatcher",
 		"batcherRetryPolicy", "batcherBufferState",
+		// B1 (quality audit 2026-10-21): added alongside a one-method
+		// shed each (scheduler.handleReadError → free function mirroring
+		// handleRecovery; alertManager.evictOldestLocked inlined into its
+		// single caller). 13 methods each before; 12 now.
+		"alertManager", "scheduler",
 	}
 	for _, name := range limited {
 		got := counts[name]
