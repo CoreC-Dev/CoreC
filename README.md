@@ -261,6 +261,11 @@ API 服务器默认启用 CORS（`Access-Control-Allow-Origin: *`），支持浏
 
 详细的代码架构解析、扩展编写指南及后续演进规划，请参阅：[AI 交接文档 (AI_HANDOVER.md)](docs/design-docs/AI_HANDOVER.md)。
 
+### 工程记录
+
+- [后端功能完整性审计（2026-10-19）](docs/audits/backend-functionality-audit-2026-10-19.md)与其 40 项加固计划的[完成记录](docs/exec-plans/completed/production-hardening.md)——P0/P1/P2 全部落地，P3 除 docs 残留同步外完成
+- [代码库质量审计（2026-10-21）](docs/audits/redundancy-quality-audit-2026-10-21.md)：两仓冗余/架构/文档/Harness 四路并行审计，及其实施计划：[codebase-quality-program](docs/exec-plans/active/codebase-quality-program.md)
+
 ---
 
 ## 许可证
