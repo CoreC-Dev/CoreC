@@ -9,8 +9,9 @@
 
 ## 执行计划
 
-- [进行中：代码库质量提升计划](exec-plans/active/codebase-quality-program.md)
+- [已完成：代码库质量提升计划](exec-plans/completed/codebase-quality-program.md)（七批次全部落地）
 - [已完成：生产加固计划](exec-plans/completed/production-hardening.md)（40/40 路线图项收口记录）
+- [已完成：代码库质量提升计划](exec-plans/completed/codebase-quality-program.md)（冗余/架构/文档/Harness 四维七批次）
 - [技术债跟踪表](exec-plans/tech-debt-tracker.md)
 
 ## 质量与门禁

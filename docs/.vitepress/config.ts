@@ -85,7 +85,7 @@ export default defineConfig({
         {
           text: '执行计划',
           items: [
-            { text: '进行中', link: '/exec-plans/active/codebase-quality-program' },
+            { text: '进行中', link: '/exec-plans/completed/codebase-quality-program' },
             { text: '技术债跟踪', link: '/exec-plans/tech-debt-tracker' },
             { text: '已完成的计划', link: '/exec-plans/completed/production-hardening' },
             { text: '工程与质量中心', link: '/eng' },
