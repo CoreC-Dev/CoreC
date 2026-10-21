@@ -32,7 +32,6 @@ type RuleWrapper interface {
 // RuleProvider supplies an external set of match-only rules.
 type RuleProvider interface {
 	Name() string
-	Initial() error
 	Update() error
 	Match(point DataPoint) bool
 	Count() int

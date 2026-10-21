@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CoreC-Dev/CoreC/common/testutil"
+
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
@@ -43,7 +45,7 @@ func TestAddDriverDuplicateName(t *testing.T) {
 	})
 
 	// Check the old driver was stopped (not leaked).
-	waitFor(2*time.Second, func() bool {
+	testutil.WaitFor(2*time.Second, func() bool {
 		origMD.mu.Lock()
 		defer origMD.mu.Unlock()
 		return origMD.stopCount > 0

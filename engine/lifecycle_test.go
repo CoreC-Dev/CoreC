@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CoreC-Dev/CoreC/common/testutil"
+
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
@@ -391,7 +393,7 @@ func TestEngineRuleDrop(t *testing.T) {
 
 	// Wait for at least one scheduler tick (proving the drop rule was
 	// applied), then verify no data reached the transport.
-	if !waitFor(2*time.Second, func() bool {
+	if !testutil.WaitFor(2*time.Second, func() bool {
 		return eng.Stats().TotalRead > 0
 	}) {
 		t.Fatal("timed out waiting for scheduler tick")
@@ -491,7 +493,7 @@ func TestEngineCommandFlow(t *testing.T) {
 	// Wait for the command listener to process the write.
 	d, _ := eng.GetDriver("d1")
 	md := d.(*mockDriverWithState)
-	if !waitFor(2*time.Second, func() bool {
+	if !testutil.WaitFor(2*time.Second, func() bool {
 		md.mu.Lock()
 		defer md.mu.Unlock()
 		return md.writeCount > 0
@@ -623,7 +625,7 @@ func TestEngineLatestValues(t *testing.T) {
 	}
 
 	// Wait for data to flow into the cache.
-	if !waitFor(2*time.Second, func() bool {
+	if !testutil.WaitFor(2*time.Second, func() bool {
 		return len(eng.LatestValues("d1")) > 0
 	}) {
 		t.Fatal("timed out waiting for cached values")
@@ -660,7 +662,7 @@ func TestEngineStats(t *testing.T) {
 	}
 
 	// Wait for some data to flow.
-	if !waitFor(2*time.Second, func() bool {
+	if !testutil.WaitFor(2*time.Second, func() bool {
 		return eng.Stats().TotalRead > 0
 	}) {
 		t.Fatal("timed out waiting for reads")
@@ -703,7 +705,7 @@ func TestEngineRuleStats(t *testing.T) {
 	}
 	defer eng.Stop()
 
-	if !waitFor(2*time.Second, func() bool {
+	if !testutil.WaitFor(2*time.Second, func() bool {
 		rs := eng.GetRuleStats()
 		return len(rs) == 1 && rs[0].HitCount > 0
 	}) {

@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CoreC-Dev/CoreC/common/testutil"
+
 	"github.com/CoreC-Dev/CoreC/core"
 	"github.com/CoreC-Dev/CoreC/engine"
 	"github.com/CoreC-Dev/CoreC/log"
@@ -24,17 +26,6 @@ import (
 )
 
 // waitFor polls check until it returns true or timeout expires.
-func waitFor(timeout time.Duration, check func() bool) bool {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if check() {
-			return true
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	return false
-}
-
 // ============================================================
 // Real Modbus TCP mock server (self-contained, no import from
 // driver/modbus test files).
@@ -206,7 +197,7 @@ func TestE2E_ModbusToHTTPPush(t *testing.T) {
 	// The driver polls 3 tags at 100ms intervals with batch-size=1, so
 	// individual data points arrive separately. We must wait until BOTH
 	// tags have been received, not just the first one.
-	waitFor(5*time.Second, func() bool {
+	testutil.WaitFor(5*time.Second, func() bool {
 		receivedMu.Lock()
 		defer receivedMu.Unlock()
 		foundTemp := false
@@ -337,7 +328,7 @@ func TestE2E_ModbusWithTransform(t *testing.T) {
 	}
 	defer eng.Stop()
 
-	if !waitFor(3*time.Second, func() bool {
+	if !testutil.WaitFor(3*time.Second, func() bool {
 		receivedMu.Lock()
 		defer receivedMu.Unlock()
 		return len(receivedBodies) > 0
@@ -424,7 +415,7 @@ func TestE2E_ModbusWithAlert(t *testing.T) {
 		}
 	})
 
-	if !waitFor(3*time.Second, func() bool {
+	if !testutil.WaitFor(3*time.Second, func() bool {
 		return alertCount.Load() > 0
 	}) {
 		t.Error("expected at least one alert to be triggered")
@@ -502,7 +493,7 @@ func TestE2E_ModbusWithDropRule(t *testing.T) {
 
 	// Wait for at least one read (proving the drop rule was applied),
 	// then verify no HTTP requests were made.
-	waitFor(3*time.Second, func() bool {
+	testutil.WaitFor(3*time.Second, func() bool {
 		return eng.Stats().TotalRead > 0
 	})
 
@@ -660,7 +651,7 @@ func TestE2E_EngineReload(t *testing.T) {
 	defer eng.Stop()
 
 	// Wait for initial data flow.
-	if !waitFor(3*time.Second, func() bool {
+	if !testutil.WaitFor(3*time.Second, func() bool {
 		return receivedCount.Load() > 0
 	}) {
 		t.Fatal("no data received before reload")
@@ -695,7 +686,7 @@ func TestE2E_EngineReload(t *testing.T) {
 	}
 
 	// Wait for data to flow after reload.
-	if !waitFor(3*time.Second, func() bool {
+	if !testutil.WaitFor(3*time.Second, func() bool {
 		return receivedCount.Load() > countBefore
 	}) {
 		t.Fatal("no new data received after reload")

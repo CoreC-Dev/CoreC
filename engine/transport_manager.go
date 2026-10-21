@@ -108,7 +108,8 @@ func (m *transportManager) AddTransport(config core.TransportConfig) error {
 	// latency and data age (IMPROVEMENTS #1 regression fix). The
 	// onBatchPublish callback is injected so the batcher counts real
 	// publishes (not just enqueues) on the async flush path (Finding 4
-	// fix: previously publish.go counted prematurely). The engine's
+	// fix: the original publish.go, dissolved in the batcher split,
+	// counted prematurely). The engine's
 	// shutdownTimeout is threaded through as the batcher's flushFinal
 	// budget so the shutdown flush cannot outlive shutdown (B3.1).
 	if b := newTransportBatcher(transport, config, m.offlineBuffer,

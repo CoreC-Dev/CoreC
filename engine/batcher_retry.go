@@ -27,7 +27,8 @@ func (r *batcherRetryPolicy) publishWithRetryAndBuffer(ctx context.Context, batc
 		// Observe data age for each point at the moment of the publish
 		// attempt. This captures the true collection-to-publish delay
 		// including batching, queuing, and retry backoff (IMPROVEMENTS
-		// #1 regression fix: observations moved here from publish.go's
+		// #1 regression fix: observations moved here from the original
+		// publish.go's
 		// batcher path, which now returns near-instantly after the async
 		// change). Each attempt observes because data age grows during
 		// retries, giving operators the real freshness distribution.
@@ -50,7 +51,7 @@ func (r *batcherRetryPolicy) publishWithRetryAndBuffer(ctx context.Context, batc
 			// Count the real publish (not just the enqueue) so the
 			// engine's totalPublish reflects actual
 			// successful publishes (Finding 4 fix: previously counted
-			// prematurely in publish.go right after the near-instant
+			// prematurely (in the original publish.go) right after the near-instant
 			// enqueue).
 			if b.onPublish != nil {
 				b.onPublish(len(batch))

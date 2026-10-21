@@ -5,21 +5,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CoreC-Dev/CoreC/common/testutil"
+
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
 // waitFor polls check until it returns true or timeout expires.
-func waitFor(timeout time.Duration, check func() bool) bool {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if check() {
-			return true
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	return false
-}
-
 func TestDataBus(t *testing.T) {
 	bus := NewDataBus(10)
 	defer bus.Close()
@@ -321,7 +312,7 @@ func TestGroupEnrichment(t *testing.T) {
 	}
 
 	// Wait for at least one scheduled tick to be collected before stopping.
-	if !waitFor(2*time.Second, func() bool {
+	if !testutil.WaitFor(2*time.Second, func() bool {
 		return len(eng.LatestValues("d1")) > 0
 	}) {
 		t.Fatal("timed out waiting for scheduler to collect data")

@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CoreC-Dev/CoreC/common/testutil"
+
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
@@ -284,7 +286,7 @@ func TestBatcherPublishRejectedWhileStopping(t *testing.T) {
 	}()
 
 	// Wait until stop() has begun — the stopped flag is its first step.
-	if !waitFor(time.Second, func() bool { return b.buf.stopped.Load() }) {
+	if !testutil.WaitFor(time.Second, func() bool { return b.buf.stopped.Load() }) {
 		t.Fatal("stop() did not set the stopped flag")
 	}
 

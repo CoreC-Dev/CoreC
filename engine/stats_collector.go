@@ -258,7 +258,8 @@ func (s *statsCollector) recordRead(n int) {
 // points are merely enqueued for async flush. This keeps totalPublish and
 // the statistic manager's publish counter accurate for batched transports,
 // where the real PublishBatch happens asynchronously after publish()
-// returns (Finding 4 fix: previously publish.go counted totalPublish and
+// returns (Finding 4 fix: the original publish.go — dissolved in the
+// batcher split — counted totalPublish and
 // enqueue-time counting immediately after the near-instant enqueue, which
 // inflated the publish counter and undercounted errors when batches later
 // failed after retries).

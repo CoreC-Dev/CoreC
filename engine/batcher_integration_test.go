@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CoreC-Dev/CoreC/common/testutil"
+
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
@@ -96,17 +98,7 @@ func TestBatcherPublishFlush(t *testing.T) {
 	}
 
 	// Wait for the published points to appear.
-	waitFor := func(timeout time.Duration, check func() bool) bool {
-		deadline := time.Now().Add(timeout)
-		for time.Now().Before(deadline) {
-			if check() {
-				return true
-			}
-			time.Sleep(time.Millisecond)
-		}
-		return false
-	}
-	if !waitFor(time.Second, func() bool { return tr.pubCount.Load() == 3 }) {
+	if !testutil.WaitFor(time.Second, func() bool { return tr.pubCount.Load() == 3 }) {
 		t.Fatalf("expected 3 published, got %d", tr.pubCount.Load())
 	}
 
@@ -145,17 +137,7 @@ func TestBatcherFlushInterval(t *testing.T) {
 	})
 
 	// Wait for periodic flush.
-	waitFor := func(timeout time.Duration, check func() bool) bool {
-		deadline := time.Now().Add(timeout)
-		for time.Now().Before(deadline) {
-			if check() {
-				return true
-			}
-			time.Sleep(time.Millisecond)
-		}
-		return false
-	}
-	if !waitFor(2*time.Second, func() bool { return tr.pubCount.Load() >= 1 }) {
+	if !testutil.WaitFor(2*time.Second, func() bool { return tr.pubCount.Load() >= 1 }) {
 		t.Fatalf("expected >=1 published via interval flush, got %d", tr.pubCount.Load())
 	}
 }
@@ -183,18 +165,8 @@ func TestBatcherRetryThenSucceed(t *testing.T) {
 		Driver: "plc", Tag: "t", Value: 1.0, Timestamp: time.Now(),
 	})
 
-	waitFor := func(timeout time.Duration, check func() bool) bool {
-		deadline := time.Now().Add(timeout)
-		for time.Now().Before(deadline) {
-			if check() {
-				return true
-			}
-			time.Sleep(time.Millisecond)
-		}
-		return false
-	}
 	// Should have retried and eventually published.
-	if !waitFor(5*time.Second, func() bool { return tr.pubCount.Load() == 1 }) {
+	if !testutil.WaitFor(5*time.Second, func() bool { return tr.pubCount.Load() == 1 }) {
 		t.Fatalf("expected 1 published after retry, got %d (failCount=%d)", tr.pubCount.Load(), tr.failCount.Load())
 	}
 	if tr.failCount.Load() != 1 {
@@ -237,19 +209,9 @@ func TestBatcherRetryExhaustedBuffersToOffline(t *testing.T) {
 	}
 
 	// Wait for the batch to be buffered to offline storage.
-	waitFor := func(timeout time.Duration, check func() bool) bool {
-		deadline := time.Now().Add(timeout)
-		for time.Now().Before(deadline) {
-			if check() {
-				return true
-			}
-			time.Sleep(time.Millisecond)
-		}
-		return false
-	}
 	// RetryCount=1 means 2 attempts with 100ms backoff between them.
 	// Total time ≈ 100ms + publish attempts. Allow generous timeout.
-	if !waitFor(10*time.Second, func() bool { return ob.Len() >= 1 }) {
+	if !testutil.WaitFor(10*time.Second, func() bool { return ob.Len() >= 1 }) {
 		t.Fatalf("expected batch in offline buffer, got len=%d (failCount=%d)", ob.Len(), tr.failCount.Load())
 	}
 	if tr.failCount.Load() < 2 {
@@ -454,17 +416,7 @@ func TestBatcherOfflineBufferPushedIncremented(t *testing.T) {
 		})
 	}
 
-	waitFor := func(timeout time.Duration, check func() bool) bool {
-		deadline := time.Now().Add(timeout)
-		for time.Now().Before(deadline) {
-			if check() {
-				return true
-			}
-			time.Sleep(time.Millisecond)
-		}
-		return false
-	}
-	if !waitFor(10*time.Second, func() bool { return b.OfflineBufferPushed() == 2 }) {
+	if !testutil.WaitFor(10*time.Second, func() bool { return b.OfflineBufferPushed() == 2 }) {
 		t.Fatalf("OfflineBufferPushed = %d, want 2", b.OfflineBufferPushed())
 	}
 	if got := b.OfflineBufferPending(); got != 2 {
@@ -630,17 +582,7 @@ func TestBatcherPublishAsyncNonBlocking(t *testing.T) {
 	}
 
 	// Both points must eventually be published by the async flushLoop.
-	waitFor := func(timeout time.Duration, check func() bool) bool {
-		deadline := time.Now().Add(timeout)
-		for time.Now().Before(deadline) {
-			if check() {
-				return true
-			}
-			time.Sleep(time.Millisecond)
-		}
-		return false
-	}
-	if !waitFor(2*time.Second, func() bool { return len(tr.getPublished()) == 2 }) {
+	if !testutil.WaitFor(2*time.Second, func() bool { return len(tr.getPublished()) == 2 }) {
 		t.Fatalf("expected 2 published points, got %d", len(tr.getPublished()))
 	}
 }
@@ -675,18 +617,8 @@ func TestBatcherOnPublishCallback(t *testing.T) {
 		})
 	}
 
-	waitFor := func(timeout time.Duration, check func() bool) bool {
-		deadline := time.Now().Add(timeout)
-		for time.Now().Before(deadline) {
-			if check() {
-				return true
-			}
-			time.Sleep(time.Millisecond)
-		}
-		return false
-	}
 	// The callback should have been called with n=3.
-	if !waitFor(2*time.Second, func() bool { return publishedCount.Load() == 3 }) {
+	if !testutil.WaitFor(2*time.Second, func() bool { return publishedCount.Load() == 3 }) {
 		t.Fatalf("expected onPublish callback count=3, got %d", publishedCount.Load())
 	}
 }

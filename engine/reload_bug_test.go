@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CoreC-Dev/CoreC/common/testutil"
+
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
@@ -144,7 +146,7 @@ func TestEngineReloadStatsConsistency(t *testing.T) {
 	}
 
 	// Wait for reload to settle — poll until driver count stabilizes.
-	waitFor(2*time.Second, func() bool {
+	testutil.WaitFor(2*time.Second, func() bool {
 		return eng.Stats().Drivers == 1
 	})
 

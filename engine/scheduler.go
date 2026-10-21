@@ -13,9 +13,7 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-var _ core.Scheduler = (*scheduler)(nil)
-
-// scheduler implements core.Scheduler.
+// scheduler manages timed data collection tasks.
 // It manages periodic data collection tasks using goroutines and tickers.
 type scheduler struct {
 	mu           sync.RWMutex

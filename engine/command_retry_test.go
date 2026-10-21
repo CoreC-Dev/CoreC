@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CoreC-Dev/CoreC/common/testutil"
+
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
@@ -64,7 +66,7 @@ func runFailingWrite(t *testing.T, errMsg string, retryCount int) (*erroringDriv
 	cmd := core.WriteCommand{Driver: "opc", Tag: "setpoint", Value: 1.0}
 	e.writes.executeWriteWithRetry(cmd)
 
-	if !waitFor(2*time.Second, func() bool {
+	if !testutil.WaitFor(2*time.Second, func() bool {
 		return len(e.DeadLetterEntries()) == 1
 	}) {
 		t.Fatalf("dead letter queue: got %d entries, want 1", len(e.DeadLetterEntries()))

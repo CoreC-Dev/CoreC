@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CoreC-Dev/CoreC/common/testutil"
+
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
@@ -93,7 +95,7 @@ func TestBatcherCrossBatchOrderingUnderBacklog(t *testing.T) {
 		}
 	}
 
-	if !waitFor(5*time.Second, func() bool { return len(tr.getPublished()) == 8 }) {
+	if !testutil.WaitFor(5*time.Second, func() bool { return len(tr.getPublished()) == 8 }) {
 		t.Fatalf("expected 8 published points, got %d", len(tr.getPublished()))
 	}
 

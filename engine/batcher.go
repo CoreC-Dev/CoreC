@@ -145,7 +145,8 @@ type transportBatcher struct {
 	// onPublish is called with the number of points actually published
 	// when publishWithRetryAndBuffer or drainOnce succeeds. It lets the
 	// engine count real publishes (not just enqueues) on the async flush
-	// path (Finding 4 fix: previously publish.go counted totalPublish/
+	// path (Finding 4 fix: the original publish.go, dissolved in the
+	// batcher split, counted totalPublish/
 	// PushPublish immediately after the near-instant enqueue, which
 	// inflated the publish counter and undercounted errors when batches
 	// later failed). nil = no callback (tests that don't check counters).
@@ -410,7 +411,7 @@ func (b *transportBatcher) drainOnce() {
 // caller's point could not be enqueued even after evicting the oldest
 // pending batch — in both cases the data is lost and the caller can try
 // a fallback transport (Finding 4 fix: previously publish() always
-// returned nil, making the error/fallback branch in publish.go dead
+// returned nil, making the error/fallback branch in the publish path dead
 // code).
 func (b *transportBatcher) publish(ctx context.Context, point core.DataPoint) error {
 	b.buf.mu.Lock()

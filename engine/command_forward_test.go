@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CoreC-Dev/CoreC/common/testutil"
+
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
@@ -286,7 +288,7 @@ func TestExecuteWriteDeadLettersWhenNoDriverNoForwarder(t *testing.T) {
 	cmd := core.WriteCommand{Driver: "opc", Tag: "setpoint", Value: 1.0}
 	e.writes.executeWriteWithRetry(cmd)
 
-	if !waitFor(time.Second, func() bool {
+	if !testutil.WaitFor(time.Second, func() bool {
 		return len(e.DeadLetterEntries()) == 1
 	}) {
 		t.Fatalf("dead letter queue: got %d entries, want 1", len(e.DeadLetterEntries()))
@@ -310,7 +312,7 @@ func TestExecuteWriteForwarderFailureFallsBackToDeadLetter(t *testing.T) {
 	cmd := core.WriteCommand{Driver: "opc", Tag: "setpoint", Value: 1.0}
 	e.writes.executeWriteWithRetry(cmd)
 
-	if !waitFor(time.Second, func() bool {
+	if !testutil.WaitFor(time.Second, func() bool {
 		return len(e.DeadLetterEntries()) == 1
 	}) {
 		t.Fatalf("dead letter queue: got %d entries, want 1", len(e.DeadLetterEntries()))
@@ -334,7 +336,7 @@ func TestExecuteWriteLocalDriverNotForwarded(t *testing.T) {
 	cmd := core.WriteCommand{Driver: "opc", Tag: "setpoint", Value: 7.0, Type: core.TypeFloat64}
 	e.writes.executeWriteWithRetry(cmd)
 
-	if !waitFor(time.Second, func() bool {
+	if !testutil.WaitFor(time.Second, func() bool {
 		return len(drv.GetWritten()) == 1
 	}) {
 		t.Fatalf("driver write count: got %d, want 1", len(drv.GetWritten()))
@@ -365,7 +367,7 @@ func TestExecuteWriteLocalDriverFailureRetriesAndDeadLetters(t *testing.T) {
 	e.writes.executeWriteWithRetry(cmd)
 
 	// 2 write attempts (writeRetryCount+1), never forwarded.
-	if !waitFor(time.Second, func() bool {
+	if !testutil.WaitFor(time.Second, func() bool {
 		return drv.writes() == 2
 	}) {
 		t.Fatalf("driver write attempts: got %d, want 2", drv.writes())
@@ -373,7 +375,7 @@ func TestExecuteWriteLocalDriverFailureRetriesAndDeadLetters(t *testing.T) {
 	if fwd.forwardedCount() != 0 {
 		t.Errorf("forwarder call count: got %d, want 0 (local driver exists, must not forward)", fwd.forwardedCount())
 	}
-	if !waitFor(time.Second, func() bool {
+	if !testutil.WaitFor(time.Second, func() bool {
 		return len(e.DeadLetterEntries()) == 1
 	}) {
 		t.Fatalf("dead letter queue: got %d entries, want 1", len(e.DeadLetterEntries()))
@@ -492,17 +494,7 @@ func TestCommandListenerDispatchesConcurrently(t *testing.T) {
 	}
 
 	// Wait for all 4 writes to complete.
-	waitFor := func(timeout time.Duration, check func() bool) bool {
-		deadline := time.Now().Add(timeout)
-		for time.Now().Before(deadline) {
-			if check() {
-				return true
-			}
-			time.Sleep(time.Millisecond)
-		}
-		return false
-	}
-	if !waitFor(2*time.Second, func() bool { return d.writes() == 4 }) {
+	if !testutil.WaitFor(2*time.Second, func() bool { return d.writes() == 4 }) {
 		t.Fatalf("expected 4 writes, got %d", d.writes())
 	}
 	elapsed := time.Since(start)
@@ -548,17 +540,7 @@ func TestCommandListenerSerialWhenConcurrencyOne(t *testing.T) {
 		tr.cmdCh <- core.WriteCommand{Driver: "plc", Tag: "setpoint", Value: float64(i)}
 	}
 
-	waitFor := func(timeout time.Duration, check func() bool) bool {
-		deadline := time.Now().Add(timeout)
-		for time.Now().Before(deadline) {
-			if check() {
-				return true
-			}
-			time.Sleep(time.Millisecond)
-		}
-		return false
-	}
-	if !waitFor(2*time.Second, func() bool { return d.writes() == 3 }) {
+	if !testutil.WaitFor(2*time.Second, func() bool { return d.writes() == 3 }) {
 		t.Fatalf("expected 3 writes, got %d", d.writes())
 	}
 

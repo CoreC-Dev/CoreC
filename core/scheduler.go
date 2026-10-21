@@ -1,20 +1,8 @@
 package core
 
 import (
-	"context"
 	"time"
 )
-
-// Scheduler manages timed data collection tasks.
-// This is unique to CoreC; the scheduler proactively polls on intervals.
-type Scheduler interface {
-	Start(ctx context.Context) error
-	Stop() error
-	AddTask(task ScheduleTask) error
-	Pause() error
-	Resume() error
-	PauseDriver(name string) error
-}
 
 // ScheduleTask defines a periodic collection task.
 type ScheduleTask struct {

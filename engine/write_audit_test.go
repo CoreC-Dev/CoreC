@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CoreC-Dev/CoreC/common/testutil"
+
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
@@ -164,7 +166,7 @@ func TestCommandListenerStampsAuditSource(t *testing.T) {
 	// at the trust boundary.
 	tr.cmdCh <- core.WriteCommand{Driver: "plc", Tag: "setpoint", Value: 1, Source: "api"}
 
-	if !waitFor(time.Second, func() bool { return len(drv.GetWritten()) == 1 }) {
+	if !testutil.WaitFor(time.Second, func() bool { return len(drv.GetWritten()) == 1 }) {
 		t.Fatal("command was not dispatched to the driver")
 	}
 	entries := e.WriteHistory()

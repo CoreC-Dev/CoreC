@@ -147,9 +147,6 @@ func (p *FileProvider) Count() int {
 	return p.count
 }
 
-// Initial loads the provider data (already done in constructor, kept for interface compat).
-func (p *FileProvider) Initial() error { return nil }
-
 // Update forces a reload of the provider file.
 func (p *FileProvider) Update() error { return p.load() }
 
