@@ -3,6 +3,8 @@ package util
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -933,5 +935,75 @@ func TestReconnectJitterDoesNotBreakBreaker(t *testing.T) {
 	if callsAfter > callsAtBreaker {
 		t.Fatalf("circuit breaker did not slow down with jitter: calls grew %d -> %d",
 			callsAtBreaker, callsAfter)
+	}
+}
+
+// TestGetStringSetting pins the settings accessor contract (audit H4
+// coverage gate: this function had 0% unit coverage — it was only
+// exercised indirectly via driver tests).
+func TestGetStringSetting(t *testing.T) {
+	s := map[string]any{"name": "plc", "count": 3}
+	if got := GetStringSetting(s, "name", "default"); got != "plc" {
+		t.Errorf("string value = %q, want plc", got)
+	}
+	if got := GetStringSetting(s, "missing", "default"); got != "default" {
+		t.Errorf("missing key = %q, want default", got)
+	}
+	// YAML numbers unmarshal as int, not string — must fall back.
+	if got := GetStringSetting(s, "count", "default"); got != "default" {
+		t.Errorf("non-string value = %q, want default (fallback)", got)
+	}
+}
+
+// TestRejectUnknownSettings pins the CFG-4 helper directly (previously
+// covered only via the config package's integration tests).
+func TestRejectUnknownSettings(t *testing.T) {
+	known := map[string]bool{"host": true, "port": true}
+	if err := RejectUnknownSettings(map[string]any{"host": "x"}, known, "test"); err != nil {
+		t.Errorf("known keys rejected: %v", err)
+	}
+	if err := RejectUnknownSettings(nil, known, "test"); err != nil {
+		t.Errorf("nil settings rejected: %v", err)
+	}
+	err := RejectUnknownSettings(map[string]any{"host": "x", "prot": 1}, known, "test")
+	if err == nil {
+		t.Fatal("unknown key accepted")
+	}
+	// Message names the typo AND the full valid list (sorted) — the fix
+	// must be mechanical for the operator.
+	if !strings.Contains(err.Error(), "prot") {
+		t.Errorf("error should name the typo: %v", err)
+	}
+	if !strings.Contains(err.Error(), "host, port") {
+		t.Errorf("error should list all valid keys sorted: %v", err)
+	}
+}
+
+// TestReconnectLoopOptsPassesThroughOptions pins the options-struct
+// variant against the counted breaker path.
+func TestReconnectLoopOptsPassesThroughOptions(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var calls atomic.Int32
+	var counter atomic.Uint64
+	// Fails once then succeeds; the counter is read across goroutines so
+	// it must be atomic (the -race build caught the raw int version).
+	ReconnectLoopOpts(ctx, "opt-test", func() error {
+		if calls.Add(1) < 2 {
+			return fmt.Errorf("connection refused")
+		}
+		cancel()
+		return nil
+	}, ReconnectOpts{InitialBackoff: time.Millisecond, MaxBackoff: 2 * time.Millisecond, MaxFailures: 3}, &counter)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for calls.Load() < 2 {
+		if time.Now().After(deadline) {
+			t.Fatal("reconnect loop did not retry within deadline")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if counter.Load() == 0 {
+		t.Error("counted variant did not record the reconnect attempt")
 	}
 }

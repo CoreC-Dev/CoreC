@@ -1,6 +1,8 @@
 name: CI
 
-# 触发条件：push 到 main 分支 或 提交 PR 时运行
+# 触发条件：push 到 main 分支 或 提交 PR 时运行。
+# docs-only 变更由 docs-gate.yml 单独把关（此前 paths-ignore 让纯文档 PR
+# 一个 CI 都不跑——包括专门 lint 文档的 doc-gate job 本身）。
 on:
   push:
     branches: [main]
@@ -16,9 +18,19 @@ on:
       - '.github/workflows/deploy-docs.yml'
   workflow_dispatch:
 
+# H4 (quality audit 2026-10-21): rapid pushes stack full runs without this;
+# the Dashboard workflow already does the same.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # The full gate sweep in ONE job: tests (race, short) already execute the
+  # archtest/ and tastetest/ packages as part of ./... — the previous
+  # separate `gates` job re-ran them (H4: tests ran 3× per CI run).
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -30,8 +42,8 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Run tests
-        run: go test -v -race -short -timeout 120s ./...
+      - name: Run tests + structure gates (race; archtest+tastetest run inside ./...)
+        run: go test -race -short -timeout 120s ./...
 
       - name: Vet
         run: go vet ./...
@@ -46,13 +58,20 @@ jobs:
 
   build-check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
+      # H4: aligned with the release.yml matrix — windows/arm64 and
+      # linux/armv7 were SHIPPED but never build-checked.
+      fail-fast: false
       matrix:
-        goos: [linux, darwin, windows]
-        goarch: [amd64, arm64]
-        exclude:
-          - goos: windows
-            goarch: arm64
+        include:
+          - { goos: linux,   goarch: amd64 }
+          - { goos: linux,   goarch: arm64 }
+          - { goos: linux,   goarch: arm }
+          - { goos: darwin,  goarch: amd64 }
+          - { goos: darwin,  goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+          - { goos: windows, goarch: arm64 }
     steps:
       - uses: actions/checkout@v7
 
@@ -71,38 +90,24 @@ jobs:
           CGO_ENABLED: 0
         run: go build -o /dev/null ./cmd/corec
 
-  # Phase 3: Architecture + taste invariant gates (T1/T6/T7)
-  gates:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Setup Go
-        uses: actions/setup-go@v7
-        with:
-          go-version: '1.27.1'
-
-      - name: Download dependencies
-        run: go mod download
-
-      - name: "Architecture structure test (T7: dependency direction)"
-        run: go test -v ./archtest/
-
-      - name: "Taste invariant tests (T1: file size, T6: structured logging)"
-        run: go test -v ./tastetest/
-
-  # Phase 3: Document gate (T9)
+  # Phase 3: Document gate (T9) — runs for code-path changes that might
+  # break docs (endpoint edits, README claims). Docs-only changes are
+  # covered by docs-gate.yml instead of being skipped entirely.
   doc-gate:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
 
       - name: "Document lint (T9: dead links, required sections, orphans, package comments)"
         run: bash scripts/check-docs.sh
 
-  # Phase 3: Coverage gate (T10)
+  # Phase 3: Coverage gate (T10). H4: calls the SAME script as
+  # `make cover-gate` — per-package floors (core 95 / hub 90 / route 85 …)
+  # previously enforced ONLY locally; CI checked a weaker overall ≥75%.
   coverage:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -114,17 +119,5 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Generate coverage
-        run: go test -cover -coverprofile=cover.out -short -timeout 120s ./...
-
-      - name: Check coverage threshold (≥75% overall)
-        run: |
-          COVERAGE=$(go tool cover -func=cover.out | tail -1 | grep -oP '[\d.]+%')
-          echo "Overall coverage: $COVERAGE"
-          COVERAGE_NUM=$(echo "$COVERAGE" | sed 's/%//')
-          if (( $(echo "$COVERAGE_NUM < 75.0" | bc -l) )); then
-            echo "❌ Coverage $COVERAGE is below 75% threshold"
-            exit 1
-          fi
-          echo "✅ Coverage $COVERAGE meets 75% threshold"
-
+      - name: Coverage gate (per-package floors + overall ≥75%)
+        run: bash scripts/check-coverage.sh
