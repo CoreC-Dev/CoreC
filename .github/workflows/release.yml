@@ -76,7 +76,7 @@ jobs:
           echo "✅ Version consistency verified: tag=v$TAG, binary reports $REPORTED"
 
   build:
-    needs: test version-check
+    needs: [test, version-check]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
