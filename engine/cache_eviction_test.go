@@ -36,7 +36,7 @@ func TestCacheEvictionOnRemoveDriver(t *testing.T) {
 	if _, ok := e.processing.cache.Get("plc-gone", "temp"); ok {
 		t.Error("deleted driver's value still cached after eviction")
 	}
-	if got := e.processing.cache.GetByDriver("plc-gone"); got != nil && len(got) != 0 {
+	if got := e.processing.cache.GetByDriver("plc-gone"); len(got) != 0 {
 		t.Errorf("deleted driver's snapshot still serves %d values", len(got))
 	}
 	// The surviving driver is untouched.

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -292,7 +293,31 @@ func PatchWithOrigin(patch map[string]any, remote string) error {
 	mux.Lock()
 	defer mux.Unlock()
 
-	// Reject unknown keys instead of silently ignoring them.
+	if err := rejectUnknownPatchKeys(patch); err != nil {
+		return err
+	}
+	if raw, exists := patch["log-format"]; exists {
+		if err := applyPatchLogFormat(raw, remote); err != nil {
+			return err
+		}
+	}
+	if raw, exists := patch["stale-threshold"]; exists {
+		if err := applyPatchStaleThreshold(raw, remote); err != nil {
+			return err
+		}
+	}
+	if raw, exists := patch["log-level"]; exists {
+		if err := applyPatchLogLevel(raw, remote); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// rejectUnknownPatchKeys keeps PATCH strictly typed: unknown keys fail
+// instead of being silently ignored (a typo'd key would otherwise look
+// applied while changing nothing).
+func rejectUnknownPatchKeys(patch map[string]any) error {
 	var unknown []string
 	for k := range patch {
 		if !supportedPatchKeys[k] {
@@ -300,98 +325,113 @@ func PatchWithOrigin(patch map[string]any, remote string) error {
 		}
 	}
 	if len(unknown) > 0 {
-		return fmt.Errorf("unsupported patch key(s): %v (supported: log-level)", unknown)
+		return fmt.Errorf("unsupported patch key(s): %v (supported: %v)", unknown, patchKeyList())
 	}
+	return nil
+}
 
-	if fmtRaw, exists := patch["log-format"]; exists {
-		format, ok := fmtRaw.(string)
-		if !ok {
-			return fmt.Errorf("log-format must be a string, got %T", fmtRaw)
-		}
-		switch format {
-		case "", "text", "json":
-			// "" keeps the current format (no-op), matching startup's
-			// default of "text".
-		default:
-			return fmt.Errorf("invalid log-format %q (valid: text, json)", format)
-		}
-		if format != "" {
-			// Re-Init swaps the inner stdout handler; the /logs event
-			// bus chain (logCh → source observable) persists, so WS
-			// subscribers are unaffected.
-			log.Init(log.Level(), format)
-			if currentCfg != nil {
-				currentCfg.Global.LogFormat = format
-			}
-			slog.Info("log format patched", "format", format)
-			recordConfigAudit(core.ConfigAuditEntry{
-				At:     time.Now(),
-				Action: "patch",
-				Remote: remote,
-				Keys:   []string{"log-format"},
-			})
-		}
+// patchKeyList renders the supported keys deterministically for error
+// messages.
+func patchKeyList() string {
+	keys := make([]string, 0, len(supportedPatchKeys))
+	for k := range supportedPatchKeys {
+		keys = append(keys, k)
 	}
-	if stRaw, exists := patch["stale-threshold"]; exists {
-		stStr, ok := stRaw.(string)
-		if !ok {
-			return fmt.Errorf("stale-threshold must be a duration string, got %T", stRaw)
-		}
-		if stStr == "" {
-			return fmt.Errorf("stale-threshold cannot be empty; use \"0\" to disable")
-		}
-		d, err := time.ParseDuration(stStr)
-		if err != nil {
-			return fmt.Errorf("invalid stale-threshold %q: %w", stStr, err)
-		}
-		if patcher, ok := engine.(core.StaleThresholdPatcher); ok && patcher != nil {
-			patcher.SetStaleThreshold(d)
-			if currentCfg != nil {
-				currentCfg.Global.Engine.StaleThreshold = stStr
-			}
-			recordConfigAudit(core.ConfigAuditEntry{
-				At:     time.Now(),
-				Action: "patch",
-				Remote: remote,
-				Keys:   []string{"stale-threshold"},
-			})
-		} else {
-			return fmt.Errorf("stale-threshold patching not supported by this engine")
-		}
+	sort.Strings(keys)
+	return strings.Join(keys, ", ")
+}
+
+// applyPatchLogFormat switches the stdout rendering between text/json.
+// Re-Init swaps the inner handler; the /logs event bus chain
+// (logCh → source observable) persists, so WS subscribers are
+// unaffected. "" keeps the current format (no-op).
+func applyPatchLogFormat(raw any, remote string) error {
+	format, ok := raw.(string)
+	if !ok {
+		return fmt.Errorf("log-format must be a string, got %T", raw)
 	}
-	if lvlRaw, exists := patch["log-level"]; exists {
-		lvl, ok := lvlRaw.(string)
-		if !ok {
-			return fmt.Errorf("log-level must be a string, got %T", lvlRaw)
-		}
-		// Empty string is a no-op (client sent an empty value, don't change).
-		if lvl != "" {
-			if l, found := log.ParseLevel(lvl); found {
-				log.SetLevel(l)
-				// Sync the in-memory active config so GET /configs/raw reflects the
-				// runtime-patched level. Without this, the Config Center editor
-				// would show the stale pre-PATCH value, and a subsequent Hot Reload
-				// (PUT /configs) that did not touch log-level would silently
-				// overwrite the patched level with the old value. currentCfg is the
-				// source of truth for the running state (ApplyConfig sets it on
-				// every successful reload); PATCH is a runtime state change, so it
-				// must update currentCfg too. The on-disk config is untouched - a
-				// CoreC restart still returns to the persisted level.
-				if currentCfg != nil {
-					currentCfg.Global.LogLevel = lvl
-				}
-				slog.Info("log level patched", "level", lvl)
-				recordConfigAudit(core.ConfigAuditEntry{
-					At:     time.Now(),
-					Action: "patch",
-					Remote: remote,
-					Keys:   []string{"log-level"},
-				})
-			} else {
-				return fmt.Errorf("invalid log-level %q", lvl)
-			}
-		}
+	switch format {
+	case "", "text", "json":
+	default:
+		return fmt.Errorf("invalid log-format %q (valid: text, json)", format)
 	}
+	if format == "" {
+		return nil
+	}
+	log.Init(log.Level(), format)
+	if currentCfg != nil {
+		currentCfg.Global.LogFormat = format
+	}
+	slog.Info("log format patched", "format", format)
+	recordConfigAudit(core.ConfigAuditEntry{
+		At:     time.Now(),
+		Action: "patch",
+		Remote: remote,
+		Keys:   []string{"log-format"},
+	})
+	return nil
+}
+
+// applyPatchStaleThreshold pushes a runtime staleness threshold through
+// the engine's optional role; /tags' is_stale annotation follows
+// immediately. "0s" disables.
+func applyPatchStaleThreshold(raw any, remote string) error {
+	stStr, ok := raw.(string)
+	if !ok {
+		return fmt.Errorf("stale-threshold must be a duration string, got %T", raw)
+	}
+	if stStr == "" {
+		return fmt.Errorf("stale-threshold cannot be empty; use \"0\" to disable")
+	}
+	d, err := time.ParseDuration(stStr)
+	if err != nil {
+		return fmt.Errorf("invalid stale-threshold %q: %w", stStr, err)
+	}
+	patcher, ok := engine.(core.StaleThresholdPatcher)
+	if !ok || patcher == nil {
+		return fmt.Errorf("stale-threshold patching not supported by this engine")
+	}
+	patcher.SetStaleThreshold(d)
+	if currentCfg != nil {
+		currentCfg.Global.Engine.StaleThreshold = stStr
+	}
+	recordConfigAudit(core.ConfigAuditEntry{
+		At:     time.Now(),
+		Action: "patch",
+		Remote: remote,
+		Keys:   []string{"stale-threshold"},
+	})
+	return nil
+}
+
+// applyPatchLogLevel sets the runtime log level and syncs currentCfg so
+// GET /configs/raw reflects the patched value and a subsequent hot
+// reload that does not touch log-level will not silently revert it.
+// The on-disk config is untouched — a restart returns to the persisted
+// level. Empty string is a no-op.
+func applyPatchLogLevel(raw any, remote string) error {
+	lvl, ok := raw.(string)
+	if !ok {
+		return fmt.Errorf("log-level must be a string, got %T", raw)
+	}
+	if lvl == "" {
+		return nil
+	}
+	l, found := log.ParseLevel(lvl)
+	if !found {
+		return fmt.Errorf("invalid log-level %q", lvl)
+	}
+	log.SetLevel(l)
+	if currentCfg != nil {
+		currentCfg.Global.LogLevel = lvl
+	}
+	slog.Info("log level patched", "level", lvl)
+	recordConfigAudit(core.ConfigAuditEntry{
+		At:     time.Now(),
+		Action: "patch",
+		Remote: remote,
+		Keys:   []string{"log-level"},
+	})
 	return nil
 }
 

@@ -140,7 +140,7 @@ func (e *CoreCEngine) AckAlert(key string) error {
 
 // SubscribeAlerts forwards to the alert registry for WS /alerts/stream
 // (optional core.AlertStreamer role).
-func (e *CoreCEngine) SubscribeAlerts() (<-chan core.AlertEvent, func()) {
+func (e *CoreCEngine) SubscribeAlerts() (ch <-chan core.AlertEvent, unsub func()) {
 	return e.processing.alerts.subscribe()
 }
 

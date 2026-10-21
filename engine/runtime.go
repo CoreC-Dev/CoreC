@@ -3,6 +3,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -493,17 +494,29 @@ func (r *engineRuntime) applyEngineConfig(cfg *core.EngineConfig) error {
 		r.eng.processing.alertActiveWindow = d
 	}
 	// Dead-letter persistence (audit RES-2 / roadmap #29): open early
-	// so the runtime start below can replay. A failed open is a
-	// start-blocking error — the operator asked for durability and got
-	// none; failing fast beats discovering the loss after a crash.
+	// so the runtime start below can replay.
 	if cfg.DeadLetterPath != "" {
-		store, err := newDeadLetterStore(cfg.DeadLetterPath, 0)
+		store, err := openDeadLetterStore(cfg.DeadLetterPath)
 		if err != nil {
-			return fmt.Errorf("dead-letter store: %w", err)
+			return err
 		}
 		r.eng.writes.deadLetters.store = store
 	}
 	return nil
+}
+
+// openDeadLetterStore opens the configured persistence file. A failed
+// open is a start-blocking error — the operator asked for durability
+// and got none; failing fast beats discovering the loss after a crash.
+func openDeadLetterStore(path string) (*deadLetterStore, error) {
+	store, err := newDeadLetterStore(path, 0)
+	if err != nil {
+		if errors.Is(err, errDeadLetterDisabled) {
+			return nil, fmt.Errorf("dead-letter store: empty path for a configured dead-letter-path")
+		}
+		return nil, fmt.Errorf("dead-letter store: %w", err)
+	}
+	return store, nil
 }
 
 // autoFillNodeConfig auto-generates configuration fields that are omitted

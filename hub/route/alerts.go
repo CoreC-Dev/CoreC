@@ -31,8 +31,8 @@ func getAlerts(w http.ResponseWriter, r *http.Request) {
 	active := provider.ActiveAlerts()
 	history := provider.AlertHistory()
 	acked := 0
-	for _, a := range active {
-		if a.Acked {
+	for i := range active {
+		if active[i].Acked {
 			acked++
 		}
 	}

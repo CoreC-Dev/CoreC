@@ -38,18 +38,18 @@ func getWriteHistory(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	if d := q.Get("driver"); d != "" {
 		filtered := make([]core.WriteAuditEntry, 0, len(entries))
-		for _, e := range entries {
-			if e.Driver == d {
-				filtered = append(filtered, e)
+		for i := range entries {
+			if entries[i].Driver == d {
+				filtered = append(filtered, entries[i])
 			}
 		}
 		entries = filtered
 	}
 	if t := q.Get("tag"); t != "" {
 		filtered := make([]core.WriteAuditEntry, 0, len(entries))
-		for _, e := range entries {
-			if strings.Contains(e.Tag, t) {
-				filtered = append(filtered, e)
+		for i := range entries {
+			if strings.Contains(entries[i].Tag, t) {
+				filtered = append(filtered, entries[i])
 			}
 		}
 		entries = filtered
@@ -61,9 +61,9 @@ func getWriteHistory(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		filtered := make([]core.WriteAuditEntry, 0, len(entries))
-		for _, e := range entries {
-			if !e.Timestamp.Before(since) {
-				filtered = append(filtered, e)
+		for i := range entries {
+			if !entries[i].Timestamp.Before(since) {
+				filtered = append(filtered, entries[i])
 			}
 		}
 		entries = filtered

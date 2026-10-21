@@ -2,7 +2,6 @@ package executor
 
 import (
 	"errors"
-	"fmt"
 )
 
 // ConfigError marks a configuration problem the caller can fix: the
@@ -37,12 +36,6 @@ func (e *ConfigError) Unwrap() error { return e.err }
 // the request payload itself is at fault and the message is safe to
 // return verbatim to the caller.
 func (e *ConfigError) ClientFixable() bool { return true }
-
-// wrapConfigError is a convenience for wrapping with context while
-// preserving the ConfigError marker.
-func wrapConfigError(format string, args ...any) *ConfigError {
-	return NewConfigError(fmt.Errorf(format, args...))
-}
 
 // classifyResourceError maps removeResource failures to the route's
 // HTTP classes (injected as route.ClassifyResourceError to break the

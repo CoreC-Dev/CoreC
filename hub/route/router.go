@@ -9,7 +9,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-func router(ctx context.Context, secret string, allowedOrigins []string, rateLimitPerSec int, pprofEnabled bool, metricsDedicated bool) *chi.Mux {
+func router(ctx context.Context, secret string, allowedOrigins []string, rateLimitPerSec int, pprofEnabled, metricsDedicated bool) *chi.Mux {
 	// Populate the package-level origin allowlist so that WebSocket Accept
 	// calls (which do their own Origin check, independent of CORS) honor the
 	// same allowed-origins config. Without this, cross-origin WS upgrades

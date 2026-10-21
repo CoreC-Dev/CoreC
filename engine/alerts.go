@@ -282,8 +282,8 @@ func (am *alertManager) sweep(now time.Time) {
 		}
 	}
 	am.mu.Unlock()
-	for _, ev := range cleared {
-		am.publish(ev)
+	for i := range cleared {
+		am.publish(cleared[i])
 	}
 }
 
@@ -333,6 +333,6 @@ func (am *alertManager) activeCount() int {
 }
 
 // subscribe returns the alert event stream (WS /alerts/stream).
-func (am *alertManager) subscribe() (<-chan core.AlertEvent, func()) {
+func (am *alertManager) subscribe() (ch <-chan core.AlertEvent, unsub func()) {
 	return am.eventBus.Subscribe()
 }

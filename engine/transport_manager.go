@@ -346,9 +346,10 @@ func (m *transportManager) ingressDeadLetters() []core.DeadLetterEntry {
 		if !ok || src == nil {
 			continue
 		}
-		for _, entry := range src.CommandDeadLetterEntries() {
-			entry.Transport = name
-			out = append(out, entry)
+		entries := src.CommandDeadLetterEntries()
+		for i := range entries {
+			entries[i].Transport = name
+			out = append(out, entries[i])
 		}
 	}
 	return out

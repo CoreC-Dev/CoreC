@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -158,11 +159,17 @@ func TestDeadLetterStoreRotationBoundsDisk(t *testing.T) {
 }
 
 // TestDeadLetterStoreDisabledIsNil verifies the empty-path default
-// keeps the historical memory-only behaviour.
+// keeps the historical memory-only behaviour: a nil store with an
+// explicit errDeadLetterDisabled sentinel (nilnil lint rule — the
+// signature never returns nil,nil), and the nil store's methods are
+// all no-ops.
 func TestDeadLetterStoreDisabledIsNil(t *testing.T) {
 	st, err := newDeadLetterStore("", 0)
-	if err != nil || st != nil {
-		t.Errorf("empty path: store=%v err=%v, want nil/nil (disabled)", st, err)
+	if st != nil {
+		t.Errorf("empty path: store=%v, want nil (disabled)", st)
+	}
+	if !errors.Is(err, errDeadLetterDisabled) {
+		t.Errorf("empty path: err=%v, want errDeadLetterDisabled", err)
 	}
 	// The nil store's methods must be no-ops (addDeadLetter calls them).
 	st.append(dlEntry("x", time.Now()))

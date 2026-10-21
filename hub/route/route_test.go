@@ -643,7 +643,7 @@ func TestDriverPauseResumeEndpoints(t *testing.T) {
 	ts := newTestServer("", eng)
 	defer ts.Close()
 
-	do := func(method, path string) *http.Response {
+	do := func(method, path string) int {
 		req, err := http.NewRequest(method, ts.URL+path, http.NoBody)
 		if err != nil {
 			t.Fatal(err)
@@ -653,11 +653,11 @@ func TestDriverPauseResumeEndpoints(t *testing.T) {
 			t.Fatal(err)
 		}
 		resp.Body.Close()
-		return resp
+		return resp.StatusCode
 	}
 
 	// Pause an existing driver.
-	if got := do(http.MethodPost, "/drivers/plc1/pause").StatusCode; got != http.StatusNoContent {
+	if got := do(http.MethodPost, "/drivers/plc1/pause"); got != http.StatusNoContent {
 		t.Errorf("pause status = %d, want 204", got)
 	}
 	// The paused list reflects it — and the static route wins over
@@ -675,7 +675,7 @@ func TestDriverPauseResumeEndpoints(t *testing.T) {
 	}
 
 	// Resume clears it.
-	if got := do(http.MethodPost, "/drivers/plc1/resume").StatusCode; got != http.StatusNoContent {
+	if got := do(http.MethodPost, "/drivers/plc1/resume"); got != http.StatusNoContent {
 		t.Errorf("resume status = %d, want 204", got)
 	}
 	resp2 := authedGet(t, ts, "/drivers/paused", "")
@@ -688,10 +688,10 @@ func TestDriverPauseResumeEndpoints(t *testing.T) {
 	}
 
 	// Unknown drivers 404.
-	if got := do(http.MethodPost, "/drivers/nope/pause").StatusCode; got != http.StatusNotFound {
+	if got := do(http.MethodPost, "/drivers/nope/pause"); got != http.StatusNotFound {
 		t.Errorf("pause unknown status = %d, want 404", got)
 	}
-	if got := do(http.MethodPost, "/drivers/nope/resume").StatusCode; got != http.StatusNotFound {
+	if got := do(http.MethodPost, "/drivers/nope/resume"); got != http.StatusNotFound {
 		t.Errorf("resume unknown status = %d, want 404", got)
 	}
 }
@@ -782,8 +782,8 @@ func TestResourceDeleteEndpoints(t *testing.T) {
 	ts := newTestServer("", eng)
 	defer ts.Close()
 
-	do := func(path string) *http.Response {
-		req, err := http.NewRequest(http.MethodDelete, ts.URL+path, nil)
+	do := func(path string) int {
+		req, err := http.NewRequest(http.MethodDelete, ts.URL+path, http.NoBody)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -792,29 +792,29 @@ func TestResourceDeleteEndpoints(t *testing.T) {
 			t.Fatal(err)
 		}
 		resp.Body.Close()
-		return resp
+		return resp.StatusCode
 	}
 
 	// Success: driver removed, 204.
-	if got := do("/drivers/plc1").StatusCode; got != http.StatusNoContent {
+	if got := do("/drivers/plc1"); got != http.StatusNoContent {
 		t.Errorf("DELETE /drivers/plc1 = %d, want 204", got)
 	}
 	if resources["plc1"] {
 		t.Error("driver not removed")
 	}
 	// Stale name: 404.
-	if got := do("/drivers/plc1").StatusCode; got != http.StatusNotFound {
+	if got := do("/drivers/plc1"); got != http.StatusNotFound {
 		t.Errorf("DELETE stale /drivers/plc1 = %d, want 404", got)
 	}
 	// Config fallout: transport still referenced by a rule → 400.
-	if got := do("/transports/mqtt1").StatusCode; got != http.StatusBadRequest {
+	if got := do("/transports/mqtt1"); got != http.StatusBadRequest {
 		t.Errorf("DELETE referenced /transports/mqtt1 = %d, want 400", got)
 	}
 	// Rule removal succeeds, then the transport becomes removable.
-	if got := do("/rules/rule-hot").StatusCode; got != http.StatusNoContent {
+	if got := do("/rules/rule-hot"); got != http.StatusNoContent {
 		t.Errorf("DELETE /rules/rule-hot = %d, want 204", got)
 	}
-	if got := do("/transports/mqtt1").StatusCode; got != http.StatusNoContent {
+	if got := do("/transports/mqtt1"); got != http.StatusNoContent {
 		t.Errorf("DELETE /transports/mqtt1 after rule removal = %d, want 204", got)
 	}
 }
@@ -941,12 +941,12 @@ func TestBatchWrite(t *testing.T) {
 	eng := &mockEngineV2{}
 	// WriteTag outcome driven by the tag name embedded in the test.
 	eng.writeTagHook = func(ctx context.Context, cmd core.WriteCommand) (*core.WriteResult, error) {
-		switch {
-		case cmd.Tag == "ok":
+		switch cmd.Tag {
+		case "ok":
 			return &core.WriteResult{Success: true}, nil
-		case cmd.Tag == "missing-driver":
+		case "missing-driver":
 			return nil, fmt.Errorf("driver not found: %s", cmd.Driver)
-		case cmd.Tag == "reject":
+		case "reject":
 			return &core.WriteResult{Success: false, Error: "device rejected"}, nil
 		}
 		return &core.WriteResult{Success: false, Error: "unhandled fixture tag"}, nil
@@ -954,7 +954,7 @@ func TestBatchWrite(t *testing.T) {
 	ts := newTestServer("", eng)
 	defer ts.Close()
 
-	post := func(body string) (*http.Response, map[string]any) {
+	post := func(body string) (int, map[string]any) {
 		t.Helper()
 		req, err := http.NewRequest(http.MethodPost, ts.URL+"/write/batch", strings.NewReader(body))
 		if err != nil {
@@ -970,17 +970,17 @@ func TestBatchWrite(t *testing.T) {
 		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 			t.Fatalf("decode: %v", err)
 		}
-		return resp, out
+		return resp.StatusCode, out
 	}
 
 	// Mixed outcomes → 200 with per-command results + counts.
-	resp, out := post(`{"writes":[
+	status, out := post(`{"writes":[
 		{"driver":"plc1","tag":"ok","value":1,"type":"int32"},
 		{"driver":"nope","tag":"missing-driver","value":2,"type":"int32"},
 		{"driver":"plc2","tag":"reject","value":3,"type":"int32"}
 	]}`)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("mixed batch status = %d, want 200", resp.StatusCode)
+	if status != http.StatusOK {
+		t.Fatalf("mixed batch status = %d, want 200", status)
 	}
 	if out["succeeded"].(float64) != 1 || out["failed"].(float64) != 2 {
 		t.Errorf("counts = %v/%v, want 1/2", out["succeeded"], out["failed"])
@@ -997,15 +997,15 @@ func TestBatchWrite(t *testing.T) {
 	}
 
 	// All failed → 422.
-	resp, _ = post(`{"writes":[{"driver":"nope","tag":"missing-driver","value":1,"type":"int32"}]}`)
-	if resp.StatusCode != http.StatusUnprocessableEntity {
-		t.Errorf("all-failed batch status = %d, want 422", resp.StatusCode)
+	status, _ = post(`{"writes":[{"driver":"nope","tag":"missing-driver","value":1,"type":"int32"}]}`)
+	if status != http.StatusUnprocessableEntity {
+		t.Errorf("all-failed batch status = %d, want 422", status)
 	}
 
 	// Empty batch → 400.
-	resp, _ = post(`{"writes":[]}`)
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("empty batch status = %d, want 400", resp.StatusCode)
+	status, _ = post(`{"writes":[]}`)
+	if status != http.StatusBadRequest {
+		t.Errorf("empty batch status = %d, want 400", status)
 	}
 
 	// Oversized batch → 400 with the cap named.
@@ -1018,9 +1018,9 @@ func TestBatchWrite(t *testing.T) {
 		fmt.Fprintf(&huge, `{"driver":"d","tag":"t%d","value":1,"type":"int32"}`, i)
 	}
 	huge.WriteString(`]}`)
-	resp, out = post(huge.String())
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("oversized batch status = %d, want 400", resp.StatusCode)
+	status, out = post(huge.String())
+	if status != http.StatusBadRequest {
+		t.Errorf("oversized batch status = %d, want 400", status)
 	}
 	if !strings.Contains(out["error"].(string), "max 128") {
 		t.Errorf("oversized error = %v, want the cap named", out["error"])

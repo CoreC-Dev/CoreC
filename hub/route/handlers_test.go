@@ -75,7 +75,7 @@ func (m *mockEngineV2) SchedulerHealth() []core.TaskHealth { return m.schedulerH
 
 func (m *mockEngineV2) DeadLetterEntries() []core.DeadLetterEntry { return m.deadLetters }
 
-func (m *mockEngineV2) DeadLetterStats() (int, uint64) { return m.dlqSize, m.dlqPushed }
+func (m *mockEngineV2) DeadLetterStats() (size int, pushed uint64) { return m.dlqSize, m.dlqPushed }
 
 func (m *mockEngineV2) IngressDeadLetters() []core.DeadLetterEntry { return m.ingressDeadLetters }
 
@@ -87,7 +87,7 @@ func (m *mockEngineV2) AckAlert(key string) error {
 	}
 	return nil
 }
-func (m *mockEngineV2) SubscribeAlerts() (<-chan core.AlertEvent, func()) {
+func (m *mockEngineV2) SubscribeAlerts() (ch <-chan core.AlertEvent, unsub func()) {
 	return m.alertStreamCh, func() {}
 }
 func (m *mockEngineV2) AlertFireCounts() map[string]uint64 { return m.alertFireCounts }

@@ -106,7 +106,7 @@ func TestAckAlert(t *testing.T) {
 	ts, eng := alertTestServer(t)
 	defer ts.Close()
 
-	do := func(body string) *http.Response {
+	do := func(body string) int {
 		req, err := http.NewRequest(http.MethodPost, ts.URL+"/alerts/ack", strings.NewReader(body))
 		if err != nil {
 			t.Fatal(err)
@@ -116,17 +116,17 @@ func TestAckAlert(t *testing.T) {
 			t.Fatal(err)
 		}
 		resp.Body.Close()
-		return resp
+		return resp.StatusCode
 	}
 
-	if got := do(`{"key":"hot|plc1|temp"}`).StatusCode; got != http.StatusNoContent {
+	if got := do(`{"key":"hot|plc1|temp"}`); got != http.StatusNoContent {
 		t.Errorf("ack known key status = %d, want 204", got)
 	}
 	eng.ackErr = errors.New("no active alert with key \"missing\"") // simulates unknown key
-	if got := do(`{"key":"missing"}`).StatusCode; got != http.StatusNotFound {
+	if got := do(`{"key":"missing"}`); got != http.StatusNotFound {
 		t.Errorf("ack unknown key status = %d, want 404", got)
 	}
-	if got := do(`{}`).StatusCode; got != http.StatusBadRequest {
+	if got := do(`{}`); got != http.StatusBadRequest {
 		t.Errorf("ack empty body status = %d, want 400", got)
 	}
 }

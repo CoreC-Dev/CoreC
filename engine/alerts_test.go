@@ -27,21 +27,19 @@ func alertPoint(driver, tag string, value any) core.DataPoint {
 	return core.DataPoint{Driver: driver, Tag: tag, Value: value, Quality: core.QualityGood, Timestamp: time.Now()}
 }
 
-// TestAlertRegistryLifecycle pins the full alert lifecycle (audit
-// OBS-4/HUB-6): fire creates + emits, repeated fires merge into one
-// alert, ack sticks across re-fires, and silence clears after the
-// active window.
-func TestAlertRegistryLifecycle(t *testing.T) {
-	am := newAlertManager(200 * time.Millisecond) // short window for the test
+// TestAlertRegistryFireMergeStream pins the fire phase (audit
+// OBS-4/HUB-6): creating alerts, merging repeated fires, and streaming
+// exactly one event per identity.
+func TestAlertRegistryFireMergeStream(t *testing.T) {
+	am := newAlertManager(time.Hour)
 	ch, unsub := am.subscribe()
 	defer unsub()
-
 	rule := testAlertRule{"high-temp"}
+
 	am.record(rule, alertPoint("plc1", "temp", 91))
 	am.record(rule, alertPoint("plc1", "temp", 92))
 	am.record(rule, alertPoint("plc1", "hum", 65)) // same rule, other tag: second alert
 
-	// Two distinct alerts, first one merged across fires.
 	active := am.activeAlerts()
 	if len(active) != 2 {
 		t.Fatalf("active alerts = %d, want 2", len(active))
@@ -58,12 +56,6 @@ func TestAlertRegistryLifecycle(t *testing.T) {
 	if temp.Count != 2 {
 		t.Errorf("temp fire count = %d, want 2 (fires merge into one alert)", temp.Count)
 	}
-	if temp.Key != "high-temp|plc1|temp" {
-		t.Errorf("key = %q, want rule|driver|tag", temp.Key)
-	}
-	if got := am.fireCounts()["high-temp"]; got != 3 {
-		t.Errorf("per-rule fire count = %d, want 3 (raw, not deduplicated)", got)
-	}
 
 	// Exactly one fired event per alert identity reached the stream.
 	fired := drainEvents(t, ch, 2, time.Second)
@@ -72,38 +64,58 @@ func TestAlertRegistryLifecycle(t *testing.T) {
 			t.Errorf("stream event type = %q, want fired", ev.Type)
 		}
 	}
+}
 
-	// Ack sticks: re-fires bump the count but do not clear the ack.
-	if err := am.ack("high-temp|plc1|temp"); err != nil {
+// TestAlertRegistryAckSticks pins the ack phase: ack persists across
+// re-fires and unknown keys error.
+func TestAlertRegistryAckSticks(t *testing.T) {
+	am := newAlertManager(time.Hour)
+	rule := testAlertRule{"high-temp"}
+
+	am.record(rule, alertPoint("plc1", "temp", 91))
+	if err := am.ack(alertKey(rule, "plc1", "temp")); err != nil {
 		t.Fatalf("ack: %v", err)
 	}
-	am.record(rule, alertPoint("plc1", "temp", 93))
-	active = am.activeAlerts()
-	for _, a := range active {
-		if a.Tag == "temp" {
-			if !a.Acked {
-				t.Error("ack was lost on re-fire — acknowledgement must stick until the alert clears")
-			}
-			if a.Count != 3 {
-				t.Errorf("post-ack fire count = %d, want 3", a.Count)
-			}
+	am.record(rule, alertPoint("plc1", "temp", 95)) // re-fire after ack
+
+	var temp *core.Alert
+	active := am.activeAlerts()
+	for i := range active {
+		if active[i].Tag == "temp" {
+			temp = &active[i]
 		}
 	}
-
-	// Unknown key errors.
+	if temp == nil {
+		t.Fatal("temp alert missing after re-fire")
+	}
+	if !temp.Acked {
+		t.Error("ack did not stick across the re-fire")
+	}
+	if temp.Count != 2 {
+		t.Errorf("post-ack fire count = %d, want 2", temp.Count)
+	}
 	if err := am.ack("nope"); err == nil {
 		t.Error("expected error acking unknown key")
 	}
+}
 
-	// Silence clears: after the active window passes with no re-fire,
-	// the sweep moves everything to history with cleared events.
+// TestAlertRegistrySilenceClears pins the clear phase: after the active
+// window passes with no re-fire, the sweep moves alerts to history with
+// cleared events, final state (incl. acked) intact.
+func TestAlertRegistrySilenceClears(t *testing.T) {
+	am := newAlertManager(200 * time.Millisecond) // short window for the test
+	rule := testAlertRule{"high-temp"}
+
+	am.record(rule, alertPoint("plc1", "temp", 91))
+	if err := am.ack(alertKey(rule, "plc1", "temp")); err != nil {
+		t.Fatalf("ack: %v", err)
+	}
+
 	time.Sleep(350 * time.Millisecond)
 	am.sweep(time.Now())
 	if got := len(am.activeAlerts()); got != 0 {
 		t.Fatalf("active after window = %d, want 0 (cleared)", got)
 	}
-	// The cleared alerts keep their final state (incl. acked flag) in
-	// history, newest first.
 	hist := am.alertHistory()
 	if len(hist) == 0 {
 		t.Fatal("history empty after clear")

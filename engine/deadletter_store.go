@@ -4,6 +4,7 @@ package engine
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -38,9 +39,14 @@ type deadLetterStore struct {
 // newDeadLetterStore opens (creating if needed) the JSONL file. A nil
 // path yields a nil store — persistence disabled, the historical
 // memory-only behaviour.
+// errDeadLetterDisabled is returned when no path is configured; the
+// engine treats the resulting nil store as "persistence disabled"
+// (memory-only queue, the historical behaviour).
+var errDeadLetterDisabled = errors.New("dead-letter persistence disabled")
+
 func newDeadLetterStore(path string, maxBytes int64) (*deadLetterStore, error) {
 	if path == "" {
-		return nil, nil
+		return nil, errDeadLetterDisabled
 	}
 	if maxBytes <= 0 {
 		maxBytes = defaultDeadLetterStoreBytes
@@ -132,10 +138,10 @@ func (st *deadLetterStore) rotateIfNeededLocked() error {
 }
 
 // load replays persisted entries into the in-memory queue, newest last,
-// keeping at most cap entries. Reads .old first, then the current file;
-// a torn trailing line (crash during append) is skipped.
-func (st *deadLetterStore) load(cap int, addToQueue func(core.DeadLetterEntry)) {
-	if st == nil || cap <= 0 {
+// keeping at most limit entries. Reads .old first, then the current
+// file; a torn trailing line (crash during append) is skipped.
+func (st *deadLetterStore) load(limit int, addToQueue func(core.DeadLetterEntry)) {
+	if st == nil || limit <= 0 {
 		return
 	}
 	var entries []core.DeadLetterEntry
@@ -155,11 +161,11 @@ func (st *deadLetterStore) load(cap int, addToQueue func(core.DeadLetterEntry)) 
 		}
 		f.Close()
 	}
-	if len(entries) > cap {
-		entries = entries[len(entries)-cap:]
+	if len(entries) > limit {
+		entries = entries[len(entries)-limit:]
 	}
-	for _, e := range entries {
-		addToQueue(e)
+	for i := range entries {
+		addToQueue(entries[i])
 	}
 	if len(entries) > 0 {
 		slog.Info("dead-letter store: replayed persisted entries into the queue",

@@ -55,18 +55,18 @@ func getAllTags(w http.ResponseWriter, r *http.Request) {
 	}
 	if p := q.Get("prefix"); p != "" {
 		filtered := make(map[string]core.DataPoint, len(tags))
-		for k, v := range tags {
+		for k := range tags {
 			if strings.HasPrefix(k, p) {
-				filtered[k] = v
+				filtered[k] = tags[k]
 			}
 		}
 		tags = filtered
 	}
 	if t := q.Get("tag"); t != "" {
 		filtered := make(map[string]core.DataPoint, len(tags))
-		for k, v := range tags {
+		for k := range tags {
 			if strings.Contains(k, t) {
-				filtered[k] = v
+				filtered[k] = tags[k]
 			}
 		}
 		tags = filtered
