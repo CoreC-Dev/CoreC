@@ -50,10 +50,8 @@
 - 5 = 有 600–800 行文件或 gocyclo >20（nolint 抑制）
 - 3 = 有 >800 行文件或多个 God Object
 - 数据来源：Phase 5 后实测，**2026-10-17 复测修正**（阶段 A 审计发现原文档存在一处失实：
-  "CoreCEngine 字段已 43→11" 的缩减从未发生——写入该句的同一提交实测即 43 字段；复测时点 HEAD=fee1ea9）——**2026-10-17 CPLX-020/025 修复后实测（HEAD=26ea71a）**：**4** 文件 >400 行
-  （publisher.go 736 · modbus_read.go 537 · rule_build.go 491 · engine/runtime.go 518；均 <600 T1 达标，仅 publisher.go 经 tastetest exemptedFiles 登记 CPLX-001 豁免）；**0** 函数 gocyclo >20（0 nolint:gocyclo，全部重构）；**0** 生产函数 gocyclo >15
-  （CPLX-018 候选带 8 函数 + stopComponents + readTag 全部拆分至 ≤15）；**0** God Object
-  （CoreCEngine 46 字段/73 方法 已拆为 9-role 组合结构：壳 10 字段 + 37 个 ≤3 行转发，各 role ≤10 字段/≤12 方法 · transportBatcher 19 字段/13 方法 已拆 batcherRetryPolicy/batcherBufferState，降至 10 字段/12 方法；上限经 engine/structure_test.go 机械固化）
+  "CoreCEngine 字段已 43→11" 的缩减从未发生——写入该句的同一提交实测即 43 字段；复测时点 HEAD=fee1ea9）——**2026-10-21 质量审计批次 C 后实测（HEAD=4334dc5）**：**16** 文件 >400 行（增长自 2026-10-17 的 4 个——按 PR 逐个拆分是余债，仅 **publisher.go 768 行** >600，经 tastetest 登记且**尺寸钉版 769（gate 计数）**：再增长即门禁失败）；**0** 函数 gocyclo >20（0 nolint:gocyclo）；**>15 但 ≤20 的近上限带 2 个**生产函数（parseS7Address=18、ApplyConfig=17——每次加分支前先拆分；applyEngineConfig 曾到 20=上限，批次 C 已按角色拆解）；**0** God Object
+  （CoreCEngine 壳 10 字段 + **55 个** ≤3 行转发，各 role ≤10 字段/≤12 方法——批次 C 把越界的 alertManager/scheduler 重新钉入守卫并各减一方法；上限经 engine/structure_test.go 机械固化）
 
 ### 依赖合规（20%）
 - 10 = 0 环 / 0 跨层 / 0 跨域（当前全项目达标）
@@ -66,7 +64,7 @@
 | 整体覆盖率 ≥85% | **85.5%** | ✅ 达标 | Phase 5 完成 |
 | 无 >400 行文件 | 4 个 | -4 | publisher.go/modbus_read.go/rule_build.go/engine/runtime.go（T1 门禁阈值 600 行；>600 仅 publisher.go，经 tastetest exemptedFiles 登记 CPLX-001 豁免；2026-10-17 CPLX 修复后复测） |
 | gocyclo 全 <20（无 nolint） | **0** | ✅ 达标 | Phase 4 完成，0 nolint:gocyclo |
-| 生产函数 gocyclo ≤15（CPLX-018） | **0** >15 | ✅ 达标 | 候选带 8 函数 + stopComponents + readTag 全部拆分至 ≤15 |
+| 生产函数 gocyclo ≤15（CPLX-018） | **2** >15（18/17，均 ≤20 上限） | ⚠️ 近限 | parseS7Address=18、ApplyConfig=17——维护带，加分支前先拆；>20 即 CI 失败 |
 | 无 God Object | **0** | ✅ 达标 | CPLX-020/025 已修复（2026-10-17）：CoreCEngine 46f/73m 拆为 9-role 组合结构（壳 10 字段 + 37 个 ≤3 行转发，core.Engine 方法集不变，各 role ≤10 字段/≤12 方法）；transportBatcher 19f/13m 拆 batcherRetryPolicy/batcherBufferState（10f/12m）；上限经 engine/structure_test.go 反射+AST 机械固化 |
 | 全包有 // Package 注释 | **0 缺** | ✅ 达标 | Phase 2 完成 |
 | 0 孤儿文档 | 1 个 | -1 | `docs/gates.md`（预期内，不阻断） |
