@@ -1,0 +1,11 @@
+# Code owners (H6, quality audit 2026-10-21).
+# CI/gates changes need maintainer review — they protect every other change.
+/.github/ @lsy1291455142
+/Makefile @lsy1291455142
+/archtest/ @lsy1291455142
+/tastetest/ @lsy1291455142
+/scripts/ @lsy1291455142
+# The API surface is cross-repo (the Dashboard consumes it).
+/core/ @lsy1291455142
+/hub/ @lsy1291455142
+* @lsy1291455142

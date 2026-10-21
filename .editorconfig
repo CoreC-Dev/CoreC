@@ -1,0 +1,27 @@
+# EditorConfig — formatting authority for files not owned by gofmt
+# (.yaml, .md, .sh). H6-L3, quality audit 2026-10-21.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.go]
+# gofmt owns Go formatting entirely
+indent_style = tab
+
+[*.{yaml,yml}]
+indent_style = space
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.sh]
+indent_style = space
+indent_size = 2
+
+[{Makefile,*.mk}]
+indent_style = tab
