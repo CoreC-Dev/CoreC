@@ -372,10 +372,6 @@ const (
 	// connections (e.g. MQTT ping interval).
 	DefaultKeepAlive = 60 * time.Second
 
-	// DefaultCircuitBreakerBackoff is the cool-down period after the
-	// maximum number of reconnect failures is exceeded, before retrying.
-	DefaultCircuitBreakerBackoff = 5 * time.Minute
-
 	// DefaultOfflineBufferMaxEntries is the maximum number of BATCHES
 	// (not data points) retained in the offline buffer when transport
 	// backends are unavailable. Each buffered file holds one publish

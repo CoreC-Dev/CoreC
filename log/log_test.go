@@ -135,7 +135,10 @@ func TestConvenienceFunctions(t *testing.T) {
 	defer unsub()
 
 	Infoln("info test %d", 1)
-	Warnln("warn test %d", 2)
+	// The convenience family has no Warn variant (never had a caller);
+	// warnings go through slog directly — the ObservableHandler captures
+	// all slog calls, which is the package's core mechanism.
+	slog.Warn("warn test 2")
 	Errorln("error test %d", 3)
 
 	count := 0

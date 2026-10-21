@@ -14,12 +14,14 @@ import (
 )
 
 // Fallback values used by ReconnectLoopWithBreakerCounted when the caller
-// passes non-positive backoff values. These mirror core.DefaultReconnectBackoff,
-// core.DefaultMaxReconnectBackoff, and core.DefaultCircuitBreakerBackoff but
-// are duplicated here to keep common/util a leaf package with no CoreC-internal
-// dependencies. This avoids pulling the core package (and everything it
-// transitively affects) into low-level utilities that transports depend on.
-// Keep these in sync with the core constants if they change.
+// passes non-positive backoff values. The circuit-breaker fallback is
+// single-sourced HERE (B3, quality audit 2026-10-21): the former exported
+// twin core.DefaultCircuitBreakerBackoff was dead — nothing read it —
+// and the "keep in sync" duplication had already produced one dead
+// member. The reconnect-backoff defaults remain mirrored with
+// core.DefaultReconnectBackoff/DefaultMaxReconnectBackoff (both read in
+// production) to keep common/util a leaf package with no CoreC-internal
+// dependencies.
 const (
 	defaultBackoffFallback       = 2 * time.Second
 	defaultMaxBackoffFallback    = 30 * time.Second

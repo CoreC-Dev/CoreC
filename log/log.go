@@ -39,20 +39,6 @@ var (
 	initOnce sync.Once
 )
 
-// InitBuffer initializes the log event channel with the given buffer size.
-// If size <= 0, DefaultLogBufferSize is used. Must be called before Init()
-// or any logging produces events; subsequent calls are no-ops. If never
-// called, the channel is lazily initialized with the default size on first use.
-func InitBuffer(bufferSize int) {
-	initOnce.Do(func() {
-		if bufferSize <= 0 {
-			bufferSize = DefaultLogBufferSize
-		}
-		logCh = make(chan Event, bufferSize)
-		source = observable.NewObservable[Event](logCh)
-	})
-}
-
 func ensureInit() {
 	initOnce.Do(func() {
 		logCh = make(chan Event, DefaultLogBufferSize)
@@ -248,11 +234,6 @@ func pushLog(l slog.Level, format string, v ...any) {
 // Infoln logs a message at INFO level.
 func Infoln(format string, v ...any) {
 	pushLog(slog.LevelInfo, format, v...)
-}
-
-// Warnln logs a message at WARNING level.
-func Warnln(format string, v ...any) {
-	pushLog(slog.LevelWarn, format, v...)
 }
 
 // Errorln logs a message at ERROR level.

@@ -38,6 +38,14 @@ type goListPkg struct {
 	Deps       []string `json:"Deps"`
 }
 
+// leafUtils are the pure-utility packages with no internal dependencies.
+var leafUtils = map[string]bool{
+	"common/metrics":    true,
+	"common/observable": true,
+	"common/trace":      true,
+	"common/util":       true,
+}
+
 // allowedDeps returns the set of allowed internal dependency prefixes for a package.
 // Returns nil if the package may depend on anything (wiring points).
 // Returns an empty (non-nil) slice if the package may not depend on any internal package.
@@ -56,9 +64,13 @@ func allowedDeps(pkg string) []string {
 	case pkg == "core":
 		return []string{} // pure interfaces/types, no internal deps
 
-	case pkg == "common/metrics" || pkg == "common/observable" ||
-		pkg == "common/trace" || pkg == "common/util":
+	case leafUtils[pkg]:
 		return []string{} // pure utils, no internal deps
+
+	case pkg == "common/testutil":
+		// Shared test helpers: may read the metrics registry and core
+		// types, nothing else (B5, quality audit 2026-10-21).
+		return []string{"core", "common/metrics"}
 
 	case pkg == "log":
 		return []string{"core", "common/observable"}
@@ -88,7 +100,14 @@ func allowedDeps(pkg string) []string {
 		return []string{"core", "common/", "config", "log", "hub/"}
 
 	default:
-		return nil // unknown package, allow (don't block)
+		// B5 (quality audit 2026-10-21): DEFAULT-DENY. Previously any
+		// package missing from the table above could import anything —
+		// new packages silently bypassed the dependency rules until
+		// someone remembered to extend the table (exactly how drift
+		// enters). A new package now fails with this message until it
+		// is deliberately classified here; wiring points (cmd/corec,
+		// driver/all, transport/all, demo/*) stay unrestricted above.
+		return []string{} // empty non-nil = no internal dependencies allowed
 	}
 }
 

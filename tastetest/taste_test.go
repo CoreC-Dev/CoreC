@@ -33,8 +33,22 @@ func findModuleRoot() string {
 // exemptedFiles lists files that exceed maxLines with a documented reason.
 // Each entry: file path → reason. These are technical debt items being tracked
 // in tech-debt-tracker.md and will be resolved in Phase 4.
+//
+// B5 (quality audit 2026-10-21): the exemption now records a SIZE PIN —
+// publisher.go was recorded at 733 lines but silently grew to 768 (+35 in
+// the LWT commit) because nothing noticed. Growth beyond the pinned size
+// fails the gate; shrinking lets you lower the pin (and eventually delete
+// the exemption when the CPLX-001 split lands).
 var exemptedFiles = map[string]string{
-	"transport/mqtt/publisher.go": "CPLX-001: 733 lines, MQTT publisher with replay window + command handler + TLS config; further split tracked in tech-debt-tracker.md",
+	"transport/mqtt/publisher.go": "CPLX-001: pinned at 769 lines in gate counting (wc -l: 768; was 733 — grew unnoticed before B5), MQTT publisher with replay window + command handler + TLS config; further split tracked in tech-debt-tracker.md",
+}
+
+// exemptedFileCaps pins the maximum line count per exemption: growth
+// beyond the pin fails the taste gate.
+var exemptedFileCaps = map[string]int{
+	// 769 in THIS test's counting (lines split on \n incl. the trailing
+	// empty element; `wc -l` reports 768 for the same file).
+	"transport/mqtt/publisher.go": 769,
 }
 
 func TestFileSizeLimit(t *testing.T) {
@@ -71,7 +85,18 @@ func TestFileSizeLimit(t *testing.T) {
 
 		reason, exempted := exemptedFiles[relPath]
 		if exempted {
-			return nil // documented exemption
+			// B5: exemptions are size-pinned — growth beyond the recorded
+			// cap fails the gate instead of passing silently (publisher.go
+			// grew 733→768 before this pin existed).
+			if cap, pinned := exemptedFileCaps[relPath]; pinned && lines > cap {
+				t.Errorf(
+					"T1 VIOLATION: exempted file %s grew to %d lines (exemption pinned at %d)\n"+
+						"  Fix: split the file and lower/remove the exemption, or raise the pin CONSCIOUSLY with a tracker update (CPLX-001).\n"+
+						"  Reason on file: %s",
+					relPath, lines, cap, reason)
+				violations++
+			}
+			return nil
 		}
 
 		t.Errorf(

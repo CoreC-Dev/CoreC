@@ -31,11 +31,15 @@ var (
 	ClassifyResourceError func(err error) int
 )
 
-// HTTP error-class constants for ClassifyResourceError.
+// ResourceErrorClass is the typed result of ClassifyResourceError — the
+// injected classifier and both sides of the boundary share these
+// exported constants (B5, quality audit 2026-10-21: the previous raw
+// ints were declared independently on each side, so renumbering either
+// compiled fine and silently misrouted 404/400/500).
 const (
-	resourceErrInternal = 0
-	resourceErrNotFound = 1
-	resourceErrConfig   = 2
+	ResourceErrInternal = 0 // masked 500
+	ResourceErrNotFound = 1 // 404
+	ResourceErrConfig   = 2 // 400, verbatim reason
 )
 
 // deleteResourceDriver handles DELETE /drivers/{name}.
@@ -80,9 +84,9 @@ func deleteResourceRule(w http.ResponseWriter, r *http.Request) {
 // with the actionable reason, everything else stays the masked 500.
 func renderResourceDeleteError(w http.ResponseWriter, r *http.Request, kind, name string, err error) {
 	switch classOf(err) {
-	case resourceErrNotFound:
+	case ResourceErrNotFound:
 		renderError(w, r, http.StatusNotFound, err.Error())
-	case resourceErrConfig:
+	case ResourceErrConfig:
 		renderError(w, r, http.StatusBadRequest, err.Error())
 	default:
 		slog.Error("resource delete failed",
@@ -95,7 +99,7 @@ func renderResourceDeleteError(w http.ResponseWriter, r *http.Request, kind, nam
 // classOf resolves the injected classifier, defaulting to internal.
 func classOf(err error) int {
 	if ClassifyResourceError == nil {
-		return resourceErrInternal
+		return ResourceErrInternal
 	}
 	return ClassifyResourceError(err)
 }

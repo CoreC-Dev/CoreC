@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	driver "github.com/CoreC-Dev/CoreC/driver"
+	"github.com/CoreC-Dev/CoreC/common/testutil"
 )
 
 // knownDriverSettings maps driver type → allowlisted settings keys, per
@@ -78,7 +78,7 @@ func scanPackageSettings(t *testing.T, dir string) map[string]bool {
 		if err != nil {
 			t.Fatalf("read file: %v", err)
 		}
-		driver.CollectParsedSettingKeys(string(data), out)
+		testutil.CollectParsedSettingKeys(string(data), out)
 	}
 	return out
 }

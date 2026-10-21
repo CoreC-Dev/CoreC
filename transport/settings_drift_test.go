@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	driver "github.com/CoreC-Dev/CoreC/driver"
+	"github.com/CoreC-Dev/CoreC/common/testutil"
 )
 
 var knownTransportSettings = map[string]map[string]bool{
@@ -61,7 +61,7 @@ func TestTransportSettingsAllowlistsCoverParsedKeys(t *testing.T) {
 				if err != nil {
 					t.Fatalf("read file: %v", err)
 				}
-				driver.CollectParsedSettingKeys(string(data), parsed)
+				testutil.CollectParsedSettingKeys(string(data), parsed)
 			}
 			for key := range parsed {
 				if !known[key] {

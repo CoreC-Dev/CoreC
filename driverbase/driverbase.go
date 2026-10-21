@@ -255,22 +255,8 @@ func (d *BaseDriver) GetState() core.ConnState {
 // GetStateLocked returns state without locking (caller must hold mu).
 func (d *BaseDriver) GetStateLocked() core.ConnState { return d.state }
 
-// SetLastError records the last error message (thread-safe).
-func (d *BaseDriver) SetLastError(err string) {
-	d.mu.Lock()
-	d.lastError = err
-	d.mu.Unlock()
-}
-
 // SetLastErrorLocked sets lastError without locking (caller must hold mu).
 func (d *BaseDriver) SetLastErrorLocked(err string) { d.lastError = err }
-
-// RecordRead updates lastRead and increments readCount (caller holds mu or
-// ensures no concurrent access to lastRead).
-func (d *BaseDriver) RecordRead() {
-	d.lastRead = time.Now()
-	d.readCount.Add(1)
-}
 
 // SetLastRead sets the last read timestamp (caller holds mu).
 func (d *BaseDriver) SetLastRead(t time.Time) { d.lastRead = t }
