@@ -44,7 +44,7 @@
 - **失败含义**：.go 文件超过 600 行且未在 `exemptedFiles` 中登记
 - **修复指引**：按职责拆分为更小文件。若暂不能拆，在 `tastetest/taste_test.go` 的 `exemptedFiles` 中添加条目并附 tracker ID
 - **测试位置**：`tastetest/taste_test.go::TestFileSizeLimit`
-- **当前豁免**：1 个文件（transport/mqtt/publisher.go，CPLX-001，733 行），其余已拆分完成
+- **当前豁免**：**0 个**（CPLX-001 已于 2026-10-21 退役：publisher.go 768 行按关注点拆为三文件 297/221/279，全部低于 600 上限——豁免表自上限落地以来首次清空）
 
 ### G5: 结构化日志（T6）
 - **失败含义**：生产代码中使用 `fmt.Println` 或 `fmt.Printf`（非测试/非 demo/非 cmd/非 log 包）

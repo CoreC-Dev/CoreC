@@ -62,7 +62,7 @@
 | 目标 | 当前 | 差距 | 状态 |
 |------|------|------|------|
 | 整体覆盖率 ≥85% | **85.5%** | ✅ 达标 | Phase 5 完成 |
-| 无 >400 行文件 | 4 个 | -4 | publisher.go/modbus_read.go/rule_build.go/engine/runtime.go（T1 门禁阈值 600 行；>600 仅 publisher.go，经 tastetest exemptedFiles 登记 CPLX-001 豁免；2026-10-17 CPLX 修复后复测） |
+| 无 >400 行文件 | 16 个 | -4 | 阈值 600 行；>600 **0 个**（CPLX-001 publisher 2026-10-21 拆分退役，豁免表清空）；>400 的 15-16 个文件为按 PR 拆分的余债（2026-10-21 质量审计 B6 实测） |
 | gocyclo 全 <20（无 nolint） | **0** | ✅ 达标 | Phase 4 完成，0 nolint:gocyclo |
 | 生产函数 gocyclo ≤15（CPLX-018） | **2** >15（18/17，均 ≤20 上限） | ⚠️ 近限 | parseS7Address=18、ApplyConfig=17——维护带，加分支前先拆；>20 即 CI 失败 |
 | 无 God Object | **0** | ✅ 达标 | CPLX-020/025 已修复（2026-10-17）：CoreCEngine 46f/73m 拆为 9-role 组合结构（壳 10 字段 + 37 个 ≤3 行转发，core.Engine 方法集不变，各 role ≤10 字段/≤12 方法）；transportBatcher 19f/13m 拆 batcherRetryPolicy/batcherBufferState（10f/12m）；上限经 engine/structure_test.go 反射+AST 机械固化 |

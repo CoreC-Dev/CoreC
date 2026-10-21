@@ -39,17 +39,16 @@ func findModuleRoot() string {
 // the LWT commit) because nothing noticed. Growth beyond the pinned size
 // fails the gate; shrinking lets you lower the pin (and eventually delete
 // the exemption when the CPLX-001 split lands).
-var exemptedFiles = map[string]string{
-	"transport/mqtt/publisher.go": "CPLX-001: pinned at 769 lines in gate counting (wc -l: 768; was 733 — grew unnoticed before B5), MQTT publisher with replay window + command handler + TLS config; further split tracked in tech-debt-tracker.md",
-}
+// CPLX-001 is RETIRED (2026-10-21, quality audit batch B8): the 768-line
+// publisher.go split into three files by concern (struct+Init /
+// lifecycle / I/O surface), each under the ceiling — the exemption list
+// is now EMPTY for the first time since the cap landed. New exemptions
+// require a tracker ID + a size pin (see git history for the format).
+var exemptedFiles = map[string]string{}
 
 // exemptedFileCaps pins the maximum line count per exemption: growth
 // beyond the pin fails the taste gate.
-var exemptedFileCaps = map[string]int{
-	// 769 in THIS test's counting (lines split on \n incl. the trailing
-	// empty element; `wc -l` reports 768 for the same file).
-	"transport/mqtt/publisher.go": 769,
-}
+var exemptedFileCaps = map[string]int{}
 
 func TestFileSizeLimit(t *testing.T) {
 	root := findModuleRoot()
