@@ -298,7 +298,7 @@ CoreC 后端的**工程底子很好**：构建/vet/测试全绿，历史两轮�
 
 ### 7.1 实现现状（盘点）
 
-- **MQTT**（`transport/mqtt/`）：QoS/retain/动态主题模板（`{{.Driver}}/{{.Group}}/{{.Tag}}`，缺省自动拼）；发布/订阅超时可配；断连行为与 auto-reconnect（默认开）+ 实例级 ±20% jitter 防重连风暴；命令订阅 HMAC fail-closed + replay 窗口 + strict 模式（B6-1 闭环）；命令转发（command-forward-topic + 独立签名）；data-topic 入站（chained-core）+ parser；TLS/mTLS；入站命令通道满→transport 本地死信 + dropped 计数。
+- **MQTT**（`transport/mqtt/`）：QoS/retain/动态主题模板（<code v-pre>{{.Driver}}/{{.Group}}/{{.Tag}}</code>，缺省自动拼）；发布/订阅超时可配；断连行为与 auto-reconnect（默认开）+ 实例级 ±20% jitter 防重连风暴；命令订阅 HMAC fail-closed + replay 窗口 + strict 模式（B6-1 闭环）；命令转发（command-forward-topic + 独立签名）；data-topic 入站（chained-core）+ parser；TLS/mTLS；入站命令通道满→transport 本地死信 + dropped 计数。
 - **HTTP Push**（`transport/httppush/`）：原生连接池、批量 JSON、5xx 重试/4xx 终止的分类、`traceparent` 注入、webhook 入站（可选 secret：Bearer 或 X-Webhook-Secret，常时比较）、10 MiB 体积上限。
 - **Notify**（`transport/notify/`）：Slack/Teams（webhook JSON）、Email（SMTP + PLAIN auth）、Generic webhook（自定义 method/headers/模板——DingTalk/飞书走这个）；**per-rule cooldown** 防风暴（notify.go:120 以 `point.Metadata["rule"]` 为键）；429 专门识别。
 - **parser**（`transport/parser/`）：入站数据点 JSON 解析（webhook/data-topic 共用），畸形样本容错。
