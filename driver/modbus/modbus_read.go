@@ -13,6 +13,12 @@ import (
 	mb "github.com/simonvetter/modbus"
 )
 
+// errModbusNotConnected is returned when a read/write reaches the device
+// layer while the client connection is down (nil client after a mid-cycle
+// disconnect). The message matches util.IsConnectionError's keyword scan so
+// the existing retry/reconnect paths treat it as a connection-class fault.
+var errModbusNotConnected = fmt.Errorf("modbus: client is not connected (connection lost)")
+
 func (b *modbusBase) Read(ctx context.Context, tags []string) ([]core.TagValue, error) {
 	b.RLock()
 	client := b.client
@@ -370,9 +376,19 @@ func (b *modbusBase) performBatchReads(ctx context.Context, client *mb.ModbusCli
 			values, refreshedClient, err := b.readBatchWithRetry(ctx, client, batch, reqs)
 			client = refreshedClient
 			if err != nil {
-				// Batch failed after retries: leave these tags for
-				// individual fallback (Phase 3). Don't touch errorCount
-				// here — the per-tag reads account for it.
+				// Connection lost mid-cycle and not yet re-established:
+				// the refreshed client is nil. Issuing further batches
+				// against it would dereference nil (the demo-deploy
+				// crash) — abort the whole batching phase; Phase 3's
+				// per-tag path re-checks the client and errors cleanly
+				// while the reconnect loop works.
+				if client == nil {
+					return batchValues, client
+				}
+				// Batch failed after retries on a live client: leave
+				// these tags for individual fallback (Phase 3). Don't
+				// touch errorCount here — the per-tag reads account
+				// for it.
 				continue
 			}
 			for idx, v := range values {
@@ -419,6 +435,18 @@ func (b *modbusBase) readBatchWithRetry(ctx context.Context, client *mb.ModbusCl
 // tag's value from the response at the correct offset.
 func (b *modbusBase) readBatch(client *mb.ModbusClient, batch readBatch, reqs []batchTagReq) (map[int]any, error) {
 	values := make(map[int]any, len(batch.indices))
+
+	// Nil-client guard (demo-deploy crash, 2026-10-22): when the connection
+	// drops mid-read-cycle, the refreshed client can be nil until the
+	// reconnect loop re-establishes it. Callers pass the refreshed pointer
+	// through, so a nil can reach this dereference — and a nil ModbusClient
+	// receiver SIGSEGVs, taking down the ENTIRE engine (all drivers, the
+	// API, everything) for what is an ordinary PLC power-cycle. Return a
+	// connection-class error instead; the per-tag fallback and the
+	// scheduler's error handling treat it like any other device fault.
+	if client == nil {
+		return nil, errModbusNotConnected
+	}
 
 	if batch.area == areaCoil || batch.area == areaDiscreteInput {
 		var bits []bool
