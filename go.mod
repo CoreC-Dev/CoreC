@@ -6,7 +6,7 @@ require (
 	github.com/coder/websocket v1.8.15
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/expr-lang/expr v1.17.8
-	github.com/go-chi/chi/v5 v5.3.2
+	github.com/go-chi/chi/v5 v5.5.0
 	github.com/goccy/go-yaml v1.19.2
 	github.com/gopcua/opcua v0.9.1
 	github.com/robinson/gos7 v0.0.0-20260622162611-2d6806f80c8b
