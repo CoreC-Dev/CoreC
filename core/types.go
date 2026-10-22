@@ -98,6 +98,40 @@ func ParseDataType(s string) (DataType, bool) {
 	return d, ok
 }
 
+// UnmarshalYAML accepts the documented string form ("float32") as well as
+// raw integer codes, mirroring UnmarshalJSON's dual acceptance. Derived-tag
+// configs (derived-tags[].type) document the string form everywhere —
+// docs/config/derived-tags.md and config.example.yaml — but before this
+// unmarshaler existed, copying those examples failed config parsing with
+// "cannot unmarshal string into core.DataType": the documented contract was
+// un-loadable. Found while building the demo deployment (2026-10-21).
+func (d *DataType) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	var raw interface{}
+	if err := unmarshal(&raw); err != nil {
+		return err
+	}
+	switch v := raw.(type) {
+	case string:
+		parsed, ok := ParseDataType(v)
+		if !ok {
+			return fmt.Errorf("invalid data type %q: expected one of %s", v, validDataTypeNames())
+		}
+		*d = parsed
+		return nil
+	case int:
+		*d = DataType(v)
+		return nil
+	case uint64:
+		*d = DataType(v)
+		return nil
+	case float64: // some decoders hand numeric scalars as float
+		*d = DataType(int64(v))
+		return nil
+	default:
+		return fmt.Errorf("data type must be a string name (e.g. \"float32\") or integer code, got %T", raw)
+	}
+}
+
 // Quality represents the quality of a data value (inspired by OPC UA).
 type Quality int
 
