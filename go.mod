@@ -11,7 +11,7 @@ require (
 	github.com/gopcua/opcua v0.9.1
 	github.com/robinson/gos7 v0.0.0-20260622162611-2d6806f80c8b
 	github.com/simonvetter/modbus v1.6.4
-	github.com/tidwall/gjson v1.19.0
+	github.com/tidwall/gjson v1.20.0
 	go.uber.org/goleak v1.3.0
 )
 
