@@ -3,6 +3,8 @@ package core
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/goccy/go-yaml"
 )
 
 // --- DataType tests ---
@@ -234,5 +236,72 @@ func TestWriteResultJSON(t *testing.T) {
 	wrOK := WriteResult{Success: true}
 	if wrOK.Error != "" {
 		t.Errorf("WriteResult.Error = %q, want empty", wrOK.Error)
+	}
+}
+
+// TestDataTypeUnmarshalYAMLCases covers every UnmarshalYAML branch (the
+// config-level regression test covers only the documented string form;
+// the coverage gate caught the uncovered int/uint64/float64/invalid
+// arms when they landed).
+func TestDataTypeUnmarshalYAMLCases(t *testing.T) {
+	type wrapper struct {
+		Type DataType `yaml:"type"`
+	}
+	cases := []struct {
+		name    string
+		yamlIn  string
+		want    DataType
+		wantErr bool
+	}{
+		{"string float32", "type: float32\n", TypeFloat32, false},
+		{"string bool", "type: bool\n", TypeBool, false},
+		{"string uint16", "type: uint16\n", TypeUint16, false},
+		{"int code", "type: 9\n", TypeFloat32, false},
+		{"unknown string", "type: float128\n", 0, true},
+		{"bool scalar (invalid)", "type: true\n", 0, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var w wrapper
+			err := yaml.Unmarshal([]byte(tc.yamlIn), &w)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error for %q, got %+v", tc.yamlIn, w.Type)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if w.Type != tc.want {
+				t.Errorf("got %d (%s), want %d (%s)", w.Type, w.Type, tc.want, tc.want)
+			}
+		})
+	}
+}
+
+// TestDataTypeUnmarshalYAMLRawBranches drives the remaining
+// UnmarshalYAML arms directly through the unmarshal callback (goccy only
+// hands the common shapes in practice; uint64/float64/object scalars are
+// defensive arms the YAML decoder contract permits).
+func TestDataTypeUnmarshalYAMLRawBranches(t *testing.T) {
+	var d DataType
+	mk := func(v any) func(any) error {
+		return func(target any) error {
+			// The callback contract: assign into the target pointer.
+			if p, ok := target.(*any); ok {
+				*p = v
+			}
+			return nil
+		}
+	}
+	if err := d.UnmarshalYAML(mk(uint64(9))); err != nil || d != TypeFloat32 {
+		t.Errorf("uint64 arm: err=%v d=%d, want float32(9)", err, d)
+	}
+	if err := d.UnmarshalYAML(mk(float64(3))); err != nil || d != DataType(3) {
+		t.Errorf("float64 arm: err=%v d=%d, want 3", err, d)
+	}
+	if err := d.UnmarshalYAML(mk(map[string]any{"x": 1})); err == nil {
+		t.Error("object scalar must be rejected (default arm)")
 	}
 }
