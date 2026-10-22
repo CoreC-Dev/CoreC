@@ -166,7 +166,7 @@ jobs:
           fi
           
           # 输出产物名供后续步骤使用
-          echo "ASSET_NAME=${BINARY_NAME}" >> $GITHUB_ENV
+          echo "ASSET_NAME=${BINARY_NAME}" >> "$GITHUB_ENV"
 
       - name: Upload artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -197,7 +197,7 @@ jobs:
           
           # 生成校验和
           cd release
-          sha256sum *.tar.gz *.zip > checksums.txt
+          sha256sum ./*.tar.gz ./*.zip > checksums.txt
           echo "Release files:"
           ls -lh
 
