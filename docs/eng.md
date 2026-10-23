@@ -5,7 +5,9 @@
 ## 审计记录
 
 - [后端功能完整性审计（2026-10-19）](audits/backend-functionality-audit-2026-10-19.md)——40 项路线图的来源；其加固计划已全部完成
-- [代码库质量审计（2026-10-21）](audits/redundancy-quality-audit-2026-10-21.md)——冗余/架构/文档/Harness 四路并行审计，本计划的来源
+- [代码库质量审计（2026-10-21）](audits/redundancy-quality-audit-2026-10-21.md)
+
+进行中：[端到端验证程序（2026-10-23）](exec-plans/active/e2e-verification-program.md)——生产级稳定性与可用性验证，含实测发现清单——冗余/架构/文档/Harness 四路并行审计，本计划的来源
 
 ## 执行计划
 
