@@ -190,6 +190,18 @@ func (b *modbusBase) readTagWithRetry(ctx context.Context, client *mb.ModbusClie
 
 // readTag reads a single tag value from the Modbus device.
 func (b *modbusBase) readTag(client *mb.ModbusClient, ai addrInfo, dt core.DataType, tagName string) (any, error) {
+	// Nil-client guard (the sibling of readBatch's): when the batch phase
+	// aborts on a lost connection (performBatchReads returns a nil
+	// refreshed client), Phase 3 falls back to per-tag reads with that
+	// same nil — and readTag's first dereference (client.ReadFloat32 etc.)
+	// SIGSEGVs. readTagWithRetry's refresh-on-retry already checks nil,
+	// but the FIRST attempt passes the caller's client straight in.
+	// Observed live in the E2E B8 scenario (device stop mid-cycle):
+	// two engine crashes, both at this exact frame.
+	if client == nil {
+		return nil, errModbusNotConnected
+	}
+
 	// Coils (0xxxx) and discrete inputs (1xxxx) are single-bit areas. Only
 	// bool reads are meaningful there; any other type would be routed to a
 	// holding/input-register read via regType() (which returns HOLDING_REGISTER
