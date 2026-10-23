@@ -20,9 +20,21 @@ import (
 var errModbusNotConnected = fmt.Errorf("modbus: client is not connected (connection lost)")
 
 func (b *modbusBase) Read(ctx context.Context, tags []string) ([]core.TagValue, error) {
+	// Re-entrant-lock discipline (demo-deploy lock-death root cause,
+	// 2026-10-23): read client AND state under this ONE RLock via the
+	// Locked accessor. The previous `b.GetState()` here self-locked —
+	// RLock under RLock — which is safe UNTIL a writer queues between
+	// the two acquisitions (any error-path b.Lock(), e.g. during a
+	// device power-cycle or host suspend/resume). Then: the inner
+	// RLock waits for the queued writer, the writer waits for the outer
+	// RLock to release, and the driver wedges FOREVER — one parked
+	// goroutine silently blocks every reader, /stats, /drivers, and
+	// /healthz/ready behind it (observed live: 61 goroutines parked
+	// 730+ minutes on a host that suspended mid-cycle). GetStateLocked
+	// exists precisely for this; use it whenever the lock is held.
 	b.RLock()
 	client := b.client
-	state := b.GetState()
+	state := b.GetStateLocked()
 	b.RUnlock()
 
 	if state != core.StateConnected || client == nil {

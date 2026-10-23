@@ -11,9 +11,12 @@ import (
 )
 
 func (b *modbusBase) Write(ctx context.Context, commands []core.WriteCommand) ([]core.WriteResult, error) {
+	// Same re-entrant-lock discipline as Read: single RLock, Locked
+	// accessor — GetState() here self-locked and could wedge identically
+	// when an error-path writer queued between the two acquisitions.
 	b.RLock()
 	client := b.client
-	state := b.GetState()
+	state := b.GetStateLocked()
 	b.RUnlock()
 
 	if state != core.StateConnected || client == nil {
