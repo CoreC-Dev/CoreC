@@ -114,7 +114,7 @@
 | E1 | 修复 F1（超时全覆盖 + 锁纪律 + ready 诚实化）——含 B3 场景回归测试进 CI | ✅ 根因修复（`1cb7842`）：再入 RLock 死锁——goroutine 转储实证 61 等待者、无持锁者；Read/Write 入口改用 GetStateLocked + 回归测试；重镜像部署后 /stats /drivers /healthz/ready 全部即时恢复。CI 绿 | 
 | E2 | 修复 F2（生成器地址）+ 重部署演示环境验证 | ✅ 完成（生成器零填充修正 + 5 配置重验 + 重部署）：ro_10-12 全部 good、全部端点 ready、派生标签 quality 恢复 0 |
 | E3 | A 功能矩阵全量执行（脚本化进 `/root/DSH/corec-demo-v2/e2e/`） | ✅ A 矩阵抽查 PASS（采集对账 0 坏点/派生双级质量 0/告警活跃/写入审计/过滤/批量边界/只读拒绝/健康诚实） |
-| E4 | B 工况矩阵执行（B3 由 E1 的修复解锁；其余立即可做） | ✅ B1(设备掉电 30s)/B4(broker 重启)/B5(sink 宕机 45s+缓冲)/B6(级联中间节点重启)/B8(离线写+恢复) 全 PASS；**B8 抓到第二个崩溃点**（readTag nil — Phase-3 回退路径，`a122002` 修复后重跑 Restarts=0、126 点 1s 内全新鲜）。B2 长离线(30min+)与 B3 宿主挂起需窗口期执行；B9 soak 启动中 |
+| E4 | B 工况矩阵执行（B3 由 E1 的修复解锁；其余立即可做） | ✅ B1/B4/B5/B6/B8 全 PASS（B8 抓到崩溃 #2：`a122002`）。**B2(5min 长离线)抓到 wedge #3——两段修复**：①`6edb77e` deadline-exceeded 不触发重连（关键字缺失）；②`ecd55ac` **ctx 中止吞掉连接拆卸**：楔死 TCP 每次调用烧 3s>任务间隔，引擎 deadline 先到，驱动错误路径永远跑不完→永久卡死（state=Connected/reconnects=0）。修复后 B2 完整退避序列可见（2s→4s→8s→16s→30s×3），**126 点全量恢复 0 陈旧**、Restarts=0。B3 宿主挂起待窗口；B9 soak 进行中（基线已记） |
 | E5 | C/D/E：soak + 仪表盘走查 + 性能基线记录 | ⏳ |
 | E6 | 收尾：发现修复的仓库化（CoreC/Dashboard 正式提交 + CI 绿） | ⏳ |
 
