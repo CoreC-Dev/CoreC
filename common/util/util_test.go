@@ -1007,3 +1007,22 @@ func TestReconnectLoopOptsPassesThroughOptions(t *testing.T) {
 		t.Error("counted variant did not record the reconnect attempt")
 	}
 }
+
+// TestIsConnectionErrorDeadlineExceeded pins the B2 wedge fix: Go's
+// context.DeadlineExceeded message ("context deadline exceeded") is what
+// a read against a silently-dropped TCP connection produces (device
+// power-cycle with NAT remap, black-holed route). Before this keyword,
+// such connections NEVER triggered reconnection — the driver read-timed-out
+// forever while the same device was reachable from elsewhere.
+func TestIsConnectionErrorDeadlineExceeded(t *testing.T) {
+	if !IsConnectionError(context.DeadlineExceeded) {
+		t.Error("context.DeadlineExceeded must be connection-class (read-deadline timeout on a wedged TCP)")
+	}
+	if !IsConnectionError(errors.New("read failed: context deadline exceeded")) {
+		t.Error("wrapped deadline-exceeded must match")
+	}
+	// Non-connection errors stay non-connection.
+	if IsConnectionError(errors.New("modbus: illegal data address")) {
+		t.Error("protocol exception must NOT be connection-class")
+	}
+}

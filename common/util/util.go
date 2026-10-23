@@ -81,6 +81,17 @@ func GetStringSetting(settings map[string]any, key, defaultVal string) string {
 // connectionErrorKeywords are substrings that indicate a lost connection.
 var connectionErrorKeywords = []string{
 	"connection", "broken pipe", "EOF", "reset", "refused", "timeout", "closed", "aborted",
+	// "deadline exceeded" is Go's context.DeadlineExceeded message — the
+	// read-deadline timeout a wedged TCP produces when the peer silently
+	// drops packets (device power-cycle with NAT remap, host suspend,
+	// black-holed route). Without this keyword, such a connection NEVER
+	// triggered reconnection: every read timed out forever, the driver
+	// was permanently stuck with zero self-healing, while the same
+	// device read fine from another instance whose TCP got an RST
+	// ("refused" matched). Found by E2E scenario B2 (5-min device
+	// outage + restart): corec-local wedged 17+ min post-recovery,
+	// 126 tags frozen at stale timestamps.
+	"deadline exceeded",
 }
 
 // IsConnectionError reports whether err looks like a connection-lost
