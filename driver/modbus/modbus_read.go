@@ -171,6 +171,12 @@ func (b *modbusBase) readTagWithRetry(ctx context.Context, client *mb.ModbusClie
 			// Wait for backoff but return immediately if ctx is cancelled.
 			select {
 			case <-ctx.Done():
+				// Same B2 wedge fix as the batch path (see the batch
+				// comment for the full mechanism): tear the dead
+				// connection down before the task deadline swallows
+				// the teardown — ctx-abort must not strand a dead
+				// client in state Connected.
+				b.handleConnLostIfCurrent(client)
 				return nil, client, true, ctx.Err()
 			case <-time.After(b.ReconnectBackoff()):
 			}
