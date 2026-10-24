@@ -21,7 +21,7 @@
 
     { "id": "cache", "type": "database", "label": "最新值缓存", "sublabel": "64 分片 RWMutex", "pos": [520, 100], "size": [130, 56], "tag": "驱动→标签→数据点" },
     { "id": "databus", "type": "messagebus", "label": "数据总线", "sublabel": "chan cap=8192", "pos": [520, 240], "size": [130, 56], "tag": "丢最旧策略" },
-    { "id": "ws", "type": "frontend", "label": "WebSocket", "sublabel": "/tags/stream 等 4 路", "pos": [520, 380], "size": [130, 56] },
+    { "id": "ws", "type": "frontend", "label": "WebSocket", "sublabel": "/tags/stream 等 5 路", "pos": [520, 380], "size": [130, 56] },
 
     { "id": "engine", "type": "backend", "label": "处理循环", "sublabel": "多 worker 并行", "pos": [760, 240], "size": [130, 56] },
     { "id": "rule", "type": "backend", "label": "规则引擎", "sublabel": "优先级排序", "pos": [760, 380], "size": [130, 56], "tag": "转发/丢弃/告警/转换/镜像" },
