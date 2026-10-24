@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "CoreC"
   text: "工业物联网\n数据采集分发核心"
-  tagline: 六边形插件架构 · Go 1.27.3 · 高性能
+  tagline: 连接 PLC 与工业设备，采集数据经规则引擎处理后分发至 MQTT / HTTP，支持云端反向控制与实时监控。
   image:
     src: /logo-animated.svg
     alt: CoreC
@@ -14,29 +14,29 @@ hero:
       text: 简介
       link: /guide/introduction
     - theme: alt
-      text: 配置参考
-      link: /config/global
+      text: 快速上手
+      link: /guide/quickstart
     - theme: alt
-      text: API
-      link: /api/overview
+      text: GitHub
+      link: https://github.com/CoreC-Dev/CoreC
 
 features:
-  - icon: ⚡
-    title: 高性能管道
-    details: Channel 驱动的无锁数据流，8192 缓冲深度，drop-oldest 背压策略，采集 goroutine 永不阻塞。
   - icon: 🔌
-    title: 多协议驱动
-    details: 支持 Modbus 全系列（TCP/RTU/UDP/TLS）、Siemens S7、OPC UA 三大工业协议，统一 Driver 接口，按 interval 分组批量读取。
-  - icon: 📡
-    title: 多目标传输
-    details: MQTT 异步发布 + HTTP 连接池推送，支持 batch 和 flush-interval，topic 模板渲染。
-  - icon: 🛡️
+    title: 多协议设备接入
+    details: Modbus 全系列（TCP / RTU / UDP / TLS）、Siemens S7 与 OPC UA（支持订阅）统一为同一套驱动配置，单实例可同时连接多台设备。
+  - icon: ⚙️
     title: 规则引擎
-    details: 优先级匹配，支持 forward、drop、alert、transform、mirror 五种动作，表达式条件过滤。
+    details: 优先级规则链按表达式决定每条数据的去向——转发、丢弃、告警、变换或镜像复制，全部在 YAML 中声明，无需写代码。
+  - icon: 📡
+    title: 北向数据分发
+    details: 采集数据推送 MQTT 或 HTTP；断网期间自动落盘缓冲，连接恢复后按序重发，数据不丢失。
   - icon: 🔄
-    title: 反向控制
-    details: MQTT command topic 接收云端下发指令，Command Loop 转发至设备 Write，不阻塞上行管道。
+    title: 云端反向控制
+    details: 通过 MQTT 命令主题接收云端下发的写指令，写入 PLC 寄存器或线圈；控制指令与上行采集互不阻塞。
   - icon: 📊
-    title: 实时监控
-    details: RESTful API + WebSocket 实时流，LatestCache RWMutex 保护，原子计数器零开销统计。
+    title: 实时可观测
+    details: REST API 与 WebSocket 实时查看数据流、日志、流量与内存；内置 Prometheus 指标与 Kubernetes 存活 / 就绪探针。
+  - icon: 🖥️
+    title: 部署与配套界面
+    details: 单二进制、一份 YAML 描述完整采集拓扑，可独立运行或作为 Go 库嵌入；官方 Dashboard（独立仓库）提供多实例监控、配置中心与规则管理。
 ---
