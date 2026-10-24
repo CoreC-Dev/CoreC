@@ -4,7 +4,7 @@
 
 ## 这是什么项目
 
-CoreC — 工业物联网（IIoT）数据采集与控制核心，Go 实现。南向连接 PLC/设备（Modbus/OPC UA/S7），北向推送数据（MQTT/HTTP），中间经规则引擎变换与控制指令下发。
+CoreC — 工业物联网（IIoT）数据采集与控制核心，Go 实现。南向连接 PLC/设备（Modbus/OPC UA/S7），北向推送数据（MQTT/HTTP）与告警通知（Slack/Teams/Email/Webhook），中间经规则引擎变换与控制指令下发。
 
 ## 如何开始
 
@@ -14,11 +14,11 @@ CoreC — 工业物联网（IIoT）数据采集与控制核心，Go 实现。南
 
 ## 硬性约束（不可违反）
 
-- **分层依赖**：`core`（接口）← {config, driver, transport, engine, rule, hub, common}；`engine` ← {driver, transport, rule, config, common}；`driver`/`transport` ← {core, common}；`hub` ← {engine, config, core, common}。只能单向，禁止反向或跨域。
+- **分层依赖**（由 `archtest/` 结构测试机械强制，允许边以 `archtest/arch_test.go` 为准）：`core` 与 `common` 零内部依赖；`engine` ← {core, common, rule, log}；`hub` ← {core, common, config, log}；`driver/*` ← {core, common, driverbase}；`transport/*` ← {core, common, transport/parser}；`rule` / `config` ← {core, common}；`log` ← {core, common/observable}。引擎经 `core` 接口解耦驱动/传输、hub 经 `route.SetEngine` 拿到引擎实例，编译期装配只发生在 `cmd/corec`。只能单向，禁止反向或跨域（`driver/*` 互引、`transport/mqtt` ↔ `transport/httppush` 互引均禁止）。
 - **插件注册**：驱动/传输通过 `init()` 工厂注册，由 `driver/all`、`transport/all` 空导入触发。新增插件须在 `all` 包注册。
 - **边界解析**：外部输入（配置 YAML、MQTT 命令、HTTP webhook）必须经校验/解析后才能进入核心，禁止信任原始输入。
 - **配置密钥**：`${ENV_VAR}` 替换为 tree-based（parse→expand→re-marshal），非字节级；`config/config.go` 保证 API 永不回显明文。
-- 违反以上约束会被结构测试（`archtest/`）+ 自定义 linter 拦截（阶段 3 已落地）。
+- 违反以上约束会被结构测试（`archtest/`）机械拦截。
 
 ## 常用命令
 
@@ -39,7 +39,7 @@ CoreC — 工业物联网（IIoT）数据采集与控制核心，Go 实现。南
 | `config/` | YAML 加载、env 替换、secrets、tags-file 热重载 |
 | `engine/` | 核心引擎（scheduler/batcher/discovery/databus/offlinebuffer） |
 | `driver/{modbus,opcua,s7}` | 南向设备驱动 |
-| `transport/{mqtt,httppush,parser}` | 北向传输 |
+| `transport/{mqtt,httppush,notify,parser}` | 北向传输（数据推送 + 告警通知通道） |
 | `rule/` | 规则引擎（expr 表达式求值） |
 | `hub/{route,executor}` | 控制面 HTTP/WS API 与执行器 |
 | `common/` | 共享工具（metrics/observable/trace/util） |

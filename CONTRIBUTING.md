@@ -65,7 +65,7 @@ golangci-lint run --timeout 5m                  # v2，配置见 .golangci.yml�
 
 ## 4. 测试契约
 
-- **新功能必须带测试。** 本项目 60+ 测试文件，测试是默认预期，不是可选。
+- **新功能必须带测试。** 本项目 130+ 测试文件，测试是默认预期，不是可选。
 - 测试必须 `-short` 友好：依赖真实 PLC / 外部 broker / 串口的测试，用 `if testing.Short() { t.Skip(...) }` 跳过，或用 `//go:build` tag 隔离。`go test -short ./...` 必须在无外设环境下全绿。
 - **不准引入 flaky 测试**：不要用 `time.Sleep` 等固定时序去对齐并发（等 goroutine 启动、等消息到达），用 channel/`WaitGroup`/轮询+超时 模式。轮询辅助函数见 `engine` 包的 `waitFor` 和 `e2e` 包的同名 helper。
 - 不准在测试里 `os.Exit`（除 `main`）。用 `t.Fatal` / `t.Skip`。

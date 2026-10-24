@@ -102,6 +102,10 @@
   - 支持 Command Topic 反向订阅接收下发控制指令。
 - **HTTP Push** (`transport/httppush/`):
   - 原生连接池复用，支持批量 JSON Push、自定义 Headers / Auth Token。
+  - 支持 Webhook 入站接收（配置 `webhook-addr` + `webhook-secret`，fail-closed）。
+- **Notify 告警通知** (`transport/notify/`):
+  - 将数据点格式化后推送 Slack、Teams、Email 或通用 Webhook 通知通道。
+  - 配合规则 `action: forward, target: notify-xxx` 使用；支持消息模板与冷却窗口（`cooldown`）抑制重复告警。
 
 ---
 
@@ -257,12 +261,6 @@ API 服务器默认启用 CORS（`Access-Control-Allow-Origin: *`），支持浏
 
 ---
 
-## AI 开发与维护交接
-
-
-
----
-
 ## 工程参考
 
 - 安全姿态与已接受的残余风险：[SECURITY.md](SECURITY.md)
@@ -286,10 +284,10 @@ Copyright (c) 2026 CoreC Contributors
 | 依赖 | 版本 | 许可证 |
 |:---|:---|:---|
 | [expr-lang/expr](https://github.com/expr-lang/expr) | v1.17.8 | MIT |
-| [tidwall/gjson](https://github.com/tidwall/gjson) | v1.19.0 | MIT |
+| [tidwall/gjson](https://github.com/tidwall/gjson) | v1.20.0 | MIT |
 | [coder/websocket](https://github.com/coder/websocket) | v1.8.15 | ISC |
 | [eclipse/paho.mqtt.golang](https://github.com/eclipse/paho.mqtt.golang) | v1.5.1 | EPL-2.0 / EDL-1.0 |
-| [go-chi/chi/v5](https://github.com/go-chi/chi) | v5.3.2 | MIT |
+| [go-chi/chi/v5](https://github.com/go-chi/chi) | v5.5.0 | MIT |
 | [goccy/go-yaml](https://github.com/goccy/go-yaml) | v1.19.2 | MIT |
 | [gopcua/opcua](https://github.com/gopcua/opcua) | v0.9.1 | MIT |
 | [robinson/gos7](https://github.com/robinson/gos7) | v0.0.0-20260622162611-2d6806f80c8b | MIT |
