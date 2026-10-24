@@ -20,6 +20,14 @@ export default defineConfig({
       { text: '架构', link: '/architecture/overview' },
       { text: '配置', link: '/config/global' },
       { text: 'API', link: '/api/overview' },
+      {
+        text: '工程',
+        items: [
+          { text: '质量门禁', link: '/gates' },
+          { text: 'CI 与发布', link: '/CI' },
+          { text: '设计文档', link: '/design-docs/' },
+        ],
+      },
       { text: '许可证', link: '/license' },
     ],
 
@@ -82,6 +90,37 @@ export default defineConfig({
             { text: 'WebSocket', link: '/api/websocket' },
             { text: '告警', link: '/api/alerts' },
             { text: '统计监控', link: '/api/stats' },
+          ],
+        },
+      ],
+      '/gates': [
+        {
+          text: '工程参考',
+          items: [
+            { text: '质量门禁', link: '/gates' },
+            { text: 'CI 与发布', link: '/CI' },
+            { text: '核心信念', link: '/design-docs/core-beliefs' },
+          ],
+        },
+      ],
+      '/CI': [
+        {
+          text: '工程参考',
+          items: [
+            { text: '质量门禁', link: '/gates' },
+            { text: 'CI 与发布', link: '/CI' },
+            { text: '核心信念', link: '/design-docs/core-beliefs' },
+          ],
+        },
+      ],
+      '/design-docs/': [
+        {
+          text: '工程参考',
+          items: [
+            { text: '设计文档索引', link: '/design-docs/' },
+            { text: '核心信念', link: '/design-docs/core-beliefs' },
+            { text: '质量门禁', link: '/gates' },
+            { text: 'CI 与发布', link: '/CI' },
           ],
         },
       ],
