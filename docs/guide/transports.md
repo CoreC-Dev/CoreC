@@ -59,7 +59,7 @@ Publish(ctx context.Context, point DataPoint) error
 PublishBatch(ctx context.Context, points []DataPoint) error
 ```
 
-将多个 `DataPoint` 合并为一次请求。HTTP 传输原生支持批量（一次 POST 发送 JSON 数组），MQTT 传输的 `PublishBatch` 内部逐条调用 `Publish`（MQTT 协议本身是单消息发布模型）。
+将多个 `DataPoint` 合并为一次请求。HTTP 传输原生支持批量（一次 POST 发送 JSON 数组）；MQTT 协议本身是单消息发布模型，`PublishBatch` 内部为每个点并发调用 `Publish`（每点一个 goroutine 同时发射令牌、等待全部完成后返回首个错误），把批量延迟从 N×RTT 降到约一个 RTT。
 
 ### 反向通道 OnCommand
 
@@ -80,15 +80,14 @@ type WriteCommand struct {
 ```
 
 ::: info 双向通道的意义
-`OnCommand` 让北向传输不仅是数据出口，也可以是控制入口。这使得云端可以通过同一个 MQTT 连接既接收数据又下发控制指令，形成边缘闭环。**MQTT 传输**通过 `command-topic` 实现反向指令；**HTTP Push 传输**是单向推送，`OnCommand()` 暴露的通道当前无消息来源、不会投递任何指令（如需 HTTP 反向下发，需自行扩展 webhook 监听）。
+`OnCommand` 让北向传输不仅是数据出口，也可以是控制入口。这使得云端可以通过同一个 MQTT 连接既接收数据又下发控制指令，形成边缘闭环。**MQTT 传输**通过 `command-topic` 实现反向指令，且配置 `command-topic` 时必须同时配置 `command-secret`（不设置则传输拒绝启动，fail-closed），命令消息需携带 HMAC-SHA256 签名；**HTTP Push 传输**是单向推送，`OnCommand()` 暴露的通道当前无消息来源、不会投递任何指令（如需 HTTP 反向下发，需自行扩展 webhook 监听）。
 :::
 
 ## 传输配置（TransportConfig）
 
 > ⚠️ **字段位置极易写错**：`batch-size`、`flush-interval`、`retry-count`、`buffer-size`、`fallback`
 > 是传输的**顶层字段**（与 `settings` 平级），**不能**写进 `settings` 内部。
-> 写进 `settings` 会被当成普通 key 静默忽略，传输退化为同步逐点发布且**不报错**。
-> 配置校验现在对此**快速失败**——如果你的配置能通过校验，说明字段位置正确。
+> 配置校验对此**快速失败**——校验能通过的配置，字段位置就是正确的；写错位置会得到指出具体修复方法的报错。
 
 ```yaml
 transports:
@@ -109,14 +108,14 @@ transports:
     type: mqtt
     settings:
       broker: tcp://...
-      batch-size: 50          # ❌ 写在 settings 内部，会被忽略
+      batch-size: 50          # ❌ 写在 settings 内部，校验报错并指出应移到顶层
       flush-interval: 1s      # ❌ 同上
 ```
 
 | 字段 | 必填 | 说明 |
 |:---|:---:|:---|
 | `name` | ✅ | 传输名，全局唯一，规则 `target` / `targets` 引用 |
-| `type` | ✅ | 类型：`mqtt` 或 `http` |
+| `type` | ✅ | 类型：`mqtt`、`http` 或 `notify` |
 | `settings` | ✅ | 协议特定配置，见各传输说明 |
 | `batch-size` | ❌ | 批量聚合的消息数。**顶层字段**（与 `settings` 平级） |
 | `flush-interval` | ❌ | 批量刷新周期，到时无论是否凑满都发送。**顶层字段** |
@@ -137,13 +136,14 @@ transports:
   type: mqtt
   settings:
     broker: tcp://broker.emqx.io:1883   # Broker 地址（必填，含 scheme）
-    client-id: factory-edge-01           # 客户端 ID（不填则自动生成）
+    client-id: factory-edge-01           # 客户端 ID（不填则自动生成 corec-<name>-<millis>）
     username: ""                         # 用户名（可选）
     password: ""                         # 密码（可选）
     qos: 1                               # QoS 级别 0/1/2（默认 1）
     retained: false                      # 是否保留消息（默认 false）
     topic-template: "factory/{{.Driver}}/{{.Group}}/{{.Tag}}"  # 主题模板
-    command-topic: "factory/commands/#"  # 反向指令订阅主题（可选）
+    command-topic: "factory/commands/#"  # 反向指令订阅主题（可选；配置时必须同时配置 command-secret）
+    command-secret: "${MQTT_COMMAND_SECRET}"  # 命令 HMAC-SHA256 认证密钥（配置 command-topic 时必填）
     keep-alive: 60s                      # 心跳间隔（默认 60s）
     connect-timeout: 10s                 # 连接超时（默认 10s）
     auto-reconnect: true                 # 自动重连（默认 true）
@@ -152,6 +152,8 @@ transports:
   batch-size: 50
   flush-interval: 1s
 ```
+
+命令认证还有两个可选开关：`command-max-skew`（时间戳允许偏移，默认 5m，即防重放窗口）与 `command-strict-replay`（默认 false；设为 true 时拒绝不带时间戳的命令）。签名载荷与生成方法见[传输配置](../config/transports.md#命令认证与防重放)。
 
 #### 主题模板
 
@@ -178,20 +180,32 @@ DataPoint{Driver:"plc-modbus", Group:"sensors", Tag:"temperature"}
 
 #### 反向指令（Command Topic）
 
-配置 `command-topic` 后，传输会在连接成功时订阅该主题。收到的消息 JSON 反序列化为 `WriteCommand` 并推入 `OnCommand()` 通道：
+配置 `command-topic` 后，传输会在连接成功时订阅该主题。**fail-closed 认证**：`command-topic` 必须与 `command-secret` 成对配置——只配 `command-topic` 而不配 `command-secret` 时，传输**拒绝启动**（否则任何能向该主题发布消息的客户端都能注入 PLC 写命令）。
 
-```bash
-# 云端下发：将 plc-modbus 的 pump_status 置为 true
-mosquitto_pub -h broker.emqx.io -t "factory/commands/pump" \
-  -m '{"driver":"plc-modbus","tag":"pump_status","value":true,"type":"bool"}'
+收到的消息经 HMAC-SHA256 签名验证与防重放检查（时间戳须落在 `command-max-skew` 窗口内）后，JSON 反序列化为 `WriteCommand` 并推入 `OnCommand()` 通道：
+
+```json
+// 向 factory/commands/pump 发布的命令载荷（需按 secret 计算 X-Signature 字段）
+{
+  "driver": "plc-modbus",
+  "tag": "pump_status",
+  "value": true,
+  "type": "bool",
+  "timestamp": 1737000000000,
+  "X-Signature": "<hex(HMAC-SHA256(command-secret, 签名载荷))>"
+}
 ```
+
+签名载荷为移除签名字段、按键名排序规范化后的 JSON，具体生成方法见[传输配置](../config/transports.md#命令认证与防重放)。
 
 CoreC 日志：
 
 ```text
-DEBUG mqtt command received topic=factory/commands/pump payload_size=72
+DEBUG mqtt command received topic=factory/commands/pump payload_size=140
 INFO command write success driver=plc-modbus tag=pump_status
 ```
+
+命令通道满时，到达的命令进入传输本地死信存储（`GET /write/failed?source=ingress` 可查）并计入 `dropped_commands` 计数。
 
 #### 连接容错
 
@@ -216,19 +230,22 @@ HTTP Push 是**单向推送传输**，不支持反向控制指令。`OnCommand()
 - name: mes-http-push
   type: http
   settings:
-    url: "http://localhost:8080/api/v1/telemetry"   # 目标 URL（必填）
+    url: "http://localhost:8080/api/v1/telemetry"   # 目标 URL（url 与 webhook-addr 至少配一个）
     method: POST                                     # HTTP 方法（默认 POST）
     headers:                                         # 自定义头（可选）
       Authorization: "Bearer mes-secret-key"
       X-Tenant: "factory-01"
     timeout: 3s                                      # 请求超时（默认 5s）
+    max-idle-conns: 100                              # 连接池：全局最大空闲连接（默认 100）
+    max-idle-conns-per-host: 20                     # 连接池：每主机最大空闲连接（默认 20）
+    idle-conn-timeout: 90s                           # 连接池：空闲连接超时（默认 90s）
   batch-size: 100
   flush-interval: 5s
 ```
 
 #### 连接池
 
-HTTP 传输使用原生 `net/http` 客户端，内置连接池复用，针对高频推送优化：
+HTTP 传输使用原生 `net/http` 客户端，内置连接池复用，针对高频推送优化（容量经 `max-idle-conns` / `max-idle-conns-per-host` / `idle-conn-timeout` 可调）：
 
 ```go
 t.client = &http.Client{
@@ -258,11 +275,24 @@ HTTP 传输的 `PublishBatch` 将多个 `DataPoint` 序列化为 JSON 数组，�
 ]
 ```
 
-目标服务端只需返回 2xx 状态码即视为成功，非 2xx 计入 `failed`。
+状态码处理：2xx 视为成功；5xx 与网络错误按 `retry-count` 以指数退避（500ms 起、逐次翻倍）重试；4xx 等其他非 2xx 状态立即失败、计入 `failed`，不做无意义重试。
 
 #### 请求头
 
 `Content-Type: application/json` 自动设置。`headers` 段的自定义头会逐个追加，常用于携带认证 Token 或租户标识。
+
+### Notify（`notify`）
+
+面向"人到位"的告警通知传输：规则把数据点转发到 notify 传输时，按 `channel` 设置发送通知，受 `cooldown` 冷却时间去重。四个内置通道：`slack` / `teams`（均为 Incoming Webhook URL 方式）、`email`、`webhook`（通用 webhook）。`OnCommand()` 返回 nil，纯单向。配置示例见[传输配置](../config/transports.md#notify-传输-告警通知)。
+
+```yaml
+- name: oncall-notify
+  type: notify
+  settings:
+    channel: slack              # slack | teams | email | webhook
+    webhook-url: https://hooks.slack.com/services/XXX   # slack/teams/webhook 通道必填
+    cooldown: 5m                # 冷却窗口（可选）：同一标签在窗口内的重复通知被抑制
+```
 
 ## 批量与刷新策略
 
@@ -275,7 +305,7 @@ HTTP 传输的 `PublishBatch` 将多个 `DataPoint` 序列化为 JSON 数组，�
 | 两者取早 | 任意条件先满足 | 推荐，兼顾吞吐与延迟 |
 
 ::: info 批量聚合实现
-引擎在 `publishToTargets` 中通过 `transportBatcher` 包装层实现批量聚合：数据点先进入内存缓冲，当缓冲达到 `batch-size` 或 `flush-interval` 定时器触发时，一次性调用 `PublishBatch` 发送。发送失败时按 `retry-count` 进行指数退避重试。重试耗尽后，若启用了全局 `buffer`，数据批次写入本地磁盘缓冲待后续回放；否则数据丢弃。未配置 `batch-size`/`flush-interval`/`retry-count` 的传输仍逐点调用 `Publish`。MQTT 传输逐条发布符合 MQTT 单消息模型。
+引擎在 `publishToTargets` 中通过 `transportBatcher` 包装层实现批量聚合：数据点先进入内存缓冲，当缓冲达到 `batch-size` 或 `flush-interval` 定时器触发时，一次性调用 `PublishBatch` 发送。发送失败时按 `retry-count` 进行指数退避重试。重试耗尽后，若启用了全局 `buffer`，数据批次写入本地磁盘缓冲待后续回放；否则数据丢弃。只要配置了 `batch-size` / `flush-interval` / `retry-count` 任意一项，或启用了全局离线 `buffer`，该传输就走批量路径；三项都未配置且无离线缓冲的传输仍逐点调用 `Publish`。
 :::
 
 ## 传输状态查询
@@ -294,7 +324,8 @@ curl -s -H "Authorization: Bearer $TOKEN" \
   "failed": 3,
   "received": 0,
   "last_publish": "2024-01-15T10:30:15Z",
-  "queue_size": 0
+  "queue_size": 0,
+  "dropped_commands": 0
 }
 ```
 
@@ -306,6 +337,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 | `received` | 经 `OnData()` 入站接收的数据点数（链式核心 inbound；纯发布节点为 0） |
 | `last_publish` | 最后一次成功发布时刻 |
 | `queue_size` | 待发送队列长度（MQTT 为 command channel 长度） |
+| `dropped_commands` | 命令通道满时在入口丢弃的写命令数（MQTT；持续非零说明命令背压） |
 
 ## 内置传输对比
 
@@ -321,7 +353,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 ::: tip 如何选择
 - 需要双向通信、低延迟、弱网容忍 → **MQTT**
 - 对接已有 RESTful API、批量入库、无需反向控制 → **HTTP Push**
-- 越限告警需要人到（值班群、邮箱）→ **Notify**（与 `alert` 规则动作配合；配置见 [传输配置](../config/transports.md#notify-传输)）
+- 越限告警需要人到（值班群、邮箱）→ **Notify**（与 `alert` 规则动作配合；配置见 [传输配置](../config/transports.md#notify-传输-告警通知)）
 - 三者可以同时配置，通过规则路由各取所需
 :::
 

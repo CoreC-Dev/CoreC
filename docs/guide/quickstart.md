@@ -70,13 +70,13 @@ rules:
 
 | 段落 | 作用 | 必填 |
 |:---|:---|:---:|
-| `global` | 日志级别、API 监听地址与鉴权密钥 | 是 |
-| `drivers` | 南向设备连接与点位定义，**至少一个** | 是 |
-| `transports` | 北向数据目的地，**至少一个** | 是 |
-| `rules` | 数据路由规则，决定哪些数据发往哪里 | 否* |
+| `global` | 日志级别、API 监听地址与鉴权密钥 | 否 |
+| `drivers` | 南向设备连接与点位定义 | 否 |
+| `transports` | 北向数据目的地 | 否 |
+| `rules` | 数据路由规则，决定哪些数据发往哪里 | 否 |
 
-::: warning 规则缺省行为
-配置校验要求至少配置一个驱动和一个传输，但规则段不是强制的。不过若没有匹配的规则，数据点将不会被推送到任何传输。因此实践中**始终建议配置一条 `match: "ALL"` 的兜底规则**。
+::: warning 空配置与规则缺省行为
+空配置（无驱动、无传输）是一个合法的启动状态：CoreC 以空闲模式运行并输出 WARN 提示，操作者随后通过 Dashboard 或 `PUT /configs` 补全配置。注意两点：配置了驱动就必须至少配置一个点位（校验规则）；若没有匹配的规则，数据点将不会被推送到任何传输。因此实践中**始终建议配置一条 `match: "ALL"` 的兜底规则**。
 :::
 
 ## 第二步：启动 CoreC
@@ -89,20 +89,21 @@ rules:
 
 ```text
 INFO registered drivers types=[modbus-tcp modbus-rtu modbus-rtuovertcp modbus-udp modbus-rtuoverudp modbus-tls s7 opcua]
-INFO registered transports types=[mqtt http]
+INFO registered transports types=[mqtt http notify]
 INFO CoreC engine starting drivers=1 transports=1 rules=1
-INFO mqtt transport initialized name=cloud-mqtt broker=tcp://broker.emqx.io:1883 client-id=corec-quickstart-01
+INFO mqtt transport initialized name=cloud-mqtt broker=tcp://broker.emqx.io:1883 client-id=corec-quickstart-01 tls=false
 INFO mqtt connected name=cloud-mqtt broker=tcp://broker.emqx.io:1883
 INFO transport added name=cloud-mqtt type=mqtt
 INFO modbus-tcp driver initialized name=demo-plc host=192.168.1.100 port=502 slave-id=1 tags=1
-INFO modbus-tcp driver started name=demo-plc endpoint=192.168.1.100:502
+INFO modbus connected driver=modbus-tcp name=demo-plc url=tcp://192.168.1.100:502
+INFO driver started type=modbus-tcp name=demo-plc
 INFO task added id=demo-plc_1s driver=demo-plc interval=1s tags=1
 INFO driver added name=demo-plc type=modbus-tcp tags=1
 INFO CoreC engine started successfully
 INFO CoreC is running config=config.yaml
 ```
 
-> 引擎先初始化传输（数据消费者），再初始化驱动（数据生产者），因此传输日志先于驱动日志出现。`types=` 列表顺序取决于 `init()` 注册顺序，可能因构建而异。
+> 引擎先初始化传输（数据消费者），再初始化驱动（数据生产者），因此传输日志先于驱动日志出现。`types=` 列表来自注册表的 map 遍历，每次启动顺序不固定。
 
 关键日志含义：
 
@@ -163,7 +164,8 @@ curl -s -H "Authorization: Bearer corec-secret-token" http://localhost:9090/stat
       "last_error": "",
       "tag_count": 1,
       "read_count": 15,
-      "error_count": 0
+      "error_count": 0,
+      "reconnect_count": 0
     }
   },
   "transport_stats": {
@@ -175,7 +177,8 @@ curl -s -H "Authorization: Bearer corec-secret-token" http://localhost:9090/stat
       "failed": 0,
       "received": 0,
       "last_publish": "2024-01-15T10:30:15Z",
-      "queue_size": 0
+      "queue_size": 0,
+      "dropped_commands": 0
     }
   }
 }
@@ -197,7 +200,8 @@ curl -s -H "Authorization: Bearer corec-secret-token" \
   "last_error": "",
   "tag_count": 1,
   "read_count": 15,
-  "error_count": 0
+  "error_count": 0,
+  "reconnect_count": 0
 }
 ```
 
@@ -210,14 +214,14 @@ websocat "ws://localhost:9090/tags/stream?token=corec-secret-token"
 ```
 
 ::: info 鉴权方式
-API 同时支持两种鉴权写法：
-- Header：`Authorization: Bearer <secret>`
-- Query：`?token=<secret>`（WebSocket 只能用这种方式，因为浏览器无法自定义 WS Header）
+API 支持两种鉴权写法，各自适用范围不同：
+- Header：`Authorization: Bearer <secret>` —— 所有常规 HTTP 请求必须使用这种方式
+- Query：`?token=<secret>` —— **仅**对 WebSocket 升级请求开放（浏览器 WebSocket API 无法自定义 Header）；普通 HTTP 请求带 query token 会被拒绝
 :::
 
 ## 第四步：你的第一个数据点
 
-让我们通过 API 即时读取一次温度值（不依赖调度周期）：
+查询该驱动点位的最新缓存值（缓存由调度器每次采集后刷新，无需等待下一次采集周期即可读取当前缓存）：
 
 ```bash
 curl -s -H "Authorization: Bearer corec-secret-token" \
@@ -244,7 +248,7 @@ curl -s -H "Authorization: Bearer corec-secret-token" \
 ```
 
 ::: tip 按驱动查询点位
-`GET /drivers/{name}/tags` 返回指定驱动下所有点位的最新缓存值。`GET /tags`（不带路径参数）则返回全部驱动全部点位的最新值——这两个端点都**不接受** `driver` / `tag` 查询参数。
+`GET /drivers/{name}/tags` 返回指定驱动下所有点位的最新缓存值。`GET /tags`（不带路径参数）返回全部驱动全部点位的最新值，并支持三个可选查询参数做服务端过滤：`?driver=<name>`（按驱动筛选）、`?tag=<子串>`（按测点名子串匹配）、`?prefix=<前缀>`（按测点名前缀匹配）。
 :::
 
 ### 反向下发：写入设备
@@ -270,25 +274,34 @@ curl -s -X POST -H "Authorization: Bearer corec-secret-token" \
 
 ## 使用模拟设备验证
 
-如果没有真实 Modbus 设备，可以使用开源的 [diagslave](https://github.com/stephane/diagslave) 或 Python `pymodbus` 模拟器：
+如果没有真实 Modbus 设备，可以使用仓库自带的模拟 PLC `demo/chained/mock-plc`：它内置一个在 25°C 附近波动的 float32 "temperature"（保持寄存器 0，即 CoreC 地址 `"40001"`）、一个每秒自增的 uint16 "counter"（`"40003"`），并支持写入——与本节的示例点位完全对应。
 
 ```bash
-# 使用 pymodbus 启动一个 Modbus TCP 模拟从站
-pip install pymodbus
-pymodbus simulator --modbus-server tcp --modbus-port 502
+# 方式一：用 Docker 构建 & 运行（监听 :502，slave-id 1）
+docker build -t mock-plc demo/chained/mock-plc
+docker run -p 502:502 mock-plc
+
+# 方式二：直接用 Go 运行
+go run ./demo/chained/mock-plc
 ```
 
 然后将配置中的 `host` 改为 `127.0.0.1`，即可在本地跑通完整链路。
 
 ## 常见问题
 
-### 启动报错 "no data source: ..."
+### 启动时输出 "no data source configured" 警告
 
-配置中没有数据源。CoreC 要求至少配置一个驱动（`drivers`），或者——纯转发（链式核心）节点——至少有一个传输配置了入站：MQTT 的 `data-topic` 或 HTTP 的 `webhook-addr`，或者启用了拓扑自动发现（`node.id` + `node.subscribe` 非空）。如果三者都没有，引擎没有数据可处理，因此校验会拒绝。
+配置中没有数据源。这不是启动错误：空管道是合法的空闲启动状态，CoreC 照常运行并输出 WARN（"running in idle mode"），等待通过 Dashboard 或 `PUT /configs` 补全配置。要消除该警告，至少配置一个驱动（`drivers`），或——纯转发（链式核心）节点——至少有一个传输配置了入站：MQTT 的 `data-topic` 或 HTTP 的 `webhook-addr`，或者启用了拓扑自动发现（`node.id` + `node.subscribe` 非空）。
 
-### 启动报错 "unknown driver type: xxx"
+### 启动报错 "driver xxx: unknown type ..."
 
-`type` 字段拼写错误，或对应的驱动子包未被导入。内置支持的类型：`modbus-tcp`、`modbus-rtu`、`modbus-rtuovertcp`、`modbus-udp`、`modbus-rtuoverudp`、`modbus-tls`、`s7`、`opcua`。
+`type` 字段拼写错误，或对应的驱动子包未被导入。配置校验会直接拒绝并列出全部已注册类型：
+
+```text
+config validation failed: driver demo-plc: unknown type "modbus-tcp1" (registered: modbus-tcp, modbus-rtu, modbus-rtuovertcp, modbus-udp, modbus-rtuoverudp, modbus-tls, s7, opcua)
+```
+
+内置支持的类型：`modbus-tcp`、`modbus-rtu`、`modbus-rtuovertcp`、`modbus-udp`、`modbus-rtuoverudp`、`modbus-tls`、`s7`、`opcua`。
 
 ### 设备连接失败但程序未退出
 

@@ -7,7 +7,7 @@ description: CoreC 是什么 —— 面向工业物联网的高性能、配置�
 
 ## CoreC 是什么
 
-**CoreC** 是一个面向工业物联网（IIoT）与边缘计算的**高性能、配置驱动、插件化数据采集与控制核心**。它使用 Go 1.27.1 编写，以单二进制形式运行，既可作为独立守护进程部署在边缘网关，也能作为 Go 库嵌入上层 SCADA、MES 或边缘计算平台。
+**CoreC** 是一个面向工业物联网（IIoT）与边缘计算的**高性能、配置驱动、插件化数据采集与控制核心**。它使用 Go 1.27.3 编写（见 `go.mod`），以单二进制形式运行，既可作为独立守护进程部署在边缘网关，也能作为 Go 库嵌入上层 SCADA、MES 或边缘计算平台。
 
 > **CoreC = Connect · Collect · Control** —— 控制指令下发、设备连接管理、工业数据采集，三位一体。
 
@@ -29,7 +29,7 @@ description: CoreC 是什么 —— 面向工业物联网的高性能、配置�
   IIoT Data Collection and Distribution Core
 ```
 
-> 版本号由构建时 ldflags 注入（`-X main.version=x.y.z`）：发布版显示 `v0.0.5`，未注入时默认显示 `dev`。
+> 版本号由构建时 ldflags 注入（`-X main.version=x.y.z`）：发布版显示对应 git tag 的版本（当前最新 tag 为 `v0.0.4`），未注入时默认显示 `dev`，可用 `-version` 参数直接打印。
 
 ## 核心特性
 
@@ -70,7 +70,7 @@ rules:          # 路由 —— 哪些数据走哪条路
 
 ### 双向数据通道（Bidirectional）
 
-- **上行采集**：周期定时轮询调度（Scheduler）与事件驱动主动订阅（Subscription，OPC UA 支持）。
+- **上行采集**：调度器按点位采集周期轮询（Scheduler）；OPC UA 驱动额外实现 `Subscribe()` 服务端订阅（供把 CoreC 作为 Go 库嵌入的宿主消费，见[驱动](./drivers.md#opc-ua-opcua)）。
 - **下行控制**：北向传输（如 MQTT Command Topic）接收控制指令，反向调度驱动写入 PLC 寄存器/线圈，形成闭环控制。
 
 ### 生产级容错与调度
@@ -81,8 +81,8 @@ rules:          # 路由 —— 哪些数据走哪条路
 - **断路器**：连续失败达到阈值后熔断，进入 5 分钟低频重试，避免持续冲击故障设备。
 - **离线缓冲**：发布失败时将数据落盘持久化，连接恢复后自动重发，防止数据丢失。
 - **死信队列（DLQ）**：多次重试仍不可恢复的数据进入死信队列，可通过 `/write/failed` 查询。
-- **优雅降级（坏质量策略）**：对坏质量数据点支持丢弃 / 标记 / 告警等策略，避免污染下游。
-- **毫秒级优雅退出**：信号中断即时捕获，倒序清理协程与网络连接，零资源泄露。
+- **优雅降级（坏质量策略）**：对坏质量数据点支持 `publish`（默认）/ 丢弃 `drop` / 标记 `mark-and-publish` / 告警 `alert` 四种策略（`global.engine.on-bad-quality`），避免污染下游。
+- **优雅退出**：shutdown 信号即时捕获，先停 API 服务再按依赖顺序停止引擎组件，每个组件的停止受 `shutdown-timeout`（默认 30s）约束；退出过程中再次收到信号会强制退出；`goleak` 测试保证停机后无协程泄露。
 
 ### 控制面 RESTful API
 
@@ -102,7 +102,7 @@ CoreC 由六个核心组件构成，各司其职：
 | `Driver`（南向驱动） | 连接工业设备并读写数据，支持 Modbus、Siemens S7、OPC UA 等协议 |
 | `Transport`（北向传输） | 将数据点发往外部系统，支持 MQTT、HTTP Push/Webhook、以及 Slack/Teams/Email/Webhook 告警通知（notify）|
 | `Engine`（核心引擎） | 数据总线消费、生命周期管理、双向指令调度 |
-| `Scheduler`（主动调度器） | 按点位采集周期主动触发读取，工业采集独有 |
+| `Scheduler`（主动调度器） | 按点位采集周期主动触发读取 |
 | `Rule`（规则引擎） | 优先级规则链匹配，`forward` / `drop` / `alert` / `transform` / `mirror` |
 | `DataPoint`（统一数据点） | 含驱动、分组、测点名、类型、时间戳、质量戳、值 |
 
@@ -125,8 +125,9 @@ CoreC 由六个核心组件构成，各司其职：
 
 | 传输 | 类型名 | 特性 |
 |:---|:---|:---|
-| MQTT | `mqtt` | paho 异步客户端、QoS 0/1/2、Retain、动态主题模板、Command Topic 反向下发 |
-| HTTP Push | `http` | 原生连接池复用、批量 JSON Push、自定义 Headers / Auth Token |
+| MQTT | `mqtt` | paho 异步客户端、QoS 0/1/2、Retain、动态主题模板、Command Topic 反向下发（HMAC-SHA256 认证） |
+| HTTP Push | `http` | 原生连接池复用、批量 JSON Push、自定义 Headers / Auth Token、Webhook 入站 |
+| Notify | `notify` | 告警通知通道（Slack / Teams / Email / 通用 Webhook），按规则触发、冷却去重，单向通知 |
 
 ## 设计哲学
 
@@ -140,19 +141,21 @@ CoreC 只定义接口，不绑定任何具体协议。`core.Driver` 与 `core.Tr
 
 ### 2. 通道优先，锁为辅
 
-核心数据通路使用 Go channel（`DataBus` 容量 8192）实现无锁数据流转，仅在配置变更、缓存查询等低频路径使用 `sync.RWMutex`。这保证了高吞吐场景下采集协程与处理协程之间的零竞争数据传递。
+核心数据通路使用 Go channel（`DataBus` 主通道容量 8192，另有高优先级通道隔离快周期采集）传递数据点，队列满时丢弃最旧数据而非阻塞采集协程；互斥锁只用于订阅者表、配置映射、缓存分片等低频或细粒度结构。这保证了高吞吐场景下采集协程与处理协程之间的高效数据传递。
 
 ### 3. 背压与降级而非阻塞
 
-当系统过载时，CoreC 选择**丢弃最旧数据**（drop-oldest）而非阻塞采集协程——工业场景中过时的数据往往已无价值，阻塞采集反而会导致调度超时雪崩。被丢弃的数量经 API `/stats` 的 `TotalDropped` 暴露（含总线满丢弃 `PushDropped()`、慢订阅者跳过 `Dropped()` 与日志环缓冲丢弃），便于运维感知。
+当系统过载时，CoreC 选择**丢弃最旧数据**（drop-oldest）而非阻塞采集协程——工业场景中过时的数据往往已无价值，阻塞采集反而会导致调度超时雪崩。被丢弃的数量经 API `/stats` 的 `TotalDropped` 暴露（含主通道/高优先级通道的总线满丢弃 `PushDropped()` / `HighPriorityPushDropped()`、慢订阅者跳过 `Dropped()` 与日志丢弃），便于运维感知。
 
 ### 4. 可观测性一等公民
 
 每一个组件（驱动、传输、规则、调度器、引擎）都暴露结构化的运行时状态与计数器，并通过统一的 API 与 WebSocket 流对外提供。规则命中统计（`HitCount` / `MissCount`）记录每条规则的命中与未命中次数，便于验证规则是否如预期工作。
 
-此外，CoreC 内置四套可观测性机制：26 个 Prometheus 指标族（`/metrics`）、Kubernetes 存活/就绪探针（`/healthz/live`、`/healthz/ready`）、W3C 分布式追踪和 pprof 性能分析端点。详见[可观测性](./observability)专章。
+此外，CoreC 内置四套可观测性机制：52 个 Prometheus 指标族（`/metrics`）、Kubernetes 存活/就绪探针（`/healthz/live`、`/healthz/ready`）、W3C 分布式追踪和 pprof 性能分析端点。详见[可观测性](./observability)专章。
 
 ## 与同类工具对比
+
+下表中 CoreC 列以本仓库代码为准；其余产品列为定性粗略参考，以各项目官方文档为准。
 
 | 特性 | CoreC | Telegraf | Node-RED | Fluent Bit | Ignition Edge |
 |:---|:---:|:---:|:---:|:---:|:---:|
@@ -164,7 +167,6 @@ CoreC 只定义接口，不绑定任何具体协议。`core.Driver` 与 `core.Tr
 | 反向控制下发 | ✅ | ❌ | ✅ | ❌ | ✅ |
 | 嵌入式使用 | ✅ Go 库 | ❌ | ❌ | ✅ | ❌ |
 | 工业协议 | Modbus/S7/OPC UA | Modbus/OPC UA | 社区节点 | 有限 | 全套 |
-| 二进制体积 | ~16 MB | ~50 MB | ~150 MB | ~2 MB | ~1 GB |
 | 运行时 API | ✅ REST + WS | ❌ | ✅ HTTP | ✅ | ✅ |
 | 商业授权 | MIT 开源 | MIT 开源 | JS 开源 | Apache 2.0 | 商业付费 |
 

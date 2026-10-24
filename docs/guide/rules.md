@@ -66,7 +66,7 @@ rules:
 
 ## 匹配表达式
 
-匹配表达式（`match` 字段）支持简洁的字段比较与逻辑组合，无需引入完整表达式引擎即可覆盖绝大多数工业路由场景。
+匹配表达式（`match` 字段）是一种精简 DSL，经翻译后由 expr-lang/expr 编译执行（能力清单见下文），以简明语法覆盖绝大多数工业路由场景。
 
 ### 通配
 
@@ -92,6 +92,8 @@ field == 'value'
 | `tag` | `DataPoint.Tag` | `temperature` |
 | `type` | `DataPoint.Type.String()` | `float32` |
 | `quality` | `DataPoint.Quality.String()` | `good` / `bad` / `uncertain` |
+| `value` | `DataPoint.Value`（原始值，按运行时类型参与比较） | `42.5` / `true` |
+| `timestamp` | `DataPoint.Timestamp` 的 Unix 毫秒数 | `1737000000000` |
 
 值用单引号或双引号包裹：
 
@@ -112,7 +114,7 @@ match: "quality == 'bad'"
 | `>=` | 大于等于 | `value >= 100` |
 | `<=` | 小于等于 | `value <= 0` |
 
-数值比较会将 `DataPoint.Value` 转换为 `float64` 后比较，支持所有数值类型（`float32/64`、`int*`、`uint*`）。
+数值比较由 expr-lang 在运行时按值的实际类型比较，支持所有数值类型（`float32/64`、`int*`、`uint*`）。
 
 ### 逻辑组合（AND）
 
@@ -124,7 +126,7 @@ match: "group == 'safety' && tag == 'emergency_stop' && value == true"
 ```
 
 ::: info 当前表达式能力
-CoreC 规则匹配的 DSL 经翻译后由第三方库 **expr-lang/expr**（`github.com/expr-lang/expr`）编译执行（`rule/expr.go` 负责 DSL→expr-lang 语法翻译），支持：`==`/`!=` 相等、`=~`/`!~` 正则匹配（RE2）、`contains`/`suffix`/`prefix` 字符串运算、`> < >= <=` 数值比较、`in lo..hi` 数值区间、`&&`/`||` 逻辑与或、`!` 逻辑非、`( )` 括号分组、`ALL` 全匹配。可用的字段包括 `driver`、`device`、`group`、`tag`、`type`、`quality`、`value`。
+CoreC 规则匹配的 DSL 经翻译后由第三方库 **expr-lang/expr**（`github.com/expr-lang/expr`）编译执行（`rule/expr.go` 负责 DSL→expr-lang 语法翻译），支持：`==`/`!=` 相等、`=~`/`!~` 正则匹配（RE2）、`contains`/`suffix`/`prefix` 字符串运算、`> < >= <=` 数值比较、`in lo..hi` 数值区间、`&&`/`||` 逻辑与或、`!` 逻辑非、`( )` 括号分组、`ALL` 全匹配。可用的字段包括 `driver`、`device`、`group`、`tag`、`type`、`quality`、`value`、`timestamp`（Unix 毫秒）。
 :::
 
 ### 匹配示例速查
@@ -269,7 +271,7 @@ rules:
 默认情况下，引擎遍历排序后的规则链，**第一条匹配的规则生效后立即返回**，不再评估后续规则。这是 `continue` 省略（默认 `false`）时的行为：
 
 ```go
-// continue: false（默认）→ 命中即终止，等价于旧的 first-match-wins
+// continue: false（默认）→ 命中即终止，即 first-match-wins 语义
 for _, r := range e.rules {
     if r.Match(point) {
         results = append(results, r)
@@ -301,12 +303,12 @@ rules:
 ::: tip `continue` 的典型用途
 - **告警 + 正常转发**：alert 规则设 `continue: true`，数据照常走兜底转发
 - **告警 + 丢弃**：alert(continue) + drop，通知运维但不污染下游
-- **变换后继续路由**：transform(continue) 后续规则看到变换后的值
+- **变换后继续路由**：transform(continue) 后，后续规则的**发布动作**拿到的是变换后的值——但注意所有规则的**匹配**都在动作执行前完成，后续规则匹配的仍是原始值
 - **多级告警**：多条 alert(continue) 串联，各级别独立触发
 :::
 
 ::: warning 优先级设计要点
-1. **顺序不保证**：规则使用 `sort.Slice`（非稳定排序）按 `priority` 排序，相同 `priority` 的规则之间的相对顺序**不保证**与配置文件顺序一致。建议显式设置不同优先级避免歧义
+1. **同优先级按配置顺序**：规则使用 `sort.SliceStable`（稳定排序）按 `priority` 升序排列，相同 `priority` 的规则保持配置文件中的先后顺序；不过显式设置不同优先级仍是最清晰的做法
 2. **兜底放最后**：`match: "ALL"` 的规则务必设置最大 priority，否则会"吃掉"所有后续规则
 3. **过滤放最前**：`drop` 类规则设最小 priority，尽早过滤避免无效转发
 4. **drop 不可 continue**：`drop` + `continue: true` 是矛盾的（丢弃意味着停止），配置校验会拒绝
@@ -341,25 +343,32 @@ curl -s -H "Authorization: Bearer $TOKEN" \
       "match": "quality == 'bad'",
       "action": "drop",
       "target": "",
+      "targets": null,
       "priority": 1,
       "continue": false,
       "disabled": false,
       "hit_count": 23,
       "hit_at": "2024-01-15T10:30:15Z",
       "miss_count": 15211,
-      "miss_at": "2024-01-15T10:30:15Z"
+      "miss_at": "2024-01-15T10:30:15Z",
+      "eval_errors": 0,
+      "eval_at": "0001-01-01T00:00:00Z"
     },
     {
       "index": 1,
       "name": "high-temp-alert",
+      "type": "simple",
       "match": "tag == 'temperature' && value > 95",
       "action": "alert",
       "target": "cloud-mqtt",
+      "targets": ["cloud-mqtt"],
       "priority": 2,
       "continue": true,
       "disabled": false,
       "hit_count": 3,
-      "miss_count": 15231
+      "miss_count": 15231,
+      "eval_errors": 0,
+      "eval_at": "0001-01-01T00:00:00Z"
     }
   ]
 }
@@ -368,12 +377,14 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 | 字段 | 说明 |
 |:---|:---|
 | `index` | 规则在排序链中的位置 |
+| `targets` | 规则解析出的目标传输列表（`target` 单数写法也会归一到此列表） |
 | `continue` | 是否在命中后继续评估后续规则 |
 | `disabled` | 是否被运行时禁用 |
 | `hit_count` | 累计命中次数 |
 | `hit_at` | 最后命中时刻 |
 | `miss_count` | 累计未命中次数 |
 | `miss_at` | 最后未命中时刻 |
+| `eval_errors` / `eval_at` | 匹配表达式求值失败次数与最后失败时刻（如 `value > 90` 撞上字符串值）；非零说明该规则在失败点上永远不匹配 |
 
 ::: tip 命中统计的价值
 `hit_count` / `miss_count` 记录每条规则的命中与未命中次数。通过命中率可以验证规则是否如预期工作——如果一条告警规则 `hit_count` 始终为 0，可能阈值设置有误或测点名不匹配。
@@ -381,10 +392,16 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 ### 运行时禁用 / 启用规则
 
-无需重启即可临时禁用某条规则（如告警风暴时静默）：
+无需重启即可临时禁用某条规则（如告警风暴时静默）。`PATCH /rules/disable` 同时支持按名称（推荐，名称在配置校验下唯一且在重载后稳定）与按下标（兼容旧客户端）寻址：
 
 ```bash
-# 禁用 index=1 的规则
+# 按名称禁用（推荐）
+curl -s -X PATCH -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "high-temp-alert", "disabled": true}' \
+  http://localhost:9090/rules/disable | jq
+
+# 按下标禁用（index 随规则增删/重排而变化）
 curl -s -X PATCH -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"index": 1, "disabled": true}' \

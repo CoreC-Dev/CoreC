@@ -103,9 +103,9 @@ type DriverCapabilities struct {
 > 上表中 `modbus-tcp` 一行代表全部六种 Modbus 变体（`modbus-tcp`/`modbus-rtu`/`modbus-rtuovertcp`/`modbus-udp`/`modbus-rtuoverudp`/`modbus-tls`）——它们共享同一 `modbusBase` 实现，能力完全一致。
 
 ::: info MaxBatchSize 的来源
-- Modbus 125：单次 Modbus TCP 请求的寄存器上限（PDU 限制）
-- S7 220：标准 S7 请求的 PDU 字节上限
-- OPC UA 1000：客户端单次读取的 NodeID 推荐上限
+- Modbus 125：单次 Modbus 请求的寄存器数上限（`modbusMaxBatchSize`，FC03/FC04 协议限制）
+- S7 220：S7 请求的 PDU 尺寸上限（`s7MaxBatchSize`）
+- OPC UA 1000：单次批量读取的 NodeID 数默认上限（`max-batch-size` 设置可调）
 :::
 
 ## 点位配置（TagConfig）
@@ -131,10 +131,10 @@ tags:
 | `address` | ✅ | 协议地址，格式见各驱动说明 |
 | `type` | ✅ | 数据类型，见下表 |
 | `group` | ❌ | 分组名，用于规则匹配与传输主题模板（可选） |
-| `interval` | ✅ | 采集周期，Go duration 格式（`1s`、`500ms`、`200ms`） |
+| `interval` | ❌ | 采集周期，Go duration 格式（`1s`、`500ms`、`200ms`），缺省 1s（`global.engine.default-tag-interval` 可调） |
 | `scale` | ❌ | 缩放系数，读取后执行 `value * scale + offset`（可选） |
 | `offset` | ❌ | 偏移量（可选） |
-| `deadband` | ❌ | 死区，抑制无意义的小幅波动上报（可选） |
+| `deadband` | ❌ | 死区，抑制无意义的小幅波动上报（可选；仅对数值类型的 good 质量点生效，坏质量与非数值点始终通过） |
 | `read-timeout` | ❌ | 单次读取超时，独立于 `interval`（可选，默认同 `interval`） |
 
 ### 外部标签文件
@@ -357,10 +357,17 @@ tags:
 | 模式 | 说明 | 适用场景 |
 |:---|:---|:---|
 | `polling` | 调度器按 `interval` 周期主动读取 | 通用场景，行为可预测 |
-| `subscription` | OPC UA 服务端主动推送变更 | 高实时性、低流量场景 |
+| `subscription` | 建立 OPC UA 服务端订阅，服务端在数据变化时主动推送 | 嵌入式（Go 库）消费场景 |
 
 ::: tip subscription 模式
-当 `mode: subscription` 时，驱动调用 `Subscribe` 建立服务端订阅，由 OPC UA Server 在数据变化时主动推送，CoreC 无需周期轮询。此时点位的 `interval` 字段不再用于调度触发，而由 `subscription-interval` 控制服务端采样间隔。
+当 `mode: subscription` 时，驱动连接成功后会调用 OPC UA 服务端建立订阅，数据变更被推入 `Subscribe()` 返回的通道，供**嵌入宿主**（把 CoreC 作为 Go 库使用的上层应用）消费；守护进程的数据管道不消费该通道。
+
+需要注意两点：
+
+1. **调度器仍会按 `interval` 轮询**：即使处于 subscription 模式，引擎照样为每个 `interval` 创建采集任务，点位的 `interval` 依旧决定轮询节奏；`subscription-interval`（默认 500ms）控制的是服务端订阅的发布间隔，两者相互独立。
+2. **订阅失败自动回退**：并非所有 OPC UA 服务端都支持订阅；若服务端拒绝创建订阅，驱动记录 `warn` 日志并继续轮询采集，无需修改配置。
+
+若通过 API 调用 `Subscribe()` 而驱动处于 `polling` 模式，则返回 `subscribe not supported by this driver` 错误。
 :::
 
 #### 地址格式（NodeID）
@@ -431,7 +438,8 @@ curl -s -H "Authorization: Bearer $TOKEN" \
   "last_error": "",
   "tag_count": 3,
   "read_count": 15234,
-  "error_count": 2
+  "error_count": 2,
+  "reconnect_count": 1
 }
 ```
 
@@ -443,6 +451,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 | `tag_count` | 配置的点位数 |
 | `read_count` | 累计读取次数 |
 | `error_count` | 累计错误次数 |
+| `reconnect_count` | 累计重连尝试次数 |
 
 ## 编写自定义驱动
 

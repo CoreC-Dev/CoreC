@@ -117,7 +117,7 @@ func (e *CoreCEngine) onDriverData(driver string, values []core.TagValue) {
 每个任务一个 goroutine，互不阻塞。触发时调用 `driver.Read(ctx, tags)` 批量读取该周期内所有点位。
 
 ::: tip 按周期分组的优势
-同一周期的点位合并为一次批量读取请求，减少协议交互次数。例如 100 个 1s 点位只需每秒一次 Modbus 请求，而非 100 次。
+同一周期的点位合并为一次 `Read` 调用，减少协议交互次数；驱动内部还会把连续地址合并为批量请求（Modbus 每次最多 125 个寄存器）。例如 100 个 1s 点位每秒只需一次 `Read` 调用，而非 100 次调度。
 :::
 
 ### 阶段 2：驱动读取（Driver.Read）
@@ -139,11 +139,13 @@ Read(ctx, ["temperature", "pressure"])
 
 ### 阶段 4：数据总线（DataBus）
 
-`DataBus` 是连接采集协程与处理协程的 Go channel，容量 **8192**：
+`DataBus` 是连接采集协程与处理协程的 Go channel 组，主通道容量 **8192**（`global.engine.data-bus-size` 可调）：
 
 ```go
-e.dataBus = NewDataBus(8192)  // engine.go
+e.dataBus = NewDataBus(8192)  // engine/lifecycle_support.go
 ```
+
+除主通道外，DataBus 还带一条**高优先级通道**（容量为主通道的 1/4，上限 1024）：采集周期 ≤ 1s 的快周期任务走该通道，由专属 worker 消费，避免低频批量读取的突发流量挤压高频采集。
 
 #### 丢弃策略（Drop-Oldest）
 
@@ -155,10 +157,15 @@ func (b *DataBus) Push(point core.DataPoint) {
     case b.ch <- point:        // 正常入队
     default:                   // 队列满
         select {
-        case <-b.ch:            // 丢弃最旧的一个
+        case <-b.ch:            // 丢弃最旧的一个，计数 +1
+            b.pushDropped.Add(1)
         default:
         }
-        b.ch <- point           // 入队新数据
+        select {                // 再次尝试非阻塞入队；若槽位被并发抢占则丢弃新数据
+        case b.ch <- point:
+        default:
+            b.pushDropped.Add(1)
+        }
     }
 }
 ```
@@ -172,11 +179,11 @@ func (b *DataBus) Push(point core.DataPoint) {
 丢弃最旧数据保证采集协程始终以设备节奏运行，过载通过 `PushDropped()` 计数器暴露给运维。
 :::
 
-总线满时丢弃的最旧数据通过 `DataBus.PushDropped()` 计数；下游慢订阅者被跳过的数据通过 `DataBus.Dropped()` 计数。两者（再加上日志环缓冲丢弃）聚合到引擎统计的 `TotalDropped` 字段，可通过 `/stats` API 查询。
+总线满时丢弃的最旧数据通过 `DataBus.PushDropped()`（主通道）与 `HighPriorityPushDropped()`（高优先级通道）计数；下游慢订阅者被跳过的数据通过 `DataBus.Dropped()` 计数。三者再加上日志丢弃，聚合到引擎统计的 `TotalDropped` 字段，可通过 `/stats` API 查询。
 
 ### 阶段 5：处理循环（processingLoop）
 
-引擎启动多个 worker goroutine（默认 `runtime.NumCPU()` 个）并行消费 `DataBus` 的 channel，每个 worker 对每个 `DataPoint` 依次执行：
+引擎启动多个 worker goroutine（默认 `runtime.NumCPU()` 个，`global.engine.workers` 可调）并行消费 `DataBus` 主通道；另有默认 2 个高优先级 worker（`global.engine.high-priority-workers` 可调）只消费高优先级通道。每个 worker 对每个 `DataPoint` 依次执行：
 
 ```go
 func (e *CoreCEngine) processingLoop() {
@@ -214,7 +221,7 @@ func (e *CoreCEngine) processingLoop() {
 }
 ```
 
-> 注：实际 `processingLoop` 在读取 `DataPoint` 后会**最先应用坏质量策略（drop/mark/alert）**，再依次更新缓存、广播、规则匹配与执行动作。上方代码片段为简化展示，省略了坏质量策略步骤。
+> 注：实际 `processingLoop` 在读取 `DataPoint` 后会**最先应用坏质量策略**（`global.engine.on-bad-quality`：`publish`（默认）/ `drop` / `mark-and-publish` / `alert`），再依次更新缓存、广播、规则匹配与执行动作。上方代码片段为简化展示，省略了坏质量策略步骤。
 
 ### 阶段 6：最新值缓存（LatestCache）
 
@@ -236,12 +243,12 @@ type cacheShard struct {
 缓存支撑按需查询：
 
 - `GET /drivers/{name}/tags` —— 返回某驱动所有点位的最新值
-- `GET /tags` —— 返回全部驱动全部点位的最新值
+- `GET /tags` —— 返回全部驱动全部点位的最新值，支持 `?driver=`、`?tag=`（测点名子串）、`?prefix=`（测点名前缀）三个可选查询参数做服务端过滤
 
-> 这两个端点都**不接受** `driver` / `tag` 查询参数；按驱动筛选请使用 `/drivers/{name}/tags` 路径参数形式。
+> 按驱动筛选优先使用 `/drivers/{name}/tags` 路径参数形式；`/tags?driver=<name>` 是等价的查询参数写法。
 
 ::: tip 缓存与调度的关系
-`LatestCache` 总是保存每个点位的**最近一次成功读值**，无论该值是否被规则转发。即使某点位被规则 `drop`，缓存中仍有值可供 API 查询。这使得"采集"与"转发"两个关注点彻底解耦。
+`LatestCache` 保存每个点位的**最近一次读值**，无论该值是否被规则转发，也无论质量好坏（仅 `on-bad-quality: drop` 策略的点不进缓存）。即使某点位被规则 `drop`，缓存中仍有值可供 API 查询。这使得"采集"与"转发"两个关注点彻底解耦。
 :::
 
 ### 阶段 7：广播给订阅者（Broadcast）
@@ -299,14 +306,14 @@ func (e *CoreCEngine) publishToTargets(point core.DataPoint, targets []string) {
 
 ### 阶段 9：北向发布（Transport.Publish）
 
-传输将 `DataPoint` 序列化后发往外部系统。以 MQTT 为例，使用主题模板渲染目标主题，JSON 序列化后异步发布：
+传输将 `DataPoint` 序列化后发往外部系统。以 MQTT 为例，使用主题模板渲染目标主题，JSON 序列化后发布并等待完成令牌（`publish-timeout`，默认 5s）：
 
 ```
 DataPoint{Driver:"demo-plc", Group:"sensors", Tag:"temperature", Value:42.5}
   → 主题模板 "factory/{{.Driver}}/{{.Group}}/{{.Tag}}"
   → 渲染为 "factory/demo-plc/sensors/temperature"
   → JSON 序列化
-  → paho MQTT 异步发布 (QoS 1)
+  → paho MQTT 发布 (QoS 1，等待 token 完成或超时)
 ```
 
 ## 反向数据流：控制指令下发
@@ -329,7 +336,7 @@ type WriteCommand struct {
 }
 ```
 
-以 MQTT 为例，配置 `command-topic: "factory/commands/#"` 后，向该主题发布 JSON 格式的 `WriteCommand` 即可触发设备写入，形成闭环控制。
+以 MQTT 为例，配置 `command-topic: "factory/commands/#"`（须同时配置 `command-secret`，消息需携带 HMAC-SHA256 签名，见[传输](./transports.md)）后，向该主题发布 JSON 格式的 `WriteCommand` 即可触发设备写入，形成闭环控制。
 
 ## 数据质量戳
 
@@ -341,7 +348,7 @@ CoreC 借鉴 OPC UA 的质量戳概念，每个数据点都携带 `Quality` 字�
 | `bad` | 1 | 读取失败（连接断开、地址错误等） |
 | `uncertain` | 2 | 不确定（预留扩展） |
 
-质量为 `bad` 的数据点仍会进入总线与缓存（便于感知设备状态），规则可以据此过滤：
+质量为 `bad` 的数据点在默认策略（`on-bad-quality: publish`）下仍会进入总线与缓存（便于感知设备状态），规则可以据此过滤：
 
 ```yaml
 rules:
@@ -351,18 +358,20 @@ rules:
     priority: 1
 ```
 
+引擎级还有独立的坏质量策略 `global.engine.on-bad-quality`（`publish` / `drop` / `mark-and-publish` / `alert`），在处理循环最前端生效，先于缓存与规则；`drop` 策略的丢弃量计入 `corec_bad_quality_dropped_total` 指标。
+
 ## 性能特征
 
 | 环节 | 并发模型 | 阻塞风险 |
 |:---|:---|:---|
 | 调度读取 | 每任务一 goroutine，互不阻塞 | 单任务超时不影响其他任务 |
 | 数据总线 | Go channel，无锁 | 满时 drop-oldest，从不阻塞采集 |
-| 处理循环 | 多 goroutine 并行消费（默认 `runtime.NumCPU()` 个 worker） | 规则匹配为纯内存操作，极快 |
+| 处理循环 | 多 goroutine 并行消费（默认 `runtime.NumCPU()` 个 worker + 2 个高优先级 worker） | 规则匹配为纯内存操作，极快 |
 | 北向发布 | 同步 Publish，逐目标串行 | 发布失败计数，不阻塞主流水线 |
 | 订阅广播 | 非阻塞 select，慢消费者跳过 | 永不阻塞主流水线 |
 
 ::: tip 吞吐量参考
-在单核容器环境下，CoreC 可稳定支撑数千点位的秒级采集与转发。瓶颈通常在北向传输的远端系统（MQTT Broker、HTTP 服务端）而非核心本身。通过 `mirror` 动作分摊到多传输、或调整 `batch-size` / `flush-interval` 可进一步优化。
+引擎内置基准测试（`engine/bench_test.go`）覆盖总线推送、广播、缓存与规则匹配等环节。瓶颈通常在北向传输的远端系统（MQTT Broker、HTTP 服务端）而非核心本身。通过 `mirror` 动作分摊到多传输、或调整 `batch-size` / `flush-interval` 可进一步优化。
 :::
 
 ## 下一步

@@ -44,15 +44,15 @@ CoreC 内置四套可观测性机制，无需任何外部依赖或第三方库�
 | `corec_uptime_seconds` | 引擎运行时长（秒） | `EngineStats.Uptime` |
 | `corec_points_per_second` | 近 60 秒滑动窗口的数据处理速率（点/秒）；采集停止超过 1 分钟后归零（窗口内速率，非启动以来均值） | `EngineStats.PointsPerSec` |
 
-### 丢弃归因指标（audit OBS-6）
+### 丢弃归因指标
 
-`corec_dropped_total` 是四类丢弃的总和（历史兼容保留）。以下按因拆分的族让"到底丢在哪一层"可以直接回答与告警：
+`corec_dropped_total` 是四类丢弃的合计：主通道满载驱逐（`PushDropped()`）、高优先级通道满载驱逐（`HighPriorityPushDropped()`）、慢订阅者跳过（`Dropped()`）、日志事件丢弃（`log.Dropped()`）。`on-bad-quality: drop` 策略的丢弃**不计入**该合计，单独计入 `corec_bad_quality_dropped_total`。以下按因拆分的族让"到底丢在哪一层"可以直接回答与告警：
 
 | 指标 | 类型 | 标签 | 说明 |
 |:---|:---|:---|:---|
 | `corec_databus_dropped_total` | counter | `channel` | 内部数据总线满载逐出的点数：`main`（普通通道）/ `priority`（快间隔高优通道） |
 | `corec_slow_subscriber_dropped_total` | counter | — | `/tags/stream` 订阅者消费过慢被丢的点数 |
-| `corec_bad_quality_dropped_total` | counter | — | `on-bad-quality: drop` 策略丢弃的点数（配置行为，**不再**计入 `corec_errors_total`） |
+| `corec_bad_quality_dropped_total` | counter | — | `on-bad-quality: drop` 策略丢弃的点数（配置行为，计入本指标而非 `corec_errors_total`） |
 
 ```promql
 # 任一丢弃原因出现都值得知道
@@ -92,7 +92,7 @@ corec_driver_last_read_seconds{driver="plc2"} 748.9
 
 ### 调度器健康指标
 
-调度器的运行状态（自动降级、连续读失败、读超限）此前只出现在节流日志里，无法用于告警。以下指标按驱动分组（聚合该驱动全部采集任务）：
+调度器的运行状态（自动降级、连续读失败、读超限）按驱动分组暴露为指标（聚合该驱动全部采集任务），可直接用于告警：
 
 | 指标 | 类型 | 标签 | 说明 |
 |:---|:---|:---|:---|
@@ -100,7 +100,7 @@ corec_driver_last_read_seconds{driver="plc2"} 748.9
 | `corec_scheduler_consecutive_errors` | gauge | `driver` | 该驱动采集任务的最差连续读失败次数（首次成功即归零） |
 | `corec_scheduler_overruns_total` | counter | `driver` | 该驱动"读取耗时超过采集周期"的累计次数（进程生命周期内单调递增，不清零） |
 
-### 驱动自报指标（audit OBS-8）
+### 驱动自报指标
 
 驱动通过 `core.Metrics` 端口上报的协议级指标经引擎注册表汇聚后，按其**原生命名**（驱动侧命名空间，约定以协议为前缀：`modbus_*`、`opcua_*`、`s7_*`）原样暴露：
 
@@ -122,7 +122,7 @@ corec_driver_last_read_seconds{driver="plc2"} 748.9
 
 ### 离线缓冲指标
 
-当配置了离线缓冲（`buffer.enabled: true`）时，以下指标反映缓冲区的积压与重放状态：
+以下指标始终输出（未启用离线缓冲 `buffer.enabled` 时数值为 0），反映缓冲区的积压与重放状态：
 
 | 指标 | 类型 | 说明 |
 |:---|:---|:---|
@@ -169,7 +169,7 @@ corec_driver_last_read_seconds{driver="plc2"} 748.9
 
 ### 延迟直方图指标
 
-引擎自动测量驱动读取和传输发布的耗时，以 Prometheus 直方图格式暴露。**三个直方图族都带维度标签**：读延迟按 `driver`、发布延迟与数据年龄按 `transport` 分序列——单个慢驱动/慢传输不再被健康同伴的平均值稀释（观测审计 OBS-2）。聚合查询用 `sum by (le)`：
+引擎自动测量驱动读取和传输发布的耗时，以 Prometheus 直方图格式暴露。**三个直方图族都带维度标签**：读延迟按 `driver`、发布延迟与数据年龄按 `transport` 分序列——单个慢驱动/慢传输不再被健康同伴的平均值稀释。聚合查询用 `sum by (le)`：
 
 | 指标 | 类型 | 标签 | 说明 |
 |:---|:---|:---|:---|
@@ -204,10 +204,8 @@ histogram_quantile(0.5, sum by (transport, le) (rate(corec_publish_latency_secon
 
 ### 抓取配置示例
 
-::: code-group
-
-```yaml [默认：随主 API 认证抓取]
-# prometheus.yml — /metrics 在主 API 端口上，位于 Bearer 认证组内
+```yaml
+# prometheus.yml — /metrics 位于主 API 端口的 Bearer 认证组内
 scrape_configs:
   - job_name: corec
     scrape_interval: 15s
@@ -217,19 +215,9 @@ scrape_configs:
       - targets: ['localhost:9090']
 ```
 
-```yaml [生产推荐：专用免密指标接口]
-# CoreC 侧：global.api.metrics-addr: "127.0.0.1:9109"（仅回环）
-# Prometheus 侧：无需 token —— 抓取面拿不到能 PUT /configs 的主 API secret
-scrape_configs:
-  - job_name: corec
-    scrape_interval: 15s
-    static_configs:
-      - targets: ['localhost:9109']
-```
-
+::: warning 关于 `global.api.metrics-addr`
+`global.api.metrics-addr` 字段可以解析，但当前守护进程的启动路径不会把它传入 API 服务配置（`hub.Start` 构造服务配置时未传递该字段）：配置与否都不影响行为，`/metrics` 始终在主 API 端口上、位于 Bearer 认证组内提供，专用免密指标端口不会启动。抓取方需要携带与 `api.secret` 一致的 token。
 :::
-
-配置 `global.api.metrics-addr` 后：`/metrics` **从主 API 撤下**，只在专用端口上免认证提供（该端口除 `/metrics` 外无任何路由）。因无认证，**必须绑定回环地址**（与 pprof-addr 同样的 fail-closed 强制）；Prometheus 与 CoreC 同机或经 SSH 隧道/私有网桥时用此模式。audit OBS-12：此前每台 Prometheus 都要拿到能改配置的主 API secret。
 
 ### 常用 PromQL 查询
 
@@ -328,7 +316,7 @@ GET /healthz/ready
 ```json
 {
   "status": "not_ready",
-  "reason": "no connected drivers",
+  "reason": "no drivers connected",
   "components": {
     "drivers": [
       {"name": "plc1", "connected": false},
@@ -340,6 +328,8 @@ GET /healthz/ready
   }
 }
 ```
+
+未就绪的 `reason` 取值为 `engine not running (status: ...)`、`no drivers connected` 或 `no transports connected`。
 
 `components` 字段列出每个驱动和传输的连接状态，便于直接从探针响应定位故障组件，无需额外查询 `/stats`。
 
@@ -479,7 +469,7 @@ go tool pprof http://127.0.0.1:6060/debug/pprof/profile?seconds=30
 |:---|:---|:---|
 | 格式 | JSON | Prometheus 文本 0.0.4 |
 | 认证 | 是 | 是 |
-| 指标数量 | 引擎 + 驱动 + 传输统计 | 26 个指标族（含 Go 运行时） |
+| 指标数量 | 引擎 + 驱动 + 传输统计 | 52 个指标族（含 Go 运行时；每驱动/每传输族按实例出现），另有驱动自报的协议级指标族 |
 | 用途 | 一次性查询、Dashboard 展示 | 持续抓取、告警、长期存储 |
 | 运行时指标 | 无 | 有（goroutine、内存、GC、CPU） |
 
@@ -488,7 +478,7 @@ go tool pprof http://127.0.0.1:6060/debug/pprof/profile?seconds=30
 追踪中间件在请求处理链中的位置（详见 [API 总览](../api/overview)）：
 
 ```
-RequestID → Trace → SafeRequestLogger → Recoverer → CORS → RateLimit → Authentication
+RequestID → Trace → SafeRequestLogger → Recoverer → CORS → HTTPMetrics → RateLimit → Authentication
 ```
 
 Trace 中间件位于第 2 步，紧接 RequestID 之后，确保所有后续中间件和处理器的日志都能关联到 trace ID。
