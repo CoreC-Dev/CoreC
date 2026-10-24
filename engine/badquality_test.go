@@ -115,12 +115,12 @@ func TestDeadLetterQueueEmpty(t *testing.T) {
 	}
 }
 
-// TestBadQualityAlertPolicyFiresWithoutRuleMatch is the stage-B audit
-// finding B5-1 regression test: on-bad-quality: alert must trigger the
-// alert callback even when NO configured rule matches the bad point
-// (previously the alert sat behind rule matching and Match()==0
-// returned early, so a zero-rule config silently never alerted,
-// violating the documented contract in docs/config/global.md).
+// TestBadQualityAlertPolicyFiresWithoutRuleMatch is the regression test
+// for the on-bad-quality policy: on-bad-quality: alert must trigger the
+// alert callback even when NO configured rule matches the bad point —
+// the policy must not sit behind rule matching, or a zero-rule config
+// would silently never alert, violating the documented contract in
+// docs/config/global.md.
 func TestBadQualityAlertPolicyFiresWithoutRuleMatch(t *testing.T) {
 	e := New().(*CoreCEngine)
 	e.runtime.ctx, e.runtime.cancel = context.WithCancel(context.Background())

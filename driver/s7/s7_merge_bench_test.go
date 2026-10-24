@@ -15,9 +15,9 @@ import (
 
 // ============================================================
 // Simulated PLC client, scenario builders, merge projection and
-// benchmarks for PERF-003 (S7 per-tag N+1 reads).
+// benchmarks for the S7 per-tag N+1 read problem.
 //
-// The design (docs/design-docs, PERF-003) requires proving the cost of the
+// The discipline: prove the cost of the
 // current tag-per-trip Read with numbers before touching production code.
 // Everything in this file is test-only: the simulated client counts PLC
 // round trips against a deterministic in-memory image, the scenarios are
@@ -154,7 +154,7 @@ func (s *simS7Client) recordedCalls() []simReadCall {
 }
 
 // ============================================================
-// Scenario builders: the PERF-003 design matrix.
+// Scenario builders: the benchmark scenario matrix.
 //
 // 100/500 float32 tags in three address distributions:
 //   - contig:   one DB, consecutive dword offsets (no gaps)
@@ -277,8 +277,8 @@ func initSimDriver(tb testing.TB, name string, tags []core.TagConfig, client gos
 // group by start offset, then greedily merge neighbours whose byte gap is
 // at most 32, capping every merged segment at 480 bytes.
 //
-// The limits and the algorithm are transcribed from the PERF-003 design
-// document. They are deliberately NOT shared with the production planner,
+// The limits and the algorithm are transcribed from the planner's
+// specification. They are deliberately NOT shared with the production planner,
 // so the two implementations can be checked against each other
 // (TestS7PlanMatchesProjection) and a transcription slip on either side
 // shows up as a mismatch.
@@ -394,14 +394,14 @@ func TestS7ReadScenarioCoverageInvariants(t *testing.T) {
 	}
 }
 
-// BenchmarkS7ReadTripCost measures Read on the full PERF-003 scenario
+// BenchmarkS7ReadTripCost measures Read on the full scenario
 // matrix at simulated PLC latencies of 0/1/5/10 ms per round trip. The
 // custom metrics report the measured round trips per Read, the merge
 // projection's round trips, and the ratio between them. With the merged
 // implementation the measured count must equal the projection (ratio
 // 1.0); a higher ratio means the merge regressed toward tag-per-trip
-// reads. Baseline numbers for the old tag-per-trip implementation (one
-// AGReadDB per tag) are recorded in the PERF-003 tracker entry.
+// reads. Baseline for comparison: the old tag-per-trip implementation
+// issued one AGReadDB per tag.
 func BenchmarkS7ReadTripCost(b *testing.B) {
 	for _, scen := range benchScenarios() {
 		for _, delay := range []time.Duration{0, time.Millisecond, 5 * time.Millisecond, 10 * time.Millisecond} {

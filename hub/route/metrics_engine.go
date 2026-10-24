@@ -29,13 +29,13 @@ func writeOfflineBufferMetrics(b *strings.Builder) {
 	writePromHeader(b, "corec_offline_buffer_pushed_total", "counter", "Total batches persisted to the offline buffer after retries exhausted")
 	fmt.Fprintf(b, "corec_offline_buffer_pushed_total %d\n", pushed)
 
-	// Capacity-based eviction observability (stage-B audit finding B2.1):
+	// Capacity-based eviction observability:
 	// a full buffer drops its oldest batches (newest data wins), and
 	// those drops must be visible to operators, not just logged. The
 	// engine optionally provides the eviction count; the role is
 	// asserted locally rather than added to core because it is a single
 	// consumer's concern.
-	// Byte-level water mark (roadmap #28): batch count alone cannot
+	// Byte-level water mark: batch count alone cannot
 	// answer "how much disk is the outage consuming?"
 	if bp, ok := eng.(interface {
 		OfflineBufferBytes() int64
@@ -54,7 +54,7 @@ func writeOfflineBufferMetrics(b *strings.Builder) {
 
 // writeFlushBatchesDropped emits the total number of full batches evicted
 // or dropped from batcher flush queues because the async flush consumer
-// fell behind a sustained burst (IMPROVEMENTS #1: async batcher
+// fell behind a sustained burst (async batcher
 // backpressure observability).
 func writeFlushBatchesDropped(b *strings.Builder) {
 	eng := getEngine()
@@ -68,9 +68,9 @@ func writeFlushBatchesDropped(b *strings.Builder) {
 }
 
 // writeDeadLetterMetrics exposes the write dead-letter queue for
-// alerting (audit finding OBS-3 / roadmap #5): the queue is capped and
-// in-memory, so "commands are piling up" was previously invisible to
-// Prometheus — operators had to poll GET /write/failed. Engines that do
+// alerting: the queue is capped and
+// in-memory, so "commands are piling up" is otherwise invisible to
+// Prometheus — operators would have to poll GET /write/failed. Engines that do
 // not satisfy core.DeadLetterStatsProvider (test mocks) omit the
 // families.
 func writeDeadLetterMetrics(b *strings.Builder) {
@@ -88,8 +88,8 @@ func writeDeadLetterMetrics(b *strings.Builder) {
 }
 
 // writeDroppedBreakdown emits the per-cause drop counters so operators
-// can attribute loss instead of diffing the umbrella total (audit
-// finding OBS-6: corec_dropped_total historically summed four unrelated
+// can attribute loss instead of diffing the umbrella total
+// (corec_dropped_total alone sums four unrelated
 // kinds of loss — data-bus overflow, slow subscribers, bad-quality
 // policy discards, and dropped log events — with no labels). The
 // umbrella family stays for backward compatibility; engines without
@@ -113,9 +113,9 @@ func writeDroppedBreakdown(b *strings.Builder) {
 }
 
 // writeDriverEmittedMetrics emits the driver-emitted protocol-level series
-// aggregated by the engine's registry (audit finding OBS-8: the
-// core.Metrics port existed but was only ever wired to NoopMetrics —
-// driver emissions went nowhere). Series render verbatim under their
+// aggregated by the engine's registry (with the
+// core.Metrics port wired only to NoopMetrics,
+// driver emissions would go nowhere). Series render verbatim under their
 // driver-owned names (modbus_*, opcua_*, s7_*); HELP names the driver
 // namespace explicitly. Engines without the role omit the families.
 func writeDriverEmittedMetrics(b *strings.Builder) {
@@ -152,7 +152,7 @@ func writeDriverEmittedMetrics(b *strings.Builder) {
 }
 
 // writeAlertMetrics exposes the alert registry for alerting on alerts
-// (audit findings OBS-4/HUB-6): the cumulative fire count per rule and
+// alerts: the cumulative fire count per rule and
 // the number of currently-active alerts. Engines without the
 // core.AlertMetricsProvider role (test mocks) omit the families.
 func writeAlertMetrics(b *strings.Builder) {
@@ -181,8 +181,8 @@ func writeAlertMetrics(b *strings.Builder) {
 // writeLatencyMetrics emits the read and publish latency histogram
 // families plus the data-age (freshness) family.
 //
-// When the engine satisfies core.LabeledLatencyProvider (audit finding
-// OBS-2), the families carry driver/transport labels —
+// When the engine satisfies core.LabeledLatencyProvider,
+// the families carry driver/transport labels —
 // corec_read_latency_seconds_bucket{driver="plc1",le="..."} — so a
 // single slow driver or transport is distinguishable from healthy
 // siblings; aggregate queries use sum by (le) (...) in PromQL. Engines

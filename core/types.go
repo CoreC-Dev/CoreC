@@ -101,10 +101,10 @@ func ParseDataType(s string) (DataType, bool) {
 // UnmarshalYAML accepts the documented string form ("float32") as well as
 // raw integer codes, mirroring UnmarshalJSON's dual acceptance. Derived-tag
 // configs (derived-tags[].type) document the string form everywhere —
-// docs/config/derived-tags.md and config.example.yaml — but before this
-// unmarshaler existed, copying those examples failed config parsing with
-// "cannot unmarshal string into core.DataType": the documented contract was
-// un-loadable. Found while building the demo deployment (2026-10-21).
+// docs/config/derived-tags.md and config.example.yaml — so accepting
+// only raw codes would leave the documented contract un-loadable
+// (copying those examples fails with "cannot unmarshal string into
+// core.DataType").
 func (d *DataType) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	var raw interface{}
 	if err := unmarshal(&raw); err != nil {
@@ -244,7 +244,7 @@ type WriteCommand struct {
 	// of the read path's scale/offset transform and encodes the command
 	// value as-is. By default (Raw=false) a write carrying the
 	// engineering value is converted back to the raw representation so
-	// reads and writes round-trip for scaled tags (audit finding DRV-1).
+	// reads and writes round-trip for scaled tags.
 	// Use Raw=true for commissioning flows that speak the device's own
 	// units. Omitted when false.
 	Raw bool `json:"raw,omitempty"`
@@ -358,27 +358,25 @@ const (
 	// commands executed in parallel by the engine. Commands exceeding this
 	// limit apply backpressure to the transport's command channel (and
 	// ultimately to the dead-letter store per #4). This prevents a single
-	// slow write from serializing all subsequent control commands
-	// (IMPROVEMENTS #2).
+	// slow write from serializing all subsequent control commands.
 	DefaultCommandConcurrency = 16
 
 	// DefaultHighPriorityWorkers is the default number of dedicated
 	// processing workers for high-priority (fast-interval) data. These
 	// workers read only from the DataBus high-priority channel, so a burst
-	// of low-frequency bulk reads cannot starve high-frequency collection
-	// (IMPROVEMENTS #5).
+	// of low-frequency bulk reads cannot starve high-frequency collection.
 	DefaultHighPriorityWorkers = 2
 
 	// DefaultHighPriorityInterval is the collection interval threshold at
 	// or below which a task is classified as high-priority. Tasks with
 	// interval ≤ this value are routed to the dedicated high-priority
-	// worker pool (IMPROVEMENTS #5).
+	// worker pool.
 	DefaultHighPriorityInterval = time.Second
 
 	// DefaultAlertActiveWindow is how long an alert stays active after
 	// its last fire before being cleared to history (overridable via
-	// global.engine.alert-active-window). Audit finding OBS-4/HUB-6:
-	// alerts need state and history, not just a log line.
+	// global.engine.alert-active-window). Alerts need state and history,
+	// not just a log line.
 	DefaultAlertActiveWindow = 15 * time.Minute
 
 	// DefaultBatchSize is the default batch size for transport batchers
@@ -411,9 +409,7 @@ const (
 	// backends are unavailable. Each buffered file holds one publish
 	// batch of up to the transport's batch-size points (default 100), so
 	// the point capacity is max-entries × batch-size, and the bound is
-	// on batch count — not on bytes and not on points (stage-B audit
-	// finding B2.1: this comment previously claimed "data points",
-	// overstating the semantic by the batch size).
+	// on batch count — not on bytes and not on points.
 	DefaultOfflineBufferMaxEntries = 10000
 
 	// DefaultDeadLetterMaxLen is the maximum number of entries in the

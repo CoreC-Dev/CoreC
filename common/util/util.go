@@ -15,13 +15,12 @@ import (
 
 // Fallback values used by ReconnectLoopWithBreakerCounted when the caller
 // passes non-positive backoff values. The circuit-breaker fallback is
-// single-sourced HERE (B3, quality audit 2026-10-21): the former exported
-// twin core.DefaultCircuitBreakerBackoff was dead — nothing read it —
-// and the "keep in sync" duplication had already produced one dead
-// member. The reconnect-backoff defaults remain mirrored with
-// core.DefaultReconnectBackoff/DefaultMaxReconnectBackoff (both read in
-// production) to keep common/util a leaf package with no CoreC-internal
-// dependencies.
+// single-sourced HERE rather than exported from core: nothing outside
+// this package reads it, and an unread exported twin only invites
+// "keep in sync" drift. The reconnect-backoff defaults remain mirrored
+// with core.DefaultReconnectBackoff/DefaultMaxReconnectBackoff (both
+// read in production) to keep common/util a leaf package with no
+// CoreC-internal dependencies.
 const (
 	defaultBackoffFallback       = 2 * time.Second
 	defaultMaxBackoffFallback    = 30 * time.Second
@@ -84,13 +83,10 @@ var connectionErrorKeywords = []string{
 	// "deadline exceeded" is Go's context.DeadlineExceeded message — the
 	// read-deadline timeout a wedged TCP produces when the peer silently
 	// drops packets (device power-cycle with NAT remap, host suspend,
-	// black-holed route). Without this keyword, such a connection NEVER
-	// triggered reconnection: every read timed out forever, the driver
-	// was permanently stuck with zero self-healing, while the same
-	// device read fine from another instance whose TCP got an RST
-	// ("refused" matched). Found by E2E scenario B2 (5-min device
-	// outage + restart): corec-local wedged 17+ min post-recovery,
-	// 126 tags frozen at stale timestamps.
+	// black-holed route). Without this keyword such a connection never
+	// matches: every read times out forever, the driver stays wedged
+	// with zero self-healing, while an instance whose TCP got an RST
+	// ("refused" matched) reconnects fine.
 	"deadline exceeded",
 }
 
@@ -250,11 +246,11 @@ func ToUint16(v any) uint16 {
 //
 // All integer widths and both float widths are covered (int8…int64,
 // uint8…uint64, float32/float64): the docs promise
-// "输出值 = 原始值 × scale + offset" with no per-type exceptions, and an
-// earlier version silently skipped int/int8/uint8/int64/uint64, so those
-// tag types bypassed the configured transform on reads (audit finding
-// DRV-1 follow-up, pinned by TestApplyTransformAllNumericTypes). Scaled
-// integers become float64, matching the documented transform output.
+// "输出值 = 原始值 × scale + offset" with no per-type exceptions —
+// skipping any width would let that tag type bypass the configured
+// transform on reads (pinned by TestApplyTransformAllNumericTypes).
+// Scaled integers become float64, matching the documented transform
+// output.
 func ApplyTransform(value any, scale, offset float64) any {
 	if scale == 0 && offset == 0 {
 		return value
@@ -484,12 +480,12 @@ func ReconnectLoopWithBreakerCounted(ctx context.Context, name string, connect f
 }
 
 // RejectUnknownSettings fails with an actionable error listing the valid
-// keys when a settings map contains keys outside the known set (audit
-// finding CFG-4 / roadmap #25): settings maps are map[string]any, so a
-// typo like `slve-id` previously sailed through validation and was
-// silently ignored at Init — the component then ran against defaults,
-// often the wrong device/endpoint. known must list every key the
-// component's Init parses; the per-package drift tests enforce that.
+// keys when a settings map contains keys outside the known set:
+// settings maps are map[string]any, so a typo like `slve-id` would
+// otherwise sail through validation and be silently ignored at Init —
+// the component would run against defaults, often the wrong
+// device/endpoint. known must list every key the component's Init
+// parses; the per-package drift tests enforce that.
 func RejectUnknownSettings(settings map[string]any, known map[string]bool, kind string) error {
 	if len(settings) == 0 {
 		return nil

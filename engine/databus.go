@@ -11,7 +11,7 @@ import (
 // DataBus is the internal data channel that connects drivers to the processing pipeline.
 // It uses Go channels for high-performance, lock-free data flow.
 //
-// DataBus supports two priority tiers (IMPROVEMENTS #5): a main channel for
+// DataBus supports two priority tiers: a main channel for
 // normal-priority data and a dedicated high-priority channel for fast-interval
 // tasks. The engine runs separate worker goroutines for each tier so a burst
 // of low-frequency bulk reads cannot starve high-frequency collection.
@@ -118,7 +118,7 @@ func (b *DataBus) Channel() <-chan core.DataPoint {
 // PushHighPriority sends a DataPoint into the high-priority channel.
 // It uses the same drop-oldest semantics as Push so the newest
 // high-frequency data is always retained. Safe to call concurrently with
-// Close (IMPROVEMENTS #5: priority-tiered data routing).
+// Close (the channels are priority-tiered).
 func (b *DataBus) PushHighPriority(point core.DataPoint) {
 	b.mu.RLock()
 	if b.closed {

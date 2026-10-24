@@ -6,7 +6,7 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// TEST-011: GetAll returns the latest value for every tag across all
+// GetAll returns the latest value for every tag across all
 // drivers and shards. When two drivers share a tag name, the last one
 // visited wins (the DataPoint carries its own Driver field).
 

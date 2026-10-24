@@ -355,8 +355,8 @@ func TestIdleWarnings(t *testing.T) {
 	})
 }
 
-// TestIdleWarningsBatchTailRetention asserts the stage-B audit finding
-// B1.1 warning: batching enabled with no effective flush interval and no
+// TestIdleWarningsBatchTailRetention asserts the batch-tail warning:
+// batching enabled with no effective flush interval and no
 // offline buffer means the trailing partial batch can be held
 // indefinitely (until the batch fills or the process exits).
 func TestIdleWarningsBatchTailRetention(t *testing.T) {

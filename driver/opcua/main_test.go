@@ -7,7 +7,7 @@ import (
 )
 
 // TestMain integrates goleak to detect goroutine leaks across all tests
-// in the opcua driver package (PERF-007).
+// in the opcua driver package.
 func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m)
 }

@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TEST-008: ParseLevel table-driven test covering all recognized levels,
+// ParseLevel table-driven test covering all recognized levels,
 // case sensitivity, and unrecognized input.
 
 func TestParseLevel(t *testing.T) {

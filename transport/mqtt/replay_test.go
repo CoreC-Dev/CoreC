@@ -446,10 +446,10 @@ func signedNoTSCommand(secret string, value float64) []byte {
 	return payload
 }
 
-// TestReplayNoTimestampDuplicateRejected is the stage-B audit finding
-// B6-1 regression test: in non-strict mode a timestamp-less signed command
+// TestReplayNoTimestampDuplicateRejected is the non-strict replay
+// regression test: in non-strict mode a timestamp-less signed command
 // is accepted once (documented backward compatibility), but the replay
-// window must drop an exact re-send within the window — previously the
+// window must drop an exact re-send within the window — without it the
 // same signed payload could be replayed indefinitely and executed every
 // time.
 func TestReplayNoTimestampDuplicateRejected(t *testing.T) {

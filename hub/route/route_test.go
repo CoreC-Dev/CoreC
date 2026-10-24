@@ -469,7 +469,7 @@ func TestPprofEnabled(t *testing.T) {
 }
 
 // TestGetFailedWritesSource verifies the ?source= parameter of
-// GET /write/failed (audit RES-1/TRA-4): the default serves the engine
+// GET /write/failed: the default serves the engine
 // dead-letter queue, source=ingress serves commands dropped at transport
 // ingress, and unknown values are rejected with 400 instead of silently
 // falling back to the wrong queue.
@@ -536,7 +536,7 @@ func TestGetFailedWritesSource(t *testing.T) {
 // TestUpdateConfigsErrorClassification verifies PUT /configs answers
 // config parse/validation failures with a 400 carrying the actual
 // reason (client-fixable), while apply-stage failures keep the masked
-// 500 (audit findings CFG-3/HUB-2). The route never imports the
+// 500. The route never imports the
 // executor package, so the client-fixable marker is duck-typed.
 type fixableConfigErr struct{ msg string }
 
@@ -608,7 +608,7 @@ func putConfigs(t *testing.T, ts *httptest.Server, body string) *http.Response {
 }
 
 // TestDriverPauseResumeEndpoints verifies the pause/resume API family
-// (audit RES-4, roadmap #21): 204 on pause and resume, 404 for unknown
+// endpoints: 204 on pause and resume, 404 for unknown
 // drivers, and GET /drivers/paused listing the paused set (also proving
 // the static /drivers/paused route is not swallowed by /drivers/{name}).
 type mockEnginePausable struct {
@@ -696,8 +696,8 @@ func TestDriverPauseResumeEndpoints(t *testing.T) {
 	}
 }
 
-// TestGetConfigAudit verifies the config change audit trail (audit
-// HUB-4 / roadmap #22): reloads and patches append bounded, newest-first
+// TestGetConfigAudit verifies the config change audit trail:
+// reloads and patches append bounded, newest-first
 // entries with the caller's address, exposed via GET /configs/audit.
 func TestGetConfigAudit(t *testing.T) {
 	prevList := ConfigAuditFunc
@@ -738,7 +738,7 @@ func TestGetConfigAudit(t *testing.T) {
 }
 
 // TestResourceDeleteEndpoints verifies the resource-level DELETE sugar
-// (audit HUB-3 / roadmap #26): removing a single driver/transport/rule
+// endpoints: removing a single driver/transport/rule
 // by name without splicing YAML client-side; 404 for stale names, 400
 // with the reason when removal breaks config validity, 204 on success.
 func TestResourceDeleteEndpoints(t *testing.T) {
@@ -825,7 +825,7 @@ var (
 	errConfigRejected  = errors.New("config validation failed: rule r1: target transport \"mqtt1\" not found")
 )
 
-// TestTagsFiltering pins roadmap #35: server-side ?driver=/?tag=/?prefix=
+// TestTagsFiltering pins server-side ?driver=/?tag=/?prefix= filtering
 // on GET /tags — thousand-tag deployments stop shipping the full map
 // per query.
 func TestTagsFiltering(t *testing.T) {
@@ -882,7 +882,7 @@ func TestTagsFiltering(t *testing.T) {
 	}
 }
 
-// TestWriteHistoryFiltering pins roadmap #35: ?driver=/?tag=/?since=/?limit=
+// TestWriteHistoryFiltering pins server-side ?driver=/?tag=/?since=/?limit=
 // server-side filters on the compliance trail.
 func TestWriteHistoryFiltering(t *testing.T) {
 	old, older, oldest := time.Now(), time.Now().Add(-time.Hour), time.Now().Add(-2*time.Hour)
@@ -933,7 +933,7 @@ func TestWriteHistoryFiltering(t *testing.T) {
 	}
 }
 
-// TestBatchWrite pins roadmap #37 (audit RES-5): POST /write/batch runs
+// TestBatchWrite pins batch writes: POST /write/batch runs
 // commands sequentially with per-command outcomes — partial success is
 // visible, a total failure is 422 (well-formed but device-rejected),
 // oversized/empty batches are 400.

@@ -6,8 +6,8 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// TestApplyDeadbandFilterBadQualityPasses is the stage-B audit finding
-// B5-2 regression test: a bad-quality point must penetrate the deadband
+// TestApplyDeadbandFilterBadQualityPasses is the regression test for
+// bad-quality handling: a bad-quality point must penetrate the deadband
 // (never swallowed) and must NOT update the baseline — otherwise the
 // bad value (decoded as 0) poisons the baseline and subsequent GOOD
 // values within the old→0 delta would be silently swallowed too.
@@ -81,12 +81,11 @@ func TestApplyDeadbandFilterUncertainQualityPasses(t *testing.T) {
 	}
 }
 
-// TestApplyDeadbandFilterNonNumericPasses is the stage-B audit finding B5-3
-// regression test: the documented behaviour says deadband only applies to
-// numeric types, so bool/string/bytes tags must publish every sample. The
-// old implementation coerced them through ToFloat64 (bool→0/1, string→0)
-// and compared the fabricated zeros, freezing a string tag at its first
-// sample forever.
+// TestApplyDeadbandFilterNonNumericPasses is the regression test for
+// non-numeric tags: the documented behaviour says deadband only applies to
+// numeric types, so bool/string/bytes tags must publish every sample —
+// coercing them through ToFloat64 (bool→0/1, string→0) and comparing the
+// fabricated zeros would freeze a string tag at its first sample forever.
 func TestApplyDeadbandFilterNonNumericPasses(t *testing.T) {
 	runner := &taskRunner{
 		task: core.ScheduleTask{

@@ -28,7 +28,7 @@ import (
 // rejected when command-strict-replay is true.  In the backward-compatible
 // case the replay window still applies: while a timestamp-less signature
 // cannot be freshness-checked, the same payload can only be accepted once
-// per replay window (stage-B audit finding B6-1 — previously such
+// per replay window (otherwise such
 // messages could be re-sent indefinitely and executed every time).
 // Production deployments should set command-strict-replay: true so
 // timestamp-less commands are rejected outright.
@@ -67,7 +67,7 @@ func (t *MQTTTransport) handleCommandMessage(topic string, payload []byte) {
 			}
 			// A timestamp-less signature carries no freshness bound, so
 			// the replay window is the only replay guard available for
-			// the legacy path (stage-B audit finding B6-1): the first
+			// the legacy path: the first
 			// arrival is still accepted for backward compatibility, but
 			// the same payload cannot be accepted twice within the
 			// window. When the window is disabled (command-max-skew <= 0)
@@ -158,8 +158,8 @@ func (t *MQTTTransport) addCommandDeadLetter(entry core.DeadLetterEntry) {
 // CommandDeadLetterEntries returns a copy of the transport-local dead-letter
 // entries for commands dropped at ingress (command channel full). It backs
 // the optional core.IngressDeadLetterSource role: the engine type-asserts
-// for it to serve GET /write/failed?source=ingress (audit RES-1/TRA-4 —
-// these drops previously had a counter but no queryable detail).
+// for it to serve GET /write/failed?source=ingress (a drop counter
+// alone gives no queryable detail).
 func (t *MQTTTransport) CommandDeadLetterEntries() []core.DeadLetterEntry {
 	t.commandDeadLetterMu.Lock()
 	defer t.commandDeadLetterMu.Unlock()

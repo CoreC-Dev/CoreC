@@ -170,8 +170,8 @@ func (b *modbusBase) SetMetrics(m core.Metrics) {
 }
 
 // recordException emits a protocol-level exception-code counter via
-// the injected core.Metrics registry (audit OBS-8: the port existed
-// but was never wired to a real backend). Only genuine Modbus
+// the injected core.Metrics registry (without a real registry behind
+// the port, driver emission goes nowhere). Only genuine Modbus
 // exception responses count — transport errors (timeouts, refusals)
 // are connection concerns already covered by reconnect/error counters.
 // Safe on any driver state: nil registry or non-exception errors are
@@ -242,8 +242,7 @@ func (b *modbusBase) openClient(cfg *mb.ClientConfiguration) error {
 // current connection. Parallel Read tasks hold the client pointer they
 // captured at entry; when a reconnect completes while such a task is still
 // draining its retries, the task's error belongs to a client that has
-// already been replaced and must not tear down the fresh one (stage-B
-// audit finding B4-1).
+// already been replaced and must not tear down the fresh one.
 func (b *modbusBase) handleConnLostIfCurrent(captured *mb.ModbusClient) {
 	b.RLock()
 	current := b.client

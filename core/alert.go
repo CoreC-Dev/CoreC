@@ -5,10 +5,10 @@ import (
 )
 
 // Alert is the first-class record of a rule (or policy) firing on a
-// data point (audit findings OBS-4/HUB-6: alerting previously
-// degenerated to a WARN log line — no state, no history, no API — and
-// the Dashboard had to reconstruct an "alert" view by filtering log
-// levels, mixing rule alerts with routine connection warnings).
+// data point: alerting must carry state, history, and an API of its
+// own — a WARN log line alone would force the Dashboard to reconstruct
+// an "alert" view by filtering log levels, mixing rule alerts with
+// routine connection warnings.
 //
 // Identity is the (rule, driver, tag) triple: the same rule firing on
 // the same tag updates the existing alert (bumping Count and

@@ -36,8 +36,8 @@ func run() int {
 	flag.StringVar(&configPath, "c", "config.yaml", "path to configuration file (shorthand)")
 	flag.StringVar(&logLevel, "log-level", "", "override log level (debug, info, warn, error)")
 	// -version prints the injected version and exits — the behavioral hook
-	// the release workflow's version-consistency guard asserts against
-	// (H2, quality audit 2026-10-21): the guard builds with the tag's
+	// the release workflow's version-consistency guard asserts against:
+	// the guard builds with the tag's
 	// ldflags and requires the BINARY to report exactly the tag.
 	flag.BoolVar(&versionOnly, "version", false, "print version and exit")
 	flag.Parse()
@@ -115,9 +115,9 @@ func run() int {
 	// Wait for shutdown signal. The channel is buffered for two signals:
 	// the first triggers the graceful shutdown below; a second one while
 	// the graceful stop is still running force-exits the process so a
-	// stuck shutdown can always be interrupted interactively (stage-B
-	// audit finding B3.0: previously a second Ctrl-C was silently
-	// swallowed and a hung stop could only be ended with kill -9).
+	// stuck shutdown can always be interrupted interactively (otherwise
+	// the second Ctrl-C would be silently swallowed and a hung stop
+	// could only be ended with kill -9).
 	sigCh := make(chan os.Signal, 2)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 
@@ -163,7 +163,7 @@ func setupLogging(cfg *core.Config, override string) {
 // process when one arrives. The graceful shutdown can legitimately take
 // tens of seconds (per-component stop timeouts summed over drivers,
 // batchers and transports); without this watchdog a stuck stop could
-// only be ended with kill -9 (stage-B audit finding B3.0). exit is
+// only be ended with kill -9. exit is
 // injected so tests can observe the forced exit without terminating the
 // test binary.
 func armForcedExit(sigCh <-chan os.Signal, exit func(code int)) {

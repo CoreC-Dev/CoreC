@@ -85,11 +85,11 @@ func RegisteredTransports() []string {
 }
 
 // SettingsValidator is an optional role drivers and transports can
-// implement to check their settings map at CONFIG-VALIDATION time
-// (audit finding CFG-4 / roadmap #25): the settings map is
-// map[string]any, so a typo like `slve-id` previously sailed through
-// validation and was silently ignored at Init — the driver ran with
-// defaults against the wrong device. Implementations reject unknown
+// implement to check their settings map at CONFIG-VALIDATION time:
+// the settings map is map[string]any, so a typo like `slve-id` would
+// otherwise sail through validation and be silently ignored at Init —
+// the driver would run with defaults against the wrong device.
+// Implementations reject unknown
 // keys (typos) and malformed typed values; config.validate constructs
 // the component via its factory, runs this role, and discards the
 // instance — no network, no side effects.

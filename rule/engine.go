@@ -100,8 +100,8 @@ type MatchResult = core.RuleMatchResult
 // one element — the former first-match-wins semantics.
 //
 // Rules with equal priority evaluate in configuration order (the
-// stable-sort tie-break, stage-B audit finding B7-1): a universal rule no
-// longer implicitly shadows a same-priority driver rule.
+// stable-sort tie-break): a universal rule must not implicitly shadow a
+// same-priority driver rule.
 //
 // Match uses a driver index to reduce the per-data-point scan cost.
 // Rules with a detectable driver == 'X' filter are only evaluated for

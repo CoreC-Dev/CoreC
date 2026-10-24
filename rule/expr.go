@@ -43,8 +43,8 @@ type exprNode interface {
 	eval(point core.DataPoint) bool
 	// evalErrors reports how many evaluation attempts failed (type
 	// mismatches, unknown fields) and when the last failure happened.
-	// Backs RuleStat.eval_errors (audit findings PIPE-3/RULE-2: a
-	// type-mismatched rule silently never matched with no signal
+	// Backs RuleStat.eval_errors (without it a
+	// type-mismatched rule silently never matches, with no signal
 	// anywhere).
 	evalErrors() (count uint64, at time.Time)
 }
@@ -121,9 +121,9 @@ func pointEnv(point core.DataPoint) map[string]any {
 		"type":    point.Type.String(),
 		"value":   point.Value,
 		// Unix milliseconds: numeric so comparisons work without date
-		// functions (roadmap #34 / audit RULE-3: time-window rules —
-		// "only alert during the day shift" — were previously
-		// inexpressible). No cardinality risk: it is a per-point value,
+		// functions (time-window rules —
+		// "only alert during the day shift" — need comparable
+		// timestamps). No cardinality risk: it is a per-point value,
 		// never a metric label.
 		"timestamp": point.Timestamp.UnixMilli(),
 	}
@@ -236,8 +236,8 @@ func (n *allNode) eval(_ core.DataPoint) bool { return true }
 func (n *allNode) evalErrors() (uint64, time.Time) { return 0, time.Time{} }
 
 // PreviewMatch compiles a standalone match expression and evaluates it
-// against the sample point, PROPAGATING the evaluation error (audit
-// findings PIPE-3/RULE-2): a type mismatch must be visible to the rule
+// against the sample point, PROPAGATING the evaluation error:
+// a type mismatch must be visible to the rule
 // author instead of silently reading as "not matched". Used by
 // POST /rules/preview via core.RulePreviewer; the active rule set is
 // never touched.

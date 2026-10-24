@@ -3,8 +3,7 @@ package testutil
 import "time"
 
 // WaitFor polls check every 5ms until it returns true or the timeout
-// elapses. Previously duplicated byte-identically in engine and e2e
-// tests (B7, quality audit 2026-10-21).
+// elapses. Shared by engine and e2e tests instead of duplicated in each.
 func WaitFor(timeout time.Duration, check func() bool) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {

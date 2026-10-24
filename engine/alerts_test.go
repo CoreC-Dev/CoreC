@@ -27,8 +27,8 @@ func alertPoint(driver, tag string, value any) core.DataPoint {
 	return core.DataPoint{Driver: driver, Tag: tag, Value: value, Quality: core.QualityGood, Timestamp: time.Now()}
 }
 
-// TestAlertRegistryFireMergeStream pins the fire phase (audit
-// OBS-4/HUB-6): creating alerts, merging repeated fires, and streaming
+// TestAlertRegistryFireMergeStream pins the fire phase of the alert
+// registry: creating alerts, merging repeated fires, and streaming
 // exactly one event per identity.
 func TestAlertRegistryFireMergeStream(t *testing.T) {
 	am := newAlertManager(time.Hour)
@@ -171,9 +171,8 @@ func TestAlertRegistryCap(t *testing.T) {
 }
 
 // TestFireAlertRecordsInRegistry drives the integration end: a rule
-// with action=alert reaching processPoint must populate the registry
-// (previously alerts only reached the OnAlert log handler, audit
-// OBS-4).
+// with action=alert reaching processPoint must populate the registry,
+// not just reach the OnAlert log handler.
 func TestFireAlertRecordsInRegistry(t *testing.T) {
 	e := New().(*CoreCEngine)
 	ctx, cancel := context.WithCancel(context.Background())

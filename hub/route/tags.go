@@ -42,7 +42,7 @@ func getAllTags(w http.ResponseWriter, r *http.Request) {
 	var sp core.StatsProvider = e
 	tags := annotateStaleness(da.LatestValues(""), sp.StaleThreshold())
 
-	// Roadmap #35: server-side filtering so thousand-tag deployments
+	// Server-side filtering so thousand-tag deployments
 	// stop shipping the full map per query. ?driver= serves one driver
 	// (the cheap per-driver snapshot path); ?tag= matches substrings
 	// across the flattened view; ?prefix= matches tag-name prefixes.
@@ -144,9 +144,8 @@ func writeTag(w http.ResponseWriter, r *http.Request) {
 // retries against the device. With ?source=ingress it instead serves
 // commands dropped at transport ingress (e.g. an MQTT command arriving
 // while the command channel was full), which the transports keep in
-// their own bounded stores (audit findings RES-1/TRA-4: those drops
-// previously had only a counter, with no queryable detail of what was
-// dropped and why).
+// their own bounded stores (a drop counter alone gives no queryable
+// detail of what was dropped and why).
 func getFailedWrites(w http.ResponseWriter, r *http.Request) {
 	entries, err := deadLetterEntriesForSource(r)
 	if err != nil {
@@ -161,7 +160,7 @@ func getFailedWrites(w http.ResponseWriter, r *http.Request) {
 }
 
 // batchWriteRequest is the body of POST /write/batch: a list of
-// WriteCommands (roadmap #37). Commands run sequentially and each
+// WriteCommands. Commands run sequentially and each
 // carries its own outcome — a partial failure never aborts the rest
 // and every attempt lands in the audit history and (on exhaustion)
 // the dead letter queue, exactly like single writes.
@@ -169,9 +168,9 @@ type batchWriteRequest struct {
 	Writes []core.WriteCommand `json:"writes"`
 }
 
-// batchWrite executes a list of write commands one by one (roadmap
-// #37 / audit RES-5: recipe downloads and commissioning scripts
-// previously needed N round trips). The response mirrors the request
+// batchWrite executes a list of write commands one by one (recipe
+// downloads and commissioning scripts otherwise need N round trips).
+// The response mirrors the request
 // order; per-command errors are verbatim (driver-not-found etc.),
 // and the summary counts make partial success visible at a glance.
 func batchWrite(w http.ResponseWriter, r *http.Request) {

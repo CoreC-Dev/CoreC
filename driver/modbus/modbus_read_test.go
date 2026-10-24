@@ -8,11 +8,11 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// TestReadBatchNilClientErrors pins the demo-deploy crash fix (2026-10-22):
+// TestReadBatchNilClientErrors pins the batch-path nil-client guard:
 // a PLC power-cycle mid-read-cycle leaves the refreshed Modbus client nil
-// until reconnect; the batch path previously dereferenced that nil and
-// SIGSEGV'd, taking down the ENTIRE engine for an ordinary device fault.
-// Now it returns a connection-class error (keyword-scanned by
+// until reconnect; dereferencing that nil would SIGSEGV, taking down the
+// ENTIRE engine for an ordinary device fault.
+// The guard returns a connection-class error instead (keyword-scanned by
 // util.IsConnectionError, so retry paths treat it like any device fault).
 func TestReadBatchNilClientErrors(t *testing.T) {
 	b := &modbusBase{}
@@ -44,11 +44,10 @@ func TestReadBatchNilClientErrors(t *testing.T) {
 }
 
 // TestReadTagNilClientErrors pins the per-tag sibling of the batch-path
-// crash (E2E B8, 2026-10-23): when performBatchReads aborts on a lost
+// nil guard: when performBatchReads aborts on a lost
 // connection and returns a nil refreshed client, Phase 3's fallback calls
-// readTag(nil, ...) — whose first dereference SIGSEGV'd and crashed the
-// engine twice in live testing. The batch path got a guard first; its
-// abort exposed this one.
+// readTag(nil, ...) — whose first dereference would SIGSEGV and crash
+// the engine. Both paths need their own guard.
 func TestReadTagNilClientErrors(t *testing.T) {
 	b := &modbusBase{}
 	ai := addrInfo{addr: 0, area: areaHoldingRegister}

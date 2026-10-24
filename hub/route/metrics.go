@@ -70,10 +70,10 @@ func promMetrics(w http.ResponseWriter, r *http.Request) {
 	// ─── Per-transport metrics ────────────────────────────────────────
 	writeTransportMetrics(&b, stats.TransportStats)
 
-	// ─── Dropped-by-cause breakdown (audit OBS-6) ─────────────────────
+	// ─── Dropped-by-cause breakdown ────────────────────────────────────
 	writeDroppedBreakdown(&b)
 
-	// ─── Driver-emitted protocol metrics (audit OBS-8) ────────────────
+	// ─── Driver-emitted protocol metrics ──────────────────────────────
 	writeDriverEmittedMetrics(&b)
 
 	// ─── Offline buffer metrics ───────────────────────────────────────
@@ -85,7 +85,7 @@ func promMetrics(w http.ResponseWriter, r *http.Request) {
 	// ─── Write dead-letter queue ─────────────────────────────────────
 	writeDeadLetterMetrics(&b)
 
-	// ─── Alert registry (audit OBS-4/HUB-6) ───────────────────────────
+	// ─── Alert registry ───────────────────────────────────────────────
 	writeAlertMetrics(&b)
 
 	// ─── HTTP request metrics ──────────────────────────────────────────

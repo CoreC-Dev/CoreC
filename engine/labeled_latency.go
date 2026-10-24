@@ -10,7 +10,7 @@ import (
 
 // latencyObserver receives one latency or data-age observation. Both
 // the plain metrics.LatencyHistogram and the engine's fan-out adapters
-// (global + per-driver/transport labeled histogram, audit OBS-2)
+// (global + per-driver/transport labeled histogram)
 // satisfy it, so the batcher accepts either wiring without knowing the
 // difference.
 type latencyObserver interface {
@@ -20,7 +20,7 @@ type latencyObserver interface {
 // transportLatencyFanout forwards each observation to the global
 // aggregate histogram AND the per-transport labeled histogram, so the
 // unlabeled series keep their meaning while per-transport series become
-// available (audit finding OBS-2: the single global histogram let one
+// available (a single global histogram lets one
 // slow transport hide behind healthy siblings).
 type transportLatencyFanout struct {
 	global  *metrics.LatencyHistogram
@@ -35,10 +35,10 @@ func (f transportLatencyFanout) Observe(d time.Duration) {
 // labeledLatencyStore owns every latency histogram in the engine: the
 // three global aggregates (read/publish/data-age) and the labeled
 // per-driver / per-transport histograms exposed via
-// core.LabeledLatencyProvider (audit finding OBS-2).
+// core.LabeledLatencyProvider.
 //
-// It is a dedicated sub-role of statsCollector (CPLX discipline: the
-// collector stays under its field/method ceilings). Entries are created
+// It is a dedicated sub-role of statsCollector so the
+// collector stays under its field/method ceilings. Entries are created
 // lazily on first observation; drivers/transports removed at runtime
 // leave a frozen (monotonic) series behind — standard Prometheus-client
 // behaviour — rather than erasing history.

@@ -11,7 +11,7 @@ import (
 
 // webhookMaxBodyBytes is the hard cap on a single webhook request body.
 // It protects the process from OOM caused by oversized or malicious
-// payloads (H1).
+// payloads.
 const webhookMaxBodyBytes = 10 * 1024 * 1024 // 10 MiB
 
 // handleWebhook processes incoming POST requests containing DataPoint JSON
@@ -70,10 +70,10 @@ func (t *HTTPTransport) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		rawElements = []json.RawMessage{body}
 	}
 
-	// Roadmap #36 (audit TRA-3): a batch caller previously got a bare
-	// 202 even when every element failed to parse or was dropped —
-	// partial failures were invisible to the sender. The response
-	// body now carries the per-outcome counts; the status stays 202
+	// A batch caller must not get a bare
+	// 202 when every element fails to parse or is dropped —
+	// partial failures must be visible to the sender. The response
+	// body carries the per-outcome counts; the status stays 202
 	// because elements that DID parse are queued for the pipeline.
 	accepted, parsed, parseFailed, dropped := 0, 0, 0, 0
 	for _, raw := range rawElements {

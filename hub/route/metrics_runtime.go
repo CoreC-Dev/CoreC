@@ -58,8 +58,8 @@ func writeRuntimeMetrics(b *strings.Builder) {
 	fmt.Fprintf(b, "corec_mem_stack_inuse_bytes %d\n", stackInuse)
 
 	// Memory: total alloc is a monotonically increasing cumulative
-	// value — exposed as a counter per Prometheus convention (audit
-	// OBS-10 / roadmap #31: it was typed gauge, which misleads
+	// value — exposed as a counter per Prometheus convention (a gauge
+	// type here would mislead
 	// ecosystem tooling).
 	writePromHeader(b, "corec_mem_total_alloc_bytes", "counter", "Total bytes of memory allocated (cumulative)")
 	fmt.Fprintf(b, "corec_mem_total_alloc_bytes %d\n", totalAlloc)

@@ -125,10 +125,10 @@ func rateLimitMiddleware(ctx context.Context, perSec int) func(http.Handler) htt
 			// Always use the direct remote address. Never trust
 			// client-supplied forwarding headers for rate-limit keying.
 			//
-			// Key by the HOST portion only (audit HUB-1): RemoteAddr
-			// is "host:port", and keying on the full string handed every
+			// Key by the HOST portion only: RemoteAddr
+			// is "host:port", and keying on the full string would hand every
 			// new TCP connection (new source port) a fresh full token
-			// bucket — a brute-forcer cycling connections bypassed the
+			// bucket — a brute-forcer cycling connections would bypass the
 			// limit entirely while long-lived clients were strictly
 			// throttled. SplitHostPort falls back to the raw address
 			// for malformed inputs.

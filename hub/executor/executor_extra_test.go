@@ -488,7 +488,7 @@ func TestValidate_EmptyPayload(t *testing.T) {
 }
 
 // TestReloadErrorClassification verifies the PUT /configs error
-// semantics fix (audit CFG-3/HUB-2): parse and validation failures are
+// semantics: parse and validation failures are
 // wrapped as client-fixable ConfigError (the route answers 400 with the
 // reason), while apply-stage failures stay unmarked (masked 500).
 func TestReloadErrorClassification(t *testing.T) {
@@ -549,7 +549,7 @@ func TestReloadErrorClassification(t *testing.T) {
 }
 
 // TestConfigAuditRecordsReloadAndPatch verifies the executor-side
-// recording (audit HUB-4 / roadmap #22): ReloadWithOrigin and
+// recording: ReloadWithOrigin and
 // PatchWithOrigin append bounded, newest-first entries with the
 // caller's address and a change summary.
 func TestConfigAuditRecordsReloadAndPatch(t *testing.T) {
@@ -604,7 +604,7 @@ func (nilEngineOnlySuspendResume) Suspend() error { return nil }
 func (nilEngineOnlySuspendResume) Resume() error  { return nil }
 
 // TestPatchExpansionLogFormatAndStaleThreshold verifies PATCH /configs
-// handles the three runtime keys (roadmap #23): log-level (existing),
+// handles the three runtime keys: log-level (existing),
 // log-format (swaps the stdout handler without breaking the /logs bus),
 // and stale-threshold (runtime role; engines without it reject).
 func TestPatchExpansionLogFormatAndStaleThreshold(t *testing.T) {
@@ -682,7 +682,7 @@ func (p *patchableEngine) Suspend() error                    { return nil }
 func (p *patchableEngine) Resume() error                     { return nil }
 
 // TestRemoveResourceByNames verifies the executor side of the
-// resource-level DELETE endpoints (audit HUB-3 / roadmap #26): removing
+// resource-level DELETE endpoints: removing
 // one entry by name runs the full validate → apply → persist chain,
 // 404-maps missing names, and validation fallout (deleting a transport
 // that rules target) surfaces as the client-fixable 400 class.

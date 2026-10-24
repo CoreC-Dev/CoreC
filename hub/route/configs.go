@@ -169,7 +169,7 @@ func buildConfigOverview(cfg *core.Config) configOverview {
 // the classification is duck-typed: when the reload error says the
 // CALLER's payload is at fault, answer 400 with the actual reason —
 // the operator otherwise learns nothing but "internal server error"
-// and must go dig through server logs (audit findings CFG-3/HUB-2).
+// and must go dig through server logs.
 // Apply-stage failures do not implement this and keep the masked 500.
 type clientFixableConfigError interface {
 	ClientFixable() bool
@@ -259,8 +259,8 @@ func patchConfigs(w http.ResponseWriter, r *http.Request) {
 }
 
 // getConfigAudit serves GET /configs/audit: the bounded, newest-first
-// trail of successful configuration mutations (audit HUB-4 / roadmap
-// #22). Engines/executors without the wiring answer 501.
+// trail of successful configuration mutations. Engines/executors
+// without the wiring answer 501.
 func getConfigAudit(w http.ResponseWriter, r *http.Request) {
 	if ConfigAuditFunc == nil {
 		renderError(w, r, http.StatusNotImplemented, "config audit not supported by this engine")

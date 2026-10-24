@@ -20,7 +20,7 @@ func quietReadFunc(ctx context.Context, driver string, tags []string) ([]core.Ta
 func quietOnData(driver string, values []core.TagValue, priority int) {}
 
 // TestSchedulerHealthAggregation pins the per-driver aggregation the
-// metrics route exposes (audit OBS-5 / roadmap #7): degraded is
+// metrics route exposes: degraded is
 // any-task, consecutive errors are the worst streak, overruns are
 // summed, and output is sorted by driver name for deterministic
 // exposition.
@@ -85,7 +85,7 @@ func TestSchedulerHealthNilAndEmpty(t *testing.T) {
 }
 
 // TestSchedulerPauseResumeRoundTrip verifies the pause/resume semantics
-// the API exposes (audit RES-4, roadmap #21): paused drivers stop
+// the API exposes: paused drivers stop
 // collecting, resume restores the cadence, and PausedDrivers reports
 // the set.
 func TestSchedulerPauseResumeRoundTrip(t *testing.T) {

@@ -355,10 +355,9 @@ func TestApplyTransform(t *testing.T) {
 }
 
 // TestApplyTransformAllNumericTypes pins the read-side transform to every
-// numeric Go type a driver can decode (int8…int64, uint8…uint64, floats).
-// An earlier version silently skipped int/int8/uint8/int64/uint64, so
-// those tag types bypassed the configured scale/offset on reads while
-// 16/32-bit siblings were transformed (audit finding DRV-1 follow-up).
+// numeric Go type a driver can decode (int8…int64, uint8…uint64, floats):
+// skipping any width would let that tag type bypass the configured
+// scale/offset on reads.
 func TestApplyTransformAllNumericTypes(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -916,9 +915,8 @@ func TestReconnectJitterDoesNotBreakBreaker(t *testing.T) {
 
 	// Poll until the 3 pre-breaker attempts complete (worst case
 	// ~12+24+48ms ≈ 84ms of backoff) or the deadline passes. A fixed
-	// 300ms sleep here was flaky under CPU oversubscription: goroutine
-	// scheduling delays pushed the 3rd call past the window
-	// (stage-A audit finding #4: "expected >= 3 calls, got 2").
+	// sleep here would be flaky under CPU oversubscription: goroutine
+	// scheduling delays can push the 3rd call past the window.
 	deadline := time.Now().Add(5 * time.Second)
 	for atomic.LoadInt32(&calls) < 3 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
@@ -938,9 +936,8 @@ func TestReconnectJitterDoesNotBreakBreaker(t *testing.T) {
 	}
 }
 
-// TestGetStringSetting pins the settings accessor contract (audit H4
-// coverage gate: this function had 0% unit coverage — it was only
-// exercised indirectly via driver tests).
+// TestGetStringSetting pins the settings accessor contract directly at
+// the unit level, not just via indirect exercise from driver tests.
 func TestGetStringSetting(t *testing.T) {
 	s := map[string]any{"name": "plc", "count": 3}
 	if got := GetStringSetting(s, "name", "default"); got != "plc" {
@@ -955,8 +952,8 @@ func TestGetStringSetting(t *testing.T) {
 	}
 }
 
-// TestRejectUnknownSettings pins the CFG-4 helper directly (previously
-// covered only via the config package's integration tests).
+// TestRejectUnknownSettings pins the reject-unknown-settings helper
+// directly, in addition to the config package's integration tests.
 func TestRejectUnknownSettings(t *testing.T) {
 	known := map[string]bool{"host": true, "port": true}
 	if err := RejectUnknownSettings(map[string]any{"host": "x"}, known, "test"); err != nil {
@@ -1008,12 +1005,12 @@ func TestReconnectLoopOptsPassesThroughOptions(t *testing.T) {
 	}
 }
 
-// TestIsConnectionErrorDeadlineExceeded pins the B2 wedge fix: Go's
-// context.DeadlineExceeded message ("context deadline exceeded") is what
-// a read against a silently-dropped TCP connection produces (device
-// power-cycle with NAT remap, black-holed route). Before this keyword,
-// such connections NEVER triggered reconnection — the driver read-timed-out
-// forever while the same device was reachable from elsewhere.
+// TestIsConnectionErrorDeadlineExceeded pins the wedged-connection fix:
+// Go's context.DeadlineExceeded message ("context deadline exceeded") is
+// what a read against a silently-dropped TCP connection produces (device
+// power-cycle with NAT remap, black-holed route). Without this keyword
+// such connections never match — the driver read-timed-out forever while
+// the same device was reachable from elsewhere.
 func TestIsConnectionErrorDeadlineExceeded(t *testing.T) {
 	if !IsConnectionError(context.DeadlineExceeded) {
 		t.Error("context.DeadlineExceeded must be connection-class (read-deadline timeout on a wedged TCP)")

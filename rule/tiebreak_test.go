@@ -1,5 +1,5 @@
-// Tie-break tests for same-priority rule evaluation (stage-B audit
-// finding B7-1). Same-priority rules evaluate in configuration order —
+// Tie-break tests for same-priority rule evaluation.
+// Same-priority rules evaluate in configuration order —
 // the stable sort keeps the config order within equal priorities and the
 // driver-index merge uses the build position as the tie-break — so a
 // universal rule no longer implicitly shadows a same-priority driver

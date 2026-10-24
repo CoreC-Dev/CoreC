@@ -11,8 +11,8 @@ import (
 
 // ruleRole groups the engine's rule management: the active rule engine,
 // its configuration entrypoint (initRules), and the rule inspection,
-// disable, and preview API surface. Extracted from CoreCEngine in the
-// CPLX-020 God Object split; CoreCEngine keeps thin forwarders so the
+// disable, and preview API surface. CoreCEngine keeps thin forwarders
+// to this role so the
 // core.Engine / core.RuleManager / core.RulePreviewer method sets are
 // unchanged.
 type ruleRole struct {
@@ -62,10 +62,10 @@ func (r *ruleRole) SetRuleDisabledByName(name string, disabled bool) error {
 // against the sample point, satisfying core.RulePreviewer
 // (POST /rules/preview). The active rule set is never touched.
 //
-// Both failure classes propagate to the API (audit findings
-// PIPE-3/RULE-2): compile errors and — new — evaluation errors. The
-// old scratch-engine path swallowed evaluation failures into a bare
-// false, so a type-mismatched expression previewed as "not matched"
+// Both failure classes propagate to the API:
+// compile errors and evaluation errors alike. Swallowing an
+// evaluation failure into a bare false would make a type-mismatched
+// expression preview as "not matched"
 // instead of telling the author why.
 func (r *ruleRole) PreviewRule(match string, point core.DataPoint) (bool, error) {
 	return rule.PreviewMatch(match, point)

@@ -5,8 +5,8 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// ValidateSettings implements core.SettingsValidator (audit CFG-4 /
-// roadmap #25): rejects unknown keys so typos like `brokr` fail at
+// ValidateSettings implements core.SettingsValidator: rejects unknown
+// keys so typos like `brokr` fail at
 // config-validate time instead of silently connecting nowhere. The
 // drift test (transport/settings_drift_test.go) fails when a key parsed
 // by publisher.go is missing here.

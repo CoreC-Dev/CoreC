@@ -630,8 +630,8 @@ func variantValueEqual(a, b any) bool { //nolint:gocyclo // deep-equality helper
 	}
 }
 
-// TestOPCUAWriteConnectionErrorTriggersReconnect is the stage-B audit
-// finding B4-2 regression test: a connection-class write failure must tear
+// TestOPCUAWriteConnectionErrorTriggersReconnect is the write-path
+// reconnect regression test: a connection-class write failure must tear
 // the connection down for reconnection just like the Read path, while a
 // non-connection write failure must not. The unconnected client used here
 // surfaces StatusBadServerNotConnected — which is NOT connection-class —
@@ -708,8 +708,8 @@ func TestOPCUAWriteConnectionErrorTriggersReconnect(t *testing.T) {
 	}
 }
 
-// TestOPCUAAssembleReadResultsLocalTimestamp is the stage-B audit finding
-// B5-4 regression test: every point assembled from a ReadResponse — good
+// TestOPCUAAssembleReadResultsLocalTimestamp is the local-timestamp
+// regression test: every point assembled from a ReadResponse — good
 // and bad alike — must carry the local receive time, not the OPC UA
 // server's SourceTimestamp. All staleness consumers (derived-tag stale
 // guards, API is_stale annotation, dataAge metrics) compare against the

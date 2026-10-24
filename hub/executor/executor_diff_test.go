@@ -161,7 +161,7 @@ func TestDiffTransports_RestartRemoveErrorPropagated(t *testing.T) {
 
 // mockEngineRollback records every engine operation in order and can
 // fail an AddDriver/AddTransport/ApplyDerivedTags on demand, pinning
-// the reload-rollback contract (audit CFG-2).
+// the reload-rollback contract.
 type mockEngineRollback struct {
 	core.Engine
 	failAddDriverName      string
@@ -215,8 +215,8 @@ func (m *mockEngineRollback) Resume() error  { return nil }
 
 // TestApplyConfigRollsBackFailedDriverAdd verifies a failed driver diff
 // restores the removed driver: the engine keeps running the pre-reload
-// set and currentCfg still reflects it (audit CFG-2 — previously the
-// removal stayed applied while /configs/raw showed the old config).
+// set and currentCfg still reflects it (without rollback the
+// removal would stay applied while /configs/raw showed the old config).
 func TestApplyConfigRollsBackFailedDriverAdd(t *testing.T) {
 	eng := &mockEngineRollback{failAddDriverName: "boom"}
 	initial := &core.Config{

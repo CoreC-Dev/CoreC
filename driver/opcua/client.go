@@ -236,8 +236,7 @@ func (d *OPCUADriver) Capabilities() core.DriverCapabilities {
 // current connection. Parallel Read/Write tasks hold the client pointer
 // they captured at entry; when a reconnect completes while such a task is
 // still failing, the task's error belongs to a client that has already
-// been replaced and must not tear down the fresh one (stage-B audit
-// finding B4-1).
+// been replaced and must not tear down the fresh one.
 func (d *OPCUADriver) handleConnLostIfCurrent(captured *opcua.Client) {
 	d.RLock()
 	current := d.client

@@ -79,7 +79,7 @@ type Config struct {
 	PprofDisabled bool
 
 	// MetricsAddr, when non-empty, starts a separate HTTP server serving
-	// only /metrics WITHOUT authentication (audit OBS-12 / roadmap #27).
+	// only /metrics WITHOUT authentication.
 	// Bind to a loopback or private interface only; while set, /metrics
 	// is removed from the authenticated main API.
 	MetricsAddr string

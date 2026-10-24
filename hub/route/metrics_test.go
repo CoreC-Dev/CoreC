@@ -133,7 +133,7 @@ func TestPromMetricsWithDrivers(t *testing.T) {
 		}
 	}
 
-	// Freshness gauges (audit OBS-5): modbus1 read 3s ago — the
+	// Freshness gauges: modbus1 read 3s ago — the
 	// timestamp is exact and the age is ~3s (allow scheduling slack).
 	wantTS := fmt.Sprintf("corec_driver_last_read_timestamp_seconds{driver=\"modbus1\"} %d", lastRead.Unix())
 	if !strings.Contains(output, wantTS) {
@@ -392,8 +392,8 @@ func TestPromMetricsLatencyAndDataAge(t *testing.T) {
 }
 
 // TestPromMetricsSchedulerHealth verifies the scheduler health families
-// render from the optional SchedulerHealthProvider role (audit OBS-5 /
-// roadmap #7): a degraded driver with an error streak and cumulative
+// render from the optional SchedulerHealthProvider role: a degraded
+// driver with an error streak and cumulative
 // overruns is visible to Prometheus, and an engine that does not report
 // scheduler health (nil role data) omits the families entirely.
 func TestPromMetricsSchedulerHealth(t *testing.T) {
@@ -437,7 +437,7 @@ func TestPromMetricsSchedulerHealth(t *testing.T) {
 }
 
 // TestPromMetricsDeadLetter verifies the dead-letter families render from
-// the optional DeadLetterStatsProvider role (audit OBS-3): queue depth
+// the optional DeadLetterStatsProvider role: queue depth
 // and lifetime pushes must be scrapeable, not just queryable via
 // /write/failed.
 func TestPromMetricsDeadLetter(t *testing.T) {
@@ -462,7 +462,7 @@ func TestPromMetricsDeadLetter(t *testing.T) {
 }
 
 // TestPromMetricsLabeledLatency verifies the labeled histogram families
-// render per-driver/per-transport series (audit OBS-2) when the engine
+// render per-driver/per-transport series when the engine
 // provides core.LabeledLatencyProvider, and that engines with only the
 // plain LatencyProvider keep the unlabeled fallback.
 type mockLabeledLatency struct {
@@ -559,7 +559,7 @@ func TestPromMetricsUnlabeledLatencyFallback(t *testing.T) {
 }
 
 // TestPromMetricsDroppedBreakdown verifies the per-cause drop families
-// (audit OBS-6): the breakdown must be scrapeable, not just diffable
+// family by family: the breakdown must be scrapeable, not just diffable
 // from the umbrella total.
 func TestPromMetricsDroppedBreakdown(t *testing.T) {
 	eng := &mockEngineV2{
@@ -592,8 +592,8 @@ func TestPromMetricsDroppedBreakdown(t *testing.T) {
 }
 
 // TestPromMetricsDriverSeries verifies driver-emitted protocol metrics
-// render under their driver-owned names (audit OBS-8: the core.Metrics
-// port was previously wired only to NoopMetrics — emissions vanished).
+// render under their driver-owned names (with the core.Metrics
+// port wired only to NoopMetrics, emissions would vanish).
 func TestPromMetricsDriverSeries(t *testing.T) {
 	eng := &mockEngineV2{
 		driverMetrics: []core.DriverMetric{

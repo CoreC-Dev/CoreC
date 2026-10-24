@@ -147,8 +147,8 @@ func optTemplate(settings map[string]any, key, def string) (*template.Template, 
 	return template.New(key).Parse(raw)
 }
 
-// ValidateSettings implements core.SettingsValidator (audit CFG-4 /
-// roadmap #25): rejects unknown keys and checks the string-typed values
+// ValidateSettings implements core.SettingsValidator: rejects unknown
+// keys and checks the string-typed values
 // at config-validate time (the full channel-specific parsing — required
 // fields, durations, templates — still runs at Init). The drift test
 // (transport/settings_drift_test.go) fails when a key parsed by the

@@ -110,8 +110,7 @@ func (d *OPCUADriver) subscriptionLoop(ctx context.Context,
 			// staleness consumers compare against the CoreC host clock,
 			// and the polling drivers stamp local time too, so the
 			// server's SourceTimestamp would skew staleness wherever the
-			// OPC UA server clock drifts from the host (stage-B audit
-			// finding B5-4).
+			// OPC UA server clock drifts from the host.
 			now := time.Now()
 			for _, item := range notif.MonitoredItems {
 				tagName, found := handleToTag[item.ClientHandle]
@@ -124,13 +123,12 @@ func (d *OPCUADriver) subscriptionLoop(ctx context.Context,
 
 				var dp core.DataPoint
 				if item.Value.Status != ua.StatusOK {
-					// Map the server-reported quality (audit finding
-					// DRV-2): the polling path has always translated
-					// non-OK statuses into QualityBad, but the
-					// subscription path previously hardcoded
-					// QualityGood, so a server-reported Bad value
-					// (dead sensor, unavailable node) entered the
-					// pipeline as GOOD data and bypassed every
+					// Map the server-reported quality, mirroring the
+					// polling path, which has always translated
+					// non-OK statuses into QualityBad. Hardcoding
+					// QualityGood here would let a server-reported Bad
+					// value (dead sensor, unavailable node) enter the
+					// pipeline as GOOD data and bypass every
 					// bad-quality policy. Non-OK statuses (including
 					// Uncertain) map conservatively to Bad,
 					// mirroring the polling path; the value is

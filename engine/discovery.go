@@ -46,8 +46,8 @@ type nodeInfo struct {
 
 // endpoint describes a data channel.
 type endpoint struct {
-	// Type is the channel kind. Only "mqtt" is currently constructed
-	// (audit finding RES-3): the "http" spelling is an experimental
+	// Type is the channel kind. Only "mqtt" is currently constructed:
+	// the "http" spelling is an experimental
 	// wire-format forward-compat — nothing emits it and reconcile()
 	// explicitly skips non-mqtt endpoints, so a malformed/malicious
 	// heartbeat advertising one can never inject a transport config.
@@ -312,8 +312,8 @@ func (d *Discovery) reconcile() {
 			// Non-mqtt publish endpoints (the experimental "http"
 			// spelling, or garbage from a malformed heartbeat) are
 			// skipped with a visible debug line: they can never become
-			// an auto-added transport (audit RES-3 — previously this
-			// was a bare silent continue).
+			// an auto-added transport (a bare silent continue would hide
+			// the skip).
 			slog.Debug("discovery: upstream publish endpoint is not auto-subscribable",
 				"upstream", upstreamID,
 				"endpoint_type", info.Publish.Type)

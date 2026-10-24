@@ -3,8 +3,8 @@
 // protocol-specific hooks (connect, closeConn, init) during Init; the base
 // provides Start/Stop/Restart/Status/reconnectLoop/handleConnectionLost.
 //
-// This eliminates ~176 lines of cross-driver lifecycle duplication (DUP-001)
-// and the 3-line ParseReconnectSettings block repeated in each driver (DUP-004).
+// This eliminates ~176 lines of cross-driver lifecycle duplication
+// and the 3-line ParseReconnectSettings block repeated in each driver.
 package driverbase
 
 import (
@@ -88,7 +88,7 @@ func (d *BaseDriver) SetLogger(l core.Logger) {
 
 // ParseReconnectSettings reads reconnect-interval, reconnect-max-interval,
 // and max-reconnect-failures from the settings map with core defaults.
-// Replaces the identical 3-line block inlined in each driver's Init (DUP-004).
+// Replaces the identical 3-line block inlined in each driver's Init.
 func (d *BaseDriver) ParseReconnectSettings(settings map[string]any) {
 	d.reconnectBackoff = util.GetDurationSetting(settings, "reconnect-interval", core.DefaultReconnectBackoff)
 	d.maxReconnectBackoff = util.GetDurationSetting(settings, "reconnect-max-interval", core.DefaultMaxReconnectBackoff)
@@ -100,7 +100,7 @@ func (d *BaseDriver) ParseReconnectSettings(settings map[string]any) {
 // engineering values (raw×scale + offset, via util.ApplyTransform); a write
 // carrying an engineering value must therefore be converted back to the
 // raw device representation before encoding, or a scaled tag receives a
-// value off by its scale factor (audit finding DRV-1).
+// value off by its scale factor.
 //
 // cmd.Raw is the explicit escape hatch for operators that need to write
 // the pre-transform device representation directly (e.g. commissioning,

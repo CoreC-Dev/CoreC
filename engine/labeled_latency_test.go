@@ -8,7 +8,7 @@ import (
 )
 
 // TestLabeledLatencyObservation verifies the per-driver / per-transport
-// latency histograms (audit finding OBS-2): every observation feeds BOTH
+// latency histograms: every observation feeds BOTH
 // the global aggregate and the labeled histogram, so the unlabeled
 // family keeps its meaning while per-driver/transport series become
 // queryable.

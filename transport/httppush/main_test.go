@@ -7,7 +7,7 @@ import (
 )
 
 // TestMain integrates goleak to detect goroutine leaks across all tests
-// in the httppush transport package (PERF-007).
+// in the httppush transport package.
 //
 // The ignores below are all runtime-managed keep-alive connection
 // goroutines, not product leaks:
@@ -20,9 +20,8 @@ import (
 //   - the three persistConn entries are the CLIENT side: http.Transport's
 //     keep-alive connection read/write loops, which CloseIdleConnections
 //     reaps lazily.
-//     Under full-suite -race load both shapes raced goleak in roughly half
-//     the runs (stage-A finding + CPLX-020 agent observation). Note the
-//     earlier deflake's (*FD).WaitRead ignore does not match these stacks —
+//     Under full-suite -race load both shapes race goleak intermittently.
+//     The (*FD).WaitRead ignore does not match these stacks —
 //     they sit in (*pollDesc).waitRead (lowercase, a different function) —
 //     so the http-level ignores are the ones that actually bite. All
 //     ignored goroutines are runtime-managed idle connections; a genuine

@@ -5,8 +5,8 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// ValidateSettings implements core.SettingsValidator (audit CFG-4 /
-// roadmap #25): rejects unknown keys so typos fail at config-validate
+// ValidateSettings implements core.SettingsValidator: rejects unknown
+// keys so typos fail at config-validate
 // time. The drift test (driver/settings_drift_test.go) fails when a key
 // parsed by client.go is missing here.
 func (d *OPCUADriver) ValidateSettings(settings map[string]any) error {

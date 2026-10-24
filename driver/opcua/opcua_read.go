@@ -59,7 +59,7 @@ func (d *OPCUADriver) Read(ctx context.Context, tags []string) ([]core.TagValue,
 
 		// Check if connection is lost and trigger reconnect. The guard
 		// ignores errors from a client that has already been replaced by
-		// a reconnect (B4-1).
+		// a reconnect.
 		if util.IsConnectionError(err) {
 			d.handleConnLostIfCurrent(client)
 		}
@@ -82,8 +82,7 @@ func (d *OPCUADriver) Read(ctx context.Context, tags []string) ([]core.TagValue,
 // (derived-tag stale guards, API staleness annotation, dataAge metrics)
 // and the other drivers stamp local time as well, so adopting the OPC UA
 // server's SourceTimestamp here would skew every staleness judgement
-// wherever the server clock drifts from the CoreC host (stage-B audit
-// finding B5-4).
+// wherever the server clock drifts from the CoreC host.
 func (d *OPCUADriver) assembleReadResults(resp *ua.ReadResponse, validTagNames []string, now time.Time) []core.TagValue {
 	results := make([]core.TagValue, 0, len(resp.Results))
 	for i, r := range resp.Results {

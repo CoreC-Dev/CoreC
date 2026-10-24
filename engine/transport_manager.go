@@ -13,8 +13,8 @@ import (
 // transportManager groups the northbound transport concern: the live
 // transport map, the transport configs (for fallback lookups), the
 // per-transport batchers, the per-transport listener cancellers, and the
-// shared offline buffer. Extracted from CoreCEngine in the CPLX-020 God
-// Object split; CoreCEngine keeps thin forwarders so the
+// shared offline buffer. CoreCEngine keeps thin forwarders to this
+// role so the
 // core.TransportManager method set is unchanged.
 type transportManager struct {
 	transports   map[string]core.Transport
@@ -86,8 +86,7 @@ func (m *transportManager) AddTransport(config core.TransportConfig) error {
 	// Stop the old transport and batcher outside the lock. The batcher
 	// stop is bounded by the engine's shutdown timeout (stopBatcherWithTimeout):
 	// a batcher stuck in a long flush retry chain must not block the
-	// management API indefinitely (stage-B audit findings B3.1/B3.6 —
-	// previously this was an unbounded b.stop()).
+	// management API indefinitely (an unbounded b.stop() would).
 	if oldBatcher != nil {
 		m.stopBatcherWithTimeout(oldBatcher, config.Name, "transport replacement")
 	}
@@ -105,13 +104,13 @@ func (m *transportManager) AddTransport(config core.TransportConfig) error {
 	// buffering is enabled (so failed publishes are persisted).
 	// The engine's publishLatency and dataAge histograms are injected so
 	// the batcher's async flush path can observe real transport publish
-	// latency and data age (IMPROVEMENTS #1 regression fix). The
+	// latency and data age (the batcher's async flush path is the
+	// only place real transport latency is observable). The
 	// onBatchPublish callback is injected so the batcher counts real
-	// publishes (not just enqueues) on the async flush path (Finding 4
-	// fix: the original publish.go, dissolved in the batcher split,
-	// counted prematurely). The engine's
+	// publishes (not just enqueues) on the async flush path (counting
+	// at enqueue time would over-report). The engine's
 	// shutdownTimeout is threaded through as the batcher's flushFinal
-	// budget so the shutdown flush cannot outlive shutdown (B3.1).
+	// budget so the shutdown flush cannot outlive shutdown.
 	if b := newTransportBatcher(transport, config, m.offlineBuffer,
 		m.eng.stats.labeled.publishObserver(transport.Name()),
 		m.eng.stats.labeled.ageObserver(transport.Name()),
@@ -189,8 +188,8 @@ func (m *transportManager) RemoveTransport(name string) error {
 	}
 
 	if batcher != nil {
-		// Bounded by the engine's shutdown timeout (stage-B audit
-		// findings B3.1/B3.6): RemoveTransport is a management API call
+		// Bounded by the engine's shutdown timeout: RemoveTransport is
+		// a management API call
 		// and must not hang behind a batcher stuck in a long flush retry
 		// chain. On timeout the stop goroutine is abandoned; the
 		// batcher's flushFinal runs on its own shutdown budget and
@@ -206,7 +205,7 @@ func (m *transportManager) RemoveTransport(name string) error {
 // but it must never block the caller indefinitely: the transport
 // removal/replacement paths run on management API goroutines, and an
 // unbounded stop behind a transport with an oversized retry-count could
-// hang them (stage-B audit findings B3.1/B3.6). On timeout the stop
+// hang them. On timeout the stop
 // goroutine is abandoned; flushFinal's own budget (shutdownBudget)
 // ensures the in-flight flush terminates by publishing the batch or
 // persisting it to the offline buffer.
@@ -324,9 +323,9 @@ func (m *transportManager) tryFallback(point core.DataPoint, primaryName string,
 
 // ingressDeadLetters aggregates the transport-local dead-letter stores:
 // commands dropped at transport ingress (e.g. an MQTT command arriving
-// while the command channel was full), which previously had only a
-// counter (corec_transport_dropped_commands_total) with no queryable
-// detail (audit findings RES-1/TRA-4). Transports opt in by implementing
+// while the command channel was full), which a drop counter alone
+// (corec_transport_dropped_commands_total) gives no queryable
+// detail about. Transports opt in by implementing
 // core.IngressDeadLetterSource; the entry's Transport field records
 // which transport dropped it. Returns nil when no transport reports
 // ingress drops.

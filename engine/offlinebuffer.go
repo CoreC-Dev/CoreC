@@ -34,7 +34,7 @@ type OfflineBuffer struct {
 	// all transport batchers (transport_manager.go), so several
 	// background drain loops can run concurrently; without this lock two
 	// of them could read the same entry before either removes it and
-	// double-publish the batch (stage-B audit finding B2.3).
+	// double-publish the batch.
 	drainMu sync.Mutex
 	// nextSeq is the next sequence number to assign. It is persisted
 	// by scanning the directory on startup so that sequence numbers
@@ -51,9 +51,9 @@ type OfflineBuffer struct {
 	// buffer was full (oldest dropped to make room for newer ones —
 	// newest data wins by design). It is incremented inside evictIfNeeded
 	// on every successful eviction and read lock-free by EvictedCount().
-	// Until now evictions were completely silent: no log, no counter —
+	// Evictions must not be silent: with no log and no counter,
 	// operators could only infer sustained eviction from the pending
-	// gauge pinned at max-size (stage-B audit finding B2.1).
+	// gauge pinned at max-size.
 	evictCount atomic.Uint64
 }
 
@@ -234,7 +234,7 @@ func (ob *OfflineBuffer) evictIfNeeded() {
 		// eviction is a designed trade-off (newest data wins), but it
 		// must not be silent — every other drop path in the pipeline
 		// (DataBus pushDropped, batcher flushBatchesDropped) is counted
-		// and logged (stage-B audit finding B2.1).
+		// and logged.
 		ob.evictCount.Add(1)
 		slog.Warn("offline buffer full: evicted oldest batch",
 			"file", path,
@@ -254,8 +254,7 @@ func (ob *OfflineBuffer) evictIfNeeded() {
 // each batch must be republished only through the transport that
 // originally accepted it — replaying it through a different transport
 // would misroute the data (e.g. deliver a data-lake batch to MES) and
-// delete the file before the owning transport ever replays it
-// (stage-B audit finding B2.3).
+// delete the file before the owning transport ever replays it.
 //
 // Concurrent Drain calls are serialized by drainMu so two transports
 // cannot read the same entry before either removes it.
@@ -342,9 +341,8 @@ func (ob *OfflineBuffer) Drain(source string, tryPublish func([]core.DataPoint) 
 			// The batch stays on disk and will be replayed again on the
 			// next drain round — a duplicate delivery under the
 			// documented at-least-once semantics (see
-			// docs/architecture/dataflow.md). The previously ignored
-			// error made this repeat silent (stage-B audit B2.4 note,
-			// folded into finding B1.4).
+			// docs/architecture/dataflow.md). The error is logged rather
+			// than ignored so the repeat delivery is visible.
 			slog.Warn("offline buffer: failed to remove replayed batch, it will be re-published on the next drain (duplicate delivery)",
 				"file", path, "error", err)
 		}
@@ -381,8 +379,8 @@ func (ob *OfflineBuffer) PendingCount() int {
 }
 
 // PendingBytes returns the total on-disk size, in bytes, of the
-// buffered batch files awaiting replay (roadmap #28, from audit
-// OBS/B2.1 follow-up: the batch-count gauge alone cannot answer "how
+// buffered batch files awaiting replay. The batch-count gauge alone
+// cannot answer "how
 // much disk is the outage consuming?" — with large batches a handful
 // of pending files can mean gigabytes). Summing entry sizes needs the
 // same directory read Len() performs; callers scrape both gauges in
@@ -422,8 +420,7 @@ func (ob *OfflineBuffer) DrainCount() uint64 {
 // for newer ones — newest data wins by design). It is a monotonically
 // increasing counter, read atomically and lock-free, suitable for
 // observability exposure (e.g. a corec_offline_buffer_evicted_total
-// Prometheus counter; stage-B audit finding B2.1 — until now evictions
-// were completely unobservable).
+// Prometheus counter) — evictions must stay observable, not silent.
 func (ob *OfflineBuffer) EvictedCount() uint64 {
 	return ob.evictCount.Load()
 }

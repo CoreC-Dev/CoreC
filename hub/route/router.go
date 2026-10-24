@@ -55,7 +55,7 @@ func router(ctx context.Context, secret string, allowedOrigins []string, rateLim
 		r.Put("/configs", updateConfigs)
 		r.Patch("/configs", patchConfigs)
 		r.Post("/configs/validate", validateConfigs)
-		// Config change audit trail (audit HUB-4): who changed what,
+		// Config change audit trail: who changed what,
 		// when — previously only a server log line.
 		r.Get("/configs/audit", getConfigAudit)
 
@@ -78,11 +78,11 @@ func router(ctx context.Context, secret string, allowedOrigins []string, rateLim
 		r.Get("/drivers/{name}/tags", getDriverTags)
 		r.Post("/drivers/test", testDriver)
 		// Pause/resume a driver's collection without touching its
-		// config (audit RES-4): the scheduler flags exist; these expose
+		// config: the scheduler flags exist; these expose
 		// them for device-maintenance scenarios.
 		r.Post("/drivers/{name}/pause", pauseDriver)
 		r.Post("/drivers/{name}/resume", resumeDriver)
-		// Resource-level removal (audit HUB-3): splice internally, run
+		// Resource-level removal: splice internally, run
 		// the full PUT /configs safety chain.
 		r.Delete("/drivers/{name}", deleteResourceDriver)
 
@@ -93,7 +93,7 @@ func router(ctx context.Context, secret string, allowedOrigins []string, rateLim
 
 		r.Get("/tags", getAllTags)
 		r.Post("/write", writeTag)
-		// Batch writes (roadmap #37): sequential per-command execution;
+		// Batch writes: sequential per-command execution;
 		// per-command results + counts, audit/DLQ identical to single.
 		r.Post("/write/batch", batchWrite)
 		r.Get("/write/failed", getFailedWrites)
@@ -104,7 +104,7 @@ func router(ctx context.Context, secret string, allowedOrigins []string, rateLim
 		r.Post("/rules/preview", previewRule)
 		r.Delete("/rules/{name}", deleteResourceRule)
 
-		// First-class alerts (audit OBS-4/HUB-6): active state +
+		// First-class alerts: active state +
 		// bounded history + ack + real-time lifecycle stream. The
 		// legacy /logs stream keeps serving raw log lines.
 		r.Get("/alerts", getAlerts)
@@ -122,8 +122,8 @@ func router(ctx context.Context, secret string, allowedOrigins []string, rateLim
 		// endpoints. Both live inside the authenticated group so a
 		// scraper or profiling client must present the API secret,
 		// keeping them off the public surface. When a dedicated
-		// metrics server is configured (api.metrics-addr, audit
-		// OBS-12), the authenticated copy is suppressed — one
+		// metrics server is configured (api.metrics-addr),
+		// the authenticated copy is suppressed — one
 		// exposure path, the credential-free private interface.
 		if !metricsDedicated {
 			r.Get("/metrics", promMetrics)

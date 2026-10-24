@@ -677,11 +677,11 @@ func indexOf(s, substr string) int {
 	return -1
 }
 
-// TestValidateRejectsUnknownDriverSettings pins the CFG-4/roadmap #25
-// fix: a typo'd settings key (slve-id instead of slave-id) previously
-// sailed through validation and silently ran the driver against
+// TestValidateRejectsUnknownDriverSettings pins the reject-unknown-keys
+// contract: a typo'd settings key (slve-id instead of slave-id) must
+// fail validation rather than silently run the driver against
 // defaults — the wrong device. The factory-constructed component's
-// SettingsValidator now rejects it at config-validate time with the
+// SettingsValidator rejects it at config-validate time with the
 // valid keys listed.
 func TestValidateRejectsUnknownDriverSettings(t *testing.T) {
 	cfg := &core.Config{

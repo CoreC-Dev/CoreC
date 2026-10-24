@@ -1,18 +1,17 @@
 package s7
 
 // ============================================================
-// Behavior tests for merged area reads (PERF-003).
+// Behavior tests for merged area reads.
 //
-// The merged reader changes three observable behaviours, registered in the
-// feature commit:
+// The merged reader changes three observable behaviours:
 //  1. one failed merged read marks every tag in that segment QualityBad
-//     (previously each tag failed on its own read);
+//     (not per-tag failures on separate reads);
 //  2. tags whose gap exceeds s7MergeGapLimit are not merged, so sparse
 //     batches keep an intermediate round-trip count;
 //  3. bit tags are still read one by one.
 //
-// The tests below pin those behaviours plus the invariant the tracker's
-// acceptance criterion demands: the simulated client's trip count equals
+// The tests below pin those behaviours plus the core invariant: the
+// simulated client's trip count equals
 // the merged batch count.
 // ============================================================
 
@@ -103,8 +102,8 @@ func readAllGood(t *testing.T, d *S7Driver, names []string) []core.TagValue {
 	return vals
 }
 
-// TestS7ReadMergedRoundTrips asserts the tracker's acceptance criterion on
-// the full PERF-003 scenario matrix: the simulated client's trip count
+// TestS7ReadMergedRoundTrips asserts the core acceptance criterion on
+// the full scenario matrix: the simulated client's trip count
 // equals the projected merged batch count (chunked at s7MaxBatchSize,
 // merged per chunk) — never one per tag.
 func TestS7ReadMergedRoundTrips(t *testing.T) {
@@ -455,7 +454,7 @@ func TestS7ReadBitFailureIsolatedPerTag(t *testing.T) {
 
 // TestS7ReadSegmentConnectionErrorTearsDownConnection verifies a
 // connection-class failure inside a merged segment still triggers the
-// reconnect teardown through the B4-1 stale-client guard.
+// reconnect teardown through the stale-client guard.
 func TestS7ReadSegmentConnectionErrorTearsDownConnection(t *testing.T) {
 	cfg := core.DriverConfig{
 		Name: "merge-conn-lost",

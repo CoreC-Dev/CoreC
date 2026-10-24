@@ -405,12 +405,12 @@ func TestForwarderTransportSatisfiesCommandForwarder(t *testing.T) {
 	}
 }
 
-// ─── Command concurrency (#2) ──────────────────────────────────────
+// ─── Command concurrency ──────────────────────────────────────────
 
 // slowDriver is a core.Driver whose Write sleeps for a fixed duration to
 // simulate a slow device (e.g. Modbus write timeout). It records the
 // maximum number of concurrently in-flight Write calls so tests can assert
-// that commands are dispatched in parallel (IMPROVEMENTS #2).
+// that commands are dispatched in parallel.
 type slowDriver struct {
 	mockDriver
 	writeDelay  time.Duration

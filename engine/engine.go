@@ -23,9 +23,9 @@ type CoreCEngine struct {
 	// role can reach it through its back-pointer.
 	mu sync.RWMutex
 
-	// Roles (CPLX-020 God Object split). Every method on CoreCEngine is
-	// a <=3-line forwarder to one of these; all logic lives in the
-	// role structs (see docs/exec-plans/tech-debt-tracker.md CPLX-020).
+	// Roles (the God Object split: CoreCEngine is a thin shell). Every
+	// method on CoreCEngine is a <=3-line forwarder to one of these;
+	// all logic lives in the role structs.
 	runtime      *engineRuntime
 	ruleSet      *ruleRole
 	reads        *readAccessor

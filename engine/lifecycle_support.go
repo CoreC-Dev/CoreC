@@ -15,8 +15,8 @@ import (
 // components: the tag-collection scheduler, the topology auto-discovery
 // module, the derived-tag evaluator, and the scheduler tuning windows.
 // Its read/data callbacks (readFromDriver/onDriverData) are the plumbing
-// the scheduler invokes. Extracted from CoreCEngine in the CPLX-020 God
-// Object split; CoreCEngine drives it from its lifecycle methods.
+// the scheduler invokes. CoreCEngine drives it from its lifecycle
+// methods.
 type lifecycleSupport struct {
 	scheduler *scheduler
 
@@ -76,8 +76,8 @@ func (l *lifecycleSupport) startDerivedTags(config *core.Config) error {
 }
 
 // applyDerivedTags hot-swaps the derived tag set on a config reload
-// (audit finding CFG-1: derived-tags changes were previously silently
-// ignored — PUT returned success, nothing happened). The new set is
+// (a derived-tags change must actually apply, not return success while
+// nothing happens). The new set is
 // validated and compiled BEFORE the old evaluator is stopped, so a
 // broken expression keeps the previous tags running (fail-safe swap);
 // the old goroutines are joined before the new ones start, so exactly
@@ -189,7 +189,7 @@ func (l *lifecycleSupport) readFromDriver(ctx context.Context, driver string, ta
 	start := time.Now()
 	values, err := d.Read(ctx, tags)
 	// Observe read latency in both the global aggregate histogram and
-	// the per-driver labeled histogram (audit OBS-2: a single slow
+	// the per-driver labeled histogram (a single slow
 	// driver must be distinguishable from healthy siblings).
 	l.eng.stats.labeled.observeRead(driver, time.Since(start))
 	return values, err
@@ -216,7 +216,7 @@ func (l *lifecycleSupport) onDriverData(driver string, values []core.TagValue, p
 	// Route to the high-priority channel when the task's priority is > 0
 	// (fast-interval tasks). Dedicated high-priority workers process this
 	// channel so a burst of low-frequency bulk reads cannot delay
-	// high-frequency collection (IMPROVEMENTS #5).
+	// high-frequency collection.
 	highPriority := priority > 0
 
 	for _, v := range values {
@@ -243,7 +243,7 @@ func (l *lifecycleSupport) onDriverData(driver string, values []core.TagValue, p
 }
 
 // applyConfig covers the lifecycle role's timing knobs. Zero/unset
-// values keep the defaults (B2, quality audit 2026-10-21).
+// values keep the defaults.
 func (l *lifecycleSupport) applyConfig(cfg *core.EngineConfig) {
 	if d, err := time.ParseDuration(cfg.ErrorThrottleWindow); err == nil && d > 0 {
 		l.errorThrottleWin = d

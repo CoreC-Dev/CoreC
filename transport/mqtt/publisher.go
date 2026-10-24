@@ -46,7 +46,7 @@ type MQTTTransport struct {
 	qos      byte
 	retained bool
 
-	// Last Will and Testament (audit finding TRA-2): when configured,
+	// Last Will and Testament: when configured,
 	// the broker publishes the will message on this topic if the client
 	// disconnects ungracefully (crash, network cut, power loss) — the
 	// standard edge-gateway liveness signal. Empty will-topic disables
@@ -217,7 +217,7 @@ func (t *MQTTTransport) Init(ctx context.Context, config core.TransportConfig) e
 	// Parse command and forward settings
 	t.parseCommandSettings(settings)
 
-	// Last Will and Testament (audit finding TRA-2): will-topic +
+	// Last Will and Testament: will-topic +
 	// will-payload (both required to arm), will-qos (default 0),
 	// will-retain (default true — edge liveness states are usually
 	// retained so late subscribers see the offline state immediately).

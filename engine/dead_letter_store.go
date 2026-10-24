@@ -14,7 +14,7 @@ import (
 )
 
 // deadLetterStore is the optional on-disk persistence for the write
-// dead-letter queue (audit finding RES-2, roadmap #29): the queue was
+// dead-letter queue: without it the queue is
 // memory-only, but the scenarios where dead letters matter most —
 // crash, OOM, power loss — are exactly the ones that destroy the
 // in-memory queue. When configured (global.engine.dead-letter-path),

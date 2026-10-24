@@ -47,10 +47,9 @@ func Init(e core.Engine, initialCfg *core.Config, path string) {
 	route.GetConfigBackupFunc = GetConfigBackup
 	route.CreateConfigBackupFunc = CreateConfigBackup
 	route.RestoreConfigBackupFunc = RestoreConfigBackup
-	// Config change audit trail (audit finding HUB-4 / roadmap #22):
-	// GET /configs/audit.
+	// Config change audit trail: GET /configs/audit.
 	route.ConfigAuditFunc = ConfigAuditHistory
-	// Resource-level DELETE endpoints (audit HUB-3 / roadmap #26).
+	// Resource-level DELETE endpoints.
 	route.RemoveDriverFunc = RemoveDriverByName
 	route.RemoveTransportFunc = RemoveTransportByName
 	route.RemoveRuleFunc = RemoveRuleByName
@@ -164,7 +163,7 @@ func Reload(path, payload string) error {
 }
 
 // ReloadWithOrigin is Reload with the mutation origin recorded in the
-// config audit trail (audit HUB-4): remote is the API caller's address.
+// config audit trail: remote is the API caller's address.
 func ReloadWithOrigin(path, payload, remote string) error {
 	var (
 		cfg *core.Config
@@ -200,7 +199,7 @@ func ReloadWithOrigin(path, payload, remote string) error {
 	if err != nil {
 		// Parse failures are client-fixable (the payload is broken
 		// YAML): mark them so the route can answer 400 with the reason
-		// instead of a masked 500 (audit CFG-3/HUB-2).
+		// instead of a masked 500.
 		return NewConfigError(fmt.Errorf("failed to parse config for reload: %w", err))
 	}
 
@@ -223,7 +222,7 @@ func ReloadWithOrigin(path, payload, remote string) error {
 		return err
 	}
 
-	// Audit the accepted change (HUB-4): the apply succeeded, so the
+	// Audit the accepted change: the apply succeeded, so the
 	// engine now runs this config; the persist below is best-effort.
 	recordConfigAudit(core.ConfigAuditEntry{
 		At:     time.Now(),
@@ -274,7 +273,7 @@ func ReloadWithOrigin(path, payload, remote string) error {
 
 // Patch updates selective runtime properties without full reload.
 // supportedPatchKeys is the set of runtime settings that PATCH /configs
-// can modify (roadmap #23: log-level, log-format, stale-threshold —
+// can modify (log-level, log-format, stale-threshold —
 // the three knobs operators legitimately flip while debugging without
 // deserving a full config reload).
 var supportedPatchKeys = map[string]bool{
@@ -288,7 +287,7 @@ func Patch(patch map[string]any) error {
 }
 
 // PatchWithOrigin is Patch with the mutation origin recorded in the
-// config audit trail (audit HUB-4).
+// config audit trail.
 func PatchWithOrigin(patch map[string]any, remote string) error {
 	mux.Lock()
 	defer mux.Unlock()
@@ -447,7 +446,7 @@ func reloadChangeKeys(path, payload string) []string {
 	return []string{"active-file"}
 }
 
-// --- Resource-level sugar endpoints (audit HUB-3 / roadmap #26) ---
+// --- Resource-level sugar endpoints ---
 //
 // Removing a single driver/transport/rule previously required the caller
 // to fetch the full YAML, splice it, and PUT the whole config. These

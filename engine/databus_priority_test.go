@@ -13,7 +13,7 @@ import (
 
 // TestDataBusHighPriorityChannel verifies that the high-priority channel is
 // distinct from the main channel and that PushHighPriority routes data
-// exclusively to it (IMPROVEMENTS #5).
+// exclusively to it.
 func TestDataBusHighPriorityChannel(t *testing.T) {
 	bus := NewDataBus(256)
 	defer bus.Close()
@@ -99,7 +99,7 @@ func TestDataBusHighPriorityPushDropped(t *testing.T) {
 // TestEngineHighPriorityWorkersProcessData is an integration test verifying
 // that high-priority data pushed via PushHighPriority is processed by the
 // dedicated high-priority workers even when the main channel is saturated
-// with normal-priority data (IMPROVEMENTS #5).
+// with normal-priority data.
 func TestEngineHighPriorityWorkersProcessData(t *testing.T) {
 	e := New().(*CoreCEngine)
 	e.runtime.ctx, e.runtime.cancel = context.WithCancel(context.Background())
@@ -157,7 +157,7 @@ func TestEngineHighPriorityWorkersProcessData(t *testing.T) {
 
 // TestScheduleDriverTagsSetsPriority verifies that scheduleDriverTags
 // classifies fast-interval tasks (≤ 1s) as high-priority and slow-interval
-// tasks as normal priority (IMPROVEMENTS #5).
+// tasks as normal priority.
 func TestScheduleDriverTagsSetsPriority(t *testing.T) {
 	e := New().(*CoreCEngine)
 	e.runtime.ctx, e.runtime.cancel = context.WithCancel(context.Background())

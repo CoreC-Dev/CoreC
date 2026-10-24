@@ -122,7 +122,7 @@ func TestGetTrafficWebSocket(t *testing.T) {
 		t.Fatalf("failed to read traffic stats: %v", err)
 	}
 
-	// Default mode pushes RATES (roadmap #32): the first frame carries
+	// Default mode pushes RATES: the first frame carries
 	// the engine's windowed rate plus zero publish/drop rates (no diff
 	// baseline yet), never a bogus negative spike.
 	if _, ok := stats["read_rate"]; !ok {
@@ -557,7 +557,7 @@ func TestHelloEndpoint(t *testing.T) {
 	}
 }
 
-// --- SEC-006 (D11): pprof loopback validation ---
+// --- pprof loopback validation ---
 
 func TestIsLoopbackAddr(t *testing.T) {
 	cases := []struct {
@@ -584,7 +584,7 @@ func TestIsLoopbackAddr(t *testing.T) {
 
 // TestPprofAddrNonLoopbackRejected verifies that a non-loopback PprofAddr is
 // refused: the separate pprof server (which has no authentication) must not
-// start on a publicly-reachable address. SEC-006 (D11).
+// start on a publicly-reachable address.
 func TestPprofAddrNonLoopbackRejected(t *testing.T) {
 	ReCreateServer(&Config{
 		Addr:      "127.0.0.1:0",
@@ -606,7 +606,7 @@ func TestPprofAddrNonLoopbackRejected(t *testing.T) {
 }
 
 // TestPprofAddrLoopbackAccepted verifies that a loopback PprofAddr starts the
-// separate pprof server. SEC-006 (D11).
+// separate pprof server.
 func TestPprofAddrLoopbackAccepted(t *testing.T) {
 	ReCreateServer(&Config{
 		Addr:      "127.0.0.1:0",
@@ -623,11 +623,11 @@ func TestPprofAddrLoopbackAccepted(t *testing.T) {
 }
 
 // TestRateLimitMiddlewareSharedByHost verifies the limiter keys by the
-// HOST portion of RemoteAddr (audit HUB-1): the old code keyed on the
-// full "host:port" string, handing every new TCP connection a fresh
-// full token bucket — a client cycling connections bypassed the limit
-// entirely. Two separate connections (different source ports) from the
-// same loopback host must SHARE one bucket.
+// HOST portion of RemoteAddr: keying on the
+// full "host:port" string would hand every new TCP connection a fresh
+// full token bucket — a client cycling connections would bypass the
+// limit entirely. Two separate connections (different source ports)
+// from the same loopback host must SHARE one bucket.
 func TestRateLimitMiddlewareSharedByHost(t *testing.T) {
 	eng := &mockEngineV2{
 		drivers: []core.DriverStatus{{Name: "plc1", Type: "modbus-tcp"}},
@@ -664,7 +664,7 @@ func TestRateLimitMiddlewareSharedByHost(t *testing.T) {
 }
 
 // TestMetricsDedicatedServer verifies the api.metrics-addr surface
-// (audit OBS-12 / roadmap #27): the dedicated server serves /metrics
+// surface: the dedicated server serves /metrics
 // credential-free on its own loopback listener, the authenticated main
 // API suppresses its /metrics copy while the dedicated address is
 // configured, and a non-loopback address is refused fail-closed.

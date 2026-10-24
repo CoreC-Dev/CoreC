@@ -12,8 +12,8 @@ import (
 
 func (b *modbusBase) Write(ctx context.Context, commands []core.WriteCommand) ([]core.WriteResult, error) {
 	// Same re-entrant-lock discipline as Read: single RLock, Locked
-	// accessor — GetState() here self-locked and could wedge identically
-	// when an error-path writer queued between the two acquisitions.
+	// accessor — a self-locking GetState() here would wedge identically
+	// when an error-path writer queues between the two acquisitions.
 	b.RLock()
 	client := b.client
 	state := b.GetStateLocked()
@@ -49,7 +49,7 @@ func (b *modbusBase) Write(ctx context.Context, commands []core.WriteCommand) ([
 
 		// Convert the engineering value back to the raw device
 		// representation unless the command explicitly requests a raw
-		// write (audit finding DRV-1: reads apply raw×scale+offset, so
+		// write (reads apply raw×scale+offset, so
 		// an un-inverted write lands off by the scale factor).
 		cmd.Value = driverbase.WriteValueForTag(cmd, cfg)
 
@@ -60,8 +60,8 @@ func (b *modbusBase) Write(ctx context.Context, commands []core.WriteCommand) ([
 			results[i] = core.WriteResult{Success: false, Error: err.Error()}
 			b.Logger().Error("modbus write failed", "tag", cmd.Tag, "error", err)
 			// Connection-class write failures tear the connection down
-			// for reconnection, mirroring the Read path (stage-B audit
-			// finding B4-2). The B4-1 guard keeps a stale client from
+			// for reconnection, mirroring the Read path. The
+			// handleConnLostIfCurrent guard keeps a stale client from
 			// tearing down a connection that has already been replaced.
 			if util.IsConnectionError(err) {
 				b.handleConnLostIfCurrent(client)

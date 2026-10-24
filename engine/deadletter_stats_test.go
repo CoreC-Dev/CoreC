@@ -10,7 +10,7 @@ import (
 )
 
 // TestDeadLetterStats verifies the queue-depth/lifetime-push pair the
-// metrics route exposes via core.DeadLetterStatsProvider (audit OBS-3):
+// metrics route exposes via core.DeadLetterStatsProvider:
 // the pushed counter must keep counting even when the bounded queue
 // evicts old entries, so "commands keep dying" stays visible after the
 // queue saturates.
@@ -73,7 +73,7 @@ func (f *fakeIngressTransport) CommandDeadLetterEntries() []core.DeadLetterEntry
 }
 
 // TestIngressDeadLettersAggregation verifies the engine-side aggregation
-// behind GET /write/failed?source=ingress (audit RES-1/TRA-4): entries
+// behind GET /write/failed?source=ingress: entries
 // from every transport implementing core.IngressDeadLetterSource are
 // collected in sorted transport order, each stamped with the transport
 // name that dropped it so the operator sees which pipeline stage lost
@@ -98,7 +98,7 @@ func TestIngressDeadLettersAggregation(t *testing.T) {
 }
 
 // TestOfflineBufferBytesWatermark verifies the byte-level offline-buffer
-// gauge (roadmap #28): after pushing known-sized batches, PendingBytes
+// gauge: after pushing known-sized batches, PendingBytes
 // reflects their on-disk footprint, and the engine facade serves the
 // same value for /metrics.
 func TestOfflineBufferBytesWatermark(t *testing.T) {

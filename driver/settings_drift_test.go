@@ -1,5 +1,5 @@
-// Package driver_test hosts cross-package settings-allowlist drift tests
-// (audit CFG-4 / roadmap #25): each ValidateSettings implementation
+// Package driver_test hosts cross-package settings-allowlist drift tests:
+// each ValidateSettings implementation
 // declares its known keys; this test scans the production sources for
 // every settings key the code actually parses and fails when a parsed
 // key is missing from the declared set — so adding a setting without

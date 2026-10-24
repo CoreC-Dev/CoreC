@@ -348,10 +348,10 @@ func TestEvaluateUnit(t *testing.T) {
 	}
 }
 
-// TestDerivedQualifiedRefs pins the driver.tag qualified-reference fix
-// (audit finding PIPE-2): the flattened cache view collapses same-named
-// tags across drivers, so `temp` alone read whichever driver won the
-// map race. Expressions can now name the exact pair: `plc1.temp`.
+// TestDerivedQualifiedRefs pins the driver.tag qualified-reference
+// semantics: the flattened cache view collapses same-named
+// tags across drivers, so `temp` alone reads whichever driver won the
+// map race. Expressions can name the exact pair: `plc1.temp`.
 func TestDerivedQualifiedRefs(t *testing.T) {
 	cache := NewLatestCache()
 	// Two drivers, same tag name, different values — the collision case.
@@ -434,10 +434,10 @@ func TestExtractQualifiedRefs(t *testing.T) {
 	}
 }
 
-// TestDerivedCycleDetection pins roadmap #38 (audit PIPE-4): two derived
-// tags referencing each other previously evaluated silently forever —
-// every tick computed garbage from ghost values with no signal
-// anywhere. Compilation now fails fast with the cycle path spelled out.
+// TestDerivedCycleDetection pins cycle detection: two derived
+// tags referencing each other would otherwise evaluate silently forever —
+// every tick computing garbage from ghost values with no signal
+// anywhere. Compilation fails fast with the cycle path spelled out.
 func TestDerivedCycleDetection(t *testing.T) {
 	// Direct cycle: a -> b -> a.
 	_, err := newDerivedTagEvaluator([]core.DerivedTagConfig{

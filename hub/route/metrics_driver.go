@@ -56,8 +56,8 @@ func writeDriverMetrics(b *strings.Builder, driverStats map[string]core.DriverSt
 			promEscape(name), val)
 	}
 
-	// Freshness observability (audit finding OBS-5 / roadmap #3):
-	// the driver status has always carried last_read, but only through
+	// Freshness observability:
+	// the driver status carries last_read, but only through
 	// the JSON API - Prometheus could not alert on "driver N has not
 	// read for M seconds" without polling /drivers. Both gauges are
 	// omitted for a driver that has never completed a read rather than

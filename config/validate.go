@@ -51,7 +51,7 @@ func validate(cfg *core.Config, drivers DriverRegistry, transports TransportRegi
 	if err != nil {
 		return err
 	}
-	// Settings-key validation (audit CFG-4 / roadmap #25) runs after
+	// Settings-key validation runs after
 	// the shape pass so its unknown-key errors are the FIRST message
 	// only for genuinely unknown settings, not misplaced ones.
 	if err := validateDriverSettings(cfg); err != nil {
@@ -113,13 +113,12 @@ func validateDataSources(cfg *core.Config) error {
 // IdleWarnings returns human-readable, non-blocking warnings for a
 // config, surfaced through every existing warning channel: logged at
 // startup (cmd/corec) and on reload (hub/executor), and returned by
-// POST /configs/validate. Historically these covered only idle mode
-// (no data source / no transport / no control plane); they now also
-// cover configuration foot-guns that do not block startup but degrade
-// data freshness — e.g. transport batching with no effective flush
-// interval, whose trailing partial batch can then be held indefinitely
-// (stage-B audit finding B1.1). Returns nil for a config with nothing
-// to warn about.
+// POST /configs/validate. They cover both idle mode (no data source /
+// no transport / no control plane) and configuration foot-guns that do
+// not block startup but degrade data freshness — e.g. transport
+// batching with no effective flush interval, whose trailing partial
+// batch can then be held indefinitely. Returns nil for a config with
+// nothing to warn about.
 func IdleWarnings(cfg *core.Config) []string {
 	if cfg == nil {
 		return nil
@@ -142,7 +141,7 @@ func IdleWarnings(cfg *core.Config) []string {
 // with no effective flush interval while the offline buffer is
 // disabled. In that combination the trailing partial batch can be held
 // indefinitely — it is only sent when the batch fills or the process
-// exits (stage-B audit finding B1.1: a low-rate tag with a large
+// exits (a low-rate tag with a large
 // batch-size and no flush-interval can sit ~batch-size × tag-interval
 // before being published; newTransportBatcher only defaults to a
 // periodic flush when an offline buffer exists). A flush-interval that
@@ -397,12 +396,13 @@ func validateDerivedTags(cfg *core.Config) error {
 }
 
 // validateDriverSettings runs each driver's optional core.SettingsValidator
-// (audit CFG-4 / roadmap #25): construct via the factory, type-assert the
-// role, validate, discard. Construction is pure (no connection); the
-// earlier validateDrivers pass already rejects unknown TYPES, so factory
-// misses here are type-existence bugs, not user error. A driver that
-// implements no validator keeps the historical behaviour (no extra
-// checks), so the pass strictly widens validation coverage.
+// so unknown settings keys fail validation here instead of being
+// silently ignored at Init. It constructs via the factory, type-asserts
+// the role, validates, discards. Construction is pure (no connection);
+// the earlier validateDrivers pass already rejects unknown TYPES, so
+// factory misses here are type-existence bugs, not user error. A driver
+// that implements no validator gets no extra checks, so the pass
+// strictly widens validation coverage.
 func validateDriverSettings(cfg *core.Config) error {
 	for _, d := range cfg.Drivers {
 		driver, err := core.CreateDriver(d)

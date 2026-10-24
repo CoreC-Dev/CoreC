@@ -383,10 +383,10 @@ func TestModbusNonBoolOnBitArea(t *testing.T) {
 
 // TestModbusWriteScaleRoundTrip pins the write-side inverse of the
 // read path's scale/offset transform end-to-end through a real loopback
-// Modbus server (audit finding DRV-1). A tag configured with
+// Modbus server. A tag configured with
 // scale: 0.01 reads raw 150 as engineering 1.5; writing the engineering
-// value 1.5 must land raw 150 in the holding register — previously the
-// un-inverted write landed 1, off by the scale factor, while reporting
+// value 1.5 must land raw 150 in the holding register — an un-inverted
+// write would land 1, off by the scale factor, while reporting
 // "write success". The raw escape hatch must bypass the inversion.
 func TestModbusWriteScaleRoundTrip(t *testing.T) {
 	port, err := getFreePort()
@@ -480,7 +480,7 @@ func TestModbusWriteScaleRoundTrip(t *testing.T) {
 }
 
 // TestModbusExceptionMetricEmitted verifies the driver-emitted metrics
-// port is actually wired (audit OBS-8): a Modbus exception sentinel
+// port is actually wired end to end: a Modbus exception sentinel
 // recorded through the driver lands in the injected registry as
 // modbus_exception_total{driver=...,code=...}, which /metrics then
 // exposes via core.DriverMetricsProvider.

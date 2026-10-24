@@ -7,15 +7,16 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// TestGetStateLockedUnderHeldRLockAndQueuedWriter pins the demo-deploy
-// lock-death fix (2026-10-23): Read/Write entries hold the driver's RLock
-// and used to call the self-locking GetState() — an RLock-under-RLock that
+// TestGetStateLockedUnderHeldRLockAndQueuedWriter pins the re-entrancy
+// discipline: Read/Write entries hold the driver's RLock
+// and must use the non-locking GetStateLocked — a self-locking GetState()
+// here is an RLock-under-RLock that
 // deadlocks permanently whenever a writer (an error-path b.Lock()) queues
 // between the two acquisitions: the inner RLock waits for the writer, the
 // writer waits for the outer RLock, and one parked goroutine silently
 // wedges every reader plus /stats, /drivers, and /healthz/ready behind it
-// (observed live on a host that suspended mid-cycle: 61 goroutines parked
-// 730+ minutes, zero errors logged, healthz/live still saying "alive").
+// (e.g. on a host that suspends mid-cycle: parked for the whole suspend,
+// zero errors logged, healthz/live still saying "alive").
 //
 // GetStateLocked must not acquire ANY lock, so it stays safe under a held
 // RLock with a writer queued.

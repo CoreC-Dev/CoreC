@@ -422,8 +422,8 @@ func TestRunMissingConfigFlag(t *testing.T) {
 }
 
 // TestVersionFlagPrintsInjectedVersion pins the behavioral contract the
-// release workflow's version-check guard asserts (H2, quality audit
-// 2026-10-21): `-version` prints exactly the ldflags-injected value and
+// release workflow's version-check guard asserts: `-version` prints
+// exactly the ldflags-injected value and
 // exits 0. The guard builds with the tag and requires equality — a
 // regression here (renamed var, flag removed, banner instead of bare
 // output) fails the release, not silently ships.

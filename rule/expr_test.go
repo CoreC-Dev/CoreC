@@ -8,11 +8,11 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// TestEvalErrorsCountedInRuleStat pins the eval-error visibility fix
-// (audit findings PIPE-3/RULE-2): a match expression whose type does not
-// fit the point (value > 90 against a string value) previously evaluated
+// TestEvalErrorsCountedInRuleStat pins eval-error visibility:
+// a match expression whose type does not
+// fit the point (value > 90 against a string value) must not evaluate
 // to a silent false — invisible in logs, stats, and preview. The rule
-// must now report a growing eval_errors counter.
+// must report a growing eval_errors counter.
 func TestEvalErrorsCountedInRuleStat(t *testing.T) {
 	e := NewEngine()
 	if err := e.SetRules([]core.RuleConfig{
@@ -83,7 +83,7 @@ func TestPreviewMatchPropagatesEvalError(t *testing.T) {
 	}
 }
 
-// TestTimestampInMatchExpression pins the roadmap #34 / RULE-3 fix:
+// TestTimestampInMatchExpression pins timestamp support in match expressions:
 // the point's Unix-millisecond timestamp is available to match
 // expressions, so time-window rules (night-shift suppression, shift
 // rollover) are expressible without external plumbing.

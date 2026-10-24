@@ -29,7 +29,7 @@ func ApplyConfig(cfg *core.Config, force bool) error {
 
 	// Step 1b/1c: Warn about config sections that cannot be hot-applied
 	// (require a restart). Extracted to keep ApplyConfig's cyclomatic
-	// complexity under the gocyclo threshold (CPLX-017).
+	// complexity under the gocyclo threshold.
 	warnRestartRequired(currentCfg, cfg)
 
 	// Step 2: Suspend engine to pause task ticks
@@ -49,9 +49,9 @@ func ApplyConfig(cfg *core.Config, force bool) error {
 	}
 
 	// act records every mutation the diffs apply so any later failure
-	// can roll the engine back to the pre-reload component set (audit
-	// finding CFG-2: a half-applied reload previously left the engine
-	// inconsistent with currentCfg — removed components stayed removed
+	// can roll the engine back to the pre-reload component set —
+	// without it a half-applied reload would leave the engine
+	// inconsistent with currentCfg (removed components staying removed
 	// while /configs/raw kept showing them).
 	act := &diffActions{}
 
@@ -83,9 +83,9 @@ func ApplyConfig(cfg *core.Config, force bool) error {
 		slog.Info("rules updated", "count", len(cfg.Rules))
 	}
 
-	// Step 5b: Hot-apply derived tags (audit finding CFG-1: changes to
-	// derived-tags were previously ignored by ApplyConfig — PUT
-	// returned success and nothing happened). The engine compiles the
+	// Step 5b: Hot-apply derived tags (a derived-tags change must
+	// actually take effect — PUT must not return success while nothing
+	// happens). The engine compiles the
 	// new set before stopping the old evaluator, so a broken expression
 	// keeps the previous tags running. Engines without the role keep
 	// the restart-required warning path below.
@@ -122,10 +122,9 @@ func ApplyConfig(cfg *core.Config, force bool) error {
 //     (problem 5),
 //   - node (topology auto-discovery) and global.buffer (offline buffer) —
 //     wired once at engine start; warn so operators know a restart is
-//     needed (audit finding CFG-1: these were previously ignored with
-//     no warning at all).
+//     needed (silently ignoring them hides the restart requirement).
 //
-// Extracted from ApplyConfig to reduce its cyclomatic complexity (CPLX-017).
+// Extracted from ApplyConfig to reduce its cyclomatic complexity.
 func warnRestartRequired(oldCfg, cfg *core.Config) {
 	if oldCfg == nil {
 		return

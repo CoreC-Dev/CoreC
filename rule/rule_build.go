@@ -93,10 +93,10 @@ func (e *Engine) SetRules(configs []core.RuleConfig) error {
 
 	// Sort by priority (lower = higher priority). Stable so rules that
 	// share a priority keep their configuration order — the documented
-	// tie-break (stage-B audit finding B7-1). Previously sort.Slice was
-	// non-stable and the driver-index merge implicitly evaluated
-	// universal rules before driver rules on equal priority, so a
-	// universal rule could systematically shadow same-priority driver
+	// tie-break. A non-stable sort (or a driver-index merge that
+	// implicitly evaluates
+	// universal rules before driver rules on equal priority) would let a
+	// universal rule systematically shadow same-priority driver
 	// rules with no way for configuration order to intervene.
 	sort.SliceStable(rules, func(i, j int) bool {
 		return rules[i].Priority() < rules[j].Priority()
@@ -177,8 +177,8 @@ func (e *Engine) RuleStats() []core.RuleStat {
 			MissCount: w.MissCount(),
 			MissAt:    w.MissAt(),
 		})
-		// Match-expression evaluation failures (audit PIPE-3/RULE-2):
-		// a type-mismatched rule silently never matched; the counter
+		// Match-expression evaluation failures:
+		// a type-mismatched rule silently never matches; the counter
 		// makes it visible in GET /rules.
 		if ec, ok := inner.(interface {
 			EvalErrors() (uint64, time.Time)
@@ -379,7 +379,7 @@ func (r *simpleRule) Transform() *core.TransformConfig { return r.transform }
 func (r *simpleRule) Continue() bool                   { return r.continue_ }
 
 // EvalErrors surfaces the match expression's evaluation-failure counter
-// and last-failure time for RuleStat (audit PIPE-3/RULE-2). Rules
+// and last-failure time for RuleStat. Rules
 // whose match is the ALL literal (no expression node) report zero.
 func (r *simpleRule) EvalErrors() (uint64, time.Time) {
 	if r.expr == nil {

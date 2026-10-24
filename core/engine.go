@@ -134,10 +134,10 @@ type LatencyProvider interface {
 }
 
 // LabeledLatencyProvider exposes the per-driver / per-transport latency
-// histograms for Prometheus exposure (audit finding OBS-2: the single
-// global histogram aggregated every driver and transport into one
-// distribution, so a single slow driver was invisible behind healthy
-// siblings). It is a separate role interface the route layer
+// histograms for Prometheus exposure — a single global histogram would
+// aggregate every driver and transport into one distribution, leaving a
+// single slow driver invisible behind healthy siblings. It is a separate
+// role interface the route layer
 // type-asserts optionally; engines that do not implement it keep the
 // unlabeled families. *CoreCEngine satisfies this interface.
 type LabeledLatencyProvider interface {
@@ -183,7 +183,7 @@ type DataAgeProvider interface {
 
 // FlushBatchesDroppedProvider exposes the total number of full batches
 // evicted or dropped from batcher flush queues due to sustained
-// backpressure (IMPROVEMENTS #1: async batcher). It is a separate role
+// backpressure of the async batcher. It is a separate role
 // interface so the route layer type-asserts optionally. *CoreCEngine
 // satisfies this interface.
 type FlushBatchesDroppedProvider interface {
@@ -192,8 +192,8 @@ type FlushBatchesDroppedProvider interface {
 
 // DroppedBreakdown decomposes the dropped-point counters by cause so
 // operators can attribute loss instead of diffing the umbrella total
-// (audit finding OBS-6: corec_dropped_total summed four unrelated
-// kinds of loss with no labels).
+// (corec_dropped_total alone sums unrelated kinds of loss with no
+// labels).
 type DroppedBreakdown struct {
 	// DataBusMain is the number of points dropped from the main data
 	// bus channel when it was full (oldest evicted).
@@ -224,9 +224,9 @@ type DroppedBreakdownProvider interface {
 
 // DeadLetterStatsProvider exposes the dead-letter queue depth (gauge)
 // and the lifetime number of commands pushed into it (counter) for
-// Prometheus exposure (audit finding OBS-3 / roadmap #5). Previously
-// the queue was reachable only through GET /write/failed, so "commands
-// are piling up in the dead letter queue" could not be alerted on.
+// Prometheus exposure. Without these series the queue is reachable only
+// through GET /write/failed, so "commands are piling up in the dead
+// letter queue" could not be alerted on.
 // *CoreCEngine satisfies this interface; test mocks are free to omit it.
 type DeadLetterStatsProvider interface {
 	DeadLetterStats() (size int, pushed uint64)
@@ -234,10 +234,10 @@ type DeadLetterStatsProvider interface {
 
 // IngressDeadLetterProvider exposes commands dropped at transport
 // ingress — e.g. an MQTT command that arrived while the command channel
-// was full and was diverted to the transport-local dead-letter store
-// (audit findings RES-1/TRA-4). Those drops previously had a counter
-// (corec_transport_dropped_commands_total) but no queryable detail:
-// what was dropped and why was invisible. Backs
+// was full and was diverted to the transport-local dead-letter store.
+// The drop counter (corec_transport_dropped_commands_total) alone gives
+// no queryable detail — what was dropped and why stays invisible — so
+// this role exposes the entries. Backs
 // GET /write/failed?source=ingress. *CoreCEngine satisfies this
 // interface; test mocks are free to omit it.
 type IngressDeadLetterProvider interface {
@@ -245,17 +245,17 @@ type IngressDeadLetterProvider interface {
 }
 
 // StaleThresholdPatcher is the optional role PATCH /configs uses to
-// apply global.engine.stale-threshold at runtime (roadmap #23): the
-// threshold gates /tags is_stale annotation, and toggling it while
-// debugging freshness beats a full restart. Engines that do not
+// apply global.engine.stale-threshold at runtime: the threshold gates
+// /tags is_stale annotation, and toggling it while debugging freshness
+// beats a full restart. Engines that do not
 // implement it reject the patch key.
 type StaleThresholdPatcher interface {
 	SetStaleThreshold(d time.Duration)
 }
 
-// DerivedTagApplier exposes hot-reload of the derived tag set (audit
-// finding CFG-1: derived-tags changes were previously ignored by
-// ApplyConfig — PUT returned success while nothing happened). The
+// DerivedTagApplier exposes hot-reload of the derived tag set so a
+// derived-tags change takes effect on reload instead of being silently
+// ignored (a successful PUT must not be a no-op). The
 // executor type-asserts this role during config reload; engines that
 // do not implement it keep the restart-required warning.
 // *CoreCEngine satisfies this interface; test mocks are free to omit it.
@@ -381,9 +381,9 @@ type EngineConfig struct {
 	HighPriorityWorkers int `yaml:"high-priority-workers,omitempty"`
 
 	// DeadLetterPath enables on-disk persistence of the write dead-letter
-	// queue (audit RES-2 / roadmap #29): an append-only JSONL file that
-	// survives crashes and replays into the queue at startup. Empty =
-	// disabled (historical memory-only behaviour). The file rotates to
+	// queue: an append-only JSONL file that survives crashes and replays
+	// into the queue at startup. Empty = disabled (the queue stays
+	// memory-only). The file rotates to
 	// <path>.old past 5 MiB, bounding disk at ~2×5 MiB.
 	DeadLetterPath string `yaml:"dead-letter-path,omitempty"`
 
@@ -426,14 +426,14 @@ type APIConfig struct {
 	PprofDisabled bool `yaml:"pprof-disabled,omitempty"`
 
 	// MetricsAddr, when non-empty, starts a separate HTTP server that
-	// serves ONLY GET /metrics without authentication (audit OBS-12 /
-	// roadmap #27): Prometheus scrapes a dedicated, credential-free
-	// interface instead of sharing the API secret — a secret that can
-	// PUT /configs was previously handed to every scraper. Must be
+	// serves ONLY GET /metrics without authentication: Prometheus
+	// scrapes a dedicated, credential-free interface instead of sharing
+	// the API secret — a secret that can PUT /configs must not be handed
+	// to every scraper. Must be
 	// bound to a loopback or private interface (enforced fail-closed
 	// like PprofAddr); while set, /metrics is removed from the main
-	// authenticated API. Empty = historical behaviour (metrics behind
-	// the main API's bearer auth).
+	// authenticated API. Empty = metrics stay behind the main API's
+	// bearer auth.
 	MetricsAddr string `yaml:"metrics-addr,omitempty"`
 
 	// PprofAddr, when non-empty, starts a separate HTTP server for pprof

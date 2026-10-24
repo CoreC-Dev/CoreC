@@ -501,8 +501,8 @@ func TestEngineOfflineBufferStatsNoBuffer(t *testing.T) {
 
 // slowTransport is a mock Transport whose PublishBatch sleeps for a fixed
 // duration to simulate a slow network target. It is used to verify that
-// publish() returns without waiting for PublishBatch (IMPROVEMENTS #1:
-// the buffer-full flush now runs asynchronously on flushLoop).
+// publish() returns without waiting for PublishBatch (the buffer-full
+// flush runs asynchronously on flushLoop).
 type slowTransport struct {
 	name        string
 	publishSlow time.Duration
@@ -589,8 +589,8 @@ func TestBatcherPublishAsyncNonBlocking(t *testing.T) {
 
 // TestBatcherOnPublishCallback verifies that the onPublish callback is
 // called with the correct point count when a batch is actually published
-// (not just enqueued). This is the Finding 4 fix: publish counting moved
-// from the synchronous enqueue path to the async flush path.
+// (not just enqueued). Publish counting must happen on the async flush
+// path, not the synchronous enqueue path.
 func TestBatcherOnPublishCallback(t *testing.T) {
 	tr := &flakyTransport{}
 	cfg := core.TransportConfig{
@@ -671,7 +671,7 @@ func TestBatcherOnPublishCallbackDrain(t *testing.T) {
 // counted in flushBatchesDropped. publish() returns an error when the
 // caller's own batch cannot be enqueued even after eviction (a rare race
 // when multiple workers contend); the primary signal is flushBatchesDropped.
-// This test verifies the eviction + counting path (Finding 4 fix).
+// This test verifies the eviction + counting path.
 func TestBatcherPublishDropsWhenFlushQueueFull(t *testing.T) {
 	// blockTransport never completes a PublishBatch, so flushBatches
 	// fills up and subsequent publishes must evict/drop.

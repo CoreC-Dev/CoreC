@@ -6,7 +6,7 @@ import (
 
 // sequencer is an optional interface rule wrappers implement to expose
 // their build-order position, used as the tie-break when two rules share
-// a priority (stage-B audit finding B7-1): same-priority rules evaluate in
+// a priority: same-priority rules evaluate in
 // configuration order, with universal and driver rules interleaved. Rules
 // that do not implement it fall back to the previous behaviour (listA
 // first on equal priority).

@@ -38,8 +38,8 @@ func alertTestServer(t *testing.T) (*httptest.Server, *mockEngineV2) {
 	return newTestServer("", eng), eng
 }
 
-// TestGetAlerts verifies the GET /alerts payload shape (audit
-// OBS-4/HUB-6): active alerts (acknowledged included but flagged),
+// TestGetAlerts verifies the GET /alerts payload shape: active alerts
+// (acknowledged included but flagged),
 // newest-first history, and the active/acked counts.
 func TestGetAlerts(t *testing.T) {
 	ts, _ := alertTestServer(t)

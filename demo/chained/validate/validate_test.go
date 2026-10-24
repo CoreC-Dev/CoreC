@@ -12,7 +12,7 @@ import (
 	_ "github.com/CoreC-Dev/CoreC/transport/all"
 )
 
-// TEST-009: smoke test that all demo scenario configs and the example
+// Smoke test that all demo scenario configs and the example
 // config parse and validate successfully. The demo configs use
 // ${COREC_API_SECRET} for the API secret, so we set it before loading.
 
@@ -67,8 +67,8 @@ func TestExampleConfigValid(t *testing.T) {
 }
 
 func TestNoHardcodedDemoTokenInConfigs(t *testing.T) {
-	// SEC-005 regression: no demo YAML should contain the literal
-	// "demo-token" as a secret value.
+	// Secret-hygiene regression guard: no demo YAML should contain the
+	// literal "demo-token" as a secret value.
 	root := findModuleRoot(t)
 	pattern := filepath.Join(root, "demo", "chained", "scenario*", "*.yaml")
 	files, _ := filepath.Glob(pattern)

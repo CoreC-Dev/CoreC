@@ -146,8 +146,7 @@ func (d *S7Driver) Init(ctx context.Context, config core.DriverConfig) error {
 // current connection. Parallel Read tasks hold the client pointer they
 // captured at entry; when a reconnect completes while such a task is still
 // draining its retries, the task's error belongs to a client that has
-// already been replaced and must not tear down the fresh one (stage-B
-// audit finding B4-1).
+// already been replaced and must not tear down the fresh one.
 func (d *S7Driver) handleConnLostIfCurrent(captured gos7.Client) {
 	d.RLock()
 	current := d.client
@@ -203,7 +202,7 @@ func (d *S7Driver) Read(ctx context.Context, tags []string) ([]core.TagValue, er
 
 	// Process tags in batches of s7MaxBatchSize (the PDU limit advertised
 	// via Capabilities().MaxBatchSize). Within a batch, contiguous tags in
-	// the same (area, DB) are merged into single area reads (PERF-003);
+	// the same (area, DB) are merged into single area reads;
 	// bit tags and sparse tags fall back to one read per tag. See
 	// s7_merge.go for the planner and the registered behavior changes.
 	for start := 0; start < len(tags); start += s7MaxBatchSize {
@@ -261,7 +260,7 @@ func (d *S7Driver) Write(ctx context.Context, commands []core.WriteCommand) ([]c
 
 		// Convert the engineering value back to the raw device
 		// representation unless the command explicitly requests a raw
-		// write (audit finding DRV-1: reads apply raw×scale+offset, so
+		// write (reads apply raw×scale+offset, so
 		// an un-inverted write lands off by the scale factor).
 		cmd.Value = driverbase.WriteValueForTag(cmd, cfg)
 
@@ -271,8 +270,8 @@ func (d *S7Driver) Write(ctx context.Context, commands []core.WriteCommand) ([]c
 			results[i] = core.WriteResult{Success: false, Error: err.Error()}
 			slog.Error("s7 write failed", "tag", cmd.Tag, "error", err)
 			// Connection-class write failures tear the connection down
-			// for reconnection, mirroring the Read path (stage-B audit
-			// finding B4-2). The B4-1 guard keeps a stale client from
+			// for reconnection, mirroring the Read path. The
+			// handleConnLostIfCurrent guard keeps a stale client from
 			// tearing down a connection that has already been replaced.
 			if util.IsConnectionError(err) {
 				d.handleConnLostIfCurrent(client)

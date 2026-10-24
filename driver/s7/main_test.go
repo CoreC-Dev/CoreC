@@ -7,7 +7,7 @@ import (
 )
 
 // TestMain integrates goleak to detect goroutine leaks across all tests
-// in the s7 driver package (PERF-007).
+// in the s7 driver package.
 func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m)
 }

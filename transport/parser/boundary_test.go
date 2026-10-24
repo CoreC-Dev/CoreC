@@ -7,8 +7,7 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// TEST-007: boundary and error-path tests for parseScalar and parseTimestamp
-// to raise parser coverage from 66.2% to ≥85%.
+// Boundary and error-path tests for parseScalar and parseTimestamp.
 
 func TestParseScalarBool(t *testing.T) {
 	cases := []struct {

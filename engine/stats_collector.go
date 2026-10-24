@@ -13,8 +13,8 @@ import (
 // statsCollector groups the engine's observability state: throughput
 // counters (reads/publishes/errors), the uptime anchor, the read/publish/
 // data-age latency histograms, and the per-engine statistic manager.
-// Extracted from CoreCEngine in the CPLX-020 God Object split;
-// CoreCEngine keeps thin forwarders so the core.StatsProvider,
+// CoreCEngine keeps thin forwarders to this role so the
+// core.StatsProvider,
 // core.LatencyProvider, core.DataAgeProvider, and the optional
 // offline-buffer/flush-drop provider method sets are unchanged.
 type statsCollector struct {
@@ -24,30 +24,29 @@ type statsCollector struct {
 	startTime    time.Time
 
 	// driverMetrics is the registry drivers emit protocol-level
-	// metrics into via the core.Metrics port (audit OBS-8: the port
-	// existed but was only ever wired to NoopMetrics — the last mile
-	// to /metrics was missing).
+	// metrics into via the core.Metrics port — without a real
+	// registry behind it, driver emission only ever reaches
+	// NoopMetrics and never lands in /metrics.
 	driverMetrics *metrics.Registry
 
 	// badQualityDropped counts points discarded by the
-	// on-bad-quality: drop policy (audit finding OBS-6: these were
-	// previously counted inside totalErrors, conflating a configured
-	// discard policy with processing errors).
+	// on-bad-quality: drop policy. Counting these inside totalErrors
+	// would conflate a configured discard policy with processing
+	// errors.
 	badQualityDropped atomic.Uint64
 
 	// readRate tracks points-per-second over the last minute so
-	// EngineStats.PointsPerSec reports a true current rate. The
-	// lifetime average previously reported (totalRead / uptime) decayed
-	// slowly on a stalled pipeline and was useless for "collection
-	// stopped" alerting (audit finding OBS-1).
+	// EngineStats.PointsPerSec reports a true current rate. A
+	// lifetime average (totalRead / uptime) decays
+	// slowly on a stalled pipeline and is useless for "collection
+	// stopped" alerting.
 	readRate *metrics.RateWindow
 
 	// labeled owns every latency histogram in the engine: the global
 	// read/publish/data-age aggregates AND the per-driver /
-	// per-transport labeled histograms (audit finding OBS-2: one slow
-	// driver was invisible behind healthy siblings in the single
-	// aggregate). A dedicated sub-role keeps this collector under its
-	// CPLX field/method ceilings.
+	// per-transport labeled histograms (in a single aggregate one slow
+	// driver is invisible behind healthy siblings). A dedicated
+	// sub-role keeps this collector under its field/method ceilings.
 	labeled *labeledLatencyStore
 
 	// eng is the owning engine: Stats reads the component maps and
@@ -76,8 +75,8 @@ func (s *statsCollector) Stats() core.EngineStats {
 	// Current rate over the last minute (a true windowed rate, not the
 	// lifetime average). For an engine younger than the window, fall
 	// back to the uptime as the divisor so the first seconds are not
-	// diluted by a window the engine was not alive for (audit finding
-	// OBS-1: the old lifetime average never showed a stall).
+	// diluted by a window the engine was not alive for (a lifetime
+	// average never shows a stall).
 	pointsPerSec := float64(0)
 	windowSecs := s.readRate.WindowSeconds()
 	elapsedSecs := int64(uptime.Seconds())
@@ -162,11 +161,10 @@ func (s *statsCollector) OfflineBufferStats() (pending int, drained, pushed uint
 // data wins). The buffer is a single shared instance (see
 // OfflineBufferStats), so the count is read once. Backs the
 // corec_offline_buffer_evicted_total Prometheus counter via the
-// hub/route optional-role assertion (stage-B audit finding B2.1:
-// capacity-based evictions drop real data and must be observable, not
-// just logged).
+// hub/route optional-role assertion (capacity-based evictions drop
+// real data and must be observable, not just logged).
 // OfflineBufferBytes returns the total on-disk bytes held by the shared
-// offline buffer (gauge corec_offline_buffer_bytes, roadmap #28).
+// offline buffer (gauge corec_offline_buffer_bytes).
 func (s *statsCollector) OfflineBufferBytes() int64 {
 	s.eng.mu.RLock()
 	buf := s.eng.transportMgr.offlineBuffer
@@ -189,8 +187,8 @@ func (s *statsCollector) OfflineBufferEvictions() uint64 {
 
 // FlushBatchesDropped returns the total number of full batches that were
 // evicted or dropped from batcher flush queues because the async flush
-// consumer fell behind a sustained burst (IMPROVEMENTS #1: async batcher
-// backpressure observability). It aggregates the per-batcher
+// consumer fell behind a sustained burst (async-batcher backpressure
+// observability). It aggregates the per-batcher
 // flushBatchesDropped counters. Intended for Prometheus exposure as
 // corec_flush_batches_dropped_total.
 func (s *statsCollector) FlushBatchesDropped() uint64 {
@@ -209,7 +207,7 @@ func (s *statsCollector) FlushBatchesDropped() uint64 {
 }
 
 // DriverMetrics exposes the aggregated driver-metrics registry for the
-// route layer (core.DriverMetricsProvider, audit OBS-8).
+// route layer (core.DriverMetricsProvider).
 func (s *statsCollector) DriverMetrics() []core.DriverMetric {
 	snap := s.driverMetrics.Snapshot()
 	out := make([]core.DriverMetric, 0, len(snap))
@@ -258,11 +256,9 @@ func (s *statsCollector) recordRead(n int) {
 // points are merely enqueued for async flush. This keeps totalPublish and
 // the statistic manager's publish counter accurate for batched transports,
 // where the real PublishBatch happens asynchronously after publish()
-// returns (Finding 4 fix: the original publish.go — dissolved in the
-// batcher split — counted totalPublish and
-// enqueue-time counting immediately after the near-instant enqueue, which
-// inflated the publish counter and undercounted errors when batches later
-// failed after retries).
+// returns (enqueue-time counting instead — immediately after the
+// near-instant enqueue — would inflate the publish counter and
+// undercount errors when batches later fail after retries).
 func (s *statsCollector) onBatchPublish(n int) {
 	s.totalPublish.Add(uint64(n))
 }

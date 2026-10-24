@@ -48,9 +48,9 @@ func driverExists(name string) bool {
 }
 
 // pauseDriver suspends the named driver's collection tasks without
-// removing them (audit finding RES-4: "temporarily stop collecting
-// while a device is under repair" previously required rewriting the
-// whole config — a full Remove+Add round trip).
+// removing them, so "temporarily stop collecting while a device is
+// under repair" does not require rewriting the
+// whole config — a full Remove+Add round trip.
 func pauseDriver(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	provider, ok := resolveDriverPausable(w, r, name)

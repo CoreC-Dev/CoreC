@@ -125,8 +125,7 @@ func ReCreateServer(cfg *Config) {
 	// Start a separate pprof server if PprofAddr is configured.
 	startPprofServer(cfg)
 
-	// Start the dedicated metrics server if MetricsAddr is configured
-	// (audit OBS-12 / roadmap #27).
+	// Start the dedicated metrics server if MetricsAddr is configured.
 	startMetricsServer(cfg)
 }
 
@@ -212,12 +211,12 @@ func serveAPI(server *http.Server, ln net.Listener, cfg *Config) {
 // and does NOT require authentication, so it should be bound to a
 // loopback or private interface only.
 //
-// SEC-006 (D11): the separate pprof server has no authentication, so it
+// The separate pprof server has no authentication, so it
 // must only bind to a loopback address. A non-loopback PprofAddr (e.g.
 // 0.0.0.0:6060 or a public IP) is refused to prevent exposing profiling
 // endpoints — which leak goroutine stacks, heap profiles, and CPU data —
-// to the network. This is a fail-closed behavior change: previously any
-// address was accepted.
+// to the network. The gate is fail-closed: anything that cannot be
+// verified as loopback is rejected.
 func startPprofServer(cfg *Config) {
 	if cfg.PprofAddr == "" || cfg.PprofDisabled {
 		return
@@ -318,7 +317,7 @@ func CloseServer() error {
 //   - arbitrary hostnames, which could resolve to a non-loopback address and
 //     cannot be verified statically (fail-closed).
 //
-// SEC-006 (D11): used to gate the unauthenticated separate pprof server.
+// Used to gate the unauthenticated separate pprof server.
 func isLoopbackAddr(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {

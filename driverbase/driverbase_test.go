@@ -7,7 +7,7 @@ import (
 )
 
 // TestWriteValueForTag verifies the write-side inverse of the read path's
-// scale/offset transform (audit finding DRV-1). Reads report engineering
+// scale/offset transform. Reads report engineering
 // values via util.ApplyTransform (raw×scale + offset); writes carrying an
 // engineering value must be converted back to the raw representation
 // before encoding, or a scaled tag receives a value off by its scale

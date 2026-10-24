@@ -57,8 +57,8 @@ func TestPreviewRuleInvalidExpression(t *testing.T) {
 	}
 	// The error must be verbatim enough for the frontend to display it:
 	// it quotes the offending expression and carries the underlying
-	// expr-lang error (audit PIPE-3/RULE-2 also surfaced EVALUATION
-	// errors here — previously they silently read as "not matched").
+	// expr-lang error (EVALUATION errors must surface too — they must
+	// not silently read as "not matched").
 	if !strings.Contains(err.Error(), "tag ==") {
 		t.Errorf("error should quote the offending expression, got %q", err.Error())
 	}
@@ -67,7 +67,7 @@ func TestPreviewRuleInvalidExpression(t *testing.T) {
 	}
 }
 
-// TestPreviewRulePropagatesEvalError pins the PIPE-3/RULE-2 fix at the
+// TestPreviewRulePropagatesEvalError pins the eval-error propagation at the
 // engine boundary: a type-mismatched expression must return the
 // evaluation error, not a silent matched=false.
 func TestPreviewRulePropagatesEvalError(t *testing.T) {

@@ -898,10 +898,10 @@ func valuesEqual(a, b any) bool {
 }
 
 // ============================================================
-// Stale-error connection guard (stage-B audit finding B4-1).
+// Stale-error connection guard.
 // ============================================================
 
-// TestS7StaleConnectionErrorIgnored is the B4-1 regression test: an error
+// TestS7StaleConnectionErrorIgnored is the stale-client regression test: an error
 // reported against a client that has already been replaced by a completed
 // reconnect must NOT tear down the fresh connection, while an error from
 // the current client still must. The driver is pointed at a dead loopback
@@ -976,8 +976,8 @@ func TestS7StaleConnectionErrorIgnored(t *testing.T) {
 	}
 }
 
-// TestS7WriteConnectionErrorTriggersReconnect is the stage-B audit finding
-// B4-2 regression test: a connection-class Write failure must tear the
+// TestS7WriteConnectionErrorTriggersReconnect is the write-path reconnect
+// regression test: a connection-class Write failure must tear the
 // connection down for reconnection just like the Read path, while a
 // non-connection write failure must not. The driver points at a dead
 // loopback port with a long reconnect interval so the background loop
@@ -1053,10 +1053,10 @@ func TestS7WriteConnectionErrorTriggersReconnect(t *testing.T) {
 }
 
 // TestS7WriteScaleRoundTrip pins the write-side inverse of the read path's
-// scale/offset transform at the encode boundary (audit finding DRV-1). A
+// scale/offset transform at the encode boundary. A
 // float32 tag with scale 0.5 reads raw 73.0 as 36.5; writing engineering
-// 36.5 must encode raw 73.0 into the write buffer — previously the
-// un-inverted write encoded 36.5 directly, off by the scale factor. The
+// 36.5 must encode raw 73.0 into the write buffer — an un-inverted
+// write would encode 36.5 directly, off by the scale factor. The
 // raw escape hatch must bypass the inversion.
 func TestS7WriteScaleRoundTrip(t *testing.T) {
 	raw73 := make([]byte, 4)

@@ -13,8 +13,8 @@ import (
 
 // readAccessor groups the synchronous data-access API: on-demand tag
 // reads (ReadTag), cached latest values (LatestValues), and the cached
-// staleness threshold (StaleThreshold). Extracted from CoreCEngine in
-// the CPLX-020 God Object split; CoreCEngine keeps thin forwarders so
+// staleness threshold (StaleThreshold). CoreCEngine keeps thin
+// forwarders to this role so
 // the core.DataAccessor and core.StatsProvider method sets are
 // unchanged.
 type readAccessor struct {
@@ -66,7 +66,7 @@ func (a *readAccessor) StaleThreshold() time.Duration {
 }
 
 // SetStaleThreshold applies a runtime staleness-threshold change
-// (core.StaleThresholdPatcher, roadmap #23): the atomic keeps the API
+// (core.StaleThresholdPatcher): the atomic keeps the API
 // read path lock-free; d <= 0 disables the annotation.
 func (r *readAccessor) SetStaleThreshold(d time.Duration) {
 	if d <= 0 {
@@ -77,7 +77,7 @@ func (r *readAccessor) SetStaleThreshold(d time.Duration) {
 }
 
 // applyConfig covers the read accessor's staleness threshold. Zero/unset
-// keeps the default (B2, quality audit 2026-10-21).
+// keeps the default.
 func (r *readAccessor) applyConfig(cfg *core.EngineConfig) {
 	if d, err := time.ParseDuration(cfg.StaleThreshold); err == nil && d > 0 {
 		r.staleThreshold.Store(int64(d))

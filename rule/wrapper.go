@@ -15,7 +15,7 @@ type ruleWrapper struct {
 	// priority-sorted rule list). sort.SliceStable keeps configuration
 	// order within equal priorities, so seq is exactly the configuration
 	// order among same-priority rules; the matcher exposes it as the
-	// same-priority tie-break (stage-B audit finding B7-1).
+	// same-priority tie-break.
 	seq       int
 	disabled  atomic.Bool
 	hitCount  atomic.Uint64

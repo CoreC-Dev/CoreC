@@ -1,5 +1,5 @@
 // Package transport_test hosts the transport settings-allowlist drift
-// test (audit CFG-4 / roadmap #25) — the transport twin of
+// test — the transport twin of
 // driver/settings_drift_test.go: every settings key the code parses must
 // appear in the ValidateSettings allowlist, so a new setting without a
 // validator update fails at CI time instead of rejecting user configs.

@@ -53,11 +53,10 @@ type mockEngineV2 struct {
 	ingressDeadLetters []core.DeadLetterEntry
 
 	// dropBreakdown backs the optional core.DroppedBreakdownProvider
-	// role (OBS-6).
+	// role.
 	dropBreakdown core.DroppedBreakdown
 
-	// driverMetrics backs the optional core.DriverMetricsProvider role
-	// (OBS-8).
+	// driverMetrics backs the optional core.DriverMetricsProvider role.
 	driverMetrics []core.DriverMetric
 
 	// alerts/ackErr/alertStreamCh back the optional alert roles

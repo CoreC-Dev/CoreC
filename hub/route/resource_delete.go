@@ -5,8 +5,8 @@ import (
 	"net/http"
 )
 
-// Resource-level DELETE endpoints (audit HUB-3 / roadmap #26): removing
-// a single driver/transport/rule previously required the client to
+// Resource-level DELETE endpoints: removing
+// a single driver/transport/rule would otherwise require the client to
 // fetch the full YAML, splice it, and PUT the whole config — hostile to
 // API consumers and easy to get wrong (one bad splice corrupts
 // everything). These sugar endpoints splice internally and run the SAME
@@ -33,9 +33,9 @@ var (
 
 // ResourceErrorClass is the typed result of ClassifyResourceError — the
 // injected classifier and both sides of the boundary share these
-// exported constants (B5, quality audit 2026-10-21: the previous raw
-// ints were declared independently on each side, so renumbering either
-// compiled fine and silently misrouted 404/400/500).
+// exported constants — declaring raw
+// ints independently on each side would let renumbering either side
+// compile fine and silently misroute 404/400/500.
 const (
 	ResourceErrInternal = 0 // masked 500
 	ResourceErrNotFound = 1 // 404

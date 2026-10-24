@@ -220,10 +220,10 @@ func TestNoWebhookOnDataNil(t *testing.T) {
 	}
 }
 
-// TestWebhookBatchOutcomeCounts pins roadmap #36 (audit TRA-3): the batch
+// TestWebhookBatchOutcomeCounts pins the batch outcome counts: the batch
 // response body carries per-outcome counts so partial failures are
 // visible to the sender — parse failures and queue drops are counted
-// distinctly, previously invisible under a bare 202.
+// distinctly instead of disappearing under a bare 202.
 func TestWebhookBatchOutcomeCounts(t *testing.T) {
 	addr := freePort(t)
 	config := core.TransportConfig{

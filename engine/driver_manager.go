@@ -26,9 +26,8 @@ type metricsInjector interface {
 // driverRegistry groups the southbound driver concern: the live driver
 // map, the last-applied driver configs (for tag-file watcher rebuilds),
 // the per-driver tag-file watchers, and the tag-group enrichment map.
-// Extracted from CoreCEngine in the CPLX-020 God Object split;
-// CoreCEngine keeps thin forwarders so the core.DriverManager method
-// set is unchanged.
+// CoreCEngine keeps thin forwarders to this role so the
+// core.DriverManager method set is unchanged.
 type driverRegistry struct {
 	drivers map[string]core.Driver
 
@@ -74,7 +73,7 @@ func (r *driverRegistry) AddDriver(config core.DriverConfig) error {
 	if mi, ok := driver.(metricsInjector); ok {
 		// The engine's registry, not NoopMetrics: protocol-level driver
 		// metrics (modbus exception codes, ...) flow to /metrics via the
-		// core.DriverMetricsProvider role (audit OBS-8).
+		// core.DriverMetricsProvider role.
 		mi.SetMetrics(core.Metrics(r.eng.stats.driverMetrics))
 	}
 
@@ -156,10 +155,10 @@ func (r *driverRegistry) RemoveDriver(name string) error {
 	delete(r.driverConfigs, name)
 	r.eng.mu.Unlock()
 
-	// Evict the driver's cached values (audit finding PIPE-1): the
-	// cache previously kept serving a deleted driver's last values in
+	// Evict the driver's cached values: without this the cache keeps
+	// serving a deleted driver's last values in
 	// GET /tags forever (stale-flagged, but never gone) and derived
-	// tags kept consuming the ghosts.
+	// tags keep consuming the ghosts.
 	r.eng.processing.cache.DeleteDriver(name)
 
 	if r.eng.lifecycle.scheduler != nil {
@@ -224,8 +223,7 @@ func (r *driverRegistry) scheduleDriverTags(config core.DriverConfig) {
 		taskID := fmt.Sprintf("%s_%s", config.Name, interval.String())
 		// Classify as high-priority when the collection interval is at or
 		// below the threshold. Fast-interval tasks get dedicated workers so
-		// a burst of low-frequency bulk reads cannot delay them
-		// (IMPROVEMENTS #5).
+		// a burst of low-frequency bulk reads cannot delay them.
 		priority := 0
 		if interval > 0 && interval <= core.DefaultHighPriorityInterval {
 			priority = 1

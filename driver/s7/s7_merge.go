@@ -1,7 +1,7 @@
 package s7
 
 // ============================================================
-// Merged area reads (PERF-003).
+// Merged area reads.
 //
 // The tag-per-trip reader issued one AGRead* call per tag, so a Read of N
 // tags cost N serial PLC round trips even when every tag lived in the same
@@ -157,8 +157,8 @@ func readS7Area(client gos7.Client, area s7Area, dbNumber, start int, buf []byte
 //
 //   - Unknown tags fail immediately with no PLC traffic (unchanged).
 //   - Non-bit tags are merged into planned segments; every tag in a failed
-//     segment is marked QualityBad with that segment's error (PERF-003
-//     behavior change: one failed round trip now fails its whole segment).
+//     segment is marked QualityBad with that segment's error (a
+//     deliberate behavior change: one failed round trip fails its whole segment).
 //   - Bit tags keep the tag-per-trip read of the previous implementation
 //     (conservative first version: bits are never merged).
 func (d *S7Driver) readS7Batch(client gos7.Client, batch []string, now time.Time) []core.TagValue {
@@ -211,7 +211,7 @@ func (d *S7Driver) readS7Batch(client gos7.Client, batch []string, now time.Time
 // readMergedSegment performs one merged area read and decodes every tag in
 // the segment out of the shared buffer. When the read fails, every tag in
 // the segment is marked QualityBad with the same error — one failed round
-// trip fails its whole segment (registered PERF-003 behavior change).
+// trip fails its whole segment (a deliberate behavior change).
 func (d *S7Driver) readMergedSegment(client gos7.Client, seg s7ReadSegment, now time.Time, values []core.TagValue) {
 	buf := make([]byte, seg.length)
 	err := readS7Area(client, seg.area, seg.dbNumber, seg.start, buf)

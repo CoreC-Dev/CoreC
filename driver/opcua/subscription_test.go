@@ -351,8 +351,8 @@ func TestOPCUAHandleConnectionLost(t *testing.T) {
 	}
 }
 
-// TestOPCUAStaleConnectionErrorIgnored is the stage-B audit finding B4-1
-// regression test: an error reported against a client that has already
+// TestOPCUAStaleConnectionErrorIgnored is the stale-client regression
+// test: an error reported against a client that has already
 // been replaced by a completed reconnect must NOT tear down the fresh
 // connection, while an error from the current client still must. The
 // endpoint is a dead loopback port and the reconnect interval is long, so
@@ -424,7 +424,7 @@ func TestOPCUAStaleConnectionErrorIgnored(t *testing.T) {
 	}
 }
 
-// TestOPCUASubscriptionLoopLocalTimestamp is the stage-B audit finding B5-4
+// TestOPCUASubscriptionLoopLocalTimestamp is the local-timestamp
 // regression test for subscription mode: forwarded data points must carry
 // the local receive time, not the OPC UA server's SourceTimestamp, so a
 // drifting server clock cannot skew staleness downstream.
@@ -450,12 +450,13 @@ func TestOPCUASubscriptionLoopLocalTimestamp(t *testing.T) {
 }
 
 // TestOPCUASubscriptionLoopBadStatusMapsQuality verifies the subscription
-// path maps the server's StatusCode to CoreC quality (audit finding DRV-2):
-// a Bad value must surface as QualityBad with no value. The loop previously
-// hardcoded QualityGood, so server-reported quality degradation (dead
-// sensor, unavailable node) entered the pipeline as trustworthy GOOD data
-// and bypassed every bad-quality policy — the polling path has always
-// mapped it, making this a same-driver path asymmetry.
+// path maps the server's StatusCode to CoreC quality, matching the polling
+// path:
+// a Bad value must surface as QualityBad with no value. Hardcoding
+// QualityGood instead would let server-reported quality degradation (dead
+// sensor, unavailable node) enter the pipeline as trustworthy GOOD data
+// and bypass every bad-quality policy — both paths in the same driver
+// must agree.
 func TestOPCUASubscriptionLoopBadStatusMapsQuality(t *testing.T) {
 	d := mustInit(t, validConfig("bad"))
 	handleToTag := map[uint32]string{0: "tag1"}

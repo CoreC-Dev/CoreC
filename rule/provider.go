@@ -24,9 +24,9 @@ type FileProvider struct {
 	matchers []exprNode // compiled match expressions
 	count    int
 	updated  time.Time
-	lastHash [sha256.Size]byte // PERF-005: skip reload when file unchanged
+	lastHash [sha256.Size]byte // skip reload when file unchanged
 	stopCh   chan struct{}
-	done     chan struct{} // PERF-006: Close waits for reloadLoop to exit
+	done     chan struct{} // Close waits for reloadLoop to exit
 }
 
 // providerFile is the YAML schema for external rule files.
@@ -70,7 +70,7 @@ func (p *FileProvider) load() error {
 		return fmt.Errorf("read file %s: %w", p.path, err)
 	}
 
-	// PERF-005: skip reload when file content is unchanged.
+	// Skip reload when file content is unchanged.
 	hash := sha256.Sum256(data)
 	p.mu.RLock()
 	prevHash := p.lastHash
@@ -113,7 +113,7 @@ func (p *FileProvider) load() error {
 
 // reloadLoop periodically re-reads the file.
 func (p *FileProvider) reloadLoop() {
-	defer close(p.done) // PERF-006: signal exit to Close
+	defer close(p.done) // signal exit to Close
 	ticker := time.NewTicker(p.interval)
 	defer ticker.Stop()
 	for {
@@ -153,5 +153,5 @@ func (p *FileProvider) Update() error { return p.load() }
 // Close stops the reload goroutine and waits for it to exit.
 func (p *FileProvider) Close() {
 	close(p.stopCh)
-	<-p.done // PERF-006: wait for reloadLoop to exit
+	<-p.done // wait for reloadLoop to exit
 }

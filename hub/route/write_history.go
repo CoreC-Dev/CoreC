@@ -27,14 +27,14 @@ func getWriteHistory(w http.ResponseWriter, r *http.Request) {
 		renderError(w, r, http.StatusNotImplemented, "write history not supported by this engine")
 		return
 	}
-	// Roadmap #35: server-side filtering for the compliance trail —
+	// Server-side filtering for the compliance trail —
 	// the full 1000-entry response is queryable by driver, tag, and
 	// since-time (RFC 3339), with an optional result limit.
 	entries := auditor.WriteHistory()
 	// Filters allocate fresh slices: the WriteAuditor contract returns a
 	// copy, but defensive copying here keeps the handler correct against
-	// any implementation (the first draft reused the backing array via
-	// entries[:0] and clobbered a mock's stored history).
+	// any implementation (an in-place filter via
+	// entries[:0] would clobber a mock's stored history).
 	q := r.URL.Query()
 	if d := q.Get("driver"); d != "" {
 		filtered := make([]core.WriteAuditEntry, 0, len(entries))

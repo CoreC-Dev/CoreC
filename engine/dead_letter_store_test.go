@@ -20,7 +20,7 @@ func dlEntry(tag string, at time.Time) core.DeadLetterEntry {
 	}
 }
 
-// TestDeadLetterStoreAppendLoadRoundTrip verifies the RES-2 persistence:
+// TestDeadLetterStoreAppendLoadRoundTrip verifies the on-disk persistence:
 // entries appended before a "restart" replay into the queue after.
 func TestDeadLetterStoreAppendLoadRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "dl", "deadletters.jsonl")

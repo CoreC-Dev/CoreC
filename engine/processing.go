@@ -14,9 +14,8 @@ import (
 // the latest-value cache, the alert handlers, the bad-quality policy,
 // and the processing parallelism tuning. Its worker loops consume the
 // bus, run the rule pipeline, and fan points out to transports.
-// Extracted from CoreCEngine in the CPLX-020 God Object split;
-// CoreCEngine keeps thin forwarders so the core.EventSubscriber method
-// set is unchanged.
+// CoreCEngine keeps thin forwarders to this role so the
+// core.EventSubscriber method set is unchanged.
 type processingCore struct {
 	dataBus *DataBus
 	cache   *LatestCache
@@ -24,8 +23,8 @@ type processingCore struct {
 	// Alert handlers
 	alertHandlers []func(point core.DataPoint, rule core.Rule)
 
-	// alerts is the first-class alert registry (audit findings
-	// OBS-4/HUB-6: alerts previously degenerated to a log line). It is
+	// alerts is the first-class alert registry (alerts must not
+	// degenerate to a log line). It is
 	// re-created by every engine Start alongside the other pipeline
 	// state; nil-safe guards keep direct processPoint calls (tests)
 	// working on unstarted engines.
@@ -53,7 +52,7 @@ type processingCore struct {
 	// numHighPriorityWorkers is the number of dedicated workers that
 	// process only high-priority (fast-interval) data from the DataBus
 	// high-priority channel. This isolates high-frequency collection from
-	// low-frequency bulk-read bursts (IMPROVEMENTS #5).
+	// low-frequency bulk-read bursts.
 	numHighPriorityWorkers int
 
 	// eng is the owning engine: the loops reach the lifecycle context,
@@ -81,7 +80,7 @@ func (p *processingCore) processingLoop() {
 // processingLoopHighPriority is the dedicated worker for high-priority
 // (fast-interval) data. It reads only from the DataBus high-priority
 // channel, so a burst of low-frequency bulk reads on the main channel
-// cannot delay high-frequency collection (IMPROVEMENTS #5).
+// cannot delay high-frequency collection.
 func (p *processingCore) processingLoopHighPriority() {
 	defer p.eng.runtime.wg.Done()
 
@@ -136,7 +135,7 @@ func (p *processingCore) processPoint(point core.DataPoint) {
 		switch p.badQualityPolicy {
 		case badQualityDrop:
 			// A configured discard policy is not a processing error:
-			// count it as a bad-quality drop (OBS-6) so total_errors
+			// count it as a bad-quality drop so total_errors
 			// stops conflating policy with faults.
 			p.eng.stats.recordBadQualityDrop()
 			return // discard entirely
@@ -145,14 +144,12 @@ func (p *processingCore) processPoint(point core.DataPoint) {
 		case badQualityAlert:
 			// Forward + alert. The alert fires HERE, before rule
 			// matching, so it does not depend on any rule matching the
-			// bad point (stage-B audit finding B5-1: previously it was
-			// raised after the action loop and Match()==0 returned
-			// early — with zero rules configured the policy never
-			// alerted, violating the documented "publish and trigger
-			// the alert callback" contract; a terminal drop rule
-			// also skipped it). policyAlerted suppresses the duplicate
-			// rule-level alert below, mirroring the old anti-double-
-			// alert intent.
+			// bad point (firing it after the action loop instead — where
+			// Match()==0 returns early and a terminal drop rule skips
+			// it — would mean a zero-rule config never alerts,
+			// violating the documented "publish and trigger the alert
+			// callback" contract). policyAlerted suppresses the
+			// duplicate rule-level alert below (anti-double-alert).
 			p.fireAlert(point, badQualityAlertRule{})
 			policyAlerted = true
 		}
@@ -319,8 +316,8 @@ func (p *processingCore) publishToTargets(point core.DataPoint, targets []string
 		if entry.batcher != nil {
 			// publishLatency and dataAge are observed inside the
 			// batcher's publishWithRetryAndBuffer (around the actual
-			// PublishBatch call), not here — publish() is now async
-			// (IMPROVEMENTS #1) and returns near-instantly, so
+			// PublishBatch call), not here — publish() is async
+			// and returns near-instantly, so
 			// observing here would record enqueue time, not real
 			// transport latency.
 			//
@@ -328,8 +325,8 @@ func (p *processingCore) publishToTargets(point core.DataPoint, targets []string
 			// inside the batcher via the onPublish callback (called when
 			// the batch is actually published, not just enqueued). This
 			// avoids inflating the publish counter for points that are
-			// later lost after retries are exhausted (Finding 4 fix:
-			// previously counted prematurely here).
+			// later lost after retries are exhausted (counting here
+			// would report enqueues as publishes).
 			//
 			// publish() returns an error only when the flush queue is
 			// full and the batch is dropped — in that case the data is
@@ -346,7 +343,7 @@ func (p *processingCore) publishToTargets(point core.DataPoint, targets []string
 		start := time.Now()
 		err := entry.transport.Publish(p.eng.runtime.ctx, point)
 		// Observe in both the global aggregate and the per-transport
-		// labeled histograms (audit OBS-2).
+		// labeled histograms.
 		p.eng.stats.labeled.observePublish(entry.name, time.Since(start))
 		p.eng.stats.labeled.observeAge(entry.name, time.Since(point.Timestamp))
 		if err != nil {
@@ -361,9 +358,9 @@ func (p *processingCore) publishToTargets(point core.DataPoint, targets []string
 
 func (p *processingCore) fireAlert(point core.DataPoint, r core.Rule) {
 	// Record the fire in the engine's first-class alert registry BEFORE
-	// fan-out (audit OBS-4/HUB-6): the alert exists even if an
-	// embedding host registered no OnAlert handler at all — the old
-	// fire-and-forget path made alerts invisible in that case.
+	// fan-out: the alert must exist even if an
+	// embedding host registered no OnAlert handler at all (a
+	// fire-and-forget-only path makes alerts invisible in that case).
 	if p.alerts != nil {
 		p.alerts.record(r, point)
 	}
@@ -421,10 +418,9 @@ func (e *CoreCEngine) OnAlert(handler func(point core.DataPoint, rule core.Rule)
 }
 
 // applyConfig covers the processing pipeline's tuning knobs. Zero/unset
-// values keep the New() defaults (explicit-overrides-auto). B2, quality
-// audit 2026-10-21: extracted from the engineRuntime dispatcher, which
-// sat at the CI complexity cap (gocyclo 20) with one config branch left
-// before failure.
+// values keep the New() defaults (explicit-overrides-auto). Kept as
+// its own method so the engineRuntime dispatcher stays under the CI
+// complexity cap (gocyclo 20).
 func (p *processingCore) applyConfig(cfg *core.EngineConfig) {
 	if cfg.DataBusSize > 0 {
 		p.dataBusSize = cfg.DataBusSize

@@ -377,8 +377,8 @@ func TestModbusHandleConnectionLostNoOpWhenError(t *testing.T) {
 	}
 }
 
-// TestModbusStaleConnectionErrorIgnored is the stage-B audit finding B4-1
-// regression test: an error reported against a client that has already
+// TestModbusStaleConnectionErrorIgnored is the stale-client regression
+// test: an error reported against a client that has already
 // been replaced by a completed reconnect must NOT tear down the fresh
 // connection, while an error from the current client still must.
 func TestModbusStaleConnectionErrorIgnored(t *testing.T) {
@@ -469,8 +469,8 @@ func TestModbusStaleConnectionErrorIgnored(t *testing.T) {
 	}
 }
 
-// TestModbusWriteConnectionErrorTriggersReconnect is the stage-B audit
-// finding B4-2 regression test: a connection-class Write failure must tear
+// TestModbusWriteConnectionErrorTriggersReconnect is the write-path
+// reconnect regression test: a connection-class Write failure must tear
 // the connection down for reconnection just like the Read path, while a
 // non-connection write failure (read-only area) must not.
 func TestModbusWriteConnectionErrorTriggersReconnect(t *testing.T) {

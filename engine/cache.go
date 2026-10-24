@@ -150,9 +150,9 @@ func (c *LatestCache) GetAll() map[string]core.DataPoint {
 
 // DeleteDriver evicts every cached value of the named driver. Called on
 // RemoveDriver so a deleted driver's last values stop haunting GET /tags
-// and derived-tag inputs forever (audit finding PIPE-1: the cache had
-// only the test-only Clear() — deleted drivers left ghost values that
-// only ever grew stale-flags, never disappeared).
+// and derived-tag inputs forever — without it the cache is never pruned
+// (Clear() is test-only) and deleted drivers leave ghost values that
+// only ever grow stale-flags, never disappear.
 func (c *LatestCache) DeleteDriver(driver string) {
 	idx := cacheShardIdx(driver)
 	shard := &c.shards[idx]
@@ -172,9 +172,9 @@ func (c *LatestCache) DeleteDriver(driver string) {
 }
 
 // DeleteTag evicts one cached value. Called by the tags-file reload
-// path for tags that disappeared from the file (audit finding PIPE-1:
-// removed tags kept their ghost values in /tags and kept feeding
-// derived-tag expressions).
+// path for tags that disappeared from the file — a removed tag must
+// not keep ghost values in /tags or keep feeding derived-tag
+// expressions.
 func (c *LatestCache) DeleteTag(driver, tag string) {
 	idx := cacheShardIdx(driver)
 	shard := &c.shards[idx]

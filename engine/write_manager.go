@@ -17,24 +17,23 @@ import (
 // writeManager groups the write/command concern: synchronous tag writes
 // with audit history, the command listeners with bounded concurrency and
 // retry, command forwarding to downstream nodes, and the dead-letter
-// queue. Extracted from CoreCEngine in the CPLX-020 God Object split;
-// CoreCEngine keeps thin forwarders so the core.DataAccessor (WriteTag),
+// queue. CoreCEngine keeps thin forwarders to this role so the
+// core.DataAccessor (WriteTag),
 // core.StatsProvider (DeadLetterEntries), and optional core.WriteAuditor
 // method sets are unchanged.
 // deadLetterState groups the dead-letter queue, its bound, the lifetime
-// push counter, and the optional on-disk persistence store
-// (audit RES-2/OBS-3).
+// push counter, and the optional on-disk persistence store.
 type deadLetterState struct {
 	// mu guards queue.
 	mu    sync.Mutex
 	queue []core.DeadLetterEntry
 	// maxLen bounds the queue (oldest evicted when full).
 	maxLen int
-	// store is the optional on-disk persistence (RES-2 / roadmap #29).
+	// store is the optional on-disk persistence.
 	// nil = disabled.
 	store *deadLetterStore
 	// pushed counts every command that ever entered the queue, for the
-	// corec_dead_letter_pushed_total Prometheus counter (audit OBS-3).
+	// corec_dead_letter_pushed_total Prometheus counter.
 	pushed atomic.Uint64
 }
 
@@ -47,12 +46,13 @@ type writeManager struct {
 	// slot before dispatch; when full, the listener applies backpressure
 	// (the transport's command channel fills, overflow → dead-letter #4).
 	// This prevents a single slow write from serializing all subsequent
-	// control commands (IMPROVEMENTS #2). nil before Start() → synchronous.
+	// control commands. nil before Start() → synchronous.
 	commandConcurrency int
 	commandSem         chan struct{}
 
 	// deadLetters groups the dead-letter queue, its bound, the lifetime
-	// push counter, and the optional on-disk store (CPLX ceiling).
+	// push counter, and the optional on-disk store (sub-struct grouping
+	// keeps writeManager under the field ceiling).
 	deadLetters deadLetterState
 
 	// writeAuditHistory records the most recent write attempts —
@@ -151,8 +151,8 @@ func (w *writeManager) WriteHistory() []core.WriteAuditEntry {
 // startCommandListener launches a goroutine that listens for write commands
 // from a transport's OnCommand channel and dispatches them to the engine.
 // Commands are executed concurrently (bounded by commandSem) so a single
-// slow write does not serialize subsequent control commands (IMPROVEMENTS
-// #2). Failed writes are retried with exponential backoff; if all retries
+// slow write does not serialize subsequent control commands.
+// Failed writes are retried with exponential backoff; if all retries
 // fail, the command is placed in the dead letter queue for later inspection.
 // It is called from AddTransport for every transport (initial and runtime),
 // so no transport's commands are dropped.
@@ -215,7 +215,7 @@ func (w *writeManager) startCommandListener(t core.Transport, tCtx context.Conte
 // RemoveTransport the engine stays alive, so the queue remains queryable
 // and replayable via GET /write/failed; on full engine shutdown the
 // in-memory queue dies with the process, but the commands are at least
-// counted and logged instead of vanishing (stage-B audit finding B3.2).
+// counted and logged instead of vanishing.
 // The drain is non-blocking — shutdown is never delayed by stragglers.
 func (w *writeManager) deadLetterStrandedCommands(ch <-chan core.WriteCommand, held *core.WriteCommand) {
 	stranded := 0
@@ -291,7 +291,7 @@ func (w *writeManager) forwardCommand(ctx context.Context, cmd core.WriteCommand
 // write command can never succeed on retry: the command itself is
 // misconfigured (unknown tag, read-only target, type mismatch). Retrying
 // such a command just hammers the device writeRetryCount more times and
-// pollutes the dead-letter queue (stage-B audit finding B6-1). Every other
+// pollutes the dead-letter queue. Every other
 // failure keeps the retry loop — connection-class errors may succeed once
 // the driver reconnects, and unknown errors are retried fail-safe.
 var permanentWriteErrPatterns = []string{
@@ -358,7 +358,7 @@ func (w *writeManager) executeWriteWithRetry(cmd core.WriteCommand) {
 		// Configuration-class failures (unknown tag, read-only target,
 		// type mismatch) can never succeed on retry: dead-letter the
 		// command immediately instead of burning writeRetryCount more
-		// device round-trips (stage-B audit finding B6-1).
+		// device round-trips.
 		if isPermanentWriteError(lastErr) {
 			slog.Error("command write failed permanently, added to dead letter queue",
 				"driver", cmd.Driver, "tag", cmd.Tag, "error", lastErr)
@@ -382,8 +382,8 @@ func (w *writeManager) executeWriteWithRetry(cmd core.WriteCommand) {
 				"delay", delay, "error", lastErr)
 			select {
 			case <-w.eng.runtime.ctx.Done():
-				// Stage-B audit finding B3.2: a shutdown-cancelled retry
-				// previously returned silently. The engine context only
+				// A shutdown-cancelled retry must not return silently. The
+				// engine context only
 				// cancels at full process shutdown, where the in-memory
 				// dead-letter queue dies with the process anyway —
 				// queueing there would be theater. Instead the
@@ -461,9 +461,9 @@ func (e *CoreCEngine) DeadLetterEntries() []core.DeadLetterEntry {
 }
 
 // applyConfig covers the write manager's knobs and the optional
-// dead-letter persistence (audit RES-2 / roadmap #29): opened early so
+// dead-letter persistence: opened early so
 // the runtime start can replay. A failed open is start-blocking — the
-// operator asked for durability and got none. (B2, quality audit 2026-10-21.)
+// operator asked for durability and must not silently get none.
 func (w *writeManager) applyConfig(cfg *core.EngineConfig) error {
 	if cfg.WriteRetryCount > 0 {
 		w.writeRetryCount = cfg.WriteRetryCount

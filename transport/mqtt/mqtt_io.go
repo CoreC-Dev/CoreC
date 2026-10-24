@@ -1,6 +1,5 @@
 // Package mqtt: the I/O surface — publish paths (single/batch/forward),
 // channel accessors, status snapshot, and topic-template assembly.
-// Split from publisher.go (CPLX-001, quality audit 2026-10-21/B8).
 package mqtt
 
 import (
@@ -186,7 +185,7 @@ func (t *MQTTTransport) PublishBatch(ctx context.Context, points []core.DataPoin
 	}
 
 	// Concurrent publish: fire all tokens, then wait for all to complete.
-	// This reduces batch latency from N×RTT to ~RTT (D8).
+	// This reduces batch latency from N×RTT to ~RTT.
 	type publishResult struct {
 		index int
 		err   error

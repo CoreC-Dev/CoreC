@@ -164,9 +164,9 @@ func (m *mockEngineForExecutor) ApplyDerivedTags(configs []core.DerivedTagConfig
 }
 
 // TestApplyConfigHotAppliesDerivedTags pins the reload diff's derived-tags
-// step (audit finding CFG-1): ApplyConfig previously ignored
-// derived-tags changes entirely — PUT returned success and nothing
-// happened. The mock implements core.DerivedTagApplier, so the diff
+// step: ApplyConfig must not ignore
+// derived-tags changes — PUT returning success while nothing happens
+// is a contract violation. The mock implements core.DerivedTagApplier, so the diff
 // must forward changed sets to the engine and skip unchanged ones.
 func TestApplyConfigHotAppliesDerivedTags(t *testing.T) {
 	eng := &mockEngineForExecutor{}

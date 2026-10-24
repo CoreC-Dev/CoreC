@@ -10,9 +10,9 @@ import (
 
 // diffActions records everything a config diff has already applied to
 // the running engine, so a later failure can roll the engine back to
-// the pre-reload state (audit finding CFG-2). Previously a half-applied
-// reload left the engine inconsistent with currentCfg: removed
-// components stayed removed while /configs/raw still showed them, with
+// the pre-reload state. Without it a half-applied reload leaves the
+// engine inconsistent with currentCfg: removed
+// components stay removed while /configs/raw still shows them, with
 // no self-healing and no way to see the real component set.
 //
 // Removals are recorded as the OLD config (not just the name) so the

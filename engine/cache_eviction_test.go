@@ -7,11 +7,11 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// TestCacheEvictionOnRemoveDriver verifies the PIPE-1 fix: removing a
-// driver evicts its cached values. Previously the cache was never
-// pruned (Clear() is test-only) — a deleted driver's last values kept
-// appearing in GET /tags and kept feeding derived-tag expressions
-// forever, only ever acquiring an is_stale flag.
+// TestCacheEvictionOnRemoveDriver verifies driver-level eviction:
+// removing a driver evicts its cached values. Without it the cache is
+// never pruned (Clear() is test-only) — a deleted driver's last values
+// would keep appearing in GET /tags and keep feeding derived-tag
+// expressions forever, only ever acquiring an is_stale flag.
 func TestCacheEvictionOnRemoveDriver(t *testing.T) {
 	e := New().(*CoreCEngine)
 
@@ -46,7 +46,7 @@ func TestCacheEvictionOnRemoveDriver(t *testing.T) {
 }
 
 // TestCacheEvictionOnTagRemoval verifies the per-tag eviction used by
-// the tags-file reload path (PIPE-1): removing a tag evicts exactly
+// the tags-file reload path: removing a tag evicts exactly
 // that entry, leaving sibling tags alone.
 func TestCacheEvictionOnTagRemoval(t *testing.T) {
 	e := New().(*CoreCEngine)

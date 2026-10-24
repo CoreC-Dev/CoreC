@@ -53,8 +53,8 @@ type taskRunner struct {
 	// Overrun throttling state. overrunCount is the windowed counter
 	// printed by the throttled log (reset each time the log fires);
 	// overrunsTotal is the cumulative lifetime count exposed via
-	// Health() for Prometheus — never reset (audit OBS-5: the old
-	// windowed counter silently lost history after each log).
+	// Health() for Prometheus — never reset (a windowed counter alone
+	// would silently lose history after each log).
 	lastOverrunLog time.Time
 	overrunCount   uint64
 	overrunsTotal  uint64
@@ -228,9 +228,10 @@ func (s *scheduler) PauseDriver(name string) error {
 }
 
 // ResumeDriver clears the driver's paused flag so its tasks resume at
-// their next tick (audit finding RES-4: the pause capability existed
-// but was engine-internal only — maintenance scenarios had to rewrite
-// the whole config to stop collecting from a device under repair).
+// their next tick. Pause/resume must be API-reachable, not
+// engine-internal only — maintenance scenarios otherwise have to
+// rewrite the whole config to stop collecting from a device under
+// repair.
 func (s *scheduler) ResumeDriver(name string) error {
 	s.mu.Lock()
 	delete(s.paused, name)
@@ -414,7 +415,7 @@ func handleRecovery(runner *taskRunner, task core.ScheduleTask, interval time.Du
 // aliases the driver's returned slice.
 //
 // Bad or uncertain quality always passes through and never updates the
-// baseline (stage-B audit finding B5-2): swallowing the point would hide
+// baseline: swallowing the point would hide
 // the quality degradation from the engine's bad-quality policies, and
 // recording its value (bad values decode as 0 via util.ToFloat64) would
 // poison the baseline so that subsequent GOOD values within the old→0
@@ -423,7 +424,7 @@ func handleRecovery(runner *taskRunner, task core.ScheduleTask, interval time.Du
 // penetrates the deadband: the operator must see the tag went bad.
 //
 // Non-numeric values (bool, string, bytes) also bypass the deadband and
-// never update the baseline (stage-B audit finding B5-3): the documented
+// never update the baseline: the documented
 // behaviour says deadband only applies to numeric types, and coercing
 // non-numeric values through ToFloat64 (bool→0/1, string→0) would compare
 // fabricated zeros — freezing the tag at its first sample forever.

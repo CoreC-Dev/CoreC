@@ -33,11 +33,10 @@ type ScheduleTask struct {
 //     process lifetime — never reset (the throttled log's windowed
 //     counter is a separate field).
 //
-// This is the Prometheus-facing twin of the states the scheduler has
-// always logged (auto-degrade, overrun warnings, consecutive read
-// errors): they were previously visible only by reading logs, so
-// "why did this driver go quiet" could not be answered by alerting
-// (audit finding OBS-5 / roadmap #7).
+// This is the Prometheus-facing twin of the states the scheduler logs
+// (auto-degrade, overrun warnings, consecutive read errors): log-only
+// visibility means "why did this driver go quiet" cannot be answered
+// by alerting.
 type TaskHealth struct {
 	Driver            string `json:"driver"`
 	Degraded          bool   `json:"degraded"`

@@ -46,7 +46,7 @@ const (
 
 // batcherRetryPolicy groups the retry/backoff tuning of the batch publish
 // path and its offline-buffer push counter, so transportBatcher itself
-// stays under the CPLX field limit (CPLX-025).
+// stays under the per-struct field ceiling.
 type batcherRetryPolicy struct {
 	// retryCount is the number of publish retries after the first
 	// attempt (TransportConfig.RetryCount).
@@ -57,8 +57,8 @@ type batcherRetryPolicy struct {
 	// chain cannot outlive shutdown and abandon the batch mid-retry
 	// when the engine stops waiting (or main exits). When the budget
 	// expires, publishWithRetryAndBuffer stops retrying and persists
-	// the remaining batch to the offline buffer instead (stage-B audit
-	// finding B3.1). Threading: set from the engine's shutdownTimeout
+	// the remaining batch to the offline buffer instead. Threading: set
+	// from the engine's shutdownTimeout
 	// by newTransportBatcher; <= 0 defaults to core.DefaultShutdownTimeout.
 	shutdownBudget time.Duration
 
@@ -78,10 +78,9 @@ type batcherRetryPolicy struct {
 // batcherBufferState groups the batcher's mutable in-memory buffering
 // state — the partial buffer, the bounded flush queue, and their
 // observability counters — so transportBatcher itself stays under the
-// CPLX field limit (CPLX-025). mu guards buffer, stopped, and
+// per-struct field ceiling. mu guards buffer, stopped, and
 // flushBatches together: publish()'s append+enqueue and stop()'s
-// stopped-flag must form one critical section (stage-B audit findings
-// B1.6/B3.4).
+// stopped-flag must form one critical section.
 type batcherBufferState struct {
 	batchSize     int
 	flushInterval time.Duration
@@ -90,8 +89,8 @@ type batcherBufferState struct {
 	// publish() for asynchronous flush. publish() never calls flush()
 	// synchronously: when the buffer fills it moves the batch here and
 	// signals flushLoop, so the processingLoop worker is never blocked by
-	// a slow PublishBatch (IMPROVEMENTS #1 option B: the buffer-full
-	// flush used to run on the caller's goroutine). Capacity is bounded;
+	// a slow PublishBatch (a synchronous buffer-full flush would block
+	// the caller's goroutine). Capacity is bounded;
 	// when the consumer falls behind, the oldest pending batch is
 	// evicted and counted in flushBatchesDropped to bound memory.
 	flushBatches        chan []core.DataPoint
@@ -101,8 +100,8 @@ type batcherBufferState struct {
 	// loops are cancelled). Once set, publish() rejects new points: after
 	// flushFinal has swapped the buffer out, a late append would strand
 	// the point in memory forever, and a late enqueue into flushBatches
-	// would strand a whole batch in the channel — both silently
-	// (stage-B audit findings B1.6/B3.4). Atomic because it is paired
+	// would strand a whole batch in the channel — both silently. Atomic
+	// because it is paired
 	// with publishRejected for lock-free observability reads.
 	stopped atomic.Bool
 
@@ -122,7 +121,8 @@ type batcherBufferState struct {
 // persisted to disk and replayed by a background drain goroutine
 // once the transport recovers. Its state is split into the retry
 // policy (batcherRetryPolicy) and the buffering state
-// (batcherBufferState) sub-structs (CPLX-025).
+// (batcherBufferState) sub-structs to keep each under the per-struct
+// field ceiling.
 type transportBatcher struct {
 	transport core.Transport
 
@@ -132,7 +132,7 @@ type transportBatcher struct {
 	// publishLatency records the duration of each PublishBatch attempt
 	// (including retries). Injected from the engine as a latencyObserver:
 	// normally a fan-out adapter that feeds BOTH the global aggregate
-	// histogram and the per-transport labeled histogram (audit OBS-2),
+	// histogram and the per-transport labeled histogram,
 	// but a plain metrics.LatencyHistogram (or nil in tests) also
 	// satisfies the interface.
 	publishLatency latencyObserver
@@ -145,11 +145,9 @@ type transportBatcher struct {
 	// onPublish is called with the number of points actually published
 	// when publishWithRetryAndBuffer or drainOnce succeeds. It lets the
 	// engine count real publishes (not just enqueues) on the async flush
-	// path (Finding 4 fix: the original publish.go, dissolved in the
-	// batcher split, counted totalPublish/
-	// PushPublish immediately after the near-instant enqueue, which
-	// inflated the publish counter and undercounted errors when batches
-	// later failed). nil = no callback (tests that don't check counters).
+	// path: counting at enqueue time would inflate the publish counter
+	// and undercount errors when batches later fail.
+	// nil = no callback (tests that don't check counters).
 	onPublish func(int)
 
 	// retry holds the retry/backoff tuning and the offline-buffer
@@ -171,14 +169,14 @@ type transportBatcher struct {
 // publishLatency and dataAge are latencyObservers for the real
 // transport publish latency and data age on the async flush path — the
 // engine passes fan-out adapters (global aggregate + per-transport
-// labeled histogram, audit OBS-2). They may be nil (tests that don't
+// labeled histogram). They may be nil (tests that don't
 // check histograms).
 // onPublish is called with the point count when a batch is actually
 // published (not just enqueued). It may be nil (tests).
 // shutdownBudget bounds the shutdown flush (flushFinal); pass the
 // engine's shutdownTimeout so the final flush cannot outlive the
 // engine's own stop timeout. <= 0 defaults to
-// core.DefaultShutdownTimeout (stage-B audit finding B3.1).
+// core.DefaultShutdownTimeout.
 func newTransportBatcher(t core.Transport, cfg core.TransportConfig, offlineBuffer *OfflineBuffer, publishLatency, dataAge latencyObserver, onPublish func(int), shutdownBudget time.Duration) *transportBatcher {
 	if cfg.BatchSize <= 0 && cfg.FlushInterval == "" && cfg.RetryCount <= 0 && offlineBuffer == nil {
 		return nil
@@ -231,8 +229,7 @@ func (b *transportBatcher) start(ctx context.Context) {
 	b.buf.flushBatches = make(chan []core.DataPoint, defaultFlushBatchQueueSize)
 	// Always start the flushLoop so buffer-full batches are flushed
 	// asynchronously, even when no periodic flush interval is configured.
-	// This keeps publish() non-blocking on the caller's goroutine
-	// (IMPROVEMENTS #1 option B).
+	// This keeps publish() non-blocking on the caller's goroutine.
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
@@ -252,7 +249,7 @@ func (b *transportBatcher) start(ctx context.Context) {
 func (b *transportBatcher) stop() {
 	// Mark the batcher stopped BEFORE cancelling the loops so
 	// concurrent publish() calls cannot strand data after the final
-	// flush (stage-B audit findings B1.6/B3.4). The flag is checked
+	// flush. The flag is checked
 	// under b.buf.mu inside publish(), and publish() completes its
 	// append+enqueue within the same critical section, so every point
 	// accepted before this line is covered by the flushes below and
@@ -307,8 +304,8 @@ func (b *transportBatcher) flushLoop() {
 			// this select cannot prioritize the queue over the ticker,
 			// and when both are ready the pseudo-random choice could
 			// otherwise publish the NEWER partial buffer ahead of older
-			// queued batches (stage-B audit finding B1.3, cross-batch
-			// reordering). flush() additionally defers itself while any
+			// queued batches — cross-batch reordering. flush() additionally
+			// defers itself while any
 			// backlog remains, closing the window where a batch is
 			// enqueued between the drain and the flush.
 			b.drainFlushBatches()
@@ -354,12 +351,12 @@ func (b *transportBatcher) drainOnce() {
 	// Pass this batcher's transport name so Drain only replays batches
 	// this transport originally accepted — the buffer is shared across
 	// all batchers and replaying a foreign batch through the wrong
-	// transport would misroute the data (stage-B audit finding B2.3).
+	// transport would misroute the data.
 	drained, err := b.offlineBuffer.Drain(b.transport.Name(), func(points []core.DataPoint) error {
 		// Inherit b.ctx (cancelled by stop()) so an in-flight replay can
 		// be aborted promptly during shutdown instead of running to the
 		// full per-batch timeout against a transport that may already be
-		// gone (stage-B audit finding B3.1). The per-batch timeout still
+		// gone. The per-batch timeout still
 		// bounds each attempt during normal operation.
 		baseCtx := b.ctx
 		if baseCtx == nil {
@@ -373,8 +370,7 @@ func (b *transportBatcher) drainOnce() {
 		err := b.transport.PublishBatch(timeoutCtx, points)
 		if err == nil && b.onPublish != nil {
 			// Count replayed publishes so totalPublish reflects all
-			// successful publishes, including offline-buffer replays
-			// (Finding 4 fix).
+			// successful publishes, including offline-buffer replays.
 			b.onPublish(len(points))
 		}
 		return err
@@ -391,13 +387,12 @@ func (b *transportBatcher) drainOnce() {
 // full batch to flushLoop asynchronously. It never blocks the caller: the
 // flush (PublishBatch + retry + offline buffering) runs on the batcher's
 // own flushLoop goroutine. This keeps the processingLoop worker responsive
-// even when a slow transport makes PublishBatch take seconds (IMPROVEMENTS
-// #1 option B: previously the buffer-full flush ran synchronously on the
-// caller's goroutine).
+// even when a slow transport makes PublishBatch take seconds (a synchronous
+// buffer-full flush would block the caller's goroutine for that long).
 //
 // The append and the flush-queue enqueue happen in one b.buf.mu critical
-// section together with the stopped check (stage-B audit findings
-// B1.6/B3.4): stop() sets the stopped flag under the same mutex before
+// section together with the stopped check: stop() sets the stopped flag
+// under the same mutex before
 // cancelling the loops, so a batch can never be enqueued after flushLoop
 // has drained the queue on its way out, and a point can never be appended
 // after flushFinal has swapped the buffer. Publishes that lose this race
@@ -410,9 +405,8 @@ func (b *transportBatcher) drainOnce() {
 // rejected) or when the flush queue is full and the batch containing the
 // caller's point could not be enqueued even after evicting the oldest
 // pending batch — in both cases the data is lost and the caller can try
-// a fallback transport (Finding 4 fix: previously publish() always
-// returned nil, making the error/fallback branch in the publish path dead
-// code).
+// a fallback transport (returning nil here instead would leave the
+// error/fallback branch in the publish path dead code).
 func (b *transportBatcher) publish(ctx context.Context, point core.DataPoint) error {
 	b.buf.mu.Lock()
 	defer b.buf.mu.Unlock()
@@ -479,7 +473,7 @@ func (b *transportBatcher) publish(ctx context.Context, point core.DataPoint) er
 // While older full batches are still queued in flushBatches the flush
 // is deferred (returns without publishing): the points in the partial
 // buffer are newer than every queued batch, so sending them now would
-// reorder batches across the queue (stage-B audit finding B1.3). The
+// reorder batches across the queue. The
 // queue check and the buffer swap happen in one b.buf.mu critical
 // section — publish() appends and enqueues under the same mutex — so a
 // batch cannot slip in between the check and the swap. The queued
@@ -504,8 +498,8 @@ func (b *transportBatcher) flush() {
 // shutdownBudget timeout: without it, a transport with a large
 // retry-count and a slow or unreachable broker could keep the final
 // flush retrying long after the engine gave up waiting (or after main
-// called os.Exit), silently losing the batch (stage-B audit finding
-// B3.1). With the budget, when the deadline fires the retry loop's
+// called os.Exit), silently losing the batch. With the budget, when
+// the deadline fires the retry loop's
 // backoff select observes ctx.Done and falls through to persisting the
 // batch to the offline buffer (or logging the drop when no buffer is
 // configured) instead of abandoning it mid-retry.

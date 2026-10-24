@@ -12,7 +12,8 @@ import (
 // publishWithRetryAndBuffer sends a batch with exponential backoff. If all
 // retries are exhausted and an offline buffer is configured, the batch is
 // persisted to disk for later replay. It is the retry policy's own method
-// (CPLX-025): the attempt count comes from the policy; the transport,
+// so transportBatcher stays within its field/method ceilings: the
+// attempt count comes from the policy; the transport,
 // histograms, offline buffer, and publish callback are reached through
 // the owning batcher (r.b).
 // Returns true if the batch was published successfully, false if it was
@@ -26,11 +27,9 @@ func (r *batcherRetryPolicy) publishWithRetryAndBuffer(ctx context.Context, batc
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		// Observe data age for each point at the moment of the publish
 		// attempt. This captures the true collection-to-publish delay
-		// including batching, queuing, and retry backoff (IMPROVEMENTS
-		// #1 regression fix: observations moved here from the original
-		// publish.go's
-		// batcher path, which now returns near-instantly after the async
-		// change). Each attempt observes because data age grows during
+		// including batching, queuing, and retry backoff (observing at
+		// enqueue time instead would miss all of that). Each attempt
+		// observes because data age grows during
 		// retries, giving operators the real freshness distribution.
 		if b.dataAge != nil {
 			now := time.Now()
@@ -50,9 +49,8 @@ func (r *batcherRetryPolicy) publishWithRetryAndBuffer(ctx context.Context, batc
 		if lastErr == nil {
 			// Count the real publish (not just the enqueue) so the
 			// engine's totalPublish reflects actual
-			// successful publishes (Finding 4 fix: previously counted
-			// prematurely (in the original publish.go) right after the near-instant
-			// enqueue).
+			// successful publishes (counting right after the near-instant
+			// enqueue would over-report batches that later fail).
 			if b.onPublish != nil {
 				b.onPublish(len(batch))
 			}

@@ -8,10 +8,10 @@ import (
 )
 
 // TestStatsPointsPerSecWindowedRate pins EngineStats.PointsPerSec to the
-// windowed-rate semantics fixed in audit finding OBS-1: the metric must
+// windowed-rate semantics: the metric must
 // reflect recent traffic (and drop to zero after a stall) instead of the
-// lifetime average, which decayed for hours on a stalled pipeline and
-// made "collection stopped" alerting impossible.
+// lifetime average, which decays for hours on a stalled pipeline and
+// makes "collection stopped" alerting impossible.
 func TestStatsPointsPerSecWindowedRate(t *testing.T) {
 	e := New().(*CoreCEngine)
 
@@ -53,7 +53,7 @@ func TestStatsPointsPerSecWindowedRate(t *testing.T) {
 	}
 }
 
-// TestBadQualityDropCounting pins the OBS-6 split: the drop policy's
+// TestBadQualityDropCounting pins the bad-quality split: the drop policy's
 // discards increment the dedicated bad-quality counter and no longer
 // pollute total_errors (a configured policy is not a fault).
 func TestBadQualityDropCounting(t *testing.T) {

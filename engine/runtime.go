@@ -15,10 +15,9 @@ import (
 // engineRuntime groups the engine's lifecycle runtime state and the
 // Start/Stop/Reload orchestration: the status, the root context and
 // cancellation, the goroutine wait group, the shutdown timeout, and the
-// config application. Extracted from CoreCEngine in the CPLX-020 God
-// Object split: CoreCEngine is now a composition shell that holds the
-// shared lock plus the nine role structs and forwards the core.Engine
-// method set to them.
+// config application. CoreCEngine is a composition shell that holds
+// the shared lock plus the nine role structs and forwards the
+// core.Engine method set to them.
 type engineRuntime struct {
 	status core.EngineStatus
 
@@ -62,7 +61,7 @@ func (r *engineRuntime) Start(ctx context.Context, config *core.Config) error {
 	}
 
 	// Create the command-execution semaphore. This bounds the number of
-	// write commands processed in parallel (IMPROVEMENTS #2). Must be
+	// write commands processed in parallel. Must be
 	// created before AddTransport (which starts command listeners).
 	if r.eng.writes.commandConcurrency <= 0 {
 		r.eng.writes.commandConcurrency = core.DefaultCommandConcurrency
@@ -121,7 +120,7 @@ func (r *engineRuntime) Start(ctx context.Context, config *core.Config) error {
 
 	r.eng.processing.startProcessingWorkers()
 
-	// Replay persisted dead letters (audit RES-2): entries that
+	// Replay persisted dead letters: entries that
 	// survived a crash come back into the queryable/replayable queue.
 	if store := r.eng.writes.deadLetters.store; store != nil {
 		store.load(r.eng.writes.deadLetters.maxLen, func(e core.DeadLetterEntry) {
@@ -131,7 +130,7 @@ func (r *engineRuntime) Start(ctx context.Context, config *core.Config) error {
 		})
 	}
 
-	// Build this run's alert registry (audit OBS-4/HUB-6) with the
+	// Build this run's alert registry with the
 	// configured active window and start its sweep loop. It is rebuilt
 	// on every Start alongside the rest of the pipeline state.
 	r.eng.processing.alerts = newAlertManager(r.eng.processing.alertActiveWindow)
@@ -194,7 +193,7 @@ func (r *engineRuntime) Stop() error {
 
 	// Stop the alert registry last: the engine-wide wait group has
 	// joined every processing worker, so no record() can race the
-	// event-channel close (audit OBS-4).
+	// event-channel close.
 	if r.eng.processing.alerts != nil {
 		r.eng.processing.alerts.stop()
 	}
@@ -346,8 +345,8 @@ func (r *engineRuntime) stopComponents() {
 		stopWithErrorTimeout(driverNames[i], "driver", stopTimeout, d.Stop)
 	}
 
-	// Empty the data bus before stopping the batchers (stage-B audit
-	// findings B1.6/B3.4): once the bus is drained the processing
+	// Empty the data bus before stopping the batchers: once the bus is
+	// drained the processing
 	// workers have nothing left to consume and exit promptly on the
 	// cancelled context, so no worker can still be appending to a
 	// batcher's buffer (or enqueueing into its flush queue) while that
@@ -365,8 +364,8 @@ func (r *engineRuntime) stopComponents() {
 	// Stop all batchers with timeout (flush remaining buffered data).
 	// Without a timeout, a batcher whose transport ignores context
 	// cancellation or has an oversized retry config could hang Stop
-	// indefinitely (PERF-008). The shared helper also caps the batcher's
-	// own flushFinal budget at the same shutdownTimeout (B3.1).
+	// indefinitely. The shared helper also caps the batcher's
+	// own flushFinal budget at the same shutdownTimeout.
 	for i, b := range batchers {
 		r.eng.transportMgr.stopBatcherWithTimeout(b, batcherNames[i], "engine shutdown")
 	}
@@ -409,7 +408,7 @@ func stopWithErrorTimeout(name, kind string, timeout time.Duration, stopFn func(
 // bus (main and high-priority channels) and returns how many were
 // dropped. Called by stopComponents before the batchers are stopped so
 // processing workers quiesce and cannot race with the batchers' final
-// flush (stage-B audit findings B1.6/B3.4). The receive loop is
+// flush. The receive loop is
 // non-blocking and exits once both channels are momentarily empty;
 // workers may still be consuming concurrently, in which case they
 // process those points normally and the drain only observes what is

@@ -28,14 +28,14 @@ const (
 	alertEventBufferSize = 256
 )
 
-// alertManager is the engine's first-class alert state (audit findings
-// OBS-4/HUB-6): alerts previously degenerated to a WARN log line that
-// the Dashboard had to reconstruct by filtering log levels. The manager
+// alertManager is the engine's first-class alert state: alerts must not
+// degenerate to a WARN log line that the Dashboard has to reconstruct
+// by filtering log levels. The manager
 // gives alerts identity (rule|driver|tag), lifecycle (fired → acked →
 // cleared), a bounded event history, and a real-time event stream for
 // the /alerts API family.
 //
-// Model (registered in the production-hardening exec plan): no recovery
+// Model: no recovery
 // expressions — an alert is "active" while it keeps re-firing within the
 // active window, and clears (to history) after a full window of
 // silence. Acknowledgement sticks until the alert clears: a re-fire
@@ -181,9 +181,9 @@ func (am *alertManager) record(rule core.Rule, point core.DataPoint) {
 
 	// Registry cap: under a pathological rule (matching every tag), the
 	// oldest-fired alerts are cleared first rather than growing the map
-	// without limit. (Inlined from a helper — single caller — B1,
-	// quality audit 2026-10-21: the alertManager sat at 13 methods, one
-	// over the role ceiling and outside the guard lists.)
+	// without limit. (Inlined rather than a helper method — single
+	// caller, and the alertManager must stay within the role-method
+	// ceiling.)
 	if len(am.active) > alertRegistryCap {
 		byLastFired := make([]*core.Alert, 0, len(am.active))
 		for _, a := range am.active {

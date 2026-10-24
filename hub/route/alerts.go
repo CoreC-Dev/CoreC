@@ -11,11 +11,11 @@ import (
 	"github.com/coder/websocket/wsjson"
 )
 
-// getAlerts serves the engine's first-class alert state (audit findings
-// OBS-4/HUB-6): the currently-active alerts (fired within the active
+// getAlerts serves the engine's first-class alert state: the
+// currently-active alerts (fired within the active
 // window, acknowledged or not) plus the bounded lifecycle history
-// (fired/acked/cleared events, newest first). Alerts previously
-// degenerated to a WARN log line the Dashboard had to reconstruct by
+// (fired/acked/cleared events, newest first). Alerts must be queryable
+// state, not a WARN log line the Dashboard has to reconstruct by
 // filtering log levels.
 //
 // Only depends on the optional core.AlertProvider role; engines that do
@@ -53,7 +53,7 @@ type ackAlertRequest struct {
 	Key string `json:"key"`
 }
 
-// ackAlert acknowledges an active alert (audit OBS-4/HUB-6). Only
+// ackAlert acknowledges an active alert. Only
 // depends on the optional core.AlertProvider role. Key comes in the
 // body rather than the URL path because keys contain "|".
 func ackAlert(w http.ResponseWriter, r *http.Request) {

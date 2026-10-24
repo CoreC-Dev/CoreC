@@ -7,8 +7,8 @@ import (
 )
 
 // ConfigError marks a configuration problem the caller can fix: the
-// payload failed to parse or failed validation (audit findings
-// CFG-3/HUB-2). The route layer surfaces these as 400 with the actual
+// payload failed to parse or failed validation. The route layer surfaces
+// these as 400 with the actual
 // reason, while apply-stage failures keep the masked 500 (they may
 // contain internal details such as connection errors).
 //

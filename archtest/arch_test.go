@@ -69,7 +69,7 @@ func allowedDeps(pkg string) []string {
 
 	case pkg == "common/testutil":
 		// Shared test helpers: may read the metrics registry and core
-		// types, nothing else (B5, quality audit 2026-10-21).
+		// types, nothing else.
 		return []string{"core", "common/metrics"}
 
 	case pkg == "log":
@@ -100,11 +100,11 @@ func allowedDeps(pkg string) []string {
 		return []string{"core", "common/", "config", "log", "hub/"}
 
 	default:
-		// B5 (quality audit 2026-10-21): DEFAULT-DENY. Previously any
-		// package missing from the table above could import anything —
-		// new packages silently bypassed the dependency rules until
-		// someone remembered to extend the table (exactly how drift
-		// enters). A new package now fails with this message until it
+		// DEFAULT-DENY: a
+		// package missing from the table above must not import anything —
+		// otherwise new packages silently bypass the dependency rules
+		// until someone remembers to extend the table (exactly how drift
+		// enters). A new package fails with this message until it
 		// is deliberately classified here; wiring points (cmd/corec,
 		// driver/all, transport/all, demo/*) stay unrestricted above.
 		return []string{} // empty non-nil = no internal dependencies allowed

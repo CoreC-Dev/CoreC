@@ -25,10 +25,10 @@ func getTraffic(w http.ResponseWriter, r *http.Request) {
 			interval = d
 		}
 	}
-	// mode=totals keeps the historical cumulative counters; the default
-	// is rates (roadmap #32 / audit OBS-11: README promised "实时吞吐
-	// 量统计" but the stream pushed lifetime totals, forcing clients to
-	// diff — and a restart-to-zero produced a negative first frame).
+	// mode=totals keeps the cumulative counters; the default
+	// is rates (README promises "实时吞吐量统计": lifetime totals would
+	// force clients to diff, and a restart-to-zero would produce a
+	// negative first frame).
 	modeTotals := r.URL.Query().Get("mode") == "totals"
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

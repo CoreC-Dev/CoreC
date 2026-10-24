@@ -507,7 +507,7 @@ var (
 	_ pahomqtt.Token   = (*neverDoneToken)(nil)
 )
 
-// TestMQTTWillOptionsArmed verifies the LWT wiring (audit TRA-2):
+// TestMQTTWillOptionsArmed verifies the LWT wiring:
 // will-topic + will-payload arm SetBinaryWill; either missing leaves
 // the will unset (back-compat default).
 func TestMQTTWillOptionsArmed(t *testing.T) {

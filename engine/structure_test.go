@@ -10,14 +10,13 @@ import (
 	"testing"
 )
 
-// Anti-regression guards for the CPLX-020/CPLX-025 God Object splits
-// (docs/exec-plans/tech-debt-tracker.md). The acceptance for both
-// entries is: every struct in the split keeps fields <= 10 and its own
+// Anti-regression guards for the God Object split. The acceptance
+// criteria are: every struct in the split keeps fields <= 10 and its own
 // logic methods <= 12. These tests mechanically pin those limits, so a
 // field or method creeping back onto CoreCEngine or transportBatcher
 // fails the suite instead of quietly recreating the God Object.
 //
-// Counting conventions (documented in the tracker):
+// Counting conventions:
 //   - Field counts come from reflection (exact, includes unexported
 //     fields; every role pointer and the shared mutex counts).
 //   - Method counts come from go/ast over the package's non-test
@@ -33,8 +32,8 @@ const (
 	maxRoleMethods     = 12
 )
 
-// godObjectStructs lists every struct created or reshaped by the
-// CPLX-020/CPLX-025 splits, with the field ceiling they must respect.
+// godObjectStructs lists every struct created or reshaped by the God
+// Object split, with the field ceiling they must respect.
 func godObjectStructs() []struct {
 	name string
 	typ  reflect.Type
@@ -53,9 +52,7 @@ func godObjectStructs() []struct {
 		{"writeManager", reflect.TypeOf(writeManager{})},
 		{"processingCore", reflect.TypeOf(processingCore{})},
 		{"lifecycleSupport", reflect.TypeOf(lifecycleSupport{})},
-		// B1 (quality audit 2026-10-21): these two roles grew past the
-		// method ceiling AFTER the split, outside both guard lists —
-		// now pinned. Both sit AT the 10-field limit.
+		// Both sit AT the 10-field limit and must stay pinned here.
 		{"alertManager", reflect.TypeOf(alertManager{})},
 		{"scheduler", reflect.TypeOf(scheduler{})},
 		{"transportBatcher", reflect.TypeOf(transportBatcher{})},
@@ -64,12 +61,12 @@ func godObjectStructs() []struct {
 	}
 }
 
-// TestGodObjectFieldLimit asserts every CPLX-020/025 struct stays at or
+// TestGodObjectFieldLimit asserts every split struct stays at or
 // below the 10-field acceptance ceiling.
 func TestGodObjectFieldLimit(t *testing.T) {
 	for _, s := range godObjectStructs() {
 		if got := s.typ.NumField(); got > maxGodObjectFields {
-			t.Errorf("%s has %d fields, exceeds the CPLX-020/025 limit of %d — move the new state into a dedicated role/sub-struct (see docs/exec-plans/tech-debt-tracker.md CPLX-020/025)",
+			t.Errorf("%s has %d fields, exceeds the struct-size limit of %d — move the new state into a dedicated role/sub-struct",
 				s.name, got, maxGodObjectFields)
 		}
 	}
@@ -130,23 +127,23 @@ func TestRoleMethodLimit(t *testing.T) {
 		"driverRegistry", "transportManager", "writeManager",
 		"processingCore", "lifecycleSupport", "transportBatcher",
 		"batcherRetryPolicy", "batcherBufferState",
-		// B1 (quality audit 2026-10-21): added alongside a one-method
-		// shed each (scheduler.handleReadError → free function mirroring
-		// handleRecovery; alertManager.evictOldestLocked inlined into its
-		// single caller). 13 methods each before; 12 now.
+		// Each of these also shed one method to stay within the limit
+		// (scheduler.handleReadError is a free function mirroring
+		// handleRecovery; alertManager.evictOldestLocked is inlined
+		// into its single caller).
 		"alertManager", "scheduler",
 	}
 	for _, name := range limited {
 		got := counts[name]
 		if got > maxRoleMethods {
-			t.Errorf("%s declares %d methods, exceeds the CPLX-020/025 limit of %d — move the new logic into a dedicated role/sub-struct (see docs/exec-plans/tech-debt-tracker.md CPLX-020/025)",
+			t.Errorf("%s declares %d methods, exceeds the role-method limit of %d — move the new logic into a dedicated role/sub-struct",
 				name, got, maxRoleMethods)
 		}
 	}
 }
 
 // TestCoreCEngineMethodsAreForwarders pins the shell discipline of the
-// CPLX-020 split: every method declared on CoreCEngine must be a
+// God Object split: every method declared on CoreCEngine must be a
 // <=3-line forwarder delegating to exactly one role — a single
 // return/expr statement, with no control flow, local state, or direct
 // field arithmetic. Interface forwarding is not counted as logic by

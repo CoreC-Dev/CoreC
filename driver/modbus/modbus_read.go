@@ -20,17 +20,17 @@ import (
 var errModbusNotConnected = fmt.Errorf("modbus: client is not connected (connection lost)")
 
 func (b *modbusBase) Read(ctx context.Context, tags []string) ([]core.TagValue, error) {
-	// Re-entrant-lock discipline (demo-deploy lock-death root cause,
-	// 2026-10-23): read client AND state under this ONE RLock via the
-	// Locked accessor. The previous `b.GetState()` here self-locked —
-	// RLock under RLock — which is safe UNTIL a writer queues between
+	// Re-entrant-lock discipline: read client AND state under this ONE
+	// RLock via the Locked accessor. A self-locking `b.GetState()`
+	// here — RLock under RLock — is safe UNTIL a writer queues between
 	// the two acquisitions (any error-path b.Lock(), e.g. during a
 	// device power-cycle or host suspend/resume). Then: the inner
 	// RLock waits for the queued writer, the writer waits for the outer
 	// RLock to release, and the driver wedges FOREVER — one parked
 	// goroutine silently blocks every reader, /stats, /drivers, and
-	// /healthz/ready behind it (observed live: 61 goroutines parked
-	// 730+ minutes on a host that suspended mid-cycle). GetStateLocked
+	// /healthz/ready behind it (a host suspending mid-cycle parks
+	// goroutines for the whole suspend, with zero errors logged).
+	// GetStateLocked
 	// exists precisely for this; use it whenever the lock is held.
 	b.RLock()
 	client := b.client
@@ -129,7 +129,7 @@ func (b *modbusBase) Read(ctx context.Context, tags []string) ([]core.TagValue, 
 			})
 
 			// Check if connection is lost. The guard ignores errors from
-			// a client that has already been replaced by a reconnect (B4-1).
+			// a client that has already been replaced by a reconnect.
 			if util.IsConnectionError(err) {
 				b.handleConnLostIfCurrent(client)
 			}
@@ -171,8 +171,8 @@ func (b *modbusBase) readTagWithRetry(ctx context.Context, client *mb.ModbusClie
 			// Wait for backoff but return immediately if ctx is cancelled.
 			select {
 			case <-ctx.Done():
-				// Same B2 wedge fix as the batch path (see the batch
-				// comment for the full mechanism): tear the dead
+				// Same wedged-connection fix as the batch path (see the
+				// batch comment for the full mechanism): tear the dead
 				// connection down before the task deadline swallows
 				// the teardown — ctx-abort must not strand a dead
 				// client in state Connected.
@@ -201,9 +201,8 @@ func (b *modbusBase) readTag(client *mb.ModbusClient, ai addrInfo, dt core.DataT
 	// refreshed client), Phase 3 falls back to per-tag reads with that
 	// same nil — and readTag's first dereference (client.ReadFloat32 etc.)
 	// SIGSEGVs. readTagWithRetry's refresh-on-retry already checks nil,
-	// but the FIRST attempt passes the caller's client straight in.
-	// Observed live in the E2E B8 scenario (device stop mid-cycle):
-	// two engine crashes, both at this exact frame.
+	// but the FIRST attempt passes the caller's client straight in —
+	// a device stopping mid-cycle hits exactly this path.
 	if client == nil {
 		return nil, errModbusNotConnected
 	}
@@ -408,8 +407,8 @@ func (b *modbusBase) performBatchReads(ctx context.Context, client *mb.ModbusCli
 			if err != nil {
 				// Connection lost mid-cycle and not yet re-established:
 				// the refreshed client is nil. Issuing further batches
-				// against it would dereference nil (the demo-deploy
-				// crash) — abort the whole batching phase; Phase 3's
+				// against it would dereference nil — abort the whole
+				// batching phase; Phase 3's
 				// per-tag path re-checks the client and errors cleanly
 				// while the reconnect loop works.
 				if client == nil {
@@ -466,7 +465,7 @@ func (b *modbusBase) readBatchWithRetry(ctx context.Context, client *mb.ModbusCl
 func (b *modbusBase) readBatch(client *mb.ModbusClient, batch readBatch, reqs []batchTagReq) (map[int]any, error) {
 	values := make(map[int]any, len(batch.indices))
 
-	// Nil-client guard (demo-deploy crash, 2026-10-22): when the connection
+	// Nil-client guard: when the connection
 	// drops mid-read-cycle, the refreshed client can be nil until the
 	// reconnect loop re-establishes it. Callers pass the refreshed pointer
 	// through, so a nil can reach this dereference — and a nil ModbusClient

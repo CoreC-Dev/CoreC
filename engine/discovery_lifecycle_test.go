@@ -338,7 +338,7 @@ func TestDiscoveryStopWithoutStart(t *testing.T) {
 	d.Stop() // must not panic
 }
 
-// TestReconcileSkipsNonMQTTPublishEndpoints pins the RES-3 disposition:
+// TestReconcileSkipsNonMQTTPublishEndpoints pins the skip disposition:
 // the "http" endpoint spelling is experimental wire-format — nothing
 // emits it, and reconcile must skip it (with a visible debug line)
 // rather than ever constructing a transport from it. A malformed or

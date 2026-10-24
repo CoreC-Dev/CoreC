@@ -1,8 +1,5 @@
 // Package mqtt: transport lifecycle — Start (broker connect + subscribe),
 // client-option assembly, TLS wiring, and the command/data subscriptions.
-// Split from publisher.go (CPLX-001, quality audit 2026-10-21/B8): the
-// 768-line single file was the repo's only taste-test exemption; the
-// split is by concern, code identical.
 package mqtt
 
 import (
@@ -82,7 +79,7 @@ func (t *MQTTTransport) buildMQTTOptions() *pahomqtt.ClientOptions {
 	if t.password != "" {
 		opts.SetPassword(t.password)
 	}
-	// Arm the Last Will when configured (TRA-2): the broker publishes
+	// Arm the Last Will when configured: the broker publishes
 	// it if this CoreC instance disappears without a DISCONNECT —
 	// downstream systems get a broker-side liveness signal instead of
 	// waiting for scrape gaps.

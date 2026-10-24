@@ -31,19 +31,12 @@ func findModuleRoot() string {
 }
 
 // exemptedFiles lists files that exceed maxLines with a documented reason.
-// Each entry: file path → reason. These are technical debt items being tracked
-// in tech-debt-tracker.md and will be resolved in Phase 4.
-//
-// B5 (quality audit 2026-10-21): the exemption now records a SIZE PIN —
-// publisher.go was recorded at 733 lines but silently grew to 768 (+35 in
-// the LWT commit) because nothing noticed. Growth beyond the pinned size
-// fails the gate; shrinking lets you lower the pin (and eventually delete
-// the exemption when the CPLX-001 split lands).
-// CPLX-001 is RETIRED (2026-10-21, quality audit batch B8): the 768-line
-// publisher.go split into three files by concern (struct+Init /
-// lifecycle / I/O surface), each under the ceiling — the exemption list
-// is now EMPTY for the first time since the cap landed. New exemptions
-// require a tracker ID + a size pin (see git history for the format).
+// Each entry: file path → reason. Exemptions are conscious technical debt:
+// every entry must also carry a SIZE PIN in exemptedFileCaps — growth
+// beyond the pinned size fails the gate, shrinking lets you lower the
+// pin, and a split that lands lets you delete the exemption entirely.
+// The list is currently empty; keep it that way unless a file genuinely
+// cannot be split yet.
 var exemptedFiles = map[string]string{}
 
 // exemptedFileCaps pins the maximum line count per exemption: growth
@@ -111,7 +104,7 @@ func TestFileSizeLimit(t *testing.T) {
 		t.Fatalf("walk failed: %v", err)
 	}
 	if violations > 0 {
-		t.Fatalf("\n%d files exceed the %d-line limit without a documented exemption.\nSee docs/exec-plans/tech-debt-tracker.md CPLX entries for remediation plans.", violations, maxLines)
+		t.Fatalf("\n%d files exceed the %d-line limit without a documented exemption.\nSplit the file or register a documented exemption.", violations, maxLines)
 	}
 }
 

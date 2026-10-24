@@ -12,9 +12,9 @@ import (
 )
 
 // TestTagFileReloadNoGoroutineLeak verifies that repeatedly reloading a
-// driver's tags-file does not leak watcher goroutines (H7). Before the
-// fix, each reload started a new watcher whose goroutine could never be
-// stopped, growing goroutines without bound.
+// driver's tags-file does not leak watcher goroutines: each reload must
+// stop the previous watcher, otherwise the watchers' goroutines pile up
+// without bound.
 func TestTagFileReloadNoGoroutineLeak(t *testing.T) {
 	registerMockTypes()
 

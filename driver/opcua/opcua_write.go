@@ -46,7 +46,7 @@ func (d *OPCUADriver) Write(ctx context.Context, commands []core.WriteCommand) (
 
 		// Convert the engineering value back to the raw device
 		// representation unless the command explicitly requests a raw
-		// write (audit finding DRV-1: reads apply raw×scale+offset, so
+		// write (reads apply raw×scale+offset, so
 		// an un-inverted write lands off by the scale factor).
 		cmd.Value = driverbase.WriteValueForTag(cmd, cfg)
 
@@ -101,9 +101,9 @@ func (d *OPCUADriver) Write(ctx context.Context, commands []core.WriteCommand) (
 
 // handleWriteError records a failed batch write and, when the failure is
 // connection-class, tears the connection down so the reconnect loop
-// restores it — mirroring the Read path (stage-B audit finding B4-2).
-// The B4-1 guard keeps a stale client from tearing down a connection
-// that has already been replaced.
+// restores it — mirroring the Read path.
+// The handleConnLostIfCurrent guard keeps a stale client from tearing
+// down a connection that has already been replaced.
 func (d *OPCUADriver) handleWriteError(err error, client *opcua.Client) {
 	d.RecordError()
 	d.Lock()

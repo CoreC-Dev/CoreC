@@ -22,10 +22,10 @@ const derivedDriverName = "derived"
 var identRe = regexp.MustCompile(`[a-zA-Z_]\w*`)
 
 // qualifiedRefRe matches driver-qualified tag references in an
-// expression, e.g. plc1.temp in "plc1.temp * 2" (audit finding
-// PIPE-2: the flattened tag view collapses same-named tags across
-// drivers, so derived expressions could silently read whichever
-// driver won the map race).
+// expression, e.g. plc1.temp in "plc1.temp * 2". Qualified refs are how
+// expressions dodge the flattened tag view, which collapses same-named
+// tags across drivers — an unqualified name would silently read
+// whichever driver won the map race.
 var qualifiedRefRe = regexp.MustCompile(`([a-zA-Z_]\w*)\.([a-zA-Z_]\w*)`)
 
 // qualifiedRef is one driver.tag reference extracted from an expression.
@@ -50,9 +50,8 @@ var exprBuiltins = map[string]bool{
 
 // extractVars returns the set of unqualified tag names referenced in an
 // expression, excluding built-in functions, language keywords, and the
-// identifiers consumed by driver.tag qualified references (audit
-// finding PIPE-2: those resolve per-driver and must not be treated as
-// flat tag names).
+// identifiers consumed by driver.tag qualified references (those
+// resolve per-driver and must not be treated as flat tag names).
 func extractVars(exprStr string) []string {
 	// Blank out qualified refs first so neither their driver nor tag
 	// component is scanned as a flat reference.
@@ -92,7 +91,7 @@ type compiledDerivedTag struct {
 	config     core.DerivedTagConfig
 	program    *vm.Program
 	vars       []string       // referenced unqualified tag names
-	qualified  []qualifiedRef // driver.tag references (audit PIPE-2)
+	qualified  []qualifiedRef // driver.tag references (per-driver resolution)
 	interval   time.Duration
 	staleGuard time.Duration
 	onMissing  onMissingPolicy
@@ -112,8 +111,7 @@ const (
 // The evaluator owns its goroutines (per-evaluator wait group and a
 // cancelable child context) instead of borrowing the engine's runtime
 // wait group: reload must be able to stop and join JUST the evaluator's
-// goroutines while the engine keeps running (audit finding CFG-1 —
-// derived-tags changes were previously silently ignored on reload).
+// goroutines while the engine keeps running.
 type derivedTagEvaluator struct {
 	tags    []*compiledDerivedTag
 	cache   *LatestCache
@@ -137,10 +135,10 @@ func newDerivedTagEvaluator(configs []core.DerivedTagConfig, cache *LatestCache,
 		}
 		tags = append(tags, ct)
 	}
-	// Cycle detection (roadmap #38 / audit PIPE-4): two derived tags
-	// referencing each other previously evaluated silently against
-	// stale/missing cache values forever — every tick computed garbage
-	// from ghosts with no signal anywhere. Compile-time detection
+	// Cycle detection: two derived tags referencing each other would
+	// evaluate silently against stale/missing cache values forever —
+	// every tick computing garbage from ghosts with no signal anywhere.
+	// Compile-time detection
 	// fails fast with the cycle path spelled out.
 	if err := detectDerivedCycles(tags); err != nil {
 		return nil, err
@@ -394,7 +392,7 @@ func buildEnv(
 		}
 	}
 
-	// Qualified refs (audit PIPE-2): resolve the exact (driver, tag)
+	// Qualified refs: resolve the exact (driver, tag)
 	// pair through the cache, so same-named tags across drivers stay
 	// distinct. expr evaluates them as member access on per-driver
 	// maps: env[driver] = {tag: value}.

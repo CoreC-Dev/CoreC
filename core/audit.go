@@ -2,10 +2,10 @@ package core
 
 import "time"
 
-// ConfigAuditEntry records one successful configuration mutation (audit
-// finding HUB-4 / roadmap #22: PUT /configs and PATCH /configs
-// previously left only a log line — "who changed what, when" required
-// server log access). Bounded, newest-first, in-memory (restart clears
+// ConfigAuditEntry records one successful configuration mutation (from
+// PUT /configs and PATCH /configs) so "who changed what, when" is
+// answerable from the API, not only from server logs. Bounded,
+// newest-first, in-memory (restart clears
 // it; the on-disk truth is the config file + the /configs/backups
 // snapshot set).
 type ConfigAuditEntry struct {

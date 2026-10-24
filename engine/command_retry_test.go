@@ -1,7 +1,7 @@
 // Package engine implements the CoreC orchestration engine.
 //
-// This file holds the command-path tests for stage-B audit findings:
-// B6-1 — configuration-class write failures (tag not found, read-only
+// This file holds the command-path tests for two invariants:
+// configuration-class write failures (tag not found, read-only
 // area, type mismatch) are dead-lettered immediately instead of being
 // blind-retried writeRetryCount+1 times, while every other failure
 // keeps the retry loop; and B3.2 — stranded commands (held by a
@@ -78,7 +78,7 @@ func runFailingWrite(t *testing.T, errMsg string, retryCount int) (*erroringDriv
 // TestExecuteWritePermanentErrorSkipsRetry verifies that a configuration-
 // class failure ("tag not found") contacts the device exactly once and is
 // dead-lettered immediately: retrying a command that references no
-// configured tag can never succeed (stage-B audit finding B6-1).
+// configured tag can never succeed.
 func TestExecuteWritePermanentErrorSkipsRetry(t *testing.T) {
 	drv, entry := runFailingWrite(t, "tag not found: setpoint", 3)
 	if got := drv.writeAttempts(); got != 1 {
@@ -139,8 +139,8 @@ func TestIsPermanentWriteErrorClassifier(t *testing.T) {
 	}
 }
 
-// TestCommandListenerDeadLettersStrandedOnExit is the stage-B audit
-// finding B3.2 regression test: commands must not vanish when a command
+// TestCommandListenerDeadLettersStrandedOnExit is the regression test
+// for stranded-command handling: commands must not vanish when a command
 // listener exits (transport removal / engine shutdown). The listener
 // holding a command while blocked on the concurrency semaphore must
 // dead-letter that command, and everything still buffered behind it.
@@ -174,7 +174,7 @@ func TestCommandListenerDeadLettersStrandedOnExit(t *testing.T) {
 
 	// Give the listener time to receive the held command and block on
 	// the semaphore. Polling instead of a fixed sleep keeps the test
-	// robust under CPU oversubscription (stage-A audit lesson).
+	// robust under CPU oversubscription.
 	deadline := time.Now().Add(2 * time.Second)
 	for len(tr.cmdCh) != 2 && time.Now().Before(deadline) {
 		time.Sleep(2 * time.Millisecond)

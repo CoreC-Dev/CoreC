@@ -51,7 +51,7 @@ func (e *CoreCEngine) OfflineBufferEvictions() uint64 {
 }
 
 // OfflineBufferBytes forwards to the stats collector for the byte-level
-// gauge corec_offline_buffer_bytes (roadmap #28).
+// gauge corec_offline_buffer_bytes.
 func (e *CoreCEngine) OfflineBufferBytes() int64 {
 	return e.stats.OfflineBufferBytes()
 }
@@ -73,7 +73,7 @@ func (e *CoreCEngine) DataAgeHistogram() core.LatencySnapshot {
 }
 
 // ReadLatencyByDriver forwards to the stats collector for the metrics
-// route's optional core.LabeledLatencyProvider role (audit OBS-2).
+// route's optional core.LabeledLatencyProvider role.
 func (e *CoreCEngine) ReadLatencyByDriver() map[string]core.LatencySnapshot {
 	return e.stats.labeled.readSnapshots()
 }
@@ -113,12 +113,12 @@ func (e *CoreCEngine) IngressDeadLetters() []core.DeadLetterEntry {
 }
 
 // ApplyDerivedTags forwards to the lifecycle role for hot-reloading the
-// derived tag set (optional core.DerivedTagApplier role, audit CFG-1).
+// derived tag set (optional core.DerivedTagApplier role).
 func (e *CoreCEngine) ApplyDerivedTags(configs []core.DerivedTagConfig) error {
 	return e.lifecycle.applyDerivedTags(configs)
 }
 
-// --- Alert registry (audit OBS-4/HUB-6) ---
+// --- Alert registry ---
 
 // ActiveAlerts forwards to the alert registry for GET /alerts
 // (optional core.AlertProvider role).
@@ -157,24 +157,24 @@ func (e *CoreCEngine) ActiveAlertCount() int {
 }
 
 // DroppedBreakdown forwards to the stats collector for the per-cause
-// drop families (optional core.DroppedBreakdownProvider role, OBS-6).
+// drop families (optional core.DroppedBreakdownProvider role).
 func (e *CoreCEngine) DroppedBreakdown() core.DroppedBreakdown {
 	return e.stats.DroppedBreakdown()
 }
 
 // DriverMetrics forwards to the stats collector for the driver-metric
-// families (optional core.DriverMetricsProvider role, OBS-8).
+// families (optional core.DriverMetricsProvider role).
 func (e *CoreCEngine) DriverMetrics() []core.DriverMetric {
 	return e.stats.DriverMetrics()
 }
 
 // SetStaleThreshold forwards to the read accessor for PATCH /configs
-// (optional core.StaleThresholdPatcher role, roadmap #23).
+// (optional core.StaleThresholdPatcher role).
 func (e *CoreCEngine) SetStaleThreshold(d time.Duration) {
 	e.reads.SetStaleThreshold(d)
 }
 
-// --- Driver pause/resume (audit RES-4, roadmap #21) ---
+// --- Driver pause/resume ---
 
 // PauseDriver suspends the named driver's collection tasks without
 // removing them (the scheduler flags them; ticks skip while paused).
