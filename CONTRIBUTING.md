@@ -23,7 +23,7 @@ golangci-lint run --timeout 5m                  # v2，配置见 .golangci.yml�
 
 ## 1. 编译与静态检查（硬门）
 
-- **Go 版本锁 `1.27.1`**（见 `go.mod`）。不要用更高版本才有的语法，也不要降级。
+- **Go 版本锁 `1.27.3`**（见 `go.mod`）。不要用更高版本才有的语法，也不要降级。
 - `go build ./...` 必须通过；`cmd/corec` 必须能在 `CGO_ENABLED=0` 下交叉编译（工业场景常部署到无 libc 的 ARM 边缘设备）。
 - `go vet ./...` 必须通过。
 - `golangci-lint run` 必须零 issue。配置在 `.golangci.yml`，**不要为了过 lint 而改配置去放宽规则**——改代码。
