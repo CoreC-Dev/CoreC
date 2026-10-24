@@ -40,3 +40,6 @@ transports:
       broker: tcp://broker:1883
       # topic-template: OMITTED → auto-generated "topo/edge-A/data/{{.Driver}}/{{.Tag}}"
       # command-topic:  OMITTED → auto-generated "topo/edge-A/cmd/#"
+      # The auto-generated command topic is fail-closed like an explicit one:
+      # commands must be signed with this secret.
+      command-secret: "${COREC_COMMAND_SECRET}"

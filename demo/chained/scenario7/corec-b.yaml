@@ -1,7 +1,8 @@
 # Scenario 7: CoreC-B (relay — data uplink, command downlink from cloud)
 # Subscribes edgeA/# for data uplink, forwards to cloud/...
-# Listens on cloud/commands/# for commands (but cannot republish to edgeA/commands/# —
-# this is a known limitation, see docs/guide/chained-core.md scenario 7 warning).
+# Listens on cloud/commands/# for commands; commands targeting drivers this
+# node does not have are re-signed and forwarded to edgeA/commands/# (multi-hop
+# command passthrough, see docs/guide/chained-core.md scenario 7).
 global:
   log-level: info
   api:
@@ -18,6 +19,12 @@ transports:
       topic-template: "cloud/{{.Driver}}/{{.Tag}}"
       data-topic: "edgeA/#"
       command-topic: "cloud/commands/#"
+      # Cloud→relay commands are signed with the cloud secret.
+      command-secret: "${COREC_CLOUD_SECRET}"
+      # Relay→edge forwards must be verifiable by CoreC-A: forward-secret
+      # must equal A's command-secret.
+      command-forward-topic: "edgeA/commands/#"
+      command-forward-secret: "${COREC_COMMAND_SECRET}"
       parser: { type: default }
 
 rules:

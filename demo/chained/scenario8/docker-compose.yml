@@ -25,7 +25,9 @@ services:
       dockerfile: demo/chained/corec.Dockerfile
     volumes: ["./corec-a.yaml:/config.yaml:ro"]
     command: ["-config", "/config.yaml"]
-    environment: ["COREC_API_SECRET=demo-token"]
+    environment:
+      - COREC_API_SECRET=demo-token
+      - COREC_COMMAND_SECRET=demo-command-secret
     ports: ["9090:9090"]
     depends_on: [broker, mock-plc]
 

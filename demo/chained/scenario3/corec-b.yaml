@@ -20,6 +20,10 @@ transports:
     type: http
     settings:
       url: "http://corec-c:9091/ingest"
+      # Webhook ingest on CoreC-C is fail-closed: requests without the
+      # shared secret header are rejected with 401.
+      headers:
+        X-Webhook-Secret: "${WEBHOOK_INGEST_SECRET}"
 
 rules:
   - { name: forward-all, match: "ALL", action: forward, target: to-region }

@@ -5,11 +5,20 @@
 #             downlink           cmd↓              cmd↓
 #
 # Data uplink (A→B→cloud) works fully.
-# Command downlink through relay (cloud→B→A) is NOT supported — B has no local
-# driver to write and cannot republish commands. See docs warning.
-# To test command downlink, publish directly to A's command topic:
-#   docker exec scenario7-broker-1 mosquitto_pub -h broker -t edgeA/commands/plc/temperature \
-#     -m '{"driver":"plc","tag":"temperature","value":42.0,"type":9}'
+# Command downlink works through the relay (cloud→B→A): B receives commands on
+# cloud/commands/#, re-signs them with COREC_COMMAND_SECRET (must equal A's
+# command-secret) and republishes to edgeA/commands/#.
+#
+# Commands must carry an HMAC-SHA256 signature (fail-closed). Publishing a
+# signed command from the host (requires python3 + openssl):
+#   export COREC_CLOUD_SECRET=demo-cloud-secret
+#   PAYLOAD=$(python3 -c 'import json; print(json.dumps({"driver":"plc","tag":"temperature","value":42,"type":9}, sort_keys=True, separators=(",",":")))')
+#   SIG=$(printf %s "$PAYLOAD" | openssl dgst -sha256 -hmac "$COREC_CLOUD_SECRET" | cut -d" " -f2)
+#   MSG=$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); d["X-Signature"]=sys.argv[2]; print(json.dumps(d))' "$PAYLOAD" "$SIG")
+#   docker exec scenario7-broker-1 mosquitto_pub -h broker -t cloud/commands/plc/temperature -m "$MSG"
+# Signature format: hex(HMAC-SHA256(secret, canonical-JSON)) where canonical-JSON
+# is the payload with signature fields removed and keys sorted recursively
+# (see docs/config/transports.md → 命令认证与防重放).
 services:
   broker:
     image: eclipse-mosquitto:2
@@ -24,7 +33,9 @@ services:
       dockerfile: demo/chained/corec.Dockerfile
     volumes: ["./corec-a.yaml:/config.yaml:ro"]
     command: ["-config", "/config.yaml"]
-    environment: ["COREC_API_SECRET=demo-token"]
+    environment:
+      - COREC_API_SECRET=demo-token
+      - COREC_COMMAND_SECRET=demo-command-secret
     ports: ["9090:9090"]
     depends_on: [broker, mock-plc]
 
@@ -34,7 +45,10 @@ services:
       dockerfile: demo/chained/corec.Dockerfile
     volumes: ["./corec-b.yaml:/config.yaml:ro"]
     command: ["-config", "/config.yaml"]
-    environment: ["COREC_API_SECRET=demo-token"]
+    environment:
+      - COREC_API_SECRET=demo-token
+      - COREC_CLOUD_SECRET=demo-cloud-secret
+      - COREC_COMMAND_SECRET=demo-command-secret
     ports: ["9091:9091"]
     depends_on: [broker]
 

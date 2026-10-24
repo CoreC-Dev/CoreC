@@ -20,6 +20,9 @@ transports:
       broker: tcp://broker:1883
       topic-template: "edgeA/{{.Driver}}/{{.Tag}}"
       command-topic: "edgeA/commands/#"
+      # command-topic is fail-closed: commands must be HMAC-SHA256 signed
+      # with this secret (see docker-compose.yml header for a signing recipe).
+      command-secret: "${COREC_COMMAND_SECRET}"
 
 rules:
   - { name: forward-all, match: "ALL", action: forward, target: mqtt }
