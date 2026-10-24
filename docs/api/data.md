@@ -143,9 +143,19 @@ Content-Type: application/json
 }
 ```
 
-#### 写入失败 — `500 Internal Server Error`
+#### 目标不存在或未连接 — `400 Bad Request`
 
-具体错误原因（如驱动写入失败、驱动未找到等）仅记录在服务端日志中，响应体始终返回脱敏的通用错误，避免泄露设备地址等内部细节：
+错误信息中含 `not found` / `not connected`（如驱动名写错、目标驱动未连接）时返回 `400`，并**原样携带**该错误信息（可由调用方修复）：
+
+```json
+{
+  "error": "driver not found: plc1"
+}
+```
+
+#### 其他写入失败 — `500 Internal Server Error`
+
+其余失败（驱动内部错误、通信异常等）可能包含设备地址等内部细节，仅记录在服务端日志中，响应体返回脱敏的通用错误：
 
 ```json
 {
@@ -255,15 +265,17 @@ curl -X POST http://localhost:9090/write \
 API POST /write  →  Engine.WriteTag(cmd)  →  Driver.Write([]cmd)  →  设备
 ```
 
-写入操作通过引擎转发至对应驱动的 `Write` 方法，在独立 goroutine 中执行，不影响采集 goroutine 的上行数据流。
+`POST /write`（及 `/write/batch`）在 HTTP 处理中**同步单次执行**：调用 `Engine.WriteTag` 转发至对应驱动的 `Write` 方法，结果立即返回给调用方——失败不重试、也不进入死信队列，由调用方决定后续动作。写路径不占用采集 goroutine，不影响上行数据流。
 
-写入失败时会按 `engine.write-retry-count` 进行指数退避重试，全部失败后进入死信队列。可通过 `GET /write/failed` 查询死信队列中的失败指令；每次写尝试（成功与失败）均会记入写入审计历史，可通过 [`GET /write/history`](#查询写入审计历史) 查询。
+**重试与死信队列仅作用于反向流指令**（`source=command`，即经传输命令通道（如 MQTT command-topic）到达的写指令）：引擎在独立 goroutine 中按 `global.engine.write-retry-count`（默认 3）做指数退避重试（100ms 起步、上限 2s，总尝试次数 = 重试次数 + 1）；判定为永久性错误的指令（未知标签、只读区域、类型不匹配等配置类错误）跳过剩余重试立即进入死信队列，重试耗尽的指令同样进入死信队列。可通过 `GET /write/failed` 查询死信队列中的失败指令。
+
+两条路径的每次写尝试（成功与失败）均会记入写入审计历史，可通过 [`GET /write/history`](#查询写入审计历史) 查询。
 
 ---
 
 ## 查询失败写入指令
 
-查询死信队列中所有重试耗尽后仍失败的写入指令。死信队列在内存中维护，上限 1000 条，超出时驱逐最旧条目。
+查询死信队列中所有重试耗尽后仍失败的写入指令。死信队列在内存中维护，上限 1000 条，超出时驱逐最旧条目；配置 `global.engine.dead-letter-path` 后，条目会同时追加写入 JSONL 文件并在进程启动时回放（重启不丢失）。
 
 ### 请求
 
@@ -310,9 +322,9 @@ GET /write/failed?source=ingress
 | 字段 | 类型 | 说明 |
 |:---|:---|:---|
 | `command` | object | 原始 `WriteCommand`（driver, device, tag, value, type） |
-| `error` | string | 最后一次失败的错误信息（入站丢弃为丢弃原因，如 `command channel full at ingress`） |
+| `error` | string | 最后一次失败的错误信息（入站丢弃为丢弃原因，如 `command channel full at ingress`；传输被移除时为 `transport removed before dispatch`） |
 | `failed_at` | string (RFC 3339) | 进入死信队列的时间 |
-| `attempts` | int | 总尝试次数（含首次 + 重试；入站丢弃恒为 1） |
+| `attempts` | int | 写入尝试次数：重试耗尽类为 `write-retry-count + 1`，永久性错误类为实际尝试次数；入站丢弃、传输移除前未派发等**从未执行写入**的条目为 `0` |
 | `transport` | string | 仅 `source=ingress` 时出现：丢弃该命令的传输实例名 |
 
 ### 示例
@@ -345,7 +357,7 @@ GET /write/history?since={rfc3339}&limit={n}
 | `driver` | string | 否 | 只返回该驱动的写记录（精确匹配） |
 | `tag` | string | 否 | 标签**子串**匹配 |
 | `since` | string (RFC 3339) | 否 | 只返回该时刻**及之后**的记录（如 `2026-10-20T12:00:00Z`；非法值返回 400） |
-| `limit` | int | 否 | 最多返回前 n 条（新→旧截断） |
+| `limit` | int | 否 | 最多返回前 n 条（新→旧截断）；无法解析、负数或不小于结果长度的值被忽略（返回全量） |
 
 参数可组合，过滤在服务端完成——合规检索不再需要拉全量 1000 条后客户端过滤。
 

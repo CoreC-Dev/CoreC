@@ -213,7 +213,7 @@ GET /traffic?interval={duration}&mode={totals|rate}
 
 | 参数 | 类型 | 必填 | 说明 |
 |:---|:---|:---|:---|
-| `interval` | string (duration) | 否 | 推送间隔，如 `1s`、`500ms`；省略时默认 `1s` |
+| `interval` | string (duration) | 否 | 推送间隔，如 `1s`、`500ms`；省略或非法值时默认 `1s` |
 | `mode` | string | 否 | `rate`（默认）：速率帧；`totals`：历史累计计数帧（旧客户端的差分用法兼容） |
 
 ### 消息格式（默认，速率）
@@ -267,10 +267,10 @@ wscat -c "ws://localhost:9090/traffic?token=corec-secret-token"
 const ws = new WebSocket('ws://localhost:9090/traffic?token=corec-secret-token')
 
 ws.onmessage = (e) => {
-  const { read, publish, dropped } = JSON.parse(e.data)
-  document.getElementById('read').textContent = read
-  document.getElementById('publish').textContent = publish
-  document.getElementById('dropped').textContent = dropped
+  const { read_rate, publish_rate, dropped_rate } = JSON.parse(e.data)
+  document.getElementById('read').textContent = read_rate
+  document.getElementById('publish').textContent = publish_rate
+  document.getElementById('dropped').textContent = dropped_rate
 }
 ```
 
@@ -280,7 +280,7 @@ ws.onmessage = (e) => {
 
 ## /memory — 内存监控实时流
 
-定期推送 Go 运行时内存统计，用于监控核心内存占用和 GC 活动。
+定期推送 Go 运行时内存统计，用于监控核心内存占用和 GC 活动。数据经 `runtime/metrics` 采样（不触发 Stop-The-World 停顿），推送本身不会造成延迟毛刺。
 
 ### 请求
 
@@ -292,7 +292,7 @@ GET /memory?interval={duration}
 
 | 参数 | 类型 | 必填 | 说明 |
 |:---|:---|:---|:---|
-| `interval` | string (duration) | 否 | 推送间隔，如 `1s`、`2s`；省略时默认 `1s` |
+| `interval` | string (duration) | 否 | 推送间隔，如 `1s`、`2s`；省略或非法值时默认 `1s` |
 
 ### 消息格式
 
@@ -312,10 +312,10 @@ GET /memory?interval={duration}
 
 | 字段 | 类型 | 说明 |
 |:---|:---|:---|
-| `alloc` | uint64 | 当前堆内存分配字节数（`runtime.MemStats.Alloc`） |
-| `total_alloc` | uint64 | 累计分配字节数（`runtime.MemStats.TotalAlloc`） |
-| `sys` | uint64 | 从操作系统获取的内存总字节数（`runtime.MemStats.Sys`） |
-| `num_gc` | uint32 | GC 完成次数（`runtime.MemStats.NumGC`） |
+| `alloc` | uint64 | 当前堆内对象字节数（`/memory/classes/heap/objects:bytes`，等价 `MemStats.HeapAlloc`） |
+| `total_alloc` | uint64 | 累计分配字节数（`/gc/heap/allocs:bytes`，等价 `MemStats.TotalAlloc`） |
+| `sys` | uint64 | 从操作系统获取的内存总字节数（`/memory/classes/total:bytes`，等价 `MemStats.Sys`） |
+| `num_gc` | uint64 | GC 完成次数（`/gc/cycles/total:gc-cycles`，等价 `MemStats.NumGC`） |
 | `goroutines` | int | 当前 goroutine 数量（`runtime.NumGoroutine()`） |
 
 ::: info 推送频率

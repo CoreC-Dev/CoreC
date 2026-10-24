@@ -14,10 +14,10 @@ description: CoreC 一等告警——活动告警查询（GET /alerts）、确�
 | `key` | string | 稳定身份 `rule\|driver\|tag`——确认与流关联的键 |
 | `rule` | string | 触发规则名（bad-quality 策略告警为 `bad-quality-policy`） |
 | `driver` / `tag` | string | 触发点位 |
-| `value` / `quality` | any / string | 最近一次触发时的值与质量 |
+| `value` / `quality` | any / int | 最近一次触发时的值与质量（`quality` 为 `Quality` 枚举，按整数序列化：`0=good, 1=bad, 2=uncertain`；`value` 可缺省） |
 | `first_fired` / `last_fired` | RFC 3339 | 首次/最近触发时间 |
 | `count` | int | 活动期间的累计触发次数（按身份去重合并） |
-| `acked` / `acked_at` | bool / RFC 3339 | 是否已被运维确认及确认时间 |
+| `acked` / `acked_at` | bool / RFC 3339 | 是否已被运维确认及确认时间（`acked_at` 确认后出现） |
 
 **生命周期**：
 

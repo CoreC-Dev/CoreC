@@ -13,29 +13,29 @@ CoreC 核心内置一套 RESTful API 与 WebSocket 实时流接口，用于驱�
 |:---|:---|
 | 协议 | HTTP/1.1（RESTful）+ WebSocket；配置 `global.api.tls-cert` 与 `global.api.tls-key` 后启用 HTTPS（WebSocket 对应 `wss://`） |
 | 基础地址 | `http://<host>:<port>`，由 `global.api.listen` 决定 |
-| 内容类型 | `application/json`（所有请求体与响应体） |
+| 内容类型 | `application/json`（绝大多数请求体与响应体）；例外：`GET /configs/raw` 与 `GET /configs/backups/{name}` 返回 `application/yaml`，`GET /metrics` 返回 Prometheus 文本格式（`text/plain; version=0.0.4`） |
 | 字符编码 | UTF-8 |
 | 请求体上限 | 1 MiB（`maxRequestBody`，超出将返回 `400 Bad Request`） |
-| 鉴权方式 | Bearer Token（Header 或 Query 参数） |
+| 鉴权方式 | Bearer Token（`Authorization` 请求头；仅 WebSocket 升级请求例外地可用 `?token=` 查询参数，见下文） |
 
 ## 认证
 
-当配置项 `global.api.secret` 非空时，除公开端点外的所有端点均需鉴权。支持两种传递 Token 的方式：
+当配置项 `global.api.secret` 非空时，除公开端点外的所有端点均需鉴权。普通 HTTP 请求**只接受 `Authorization` 请求头**；`?token=` 查询参数仅对 WebSocket 升级请求开放（浏览器 WebSocket API 无法自定义 Header 的狭窄例外，避免 Token 泄露到浏览器历史、反向代理日志与 Referer 头）：
 
 ::: code-group
 
-```bash [Authorization Header（推荐）]
+```bash [Authorization Header（HTTP 请求）]
 curl http://localhost:9090/drivers \
   -H "Authorization: Bearer corec-secret-token"
 ```
 
-```bash [Query 参数]
-curl "http://localhost:9090/drivers?token=corec-secret-token"
+```bash [Query 参数（仅 WebSocket 升级请求）]
+wscat -c "ws://localhost:9090/tags/stream?token=corec-secret-token"
 ```
 
 :::
 
-Token 比较使用恒定时间比较（`crypto/hmac.Equal`），可防止时序攻击。
+Token 比较先将双方做 SHA-256 哈希再以恒定时间比较（`crypto/hmac.Equal`），可防止时序攻击并避免泄露 Secret 长度。
 
 ::: warning 未配置 Secret
 若 `global.api.secret` 为空，核心将**拒绝启动**（fail-closed）以确保安全，而非跳过鉴权公开所有端点。具体而言：
@@ -53,7 +53,7 @@ Token 比较使用恒定时间比较（`crypto/hmac.Equal`），可防止时序�
 | 方法 | 路径 | 说明 |
 |:---|:---|:---|
 | `GET` | `/` | 服务信息，返回 `{"name": "corec", "version": "...", "status": "ok", "time": "...", "uptime": "..."}` |
-| `GET` | `/version` | 版本信息，返回 `{"version": "dev"}` |
+| `GET` | `/version` | 版本信息，返回 `{"version": "<构建版本>"}`（默认 `dev`，经 `-ldflags` 注入 `hub/route.Version`） |
 | `GET` | `/healthz/live` | 存活探针，返回 `{"status": "alive"}`（Kubernetes liveness） |
 | `GET` | `/healthz/ready` | 就绪探针，检查引擎状态与数据通路（Kubernetes readiness） |
 
@@ -91,16 +91,17 @@ API 内置 CORS 中间件，用于支持浏览器端仪表盘跨域访问。行�
 
 | 状态码 | 含义 | 触发场景 |
 |:---|:---|:---|
-| `200 OK` | 请求成功 | 所有 `GET` 端点、`POST /write` 成功 |
+| `200 OK` | 请求成功 | 所有 `GET` 端点、`POST /write` 成功、`POST /write/batch`（含部分失败）、`POST /drivers/test` 与 `POST /transports/{name}/test`（连通与不通都是 200） |
 | `201 Created` | 资源已创建 | `POST /configs/backups` 手动快照成功 |
-| `204 No Content` | 操作成功，无响应体 | `PUT /configs`、`PATCH /configs`、`PATCH /rules/disable`、`POST /configs/backups/{name}/restore` |
-| `400 Bad Request` | 请求格式错误 | JSON 解析失败、规则索引越界、备份名非法或备份校验失败等 |
+| `204 No Content` | 操作成功，无响应体 | `PUT /configs`、`PATCH /configs`、`PATCH /rules/disable`、`POST /configs/backups/{name}/restore`、资源级 `DELETE /drivers/{name}`、`DELETE /transports/{name}`、`DELETE /rules/{name}`、`POST /drivers/{name}/pause`、`POST /drivers/{name}/resume`、`POST /alerts/ack` |
+| `400 Bad Request` | 请求格式错误 | JSON 解析失败、规则名/索引不存在、`POST /write` 目标驱动不存在或未连接、批量写空数组或超 128 条、备份名非法或备份校验失败、PATCH 配置键不合法等 |
 | `401 Unauthorized` | 认证失败 | Token 缺失或不匹配 |
-| `429 Too Many Requests` | 请求频率超限 | 触发速率限制中间件（`global.api.rate-limit-per-sec`，超限按客户端 IP 拒绝） |
-| `404 Not Found` | 资源不存在 | 驱动/传输名称未找到、配置备份不存在 |
-| `500 Internal Server Error` | 内部错误 | 写入失败、配置重载失败等 |
-| `501 Not Implemented` | 能力不支持 | 引擎未实现端点依赖的可选角色接口（如 `GET /write/history` 需要 `core.WriteAuditor`、`POST /rules/preview` 需要 `core.RulePreviewer`） |
-| `503 Service Unavailable` | 服务状态不满足 | 空配置启动（无配置文件路径）时访问配置备份端点 |
+| `404 Not Found` | 资源不存在 | 驱动/传输名称未找到、规则名未找到、告警键不存在、配置备份不存在 |
+| `422 Unprocessable Entity` | 全部批量写失败 | `POST /write/batch` 请求合法但所有指令均被设备层面拒绝 |
+| `429 Too Many Requests` | 请求频率超限 | 触发速率限制中间件（`global.api.rate-limit-per-sec`，按客户端 IP 令牌桶，超限响应带 `Retry-After: 1`） |
+| `500 Internal Server Error` | 内部错误 | 写入失败、配置应用失败、资源级 DELETE 应用失败等（响应体为脱敏的 `internal server error`，真实原因仅记录服务端日志） |
+| `501 Not Implemented` | 能力不支持 | 引擎未实现端点依赖的可选角色接口（如 `GET /write/history` 需要 `core.WriteAuditor`、`POST /rules/preview` 需要 `core.RulePreviewer`、`GET /alerts`/`POST /alerts/ack`/`WS /alerts/stream` 需要 `core.AlertProvider`/`core.AlertStreamer`、驱动暂停/恢复与 `GET /drivers/paused` 需要暂停角色、`GET /configs/audit` 需要审计接线） |
+| `503 Service Unavailable` | 服务状态不满足 | 空配置启动（无配置文件路径）时访问配置/备份端点、`GET /configs` 无活动配置、`GET /healthz/ready` 引擎未就绪 |
 
 ## 端点索引
 
@@ -150,7 +151,7 @@ API 内置 CORS 中间件，用于支持浏览器端仪表盘跨域访问。行�
 | `GET` | `/debug/pprof/*` | 是 | pprof 性能分析端点（可配置关闭或独立端口） |
 
 ::: tip 传输管理端点
-`GET /transports` 与 `GET /transports/{name}` 用于查询传输（transport）运行状态，返回 `TransportStatus`（含 `name`、`type`、`state`（连接状态）、`published`、`failed`、`received`、`last_publish`、`queue_size`）。`{name}` 不存在时返回 `404 Not Found`。当前未提供独立的传输管理文档页，相关字段以代码中 `core.TransportStatus` 为准。
+`GET /transports` 与 `GET /transports/{name}` 用于查询传输（transport）运行状态，返回 `TransportStatus`（含 `name`、`type`、`state`（连接状态）、`published`、`failed`、`received`、`last_publish`、`queue_size`、`dropped_commands`）。`{name}` 不存在时返回 `404 Not Found`。当前未提供独立的传输管理文档页，相关字段以代码中 `core.TransportStatus` 为准。
 :::
 
 ### WebSocket 端点
@@ -173,7 +174,7 @@ WebSocket 端点同样受认证中间件保护。由于浏览器 WebSocket API �
 
 1. **RequestID** — 生成唯一请求 ID
 2. **Trace** — W3C Trace Context 传播（解析 `traceparent` 头，注入 trace ID 到 context）
-3. **SafeRequestLogger** — 计算耗时并记录访问日志（自动脱敏 `token` 查询参数，防止凭证泄露）
+3. **SafeRequestLogger** — 计算耗时并以 **DEBUG 级别**记录访问日志（受 `global.log-level` 控制，info 及以上级别不输出；自动脱敏 `token` 查询参数，防止凭证泄露）
 4. **Recoverer** — 捕获 panic，返回 `500` 防止进程崩溃
 5. **CORS** — 跨域处理
 6. **HTTP Metrics** — 记录 `corec_http_requests_total` / `corec_http_request_duration_seconds`（直方图，见[可观测性指南](../guide/observability.md)）

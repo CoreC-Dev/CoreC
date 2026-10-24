@@ -34,7 +34,8 @@ GET /drivers
       "last_error": "",
       "tag_count": 120,
       "read_count": 45000,
-      "error_count": 3
+      "error_count": 3,
+      "reconnect_count": 1
     },
     {
       "name": "plc2",
@@ -44,7 +45,8 @@ GET /drivers
       "last_error": "connection refused",
       "tag_count": 64,
       "read_count": 0,
-      "error_count": 1
+      "error_count": 1,
+      "reconnect_count": 0
     }
   ]
 }
@@ -62,6 +64,7 @@ GET /drivers
 | `tag_count` | int | 该驱动配置的标签总数 |
 | `read_count` | uint64 | 累计成功读取次数 |
 | `error_count` | uint64 | 累计错误次数 |
+| `reconnect_count` | uint64 | 累计重连尝试次数 |
 
 ### 连接状态（state）
 
@@ -114,7 +117,8 @@ GET /drivers/{name}
   "last_error": "",
   "tag_count": 120,
   "read_count": 45000,
-  "error_count": 3
+  "error_count": 3,
+  "reconnect_count": 1
 }
 ```
 
@@ -365,7 +369,9 @@ curl -X POST http://localhost:9090/drivers/plc1/pause \
 | 状态码 | 说明 |
 |:---|:---|
 | `204 No Content` | 已暂停 |
+| `400 Bad Request` | 请求体不是合法 JSON（该端点无请求体，传空或不传即可） |
 | `404 Not Found` | 驱动不存在 |
+| `500 Internal Server Error` | 暂停操作内部失败 |
 | `501 Not Implemented` | 引擎不支持暂停 |
 
 暂停期间：该驱动的所有采集任务跳过 tick（不读、不产生数据点）；驱动连接**不关闭**（恢复即读，无重连延迟）；`/tags` 中的既有缓存值随 `stale-threshold` 标记为陈旧。
@@ -376,6 +382,8 @@ curl -X POST http://localhost:9090/drivers/plc1/pause \
 |:---|:---|
 | `204 No Content` | 已恢复（下一 tick 起采集） |
 | `404 Not Found` | 驱动不存在 |
+| `500 Internal Server Error` | 恢复操作内部失败 |
+| `501 Not Implemented` | 引擎不支持暂停/恢复 |
 
 ### 查询暂停列表 — `GET /drivers/paused`
 
@@ -384,6 +392,8 @@ curl -X POST http://localhost:9090/drivers/plc1/pause \
   "paused": ["plc1", "plc3"]
 }
 ```
+
+引擎不支持暂停角色时同样返回 `501 Not Implemented`。
 
 ::: info 与配置删除的区别
 暂停是**调度器级**开关：配置、连接、缓存全部保留，恢复零成本。删除驱动（改配置）则拆除连接、清除任务，恢复需完整重建与重连。注意：暂停状态不落盘，进程重启后清零。

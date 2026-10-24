@@ -125,7 +125,7 @@ Content-Type: application/json
 | 字段 | 类型 | 必填 | 说明 |
 |:---|:---|:---|:---|
 | `name` | string | 与 `index` 二选一 | 规则名（对应 `GET /rules` 返回的 `name` 字段）。**推荐**，reload 后仍稳定。同时传入 `name` 与 `index` 时以 `name` 为准 |
-| `index` | int | 与 `name` 二选一 | 规则索引（对应 `GET /rules` 返回的 `index` 字段）。向后兼容保留；注意 reload 或重排后索引会漂移 |
+| `index` | int | 与 `name` 二选一 | 规则索引（对应 `GET /rules` 返回的 `index` 字段）。向后兼容保留；注意 reload 或重排后索引会漂移。**两者都省略时按 `index=0` 处理** |
 | `disabled` | bool | 是 | `true` 为禁用，`false` 为启用 |
 
 ::: warning 请求体限制
@@ -269,11 +269,19 @@ Content-Type: application/json
 
 #### 表达式编译错误 — `400 Bad Request`
 
-错误信息**原样返回**（不做脱敏），便于前端在表达式编辑器旁直接展示 expr 的具体报错：
+错误信息**原样返回**（不做脱敏），便于前端在表达式编辑器旁直接展示 expr 的具体报错（含源码位置指示行）：
 
 ```json
 {
-  "error": "failed to create rule preview: invalid match expression \"tag ==\": compile expression \"tag ==\" (translated: \"tag ==\"): unexpected token EOF (1:6)"
+  "error": "compile expression \"tag ==\" (translated: \"tag ==\"): unexpected token EOF (1:6)\n | tag ==\n | .....^"
+}
+```
+
+**求值错误**同样原样返回 `400`（不会被静默吞成"未匹配"）。如对 string 值做数值比较：
+
+```json
+{
+  "error": "expression evaluation failed: invalid operation: string > int (1:7)\n | value > 90\n | ......^"
 }
 ```
 
