@@ -1,6 +1,6 @@
 ---
 title: 传输配置
-description: CoreC 北向传输配置参考，涵盖 MQTT、HTTP 两种传输、批量/刷新/重试通用参数、链式核心入站及解析器配置。
+description: CoreC 北向传输配置参考，涵盖 MQTT、HTTP、Notify 三种传输、批量/刷新/重试通用参数、链式核心入站及解析器配置。
 ---
 
 # 传输配置
@@ -8,7 +8,7 @@ description: CoreC 北向传输配置参考，涵盖 MQTT、HTTP 两种传输、
 `transports` 段定义北向（northbound）传输通道。每个传输实例将采集到的数据点发布到云端或上游系统，并可选地接收反向写命令。
 
 ::: warning 字段位置
-`batch-size`、`flush-interval`、`retry-count`、`buffer-size`、`fallback` 是传输的**顶层字段**（与 `settings` 平级），**不能**写进 `settings` 内部。写进 `settings` 会被静默忽略，传输退化为同步逐点发布且不报错。配置校验会对此快速失败。
+`batch-size`、`flush-interval`、`retry-count`、`buffer-size`、`fallback` 是传输的**顶层字段**（与 `settings` 平级），**不能**写进 `settings` 内部。配置校验会对这种错位快速失败，报错并提示把字段上移一层，指出正确的缩进位置。
 :::
 
 ```yaml
@@ -20,7 +20,7 @@ transports:
       client-id: factory-edge-01
       qos: 1
       topic-template: "factory/{{.Driver}}/{{.Group}}/{{.Tag}}"
-      command-topic: "factory/commands/#"
+      # command-topic: "factory/commands/#"   # 订阅命令主题必须同时配置 command-secret（见下文）
     batch-size: 50            # ← 顶层字段，与 settings 平级
     flush-interval: 1s        # ← 顶层字段
 ```
@@ -32,7 +32,7 @@ transports:
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
 | `name` | string | **是** | — | 传输实例名称，全局唯一，用于规则 `target` 引用 |
-| `type` | string | **是** | — | 传输类型：`mqtt` 或 `http` |
+| `type` | string | **是** | — | 传输类型：`mqtt`、`http` 或 `notify` |
 | `settings` | object | **是** | — | 协议专属连接参数 |
 | `batch-size` | int | 否 | `100` | 单次批量发送的最大数据点数。**顶层字段**（与 `settings` 平级） |
 | `flush-interval` | duration | 否 | — | 触发刷新的时间间隔，未设置则不启用定时刷新。**顶层字段** |
@@ -46,6 +46,7 @@ transports:
 | --- | --- | --- |
 | `mqtt` | MQTT 3.1.1 | IoT 平台、边缘网关、命令回写 |
 | `http` | HTTP/REST | MES、数据湖 API、Webhook |
+| `notify` | 告警通知 | Slack、Microsoft Teams、邮件、自定义 Webhook（见下文 [Notify 传输](#notify-传输-告警通知) 小节） |
 
 ::: info
 `batch-size` 与 `flush-interval` 共同决定发送时机：**任一条件先满足即触发发送**。例如 `batch-size: 50` 且 `flush-interval: 1s`，则 1 秒内攒满 50 点立即发送，否则满 1 秒发送当前已攒的点。
@@ -79,7 +80,7 @@ transports:
 
 ### retry-count
 
-发送失败后的重试次数。每次重试间隔采用指数退避（base × 2^n）。**默认 `0` 表示不重试**。重试耗尽后，若启用了全局 `buffer`，数据批次写入本地磁盘缓冲待后续回放；否则数据点丢弃并累加 `failed` 计数。
+发送失败后的重试次数。每次重试间隔采用指数退避（100ms × 2^n，上限 5s）。**默认 `0` 表示不重试**。重试耗尽后，若启用了全局 `buffer`，数据批次写入本地磁盘缓冲待后续回放；否则数据批次丢弃并累加 `failed` 计数。
 
 ::: tip 离线缓冲
 全局 `buffer` 配置启用后，传输重试耗尽时数据会写入本地磁盘，待传输恢复后自动回放，防止数据丢失。详见[全局配置 - buffer](./global#buffer)。
@@ -102,7 +103,12 @@ transports:
 
 ### buffer-size
 
-命令/数据通道容量（内部 command/data channel）。当入站数据或命令的到达速率超过引擎消费速率、通道已满时，**丢弃新到达的数据点**（非阻塞写入）并记录 `warn` 日志。默认 `100`。
+命令/数据通道容量（内部 command/data channel）。当入站速率超过引擎消费速率、通道已满时执行**非阻塞丢弃**：
+
+- MQTT 命令：转入传输本地的死信存储（有界，可通过 `GET /write/failed?source=ingress` 查询重放），并累加 `dropped_commands` 计数；
+- MQTT 数据点 / HTTP webhook 数据点：直接丢弃并记录 `warn` 日志（webhook 场景计入响应体的 `queue_dropped`）。
+
+默认 `100`。
 
 ---
 
@@ -118,7 +124,6 @@ transports:
     client-id: factory-edge-01
     qos: 1
     topic-template: "factory/{{.Driver}}/{{.Group}}/{{.Tag}}"
-    command-topic: "factory/commands/#"
   batch-size: 50
   flush-interval: 1s
 ```
@@ -128,38 +133,43 @@ transports:
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
 | `broker` | string | **是** | — | Broker 地址，格式 `scheme://host:port` |
-| `client-id` | string | 否 | 自动生成 | 客户端 ID，需在 Broker 范围内唯一 |
+| `client-id` | string | 否 | 自动生成（`corec-<传输名>-<毫秒时间戳>`） | 客户端 ID，需在 Broker 范围内唯一 |
 | `username` | string | 否 | — | 用户名认证 |
 | `password` | string | 否 | — | 密码认证 |
 | `qos` | int | 否 | `1` | 服务质量等级，取值 `0`、`1`、`2` |
 | `retained` | bool | 否 | `false` | 是否发布保留消息 |
 | `topic-template` | string | 否 | <code v-pre>corec/{{.Driver}}/{{.Tag}}</code> ¹ | 发布主题模板，支持 Go 模板变量 |
-| `command-topic` | string | 否 | — ¹ | 订阅的命令主题，支持通配符 `+` / `#` |
-| `command-secret` | string | 否 | `""`（禁用认证） | 命令 HMAC-SHA256 认证密钥，见[命令认证与防重放](#命令认证与防重放) |
+| `command-topic` | string | 否 | — ¹ | 订阅的命令主题，支持通配符 `+` / `#`；**设置时必须同时设置 `command-secret`**，否则传输拒绝启动 |
+| `command-secret` | string | 条件必填 | — | 命令 HMAC-SHA256 认证密钥；配置了 `command-topic` 时必填（缺省时启动失败，fail-closed），见[命令认证与防重放](#命令认证与防重放) |
 | `command-max-skew` | duration | 否 | `5m` | 命令时间戳允许偏移；`0` 关闭防重放窗口与新鲜度校验 |
 | `command-strict-replay` | bool | 否 | `false` | `true` 时拒绝无 `timestamp` 的签名命令（生产环境推荐） |
+| `command-forward-topic` | string | 否 | — | 链式核心命令透传：中继节点收到目标为本节点无对应驱动的命令时，转发到此下游主题 |
+| `command-forward-secret` | string | 否 | — | 转发命令的 HMAC-SHA256 签名密钥并附带新时间戳；空则转发时不签名 |
 | `data-topic` | string | 否 | — ¹ | 订阅的数据主题（链式核心入站），需配合 `parser` |
 | `keep-alive` | duration | 否 | `60s` | 心跳保活间隔 |
 | `connect-timeout` | duration | 否 | `10s` | 连接超时时间 |
 | `auto-reconnect` | bool | 否 | `true` | 是否自动重连 |
 | `clean-session` | bool | 否 | `true` | 是否使用干净会话 |
 | `connect-retry` | bool | 否 | `true` | 是否在连接失败后自动重试 |
-| `connect-retry-interval` | duration | 否 | `5s` | 连接重试间隔 |
+| `connect-retry-interval` | duration | 否 | `5s` | 连接重试间隔（Init 时施加 ±20% 抖动防止重连风暴） |
 | `subscribe-timeout` | duration | 否 | `5s` | 订阅操作超时 |
 | `publish-timeout` | duration | 否 | `5s` | 发布操作超时 |
 | `disconnect-quiesce` | duration | 否 | `1s` | 断开连接时的静默等待时长 |
+| `tls-ca-file` | string | 否 | — | CA 证书 PEM 文件路径（校验服务端）；省略时使用系统根证书 |
+| `tls-cert-file` | string | 否 | — | 客户端证书 PEM 文件路径（启用 mTLS），需与 `tls-key-file` 成对设置 |
+| `tls-key-file` | string | 否 | — | 客户端私钥 PEM 文件路径 |
 | `will-topic` | string | 否 | — | **遗嘱消息（LWT）**主题：CoreC 异常掉线（崩溃/断网/断电，无 DISCONNECT 包）时由 Broker 代发的主题。下游系统据此获得 Broker 侧的网关存活信号，无需依赖指标抓取间隔。与 `will-payload` 同时设置才生效 |
 | `will-payload` | string | 否 | — | 遗嘱消息内容（如 `offline`） |
 | `will-qos` | int | 否 | `0` | 遗嘱消息 QoS |
 | `will-retain` | bool | 否 | `true` | 遗嘱消息是否保留——保留后迟到的订阅者也能立即看到离线状态 |
+| `parser` | object | 否 | — | 入站数据解析器配置，见[解析器配置](#解析器配置-parser) |
 
 ::: tip 遗嘱与重连的关系
 LWT 只在**异常掉线**时触发；CoreC 优雅退出（SIGINT/SIGTERM）会正常发送 DISCONNECT，遗嘱不触发。断网后 paho 自动重连成功则 Broker 清除遗嘱状态——因此上游应订阅 `will-topic` 并结合 `$SYS` 或重连日志判断网关当前是否可达。
 :::
-| `parser` | object | 否 | — | 入站数据解析器配置，见[解析器配置](#解析器配置-parser) |
 
 ::: info ¹ 自动发现
-当配置了 `node.id`（拓扑自动发现）时，`topic-template`、`command-topic`、`data-topic`、`parser` 在省略时会自动生成或发现。显式配置的字段始终优先，不会被覆盖。详见 [链式核心 → 拓扑自动发现](/guide/chained-core#拓扑自动发现-auto-discovery)。
+当配置了 `node.id`（拓扑自动发现）时：MQTT 传输省略的 `topic-template`、`command-topic` 会按 `{prefix}/{node-id}/...` 自动生成；显式设置 `data-topic` 时省略的 `parser` 自动补 `{ type: default }`；上游节点的数据主题由发现机制自动订阅（以 `auto-<上游ID>` 为名新增传输）。显式配置的字段始终优先，不会被覆盖。详见 [链式核心 → 拓扑自动发现](/guide/chained-core#拓扑自动发现-auto-discovery)。
 :::
 
 ### broker
@@ -170,6 +180,10 @@ LWT 只在**异常掉线**时触发；CoreC 优雅退出（SIGINT/SIGTERM）会�
 | `ssl://` `tls://` `mqtts://` `mqtt+ssl://` `tcps://` | TLS 加密 MQTT | `mqtts://broker.emqx.io:8883` |
 | `ws://` | WebSocket | `ws://broker.emqx.io:8083/mqtt` |
 | `wss://` | WebSocket over TLS | `wss://broker.emqx.io:8084/mqtt` |
+
+::: tip TLS
+TLS 实际由 broker URL 的 scheme 决定：使用 `mqtts://`、`ssl://` 等 TLS scheme 才会在链路上加密，`tls-ca-file`/`tls-cert-file`/`tls-key-file` 只提供证书材料。配置了任一 `tls-*` 证书文件但 broker 使用明文 scheme（如 `tcp://`）时，传输初始化直接报错——拒绝"以为加密实则明文"的配置。两者都不设置时连接保持明文。
+:::
 
 ### qos
 
@@ -231,7 +245,7 @@ command-topic: "factory/commands/plc-modbus/+"   # 仅该驱动的命令
 
 #### 命令认证与防重放
 
-配置了 `command-topic` 后，**任何能向该主题发布消息的客户端都可注入控制命令**。生产环境必须配置 `command-secret`：命令消息需携带 `hex(HMAC-SHA256(secret, 规范化签名载荷))`，放在 `X-Signature` 或 `signature` JSON 字段（签名载荷为移除签名字段、按键名排序后的 JSON）。
+配置了 `command-topic` 后，**任何能向该主题发布消息的客户端都可注入控制命令**，因此 `command-secret` 为必填项：不设置时传输**拒绝启动**（fail-closed）。命令消息需携带 `hex(HMAC-SHA256(secret, 规范化签名载荷))`，放在 `X-Signature` 或 `signature` JSON 字段（签名载荷为移除签名字段、按键名递归排序后的 JSON）。
 
 防重放依赖消息中的 `timestamp` 字段（Unix 毫秒）：
 
@@ -289,8 +303,11 @@ HTTP Push 的反向控制指令通道（`OnCommand()`）存在但当前不投递
 | `max-idle-conns` | int | 否 | `100` | 连接池最大空闲连接数 |
 | `max-idle-conns-per-host` | int | 否 | `20` | 每主机最大空闲连接数 |
 | `idle-conn-timeout` | duration | 否 | `90s` | 空闲连接超时时间 |
-| `webhook-addr` | string | 否 | — | Webhook 监听地址（链式核心入站），如 `0.0.0.0:9091` |
+| `webhook-addr` | string | 否 | — | Webhook 监听地址（链式核心入站），如 `0.0.0.0:9091`；**设置时必须同时设置 `webhook-secret`**，否则传输拒绝启动 |
 | `webhook-path` | string | 否 | `/data` | Webhook URL 路径 |
+| `webhook-secret` | string | 条件必填 | — | Webhook 认证密钥；配置了 `webhook-addr` 时必填（缺省时启动失败，fail-closed）。请求须携带 `Authorization: Bearer <secret>` 或 `X-Webhook-Secret: <secret>` 头，否则返回 401 |
+| `tls-cert-file` | string | 否 | — | Webhook 服务端证书 PEM 文件路径；与 `tls-key-file` 同时设置时 webhook 以 HTTPS 监听 |
+| `tls-key-file` | string | 否 | — | Webhook 服务端私钥 PEM 文件路径 |
 | `parser` | object | 否 | — | 入站数据解析器配置，见[解析器配置](#解析器配置-parser) |
 
 ### url
@@ -321,12 +338,12 @@ headers:
 ```
 
 ::: info
-核心默认以 JSON 数组形式发送批量数据点，即 `[]DataPoint`。若上游要求不同结构，可在网关层做转换，或通过规则 `transform` 调整。
+核心默认以 JSON 数组形式发送批量数据点，即 `[]DataPoint`，且自动附加 `Content-Type: application/json`。若上游要求不同结构，可在网关层做转换。
 :::
 
 ### timeout
 
-单次 HTTP 请求（含重试中的每次尝试）的超时时间，默认 `5s`。超时后视为本次发送失败，进入重试流程。
+单次 HTTP 请求（含重试中的每次尝试）的超时时间，默认 `5s`。超时后视为本次发送失败，进入重试流程。HTTP 传输内置的发布重试仅针对**网络错误与 5xx 响应**（500ms 起指数退避）；4xx 等其他非 2xx 响应立即失败不重试——重试无法改变客户端错误的结果。
 
 ### 连接池
 
@@ -340,9 +357,9 @@ headers:
 
 ### webhook-addr / webhook-path（链式核心入站）
 
-设置 `webhook-addr` 后，传输会启动一个 HTTP 服务接收上游 CoreC 实例或第三方 POST 请求中的数据（链式核心入站）。请求体可以是单个 `DataPoint` JSON 对象或 `[]DataPoint` 数组，经 `parser` 解析后进入引擎 DataBus。
+设置 `webhook-addr` 后，传输会启动一个 HTTP 服务接收上游 CoreC 实例或第三方 POST 请求中的数据（链式核心入站）。请求体可以是单个 `DataPoint` JSON 对象或 `[]DataPoint` 数组，经 `parser` 解析后进入引擎 DataBus。仅接受 POST，单请求体上限 10 MiB；认证方式见上表 `webhook-secret`。
 
-**响应**（`202 Accepted`，JSON 体）：批量请求的逐项结果计数（roadmap #36）——部分失败对发送方可见，不再是空白的 202：
+**响应**（`202 Accepted`，JSON 体）：批量请求的逐项结果计数——部分失败对发送方可见：
 
 ```json
 { "received": 4, "accepted": 2, "parse_failed": 2, "queue_dropped": 0 }
@@ -354,6 +371,7 @@ headers:
 settings:
   webhook-addr: "0.0.0.0:9091"
   webhook-path: "/ingest"
+  webhook-secret: "your-webhook-secret"
   parser:
     type: default          # json.Unmarshal(DataPoint)
 ```
@@ -429,7 +447,7 @@ parser:
 
 ```yaml
 transports:
-  # MQTT 云端传输：发布 + 命令回写 + 链式入站
+  # MQTT 云端传输：发布 + 链式入站
   - name: cloud-mqtt
     type: mqtt
     settings:
@@ -437,7 +455,9 @@ transports:
       client-id: factory-edge-01
       qos: 1
       topic-template: "factory/{{.Driver}}/{{.Group}}/{{.Tag}}"
-      command-topic: "factory/commands/#"
+      # 命令回写需成对配置（缺 command-secret 时传输拒绝启动）：
+      # command-topic: "factory/commands/#"
+      # command-secret: ${COREC_COMMAND_SECRET}
       data-topic: "upstream/factory/#"
       parser:
         type: default
@@ -457,6 +477,7 @@ transports:
       timeout: 5s
       webhook-addr: "0.0.0.0:9091"
       webhook-path: "/ingest"
+      webhook-secret: ${COREC_WEBHOOK_SECRET}   # webhook-addr 必配，否则传输拒绝启动
       parser:
         type: default
     batch-size: 100
@@ -486,12 +507,16 @@ transports:
 
 ### 通道配置
 
+`channel` 本身为必填。各通道的其余字段：
+
 | 通道 | 必需字段 | 可选字段 |
 |------|----------|----------|
 | `slack` | `webhook-url` | `template`, `cooldown` |
 | `teams` | `webhook-url` | `template`, `cooldown` |
-| `email` | `smtp-host`, `from`, `to` | `smtp-port`, `smtp-user`, `smtp-pass`, `subject`, `body`, `cooldown` |
+| `email` | `smtp-host`, `smtp-port`, `from`, `to` | `smtp-user`, `smtp-pass`, `subject`, `body`, `cooldown` |
 | `webhook` | `url` | `method`, `headers`, `body-template`, `cooldown` |
+
+无法识别的 `channel` 取值或缺失必需字段会导致传输初始化失败。`cooldown` 的抑制键为规则名（数据点 `metadata.rule`；无规则上下文时回退到标签名）——同一规则在窗口内的重复触发只发送一次通知。
 
 ### 模板变量
 

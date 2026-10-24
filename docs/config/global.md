@@ -43,11 +43,11 @@ global:
 
 | 取值 | 说明 |
 | --- | --- |
-| `debug` | 调试信息，包含每次采集的原始数据，仅用于开发排障 |
+| `debug` | 调试信息，如逐次发布的点位值、HTTP 请求访问日志，仅用于开发排障 |
 | `info` | 常规运行信息，包含连接建立、规则命中、传输统计等 |
-| `warn` | 警告信息，如重试、单次采集失败、规则解析告警 |
+| `warn` | 警告信息，如发布重试、连接断开重连、批量队列驱逐 |
 | `warning` | `warn` 的别名，等价于 `warn` |
-| `error` | 错误信息，仅记录驱动断连、传输不可达等严重事件 |
+| `error` | 错误信息，如单次采集失败、驱动断连、传输不可达、写指令进入死信队列 |
 | `silent` | 静默级别，抑制所有日志输出 |
 
 ```yaml
@@ -69,7 +69,7 @@ CoreC 内置管理 API，提供驱动管理、数据读写、规则热更新、�
 | --- | --- | --- | --- | --- |
 | `api.listen` | string | 否 | — | 监听地址，格式 `host:port`；未设置则不启用管理 API |
 | `api.secret` | string | **是**† | — | 鉴权令牌，客户端需以 `Authorization: Bearer <secret>` 携带 |
-| `api.metrics-addr` | string | 否 | `""`（禁用） | 专用免密 metrics 端口：设置后 `/metrics` 从主 API 撤下，仅在此回环地址上无认证提供（Prometheus 不再需要主 API secret；**必须绑定回环**，与 pprof-addr 同款 fail-closed）。详见[可观测性指南](../guide/observability.md) |
+| `api.metrics-addr` | string | 否 | — | 当前版本设置后**不生效**：该字段可被解析，但生产启动路径（`hub.Start` 构造 server 配置时）未传递它，专用免密 metrics 端口不会启动，`/metrics` 始终在主 API 上经 Bearer 认证提供 |
 | `api.tls-cert` | string | 否 | — | TLS 证书文件路径，启用 HTTPS 时需与 `tls-key` 同时设置 |
 | `api.tls-key` | string | 否 | — | TLS 私钥文件路径 |
 | `api.allowed-origins` | string[] | 否 | — | CORS 允许的来源列表；留空则默认放行所有来源（`*`），生产公网直连建议显式配置（见下方 allowed-origins 节） |
@@ -79,7 +79,7 @@ CoreC 内置管理 API，提供驱动管理、数据读写、规则热更新、�
 | `api.write-timeout` | duration | 否 | `0`（禁用） | 写响应的最大时长 |
 | `api.idle-timeout` | duration | 否 | `120s` | keep-alive 下等待下一请求的最大时长 |
 | `api.pprof-disabled` | bool | 否 | `false` | 设为 `true` 完全禁用 pprof 端点 |
-| `api.pprof-addr` | string | 否 | — | pprof 独立端口地址（如 `127.0.0.1:6060`），无需认证，应绑定回环地址 |
+| `api.pprof-addr` | string | 否 | — | pprof 独立端口地址（如 `127.0.0.1:6060`），无需认证；仅允许回环地址（`127.0.0.1`、`::1`、`localhost`），非回环绑定会被拒绝启动（fail-closed） |
 
 > † `secret` 在 `listen` 设置时为必填，且长度至少 8 个字符。
 
@@ -196,7 +196,7 @@ wscat -c "ws://localhost:9090/tags/stream?token=corec-secret-token"
 | `engine.command-concurrency` | int | 否 | `16` | 写入指令最大并行数，超限施加背压并溢入死信队列；设 `1` 恢复串行 |
 | `engine.high-priority-workers` | int | 否 | `2` | 快间隔标签（`interval` ≤ 1s）专用处理协程数，与批量读取协程隔离 |
 | `engine.alert-active-window` | duration | 否 | `15m` | 告警活动窗口——告警静默满该时长后自动清除（移入历史）。确认（ack）不会清除告警，只有静默会；详见 [告警 API](../api/alerts.md) |
-| `engine.dead-letter-path` | string | 否 | `""`（禁用） | 写死信队列**落盘持久化**：追加式 JSONL 文件，崩溃/断电后重启时回放进内存队列（`GET /write/failed` 可查、可重放）。文件超过 5MiB 轮转为 `<path>.old`，磁盘占用上限约 2×5MiB（轮转丢弃更早世代，与滚动日志同语义）。审计 RES-2：此前死信只在内存，最需要它的崩溃场景恰恰会连同死信一起丢 |
+| `engine.dead-letter-path` | string | 否 | `""`（禁用） | 写死信队列**落盘持久化**：追加式 JSONL 文件，重启时回放进内存队列（`GET /write/failed` 可查、可重放）。文件超过 5MiB 轮转为 `<path>.old`，磁盘占用上限约 2×5MiB（轮转丢弃更早世代，与滚动日志同语义）。未设置时死信队列仅存于内存，进程退出即丢失 |
 
 ```yaml
 global:
@@ -239,10 +239,12 @@ global:
 
 | 取值 | 行为 | 适用场景 |
 | --- | --- | --- |
-| `publish` | 正常发布（默认，向后兼容） | 下游系统自行处理坏值 |
+| `publish` | 正常发布（默认） | 下游系统自行处理坏值 |
 | `drop` | 丢弃，不进入规则匹配和发布 | 避免坏值污染下游数据 |
 | `mark-and-publish` | 发布但清空 `value`（置 nil），保留 `quality=bad` | 让下游知晓点位状态但不受错误值影响 |
 | `alert` | 正常发布并触发告警回调 | 需要对坏值即时告警的场景 |
+
+未识别的取值会导致核心启动失败（fail-fast，用于拦截拼写错误）。
 
 ```yaml
 global:
@@ -252,7 +254,7 @@ global:
 
 ### stale-threshold
 
-数据陈旧判定阈值。当缓存中某个数据点的 `Timestamp` 距当前时间超过此阈值时，API 响应中该数据点的 `is_stale` 字段标记为 `true`，帮助消费者区分实时数据与因驱动断连而停滞的旧值。设为 `0` 或不设置则禁用陈旧检测。
+数据陈旧判定阈值。当缓存中某个数据点的 `Timestamp` 距当前时间超过此阈值时，`/tags` 与 `/drivers/{name}/tags` 响应中该数据点的 `is_stale` 字段标记为 `true`，帮助消费者区分实时数据与因驱动断连而停滞的旧值。设为 `0` 或不设置则禁用陈旧检测。该阈值可通过 `PATCH /configs` 传递 `stale-threshold` 键在运行时调整（传 `"0"` 禁用），无需重启。
 
 ```yaml
 global:
@@ -299,7 +301,7 @@ global:
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
 | `buffer.enabled` | bool | 否 | `false` | 是否启用离线缓冲 |
-| `buffer.max-size` | int | 否 | `10000` | 缓冲文件最大数量，超出时驱逐最旧文件 |
+| `buffer.max-size` | int | 否 | `10000` | 缓冲批次（文件）最大数量，每个文件存一个发布批次；超出时驱逐最旧文件并记录 `warn` 日志 |
 | `buffer.path` | string | **是**† | — | 缓冲文件存储目录路径 |
 
 > † `buffer.enabled` 为 `true` 时 `buffer.path` 必填，且 `max-size` 若设置需 ≥ 10，否则配置加载时返回错误。
@@ -313,7 +315,7 @@ global:
 ```
 
 ::: tip 工作机制
-启用后，每个配置了 `batch-size` 或 `flush-interval` 的传输会启动独立的 drain 协程，每 30s 尝试回放缓冲文件中的数据。回放按时间顺序逐文件进行，首个文件发送失败则停止回放等待下一轮。传输恢复后缓冲数据自动清空。
+启用后，**每个传输**都会创建批量器并启动独立的 drain 协程（无论是否配置 `batch-size`/`flush-interval`），每 30s 尝试回放缓冲文件中属于该传输的批次。回放按批次序号（即写入顺序）逐文件进行，首个文件发送失败则停止本轮回放等待下一轮；回放成功的批次文件随即删除。传输恢复后缓冲数据自动清空。
 :::
 
 ::: warning 与重试的关系

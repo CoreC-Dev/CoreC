@@ -5,7 +5,7 @@ description: CoreC 规则引擎配置参考，包含匹配表达式语法、动�
 
 # 规则配置
 
-`rules` 段定义数据路由与处理规则。每个数据点在采集后按规则列表顺序求值匹配，命中则执行对应动作（转发、丢弃、告警、镜像、变换）。
+`rules` 段定义数据路由与处理规则。每个数据点在采集后按 `priority` 顺序求值匹配，命中则执行对应动作（转发、丢弃、告警、变换、镜像）。
 
 ```yaml
 rules:
@@ -25,8 +25,8 @@ rules:
 | `name` | string | **是** | — | 规则名称，用于日志与统计引用 |
 | `match` | string | **是** | — | 匹配表达式，见[匹配表达式语法](#匹配表达式语法) |
 | `action` | string | **是** | — | 命中后执行的动作类型 |
-| `target` | string | 条件必填 | — | 单目标动作的目标传输名 |
-| `targets` | string[] | 条件必填 | — | `mirror` 动作的多个目标传输名列表 |
+| `target` | string | 条件必填 | — | 目标传输名（单目标） |
+| `targets` | string[] | 条件必填 | — | 目标传输名列表（多目标；未设置时回退取 `target`） |
 | `priority` | int | 否 | `0` | 优先级，数值越小优先级越高 |
 | `continue` | bool | 否 | `false` | 命中后是否继续评估后续规则（见[continue 标记](#continue-标记)） |
 | `transform` | object | 否 | — | 数据变换配置，仅 `transform` 动作使用 |
@@ -54,13 +54,13 @@ rules:
 | `value` | any | 数据值（按标签类型解释为数值或布尔） |
 | `type` | string | 数据类型名（如 `float32`） |
 | `quality` | string | 数据质量：`good` / `bad` / `uncertain` |
-| `timestamp` | int | 采集时刻的 **Unix 毫秒时间戳**（roadmap #34）——可做时间窗规则，如夜班抑制（UTC 22:00–06:00）：`timestamp % 86400000 >= 79200000 \|\| timestamp % 86400000 < 21600000` |
+| `timestamp` | int | 采集时刻的 **Unix 毫秒时间戳**——可做时间窗规则，如夜班抑制（UTC 22:00–06:00）：`timestamp % 86400000 >= 79200000 \|\| timestamp % 86400000 < 21600000` |
 
 ### 运算符
 
 | 类别 | 运算符 | 说明 |
 | --- | --- | --- |
-| 比较 | `==` `!=` `>` `>=` `<` `<=` | 数值与字符串均支持 `==` `!=`，大小比较仅限数值 |
+| 比较 | `==` `!=` `>` `>=` `<` `<=` | 数值与字符串均支持；字符串的大小比较按字典序 |
 | 正则 | `=~` `!~` | 正则匹配 / 不匹配（RE2），左操作数为字符串字段 |
 | 字符串 | `contains` `suffix` `prefix` | 包含 / 后缀 / 前缀匹配，如 `tag contains 'motor'` |
 | 范围 | `in` | 数值区间检查（闭区间），如 `value in 50..100` |
@@ -169,7 +169,7 @@ match: "ALL"
 ```
 
 ::: info
-`alert` 与 `forward` 的区别在于：`alert` 会额外在核心告警通道产生一条事件（含规则名、匹配表达式、数据点快照），便于运维侧实时感知；数据点本身仍会正常发送到 `target`。
+`alert` 与 `forward` 的区别在于：`alert` 会额外在核心告警通道产生一条事件（告警以 `规则名|驱动名|标签名` 为身份聚合，记录值、质量、首末触发时间与触发次数），便于运维侧实时感知；数据点本身仍会正常发送到 `target`。
 :::
 
 ### transform
@@ -191,7 +191,7 @@ match: "ALL"
 
 将同一数据点复制并分别发送到 `targets` 列表中的每个传输，实现多目的地冗余分发。
 
-::: info mirror 与 forward 的实现关系（audit RULE-1 澄清）
+::: info mirror 与 forward 的实现关系
 `forward` 与 `mirror` 在引擎内部走**完全相同**的执行路径，且**两者都接受** `target`（单目标）或 `targets`（多目标列表）——区别只在语义意图：`mirror` 表达"冗余分发到多个目的地"，`forward` 表达"常规转发"。写 `action: forward` + `targets: [...]` 与写 `action: mirror` 效果一致；`mirror` 保留为意图标记（以及与多目标语义的兼容别名）。需要"命中后继续评估后续规则"时给两者配 `continue: true`。
 :::
 
@@ -213,24 +213,26 @@ match: "ALL"
 
 ## target 与 targets
 
+`drop` 之外的动作均接受 `target`（单目标）或 `targets`（多目标列表）任一形式：`targets` 未设置而 `target` 存在时按单元素列表处理，两者引用的传输名都必须存在于 `transports`。
+
 | 动作 | 使用字段 | 说明 |
 | --- | --- | --- |
-| `forward` / `alert` / `transform` | `target` | 单个传输名，必须与 `transports[].name` 一致 |
-| `mirror` | `targets` | 传输名列表，每项必须存在 |
+| `forward` / `alert` / `transform` | `target`（或 `targets`） | 目标传输，通常写 `target` |
+| `mirror` | `targets`（或 `target`） | 传输名列表，冗余分发到每一项 |
 | `drop` | 无 | 不需要目标 |
 
 ```yaml
 # 单目标
 target: cloud-mqtt
 
-# 多目标（mirror 专用）
+# 多目标
 targets:
   - cloud-mqtt
   - mes-http-push
 ```
 
-::: tip
-若 `target` / `targets` 引用了不存在的传输名，核心启动时会记录 `error` 并禁用该规则，不影响其他规则运行。
+::: warning
+`target` / `targets` 引用了不存在的传输名时，**配置校验直接失败**（启动与 `PUT /configs` 均被拒绝），错误信息会指名规则与不存在的目标。请确保目标名与 `transports[].name` 完全一致。
 :::
 
 ---
@@ -357,6 +359,8 @@ rules:
 | --- | --- |
 | `+` `-` `*` `/` | 四则运算 |
 | `( )` | 括号分组 |
+
+仅对**数值类型**的 `value` 求值：非数值点（bool/string/bytes）原样通过不做变换；表达式结果为 NaN/Inf（如除零）时保留原值并记录 `warn` 日志。
 
 ```yaml
 transform:

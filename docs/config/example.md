@@ -1,6 +1,6 @@
 ---
 title: 完整示例
-description: CoreC 配置文件完整带注释示例，涵盖全局、驱动、传输、规则四大段。
+description: CoreC 配置文件完整带注释示例，涵盖全局、驱动、传输、规则等主要段落。
 ---
 
 # 完整示例
@@ -26,15 +26,18 @@ CoreC 配置采用 YAML，顶层段如下：
 | `node` | 拓扑自动发现（节点身份、上游订阅） | 否 | [链式核心 → 自动发现](/guide/chained-core#拓扑自动发现-auto-discovery) |
 | `global` | 核心全局设置（日志、API、引擎调优） | 否 | [全局配置](/config/global) |
 | `drivers` | 南向采集驱动列表 | 否 | [驱动配置](/config/drivers) |
-| `transports` | 北向传输通道列表 | 否 | [传输配置](/config/transports) |
+| `transports` | 北向传输通道列表（`mqtt` / `http` / `notify`） | 否 | [传输配置](/config/transports) |
 | `rules` | 数据路由与处理规则 | 否 | [规则配置](/config/rules) |
+| `rule-providers` | 外部规则集提供者（`RULE-SET:name` 委托） | 否 | [规则配置](/config/rules) |
+| `rule-groups` | 命名子规则组（`SUB-RULE:name` 委托） | 否 | [规则配置](/config/rules) |
+| `derived-tags` | 派生标签（表达式计算的 KPI） | 否 | [派生标签配置](/config/derived-tags) |
 
 ::: tip 空配置 / Idle 模式
 `drivers` 与 `transports` 均非必填。CoreC 支持以仅含 `global.api` 的最小配置启动（idle 模式），再通过 Dashboard 从零配置全部业务。启动时若无数据源或无传输，日志会输出非阻塞告警（`no data source configured` / `no transport configured`），引擎以空管线安全运行。详见下方"空配置 / Idle 模式"小节。
 :::
 
 ::: info
-`node` 段是可选的。省略时所有自动发现功能关闭，引擎行为与旧版完全一致。设置 `node.id` 后，`topic-template`、`command-topic`、`parser` 等字段在省略时自动生成。
+`node` 段是可选的。省略时所有自动发现功能关闭。设置 `node.id` 后，MQTT 传输省略的 `topic-template`、`command-topic` 会自动生成；显式设置 `data-topic` 时省略的 `parser` 自动补全。
 :::
 
 ---
@@ -65,7 +68,7 @@ global:
   buffer:                            # 离线持久化缓冲（可选）
     enabled: false
     path: /var/lib/corec/buffer      # 缓冲文件目录（enabled=true 时必填）
-    max-size: 10000                  # 缓冲文件最大数量
+    max-size: 10000                  # 缓冲批次最大数量（超出驱逐最旧）
 
 # ============================================================
 # 南向驱动
@@ -79,7 +82,7 @@ drivers:
     settings:
       host: 192.168.1.100            # 设备 IP
       port: 502                      # Modbus 标准端口
-      slave-id: 1                    # 从站地址 (1-247)
+      slave-id: 1                    # 从站地址 (Modbus unit id)
       timeout: 3s                    # 读写超时
       retry: 3                       # 失败重试次数
     tags:
@@ -147,10 +150,10 @@ drivers:
 
 # ============================================================
 # 北向传输
-# 支持: mqtt, http
+# 支持: mqtt, http, notify
 # ============================================================
 transports:
-  # ---------- 1. MQTT 云端传输 (发布 + 命令回写) ----------
+  # ---------- 1. MQTT 云端传输 (发布 + 可选命令回写) ----------
   - name: cloud-mqtt
     type: mqtt
     settings:
@@ -158,7 +161,9 @@ transports:
       client-id: factory-edge-01               # 客户端 ID（需唯一）
       qos: 1                                   # 服务质量等级
       topic-template: "factory/{{.Driver}}/{{.Group}}/{{.Tag}}"  # 发布主题模板
-      command-topic: "factory/commands/#"      # 订阅命令主题（支持通配符）
+      # 命令回写需成对配置（缺 command-secret 时传输拒绝启动）：
+      # command-topic: "factory/commands/#"     # 订阅命令主题（支持通配符）
+      # command-secret: ${COREC_COMMAND_SECRET} # 命令 HMAC-SHA256 认证密钥
     batch-size: 50                             # 单批最大点数
     flush-interval: 1s                         # 定时刷新间隔
 
@@ -180,12 +185,13 @@ transports:
 # 动作: forward, drop, alert, transform, mirror
 # ============================================================
 rules:
-  # ---------- 1. 高温告警 -> 立即转发到云 MQTT ----------
+  # ---------- 1. 高温告警 -> 告警到云 MQTT，然后继续正常转发 ----------
   - name: high-temp-alert
     match: "tag == 'temperature' && value > 95"
     action: alert
     target: cloud-mqtt
     priority: 1
+    continue: true              # 告警后继续评估，数据仍会流入下方兜底规则
 
   # ---------- 2. 急停 -> 高优先级告警 ----------
   - name: emergency-stop-alert
@@ -265,7 +271,7 @@ global:
 
 | 传输 | 协议 | 目标 | 特点 |
 | --- | --- | --- | --- |
-| `cloud-mqtt` | MQTT | EMQX Broker | 支持命令回写，主题按 `驱动/分组/标签` 分层 |
+| `cloud-mqtt` | MQTT | EMQX Broker | 主题按 `驱动/分组/标签` 分层；命令回写为可选能力（需成对配置 `command-topic` + `command-secret`） |
 | `mes-http-push` | HTTP | 本地 MES API | Bearer 鉴权，大批量低频率推送 |
 
 ```yaml
@@ -281,10 +287,12 @@ topic-template: "factory/{{.Driver}}/{{.Group}}/{{.Tag}}"
 
 | 优先级 | 规则 | 命中条件 | 动作 |
 | --- | --- | --- | --- |
-| 1 | `high-temp-alert` | 温度 > 95 | `alert` → cloud-mqtt |
+| 1 | `high-temp-alert` | 温度 > 95 | `alert` → cloud-mqtt，`continue: true` 后继续评估 |
 | 2 | `emergency-stop-alert` | 急停触发 | `alert` → cloud-mqtt |
 | 10 | `reactor-mirror` | 反应器分组 | `mirror` → cloud-mqtt + mes-http-push |
 | 999 | `default-catch-all` | 全部 | `forward` → mes-http-push |
+
+高温点先触发告警，再由 `continue: true` 继续匹配，最终落入 `default-catch-all` 转发到 MES——告警与正常转发互不抢占。
 
 ::: warning
 第 4 条 `default-catch-all` 是**兜底规则**。未匹配任何规则的数据点会被丢弃，因此务必保留一条 `match: "ALL"` 的低优先级规则。
@@ -346,12 +354,14 @@ COREC_API_SECRET=change-me-please ./corec -c config.example.yaml
 
 ### 启动告警
 
-空配置启动时，日志会输出两条**非阻塞告警**（`WARN` 级别，不影响启动）：
+以上最小配置启动时，日志会输出两条**非阻塞告警**（`WARN` 级别，不影响启动）：
 
+```text
+WARN no data source configured — running in idle mode; add a driver, an inbound transport (mqtt data-topic / http webhook-addr), or enable auto-discovery with node.subscribe via the Dashboard
+WARN no transport configured — running in idle mode; add a northbound transport via the Dashboard
 ```
-WARN no data source configured — running in idle mode; add a driver, an inbound transport ...
-WARN no transport configured — running in idle mode; add a northbound transport ...
-```
+
+若连 `global.api.listen` 也未设置（完全空配置），还会额外输出一条控制面告警（`control plane (global.api.listen) not configured ...`）。
 
 这些告警同时出现在 Dashboard 的日志流（`/logs` WebSocket）中，提示运维当前核心处于 idle 模式。
 

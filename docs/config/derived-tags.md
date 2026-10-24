@@ -5,7 +5,7 @@ description: CoreC 派生标签（Derived Tags）配置参考，通过算术表�
 
 # 派生标签配置
 
-`derived-tags` 段定义从已采集标签的算术表达式计算的虚拟标签（KPI）。派生标签由引擎周期性求值，结果推入数据总线和缓存，可被规则引擎和传输层消费。
+`derived-tags` 段定义从已采集标签的算术表达式计算的虚拟标签（KPI）。派生标签由引擎按各自 `interval` 周期求值，产出数据点的 `driver` 字段固定为 `derived`，结果推入数据总线和缓存，与采集点一样流经规则引擎并可被传输层消费。
 
 ```yaml
 derived-tags:
@@ -24,12 +24,12 @@ derived-tags:
 |------|------|------|------|
 | `name` | string | 是 | 派生标签名，必须唯一 |
 | `expr` | string | 是 | 算术表达式，标识符解析为缓存中的标签名 |
-| `type` | DataType | 是 | 结果数据类型（int16/int32/float32/float64/bool 等） |
+| `type` | DataType | 建议显式设置 | 结果数据类型（int16/int32/float32/float64/bool 等）；省略时按零值 `bool` 处理 |
 | `group` | string | 否 | 标签分组 |
-| `interval` | duration | 是 | 求值周期（≥ 1s），如 `5s`、`1m` |
-| `unit` | string | 否 | 工程单位 |
+| `interval` | duration | 是 | 求值周期，须 ≥ 1s（小于 1s 会导致引擎启动失败），如 `5s`、`1m` |
+| `unit` | string | 否 | 工程单位，写入产出数据点的 `metadata.unit` |
 | `on-missing` | enum | 否 | 引用标签缺失时的行为：`skip`（默认）、`bad-quality`、`zero` |
-| `stale-guard` | duration | 否 | 引用标签超过此时间未更新则标记 stale |
+| `stale-guard` | duration | 否 | 引用标签超过此时间未更新时，产出点标记 `quality: bad` 且 `is_stale: true`；`0` 或缺省关闭 |
 
 ## 表达式语法
 
@@ -38,12 +38,12 @@ derived-tags:
 - 算术运算：`+`、`-`、`*`、`/`、`%`
 - 比较运算：`==`、`!=`、`<`、`>`、`<=`、`>=`
 - 逻辑运算：`&&`、`||`、`!`
-- 条件表达式：`if(cond, a, b)`
-- 数学函数：`abs()`、`ceil()`、`floor()`、`round()`、`max()`、`min()`、`len()`
+- 条件表达式：三元运算符 `cond ? a : b`
+- 内置函数：`abs()`、`ceil()`、`floor()`、`round()`、`max()`、`min()`、`len()`
 
 表达式中的标识符（如 `availability`）解析为缓存中同名标签的值。跨驱动标签通过 `LatestCache.GetAll()` 聚合，以标签名为键。
 
-::: warning 跨驱动同名标签：用限定引用（audit PIPE-2）
+::: warning 跨驱动同名标签：用限定引用
 上面的扁平解析在**多个驱动存在同名标签**时是不确定的——`temp` 读到的是"最后写入"的那个驱动的值。用 `驱动名.标签名` 的限定引用精确点名：
 
 ```yaml
@@ -52,7 +52,7 @@ derived-tags:
   interval: 5s
 ```
 
-限定引用参与 on-missing 策略与 stale-guard 的方式与扁平引用完全一致。`derived.kpi1` 还可以引用其它派生标签（求值时读的是它们的最新缓存值）。
+限定引用参与 on-missing 策略与 stale-guard 的方式与扁平引用完全一致。`derived.kpi1` 还可以引用其它派生标签（求值时读的是它们的最新缓存值）；派生标签之间不允许循环引用，检测到循环时引擎启动失败。
 :::
 
 ## on-missing 策略
@@ -101,5 +101,5 @@ derived-tags:
 ```
 
 ::: tip
-派生标签可与规则引擎组合：派生标签 `oee` → 规则 `oee < 0.85` → `forward` → notify-slack，实现 KPI 阈值告警全链路。
+派生标签可与规则引擎组合：派生标签 `oee` → 规则 `match: "tag == 'oee' && value < 0.85"` + `action: forward` + `target: notify-slack`，实现 KPI 阈值告警全链路。
 :::
