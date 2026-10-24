@@ -19,7 +19,7 @@ ok() { echo "  ✅ $1"; }
 
 echo "=== 1. 死链检查 ==="
 # Collect all .md files in repo
-mapfile -t all_md < <(find . -name '*.md' -not -path './vendor/*' -not -path './.git/*' | sed 's|^\./||')
+mapfile -t all_md < <(find . -name '*.md' -not -path './vendor/*' -not -path './.git/*' -not -path '*/node_modules/*' | sed 's|^\./||')
 dead_links=0
 for f in "${all_md[@]}"; do
   # Extract markdown links to .md files: [text](path.md) or [text](path)
@@ -64,6 +64,23 @@ for f in "${all_md[@]}"; do
   done < <(grep -oP '\[.*?\]\(\K[^)]+' "$f" 2>/dev/null || true)
 done
 if [[ $dead_links -eq 0 ]]; then ok "无死链"; else errors=$((errors + dead_links)); fi
+
+echo "=== 1b. VitePress 表格裸插值检查 ==="
+# Markdown 表格单元格内的 {{ }} 会被 Vue 当作插值解析，导致 vitepress build
+# 整体失败（代码块内的 {{ }} 不受影响，无需转义）。表格行须用 &lbrace; 实体。
+bare_braces=0
+for f in "${all_md[@]}"; do
+  # 本检查只针对 VitePress 构建范围（docs/**）——Vue 只在站点构建时解析
+  # 表格插值；docs/ 之外的 README（GitHub 渲染）不受影响。
+  [[ "$f" == docs/* ]] || continue
+  while IFS= read -r line; do
+    if [[ "$line" == *'{{'* && "$line" != *'&lbrace;'* && "$line" != *'v-pre'* ]]; then
+      echo "  ❌ 表格内裸 {{ }}: $f → $line"
+      bare_braces=$((bare_braces + 1))
+    fi
+  done < <(grep -E '^\s*\|' "$f" 2>/dev/null || true)
+done
+if [[ $bare_braces -eq 0 ]]; then ok "表格内无裸插值"; else errors=$((errors + bare_braces)); fi
 
 echo "=== 2. 必填节检查 ==="
 check_section() {
