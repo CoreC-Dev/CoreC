@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "CoreC"
   text: "工业物联网\n数据采集分发核心"
-  tagline: 六边形插件架构 · Go 1.27.1 · 高性能
+  tagline: 六边形插件架构 · Go 1.27.3 · 高性能
   image:
     src: /logo-animated.svg
     alt: CoreC

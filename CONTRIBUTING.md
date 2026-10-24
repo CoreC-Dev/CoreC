@@ -105,10 +105,10 @@ golangci-lint run --timeout 5m                  # v2，配置见 .golangci.yml�
 | 改了什么 | 要同步更新 |
 |:---|:---|
 | 配置项 / 驱动 / 传输 | `README.md`、`config.example.yaml`、`docs/guide/` |
-| 架构 / 接口 / 扩展机制 | `AI_HANDOVER.md` |
+| 架构 / 接口 / 扩展机制 | `ARCHITECTURE.md`、`docs/architecture/` |
 | 公开 API 端点 | `README.md` 的 API 表 |
 
-文档不同步的 PR 不合。`docs/**`、`README.md`、`AI_HANDOVER.md` 的改动不触发 CI（见 `.github/workflows/ci.yml` 的 `paths-ignore`），所以文档 PR 不会因测试矩阵卡住——但这不是跳过同步的借口。
+文档不同步的 PR 不合。`docs/**`、`README.md` 的改动不触发 CI（见 `.github/workflows/ci.yml` 的 `paths-ignore`），所以文档 PR 不会因测试矩阵卡住——但这不是跳过同步的借口。
 
 ---
 
@@ -134,7 +134,7 @@ golangci-lint run --timeout 5m                  # v2，配置见 .golangci.yml�
 
 ## 10. 给 AI 协作者的额外约束
 
-- **先读 `AI_HANDOVER.md` 再动手**——它有完整代码拓扑和设计动机，能避免你重复造轮子或破坏不变量。
+- **先读 `ARCHITECTURE.md` 与 `docs/architecture/` 再动手**——完整的代码拓扑和设计动机在那里，能避免你重复造轮子或破坏不变量。
 - 改代码前先跑第 0 节的速查命令确认基线绿；改完再跑一遍。**不准提交让基线变红的改动。**
 - 不要为了"看起来更通用"去抽象 `core/` 接口——六边形边界是刻意设计的，扩接口要先讨论。
 - 生成的新文件要带 `// Package <名> <一句话说明>` 包注释，和现有包风格一致。

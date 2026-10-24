@@ -105,5 +105,4 @@ signal.Notify(SIGINT, SIGTERM) → hub.Stop() → engine.Stop()
 
 ## 已知架构债务
 
-详见 `docs/exec-plans/tech-debt-tracker.md`。架构相关条目：
-- CPLX-020（P1）：CoreCEngine God Object → 延期至阶段5后
+当前无登记在册的架构级技术债。历史债务台账已随记录清理移除；新发现的架构级债务按团队惯例登记在 issue 或专项文档中，修复后即清理。

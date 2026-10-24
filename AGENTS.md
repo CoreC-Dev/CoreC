@@ -10,10 +10,7 @@ CoreC — 工业物联网（IIoT）数据采集与控制核心，Go 实现。南
 
 - 架构总览：见 `ARCHITECTURE.md`
 - 设计理念与操作原则：见 `docs/design-docs/core-beliefs.md`
-- 当前执行计划：见 `docs/exec-plans/active/`
 - CI 与发布决策：见 `docs/CI.md`
-- 已知技术债：见 `docs/exec-plans/tech-debt-tracker.md`
-- 质量评分：见 `docs/QUALITY_SCORE.md`
 
 ## 硬性约束（不可违反）
 
@@ -55,13 +52,12 @@ CoreC — 工业物联网（IIoT）数据采集与控制核心，Go 实现。南
 - 架构设计：`docs/architecture/`
 - 配置参考：`docs/config/`
 - API 参考：`docs/api/`
-- 质量评分：`docs/QUALITY_SCORE.md`
 - 设计决策：`docs/design-docs/`
 
 ## 工作方式
 
 - 变更前先读相关 `docs/`，变更后同步更新文档
 - 提交粒度单一职责；版本声明点（`main.version`、`hub/route.Version`、git tag）必须一致
-- 计划写在 `docs/exec-plans/active/`，完成后移入 `completed/`
+- 一次性工作记录（审计、执行计划、评分快照）完成任务后即从仓库清理，仓库只保留描述现状的活文档
 - 重构不改变业务行为；行为变更必须显式登记并单独提交（R2）
 - 任何交互式决策确认后必须写入仓库文档（B11）

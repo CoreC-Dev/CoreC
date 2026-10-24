@@ -85,8 +85,6 @@ check_section "ARCHITECTURE.md" "包分层与依赖方向"
 check_section "ARCHITECTURE.md" "插件注册机制"
 check_section "ARCHITECTURE.md" "核心接口缝隙"
 check_section "docs/design-docs/core-beliefs.md" "通用原则（附录 F）"
-check_section "docs/QUALITY_SCORE.md" "评分总览"
-check_section "docs/QUALITY_SCORE.md" "目标与差距"
 
 echo "=== 3. 孤儿文档检查 ==="
 # Check that key docs are referenced somewhere
