@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://go.dev/"><img src="https://img.shields.io/badge/Go-1.27.1-00ADD8?logo=go&logoColor=white" alt="Go Version"></a>
+  <a href="https://go.dev/"><img src="https://img.shields.io/badge/Go-1.27.3-00ADD8?logo=go&logoColor=white" alt="Go Version"></a>
   <a href="https://github.com/CoreC-Dev/CoreC/actions/workflows/ci.yml"><img src="https://github.com/CoreC-Dev/CoreC/actions/workflows/ci.yml/badge.svg" alt="golangci-lint"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
 </p>

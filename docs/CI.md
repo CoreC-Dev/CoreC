@@ -11,7 +11,7 @@
   - `src-tauri/tauri.conf.json` —— 不存在
   - `src-tauri/Cargo.toml` —— 不存在
   - 根 `package.json` 含 `@tauri-apps/cli` / `@tauri-apps/api` —— 不存在（仓库根无 `package.json`）
-  - 反证：`go.mod` 存在（`module github.com/CoreC-Dev/CoreC`，`go 1.27.1`），确认为 Go 项目
+  - 反证：`go.mod` 存在（`module github.com/CoreC-Dev/CoreC`，`go 1.27.3`），确认为 Go 项目
 - **判定日期**：2026-10-02
 
 ## 2. 现有 CI 现状（存量项目必填）

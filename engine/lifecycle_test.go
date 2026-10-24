@@ -661,11 +661,17 @@ func TestEngineStats(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 
-	// Wait for some data to flow.
+	// Wait for data to flow THROUGH the pipeline. Waiting only on reads
+	// (the old condition) left a window where TotalRead was counted but
+	// the first point hadn't reached the transport yet — the immediate
+	// TotalPublish assertion then tripped under heavy parallel load
+	// (one flake in 12 runs on go1.27.3's timing profile). Publish
+	// implies read upstream, so this condition covers both assertions.
 	if !testutil.WaitFor(2*time.Second, func() bool {
-		return eng.Stats().TotalRead > 0
+		st := eng.Stats()
+		return st.TotalRead > 0 && st.TotalPublish > 0
 	}) {
-		t.Fatal("timed out waiting for reads")
+		t.Fatal("timed out waiting for reads and publishes")
 	}
 
 	stats := eng.Stats()

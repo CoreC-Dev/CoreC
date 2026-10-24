@@ -19,7 +19,7 @@
 # previously pinned v2.14.0 in workflow YAML only; local runs used
 # whatever was on PATH, and the repo's old hook silently skipped lint
 # when it was missing — the root cause of 8+ recurring fix-lint commits.)
-GOLANGCI_VERSION ?= v2.14.0
+GOLANGCI_VERSION ?= v2.15.0
 GOLANGCI := $(shell go env GOPATH)/bin/golangci-lint
 GOFLAGS  ?= -race
 
