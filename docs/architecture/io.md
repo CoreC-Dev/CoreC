@@ -1,6 +1,6 @@
 # 核心输入输出
 
-核心是一个**双向数据管道 + 控制面**，有三条独立的数据流方向。
+核心是一个**双向数据管道 + 控制面**，有四条独立的数据流：上行采集、链式入站、下行控制、控制面（见[架构总览](/architecture/overview)）。
 
 ## 输入（5 类）
 
@@ -64,6 +64,11 @@ type WriteCommand struct {
     Tag    string   // "temperature"
     Value  any      // 50
     Type   DataType // TypeFloat32
+    // 以下字段由信任边界（route handler / 命令监听器）盖章，
+    // 不信任客户端载荷；均为 omitempty，JSON 中缺省时省略。
+    Source string // 来源："api"（HTTP 直写）或 "command"（传输反向命令）
+    Remote string // API 来源写者的网络地址（r.RemoteAddr）
+    Raw    bool   // true 时跳过 scale/offset 反变换，按原始设备值写入
 }
 ```
 
@@ -76,10 +81,13 @@ type WriteCommand struct {
 | 请求 | 输入 |
 |:---|:---|
 | `POST /write` | 直接写设备 |
+| `POST /write/batch` | 批量写设备（逐条执行，逐条返回结果） |
 | `PUT /configs` | 热重载配置 |
 | `PATCH /configs` | 运行时调参 |
 | `PATCH /rules/disable` | 禁用规则 |
 | WebSocket | 订阅实时流 |
+
+> 完整端点清单（驱动/传输/规则/配置的增删改查、告警确认等）见 [API 总览](/api/overview)。
 
 ### 5. 链式入站数据（Transport.OnData）
 
@@ -109,21 +117,23 @@ Parser 支持三种模式（`transport/parser`）：
 ```go
 type DataPoint struct {
     Driver    string            // "plc-modbus"
-    Device    string            // ""（始终为空）
+    Device    string            // 驱动采集路径留空（DriverConfig/TagConfig 无 Device 字段）；链式入站可由 parser 配置填充
     Group     string            // "sensors"
     Tag       string            // "temperature"
     Value     any               // 42.5
     Type      DataType          // TypeFloat32
     Quality   Quality           // QualityGood
     Timestamp time.Time         // 采集时间
-    Metadata  map[string]string // 扩展元数据
+    Metadata  map[string]string // 扩展元数据（发布时注入命中的规则名 "rule"）
+    IsStale   bool              // 仅由 API 层在缓存值超过 stale 阈值时置位；正常管道处理不设置，不出现在发布载荷
 }
 ```
 
 | 传输 | 输出形式 | 目标 |
 |:---|:---|:---|
-| MQTT | JSON → topic `factory/plc-modbus/sensors/temperature` | EMQX / Mosquitto |
+| MQTT | JSON → topic 按 `topic-template` 渲染（默认模板 `corec/&lbrace;&lbrace;.Driver&rbrace;&rbrace;/&lbrace;&lbrace;.Tag&rbrace;&rbrace;`；示例 `factory/plc-modbus/sensors/temperature` 为含 Group 的自定义模板） | EMQX / Mosquitto |
 | HTTP | JSON batch → POST | MES / Data Lake |
+| Notify | 模板渲染的消息 → Slack / Teams / Email / Webhook | 告警通道 |
 
 规则动作决定路由：
 
@@ -148,10 +158,11 @@ type WriteResult struct {
 
 | 端点 | 输出 |
 |:---|:---|
-| `/tags/stream` | `DataPoint` JSON 流 |
+| `/tags/stream` | `DataPoint` JSON 流（可用 `?driver=` 过滤） |
 | `/logs` | `log.Event` JSON 流 |
-| `/traffic` | `{"read":N,"publish":N,"dropped":N}` |
+| `/traffic` | 默认按 `?interval=` 周期推送速率 `{"read_rate":N,"publish_rate":N,"dropped_rate":N}`；`?mode=totals` 推送累计值 `{"read":N,"publish":N,"dropped":N}` |
 | `/memory` | `{"alloc":N,"total_alloc":N,"sys":N,"num_gc":N,"goroutines":N}` |
+| `/alerts/stream` | 告警生命周期事件 JSON 流（激活/清除/确认） |
 
 ### 4. API 响应
 
@@ -159,12 +170,15 @@ type WriteResult struct {
 |:---|:---|
 | `GET /drivers` | 驱动列表 + 状态 |
 | `GET /tags` | 最新缓存值 |
-| `GET /stats` | `EngineStats`（含 `total_dropped`） |
+| `GET /stats` | `EngineStats`（含 `total_dropped`、窗口化 `points_per_sec`） |
 | `GET /rules` | 规则列表 + 命中统计 |
+| `GET /alerts` | 活跃告警 + 有界历史 |
+| `GET /write/failed` | 死信队列（引擎侧 + 传输入站侧） |
+| `GET /write/history` | 写入审计历史（最近 1000 次成败记录） |
 
 ### 5. 告警 + 日志
 
-规则匹配 `alert` 动作时触发告警 handler，所有 `slog` 调用经 Observable 双路输出。
+规则匹配 `alert` 动作（或 `on-bad-quality: alert` 策略）时触发告警：先记入引擎一等告警注册表（活跃态 + 有界历史，`GET /alerts` 可查），再逐个调用 `OnAlert` 注册的 handler。所有 `slog` 调用经 Observable 双路输出（控制台 + `/logs` 事件流）。
 
 ## 数据类型流转
 

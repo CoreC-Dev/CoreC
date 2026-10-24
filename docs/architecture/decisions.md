@@ -2,7 +2,7 @@
 
 > 本文件记录 CoreC 关键设计决策的**上下文、选择与后果**，帮助接手者理解"为什么这么做"而非"怎么做"。
 > 代码注释记录局部动机，这里集中记录跨模块、影响演进方向的取舍。
-> 状态：`已采纳` / `已废弃` / `待定`。
+> 状态：`已采纳` / `部分采纳` / `已取代` / `待定`。
 
 ---
 
@@ -13,21 +13,21 @@
 - **决策**：`core/` 为纯契约层，只依赖标准库；`driver/*`、`transport/*` 为适配器，依赖向内（适配器→core，反之禁止）。新协议通过 `init()` 工厂注册 + `all/all.go` 空白导入聚合，零侵入扩展。
 - **后果**：协议替换/新增不影响引擎；`core` 接口是稳定契约，扩接口属破坏性变更（见 CONTRIBUTING §2.3）。代价是 `core` 不能认识协议特有概念，协议特有参数走 `Settings map[string]any`。
 
-## ADR-002 规则匹配采用线性扫描（非索引）
+## ADR-002 规则匹配：优先级全局有序 + 统计完整性优先（驱动索引导出的受控扫描）
 
-- **状态**：已采纳
-- **上下文**：`rule/engine.go` 的 `Match` 对每个数据点线性遍历全部规则。可建倒排索引加速，但会破坏两个不变量：(1) 规则按优先级全局有序——分桶索引后跨桶无法保证首个命中是全局最高优先级；(2) `ruleWrapper.Match` 在每次评估时更新 hit/miss 统计，索引跳过的规则将丢失 miss 统计。
-- **决策**：保留线性扫描，优先级全局有序 + 统计完整性优先于性能。代码注释明示 "Correctness is preserved over performance"。
-- **后果**：规则数 <100 时无性能感知；>500 时每点多微秒级开销，在高频采集下累积。若未来规则数显著增长，可对"等值匹配类"规则做预筛候选集（仍按优先级排序），但需接受统计语义变化或对被跳过规则显式记 miss。当前工业场景规则数小，不实施。
+- **状态**：已取代（原「纯线性扫描」方案已被驱动索引取代；两条不变量保留）
+- **上下文**：`rule/engine.go` 的 `Match` 曾对每个数据点线性遍历全部规则。完全索引会破坏两个不变量：(1) 规则按优先级全局有序——分桶索引后跨桶无法保证首个命中是全局最高优先级；(2) `ruleWrapper.Match` 在每次评估时更新 hit/miss 统计，索引跳过的规则将丢失 miss 统计。
+- **决策**：保留「优先级全局有序 + 统计完整性」两条不变量；在实现上，`SetRules` 用 `sort.SliceStable` 稳定排序（rule/rule_build.go:101），并把带 `driver == 'x'` 顶级约束的规则装入按驱动分桶的索引（rule/rule_build.go:115-133）。`Match` 用双指针把「驱动桶 + 通用规则」两个有序列表在线合并成全局优先级顺序求值（rule/rule_match.go:38-75）；被索引跳过的规则经 `RecordMiss` 显式记 miss（rule/engine.go:150-167），统计语义与线性扫描一致。
+- **后果**：单点评估成本从 O(全部规则) 降到 O(相关规则)，同时优先级次序与 hit/miss 统计不变形。同优先级规则的求值顺序由构造序号 seq 决胜（配置顺序），通用规则不再隐式遮蔽同优先级的 driver 规则。无索引可用时（子规则引擎等）回退线性扫描（rule/engine.go:124-126）。
 
-## ADR-003 core.Logger / core.Metrics 端口分阶段注入
+## ADR-003 core.Logger / core.Metrics 端口注入
 
-- **状态**：部分采纳（statistic.Manager 已注入；Logger/Metrics 端口待注入）
-- **上下文**：已定义 `core.Logger`/`core.Metrics` 端口与 Noop 实现，但驱动/组件尚未实际持有或调用，仍直接用全局 `log/slog`。端口先行是为了确立契约，避免未来接入时改 core。
+- **状态**：已采纳（驱动侧注入已落地；引擎内部日志仍走全局 `log/slog`，见 ADR-008 的剩余范围）
+- **上下文**：驱动与核心组件早期直接使用全局 `log/slog` 与包级单例计数器，多实例嵌入时日志与统计混在一起、无法替换后端。`core.Logger`/`core.Metrics` 端口先行定义以确立契约。
 - **决策**：
-  - **statistic.Manager**：已完成注入。`statistic.DefaultManager` 包级单例改为 `CoreCEngine.statManager` 实例字段，通过 `NewScheduler` 注入 scheduler。多实例嵌入不再共享计数器。
-  - **core.Logger / core.Metrics**：端口先定义、暂不注入；标注为 "defined but NOT yet injected... larger, separate refactor"。注入需经 Driver.Init / 驱动构造器改造，涉及 94 处 `slog.X` 调用和 10+ 文件，属较大重构，单独进行（见 ADR-008）。
-- **后果**：`statistic.DefaultManager` 仍保留（向后兼容）但引擎内已不使用。当前多实例嵌入时日志仍混在一起——这是已知技术债，待 Logger 注入重构时消除。
+  - **驱动侧注入（已落地）**：`AddDriver` 对实现了 `SetLogger`/`SetMetrics` 可选接口的驱动注入后端——Logger 注入 `log.DefaultLogger()`（slog 适配器，log/logger_adapter.go:35），Metrics 注入引擎的共享 registry `stats.driverMetrics`（engine/driver_manager.go:70-78）。三个南向驱动经 `driverbase.BaseDriver` 持有 Logger（driverbase/driverbase.go:80-82）；驱动发射的协议级指标经 `core.DriverMetricsProvider` 角色进入 `/metrics`（engine/stats_collector.go:209-220）。
+  - **引擎统计去单例（已落地）**：早期 `statistic.Manager` 包级单例方案已不存在；引擎统计集中在 `statsCollector` 角色结构（engine/stats_collector.go:20-56），含原子计数器、窗口化速率（`metrics.RateWindow`）与标注延迟直方图（`labeledLatencyStore`），每实例独立。
+- **后果**：驱动可独立测试（注入 Noop/捕获后端）、多实例嵌入不共享计数器；驱动协议指标（modbus 异常码等）可流入 `/metrics`。引擎内部组件（scheduler/batcher 等）仍直接调用全局 `slog`——多实例嵌入时引擎日志无法按实例隔离，剩余范围由 ADR-008 跟踪。
 
 ## ADR-004 OfflineBuffer 崩溃安全写入（fsync + 目录 fsync + 原子 rename）
 
@@ -41,7 +41,7 @@
 - **状态**：已采纳
 - **上下文**：驱动/传输连续失败达阈值后进入断路器冷却，避免雪崩式重连。早期文档曾误述为"冷却期不探活"。
 - **决策**：`common/util/util.go` 的 `ReconnectLoopWithBreakerCounted` 在触发断路器后仅将 backoff 切换为固定 5 分钟，**循环继续运行**——每次 5 分钟后仍调用 `connect()` 探活，成功即恢复。即冷却期"有探活、仅间隔粗"。
-- **后果**：设备恢复后最坏需等约 5 分钟才重连成功。若场景需更快恢复，可调小 `defaultCircuitBreakerBackoff` 或改为递减间隔。当前工业场景 5 分钟可接受。
+- **后果**：设备恢复后最坏需等约 5 分钟才重连成功。若场景需更快恢复，可改小 `common/util` 的 `defaultCircuitBreakerBackoff` 常量（当前为包内固定值 5 分钟，非运行时可配）或改为递减间隔。当前工业场景 5 分钟可接受。
 
 ## ADR-006 DataBus 弃旧策略（非阻塞、弃最旧）
 
@@ -54,25 +54,25 @@
 
 - **状态**：已采纳
 - **上下文**：Modbus 单次读最多 125 寄存器（协议限制）。配置中相邻地址的 tag 若逐个读取，RTT 累积大。
-- **决策**：`driver/modbus/modbus_base.go` 的 `performBatchReads` + `mergeBatcher` 贪心合并连续或重叠地址到同一请求，单请求不超过 125 寄存器。
+- **决策**：`driver/modbus` 的 `performBatchReads`（modbus_read.go:382）按 area 分组、按起始地址排序后，用 `mergeBatches`（modbus_read.go:516）贪心合并连续或重叠地址到同一请求，单请求不超过 `modbusMaxBatchSize = 125`（modbus_base.go:47，经 `Capabilities().MaxBatchSize` 生效）；批量读失败（重试后）的 tag 回退逐个读。
 - **后果**：大幅减少 Modbus RTT，提升高频采集吞吐。合并只针对可合并的连续/重叠地址，离散地址仍独立读。
 
-## ADR-008 core.Logger / core.Metrics 端口注入延迟
+## ADR-008 引擎内部日志未走 core.Logger 端口（驱动侧已注入）
 
-- **状态**：待定（延迟实施）
-- **上下文**：`core.Logger` 和 `core.Metrics` 端口已定义（含 NoopLogger/NoopMetrics），但引擎和驱动仍直接使用全局 `log/slog`。历史改进要求注入 `core.Logger` 替换全部 `slog.X` 调用。
-- **决策**：延迟实施。原因：(1) 涉及 94 处 `slog.X` 调用分布在 10 个文件（engine.go/scheduler.go/discovery.go/driver_manager.go/batcher.go/publish.go/command_manager.go/offlinebuffer.go/transport_manager.go/tagfile.go）；(2) 需修改 5+ 构造器签名（NewScheduler/newTransportBatcher/NewOfflineBuffer/newTagFileWatcher/NewDiscovery）以传入 logger；(3) `core.Logger` 接口签名（`Debug/Info/Warn/Error(msg string, args ...any)`）与 `slog` 的 KV args 语义需适配层；(4) 驱动层也需同步改造（Driver.Init 注入），代码注释已标注为 "larger, separate refactor"。
-- **后果**：多实例嵌入时日志无法按实例隔离。端口已就绪，未来注入时不需改 core 契约。此项作为独立重构跟踪。
+- **状态**：部分采纳（驱动侧注入已完成，见 ADR-003；引擎内部改造仍延迟）
+- **上下文**：`core.Logger` 端口与 Noop 实现早已定义，驱动已通过 `SetLogger` 收到注入的 Logger；但引擎内部（scheduler/batcher/discovery/transport_manager 等角色）仍直接调用全局 `log/slog`。
+- **决策**：引擎内部改造延迟实施。原因：(1) 当前引擎包内非测试代码有约 113 处 `slog.X` 调用，分布在 17 个文件（runtime.go/scheduler.go/discovery.go/transport_manager.go/batcher.go/offlinebuffer.go/write_manager.go 等）；(2) `core.Logger` 接口签名（`Debug/Info/Warn/Error(msg string, args ...any)`）与 `slog` 的 KV args 语义一致（`SlogLogger` 适配器已存在），真正的工程量在于把 Logger 实例穿过 9 个角色结构的构造与转发链；(3) 引擎日志当前统一经 `log.Init` 安装的 ObservableHandler 进入事件总线，改造的收益（按实例隔离）只在多实例嵌入场景兑现。
+- **后果**：多实例嵌入时引擎内部日志无法按实例隔离（已知技术债）；驱动侧已无此问题。端口契约稳定（core.Logger 不需变更），未来注入时只需改引擎内部接线。
 
 ## ADR-009 端到端延迟追踪：pipeline 直方图已实现，OTLP 导出与 trace 贯穿延迟
 
 - **状态**：部分采纳
 - **上下文**：端到端延迟追踪要求，包含三部分：(1) `corec_pipeline_latency_seconds` 直方图；(2) OTLP 导出接 Jaeger/Tempo；(3) DataPoint 透传 trace context。
 - **决策**：
-  - **pipeline 延迟直方图**：已实现。`corec_data_age_seconds`（`engine.DataAgeHistogram`）记录 Publish 时刻与 `DataPoint.Timestamp` 的差值，即采集到发布的端到端延迟。在 4 个发布站点（batcher publish、direct publish、fallback batcher、fallback direct）均调用 `e.dataAge.Observe(time.Since(point.Timestamp))`。通过 `core.DataAgeProvider` 角色接口暴露，route 层 type-assert 读取。
-  - **OTLP 导出**：延迟实施。当前 `common/trace` 的 span 仅以 `slog.Debug` 记录（debug 关闭时为 noopSpan）。落地 OTLP 导出属运维基础设施配置（部署 Jaeger/Tempo + 配置 OTLP endpoint），非代码架构变更。
-  - **DataPoint trace context 贯穿**：延迟实施。在 `core.DataPoint` 增加 trace 字段属 core 契约变更（虽为新增可选字段、非破坏性，但需评估序列化影响和 hexagonal 边界）。当前 trace 主要在 HTTP 入口（`hub/route` middleware 解析 traceparent），未从采集端贯穿到 Publish 端。
-- **后果**：用户最关心的"数据有多新鲜"已可通过 `corec_data_age_seconds` 直方图量化回答（p50/p99/p999）。全链路 trace 可视化需待 OTLP 基础设施部署。
+  - **pipeline 延迟直方图**：已实现。数据年龄以 `corec_data_age_seconds` 记录 Publish 时刻与 `DataPoint.Timestamp` 的差值（采集到发布的端到端延迟）。观测点覆盖：批量路径在 `publishWithRetryAndBuffer` 内**每次尝试、逐点**观测（engine/batcher_retry.go:34-39，重试期间年龄增长被如实记录）；直发路径在 `publishToTargets` 观测（engine/processing.go:347-348）；fallback 直发路径在 `tryFallback` 观测（engine/transport_manager.go:313-315）。直方图由 `labeledLatencyStore` 持有：全局聚合 + 按传输标注两份（engine/labeled_latency.go:105-108），经 `core.LabeledLatencyProvider` 角色暴露（route 层优先读取标注版，无角色时回退 `core.LatencyProvider`/`core.DataAgeProvider` 的无标注版，hub/route/metrics_engine.go:190-208）。读取延迟同理按驱动标注（`corec_read_latency_seconds{driver=...}`）。
+  - **OTLP 导出**：延迟实施。当前 `common/trace` 的 span 仅以 `slog.Debug` 记录（debug 关闭时为共享 noopSpan，common/trace/trace.go:92-95）。落地 OTLP 导出属运维基础设施配置（部署 Jaeger/Tempo + 配置 OTLP endpoint），非代码架构变更。
+  - **DataPoint trace context 贯穿**：延迟实施。在 `core.DataPoint` 增加 trace 字段属 core 契约变更（虽为新增可选字段、非破坏性，但需评估序列化影响和 hexagonal 边界）。当前 trace 主要在 HTTP 入口（`hub/route` 经 `trace.Middleware` 解析 traceparent 并生成 W3C trace ID），未从采集端贯穿到 Publish 端。
+- **后果**：用户最关心的"数据有多新鲜"已可通过 `corec_data_age_seconds` 直方图量化回答（p50/p99/p999，含按传输细分）。全链路 trace 可视化需待 OTLP 基础设施部署。
 
 ## ADR-010 规则引擎 `continue` 标记：多规则匹配（iptables 风格）
 

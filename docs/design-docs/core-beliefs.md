@@ -41,13 +41,13 @@
 
 - **取舍**：多一次 parse/serialize 往返，换取 YAML 注入防护 + 类型保留。
 - **裁决依据**：配置文件可能含不可信来源（运维粘贴、CI 注入），字节级替换可构造恶意 YAML。tree-based 在叶子节点替换 + 重新 marshal，env 值经 YAML 编码器转义。
-- **边界**：`config.example.yaml` 的描述必须与此一致（DOC-001 已修复）。
+- **边界**：`config.example.yaml` 对该机制的描述必须与此一致。
 
 ### 为什么 API fail-closed 而非 fail-open
 
 - **取舍**：空 `api.secret` 时拒绝启动而非无认证运行，牺牲"零配置启动"便利性，换取安全默认。
 - **裁决依据**：CoreC 的 API 可写 PLC（控制指令下发），无认证的写 API = 任何人可操控物理设备。
-- **边界**：所有入站路径（MQTT 命令、webhook）应遵循同一原则。D7/D9 已决策 fail-closed。
+- **边界**：所有入站路径遵循同一原则，且已机械落地——MQTT 命令订阅配了 `command-topic` 却缺 `command-secret` 时拒绝启动（transport/mqtt/mqtt_lifecycle.go），webhook 配了 `webhook-addr` 却缺 `webhook-secret` 时同样拒绝启动（transport/httppush/push.go）；空 secret 在认证中间件内 fail-closed 拒绝（hub/route/middleware.go）。
 
 ## 命名与风格约定
 
@@ -56,7 +56,7 @@
 - **文件名**：`snake_case.go`；测试文件 `*_test.go`；bug 回归 `*_bug_test.go`；修复验证 `*_fix_test.go`。
 - **错误处理**：错误必须包裹上下文（`fmt.Errorf("read tag %s: %w", name, err)`），禁止裸返回。
 - **日志**：结构化 `slog`，禁止 `fmt.Println`（T6）；密钥/secret 值禁止出现在日志中。
-- **goroutine**：每个 `go` 启动必须绑定 context 取消或 WaitGroup（T8）；goleak 在测试中强制验证。
+- **goroutine**：每个 `go` 启动必须绑定 context 取消或 WaitGroup（T8）；goleak 在主要包（engine、hub/route、driver/*、transport/*、rule）的 TestMain 中强制验证。
 - **channel**：数据通道必须有 buffer + drop 策略；信号通道用 `chan struct{}` 单写单关。
 - **配置**：可选字段用 `omitempty`；必填字段在 `validate()` 中校验并返回明确错误。
 

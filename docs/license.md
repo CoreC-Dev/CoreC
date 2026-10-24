@@ -16,11 +16,12 @@ Copyright (c) 2026 CoreC Contributors
 | 依赖 | 版本 | 许可证 |
 |:---|:---|:---|
 | [expr-lang/expr](https://github.com/expr-lang/expr) | v1.17.8 | MIT |
-| [tidwall/gjson](https://github.com/tidwall/gjson) | v1.19.0 | MIT |
+| [tidwall/gjson](https://github.com/tidwall/gjson) | v1.20.0 | MIT |
 | [coder/websocket](https://github.com/coder/websocket) | v1.8.15 | ISC |
 | [eclipse/paho.mqtt.golang](https://github.com/eclipse/paho.mqtt.golang) | v1.5.1 | EPL-2.0 / EDL-1.0 |
-| [go-chi/chi/v5](https://github.com/go-chi/chi) | v5.3.2 | MIT |
+| [go-chi/chi/v5](https://github.com/go-chi/chi) | v5.5.0 | MIT |
 | [goccy/go-yaml](https://github.com/goccy/go-yaml) | v1.19.2 | MIT |
+| [go.uber.org/goleak](https://github.com/uber-go/goleak) | v1.3.0 | MIT |
 | [gopcua/opcua](https://github.com/gopcua/opcua) | v0.9.1 | MIT |
 | [robinson/gos7](https://github.com/robinson/gos7) | v0.0.0-20260622162611-2d6806f80c8b | MIT |
 | [simonvetter/modbus](https://github.com/simonvetter/modbus) | v1.6.4 | MIT |

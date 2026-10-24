@@ -10,9 +10,9 @@
 |:---|:---|:---|:---|
 | Devices | PLC / S7 / OPC UA | `TagValue` | 设备原始读数（tag, value, type, quality, timestamp） |
 | Ingest | Scheduler | `TagValue` | `Driver.Read` 按 interval 分组，goroutine 并行读取 |
-| Core | onDriverData → DataBus.Push → Processing Loop | `DataPoint` | TagValue 被 enriched 为 DataPoint（加 driver, group, metadata）；多 worker（`runtime.NumCPU()`）并发消费 |
+| Core | onDriverData → DataBus.Push → Processing Loop | `DataPoint` | TagValue 被 enriched 为 DataPoint（加 driver、group）；主通道多 worker（`runtime.NumCPU()`）并发消费，快周期任务（interval ≤ 1s）进入高优先级通道由 2 个专属 worker 消费 |
 | Route | Rule Engine | `DataPoint` | 优先级匹配，决定 forward/drop/alert/transform/mirror |
-| Cloud | MQTT / HTTP | `DataPoint` | 发布到云端（异步/连接池） |
+| Cloud | MQTT / HTTP | `DataPoint` | 发布到云端（连接池 / token 确认） |
 
 ## 数据类型转换
 
@@ -72,5 +72,7 @@ DataBus.Push(point)
 ```
 MQTT command-topic → Transport.OnCommand() → startCommandListener → Driver.Write() → Device
 ```
+
+命令并发度有上界（默认 16，`core.DefaultCommandConcurrency`），写失败按指数退避重试（默认 3 次），耗尽或命中不可重试的配置类错误后进入死信队列。中继节点没有目标驱动的本地实例时，会经实现了 `core.CommandForwarder` 的传输把命令转发给下游节点（链式命令透传）。
 
 详见 [架构总览](/architecture/overview) 中的完整架构图。
