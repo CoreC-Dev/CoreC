@@ -94,7 +94,7 @@ API 内置 CORS 中间件，用于支持浏览器端仪表盘跨域访问。行�
 | `200 OK` | 请求成功 | 所有 `GET` 端点、`POST /write` 成功、`POST /write/batch`（含部分失败）、`POST /drivers/test` 与 `POST /transports/{name}/test`（连通与不通都是 200） |
 | `201 Created` | 资源已创建 | `POST /configs/backups` 手动快照成功 |
 | `204 No Content` | 操作成功，无响应体 | `PUT /configs`、`PATCH /configs`、`PATCH /rules/disable`、`POST /configs/backups/{name}/restore`、资源级 `DELETE /drivers/{name}`、`DELETE /transports/{name}`、`DELETE /rules/{name}`、`POST /drivers/{name}/pause`、`POST /drivers/{name}/resume`、`POST /alerts/ack` |
-| `400 Bad Request` | 请求格式错误 | JSON 解析失败、规则名/索引不存在、`POST /write` 目标驱动不存在或未连接、批量写空数组或超 128 条、备份名非法或备份校验失败、PATCH 配置键不合法等 |
+| `400 Bad Request` | 请求格式错误 | JSON 解析失败、规则名/索引不存在、`POST /write` 目标驱动不存在或未连接、`POST /write` 与 `/write/batch` 缺失 `type` 字段、批量写空数组或超 128 条、备份名非法或备份校验失败、PATCH 配置键不合法、`PUT /configs` 的 `path` 校验失败（绝对路径/越出配置目录）等 |
 | `401 Unauthorized` | 认证失败 | Token 缺失或不匹配 |
 | `404 Not Found` | 资源不存在 | 驱动/传输名称未找到、规则名未找到、告警键不存在、配置备份不存在 |
 | `422 Unprocessable Entity` | 全部批量写失败 | `POST /write/batch` 请求合法但所有指令均被设备层面拒绝 |

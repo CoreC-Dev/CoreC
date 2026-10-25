@@ -168,8 +168,8 @@ Content-Type: application/json
 `path` 与 `payload` 均非必填。当 `payload` 为空且 `path` 也为空时，将重载核心启动时记录的当前配置文件路径（即重载当前配置）。仅 `payload` 为空、`path` 非空时，才从指定路径加载（并做路径穿越校验）。
 :::
 
-::: warning 非法 path 返回脱敏 500
-`path` 未通过校验（绝对路径、越出配置目录、或未设置活动配置路径）时返回 `500` 与通用错误 `internal server error`，真实原因仅记录在服务端日志（`invalid config path: ...`）。
+::: warning 非法 path 返回 400 并携带原因
+`path` 未通过校验（绝对路径、越出配置目录、或未设置活动配置路径且请求未携带 payload）时返回 `400 Bad Request` 与具体原因（如 `invalid config path: absolute config paths are not allowed`），调用方无需查服务端日志即可修复。
 :::
 
 ::: warning 请求体限制

@@ -215,6 +215,46 @@ func TestReloadTraversalPath(t *testing.T) {
 	}
 }
 
+// TestReloadPathErrorsAreClientFixable asserts that reload path rejections
+// are classified as client-fixable: the route layer type-asserts ConfigError
+// to answer 400 with the reason (the request's path field is at fault, the
+// message names it and nothing internal), instead of a masked 500.
+func TestReloadPathErrorsAreClientFixable(t *testing.T) {
+	dir := t.TempDir()
+	basePath := filepath.Join(dir, "base.yaml")
+	Init(&mockEngineForExecutor{}, &core.Config{}, basePath)
+
+	for name, path := range map[string]string{
+		"absolute path":     "/etc/corec/config.yaml",
+		"traversal attempt": "../../../etc/passwd",
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := ReloadWithOrigin(path, "", "127.0.0.1:1")
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			var ce *ConfigError
+			if !errors.As(err, &ce) {
+				t.Errorf("reload path error should be a *ConfigError (client-fixable, 400), got %T: %v", err, err)
+			}
+		})
+	}
+
+	// No path, no payload and no persisted base path → the request is
+	// incomplete; the rejection must still be client-fixable.
+	Init(&mockEngineForExecutor{}, &core.Config{}, "")
+	t.Run("missing path field", func(t *testing.T) {
+		err := ReloadWithOrigin("", "", "127.0.0.1:1")
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		var ce *ConfigError
+		if !errors.As(err, &ce) {
+			t.Errorf("no-path reload error should be a *ConfigError (client-fixable, 400), got %T: %v", err, err)
+		}
+	})
+}
+
 // --- Patch tests ---
 
 func TestPatchUnknownKey(t *testing.T) {

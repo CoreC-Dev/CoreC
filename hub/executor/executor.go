@@ -180,13 +180,17 @@ func ReloadWithOrigin(path, payload, remote string) error {
 			mux.Unlock()
 		} else {
 			// Validate the client-supplied path to prevent traversal attacks.
+			// Path rejections are client-fixable: the request's path field is
+			// at fault and the message names it without internal details —
+			// the route layer answers 400 with the reason instead of a
+			// masked 500.
 			targetPath, err = resolveConfigPath(path)
 			if err != nil {
-				return fmt.Errorf("invalid config path: %w", err)
+				return NewConfigError(fmt.Errorf("invalid config path: %w", err))
 			}
 		}
 		if targetPath == "" {
-			return fmt.Errorf("no config path specified")
+			return NewConfigError(fmt.Errorf("no config path specified"))
 		}
 		cfg, err = ParseWithPath(targetPath)
 		if err == nil && path != "" {
