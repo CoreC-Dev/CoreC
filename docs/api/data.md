@@ -133,6 +133,10 @@ Content-Type: application/json
 请求体最大 1 MiB。超出限制时，JSON 解码将失败并返回 `400 Bad Request`。
 :::
 
+::: warning 省略 `type` 会被 400 拒绝
+`type` 是必填字段：请求体缺失 `"type"` 键时返回 `400 Bad Request` 与错误信息 `"type" is required (one of: bool, int8, …)`。此校验在 API 边界执行——缺失该键曾经会静默按零值 `bool` 类型写入设备，属数据损坏隐患。MQTT 命令通道（反向流）不受此校验影响，其载荷契约仍按[传输配置](../config/transports.md#命令认证与防重放)执行。
+:::
+
 ### 响应
 
 #### 写入成功 — `200 OK`
@@ -188,7 +192,7 @@ Content-Type: application/json
 |:---|:---|
 | `200 OK` | 至少一条成功（含部分失败）；`results` 按请求顺序逐条返回，`succeeded`/`failed` 汇总 |
 | `422 Unprocessable Entity` | 全部失败（请求合法、设备层面全部拒绝）——与 2xx 部分成功区分 |
-| `400 Bad Request` | 空数组、超过 128 条、或请求体非法 |
+| `400 Bad Request` | 空数组、超过 128 条、请求体非法、或任一元素缺失 `type`（错误信息形如 `writes[N]: "type" is required …`，整批拒绝、不执行任何写入） |
 
 **响应示例**：
 

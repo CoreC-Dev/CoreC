@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,7 +24,10 @@ type mockEngineV2 struct {
 	tagsByDriver map[string]map[string]core.DataPoint
 	// flatTags backs LatestValues("") — the flattened all-tags view
 	// (cross-driver name collisions resolved last-writer-wins).
-	flatTags    map[string]core.DataPoint
+	flatTags map[string]core.DataPoint
+	// writeCalls counts WriteTag invocations so boundary-rejection tests
+	// can assert the request never reached the engine.
+	writeCalls  int
 	writeErr    error
 	writeResult core.WriteResult
 	// writeTagHook overrides WriteTag when set (batch-write tests).
@@ -121,6 +125,7 @@ func (m *mockEngineV2) LatestValues(driver string) map[string]core.DataPoint {
 func (m *mockEngineV2) StaleThreshold() time.Duration { return 0 }
 
 func (m *mockEngineV2) WriteTag(ctx context.Context, cmd core.WriteCommand) (*core.WriteResult, error) {
+	m.writeCalls++
 	// Per-tag hook for tests that need outcome-driven behaviour
 	// (batch writes); nil falls back to the static fixture.
 	if m.writeTagHook != nil {
@@ -391,6 +396,65 @@ func TestWriteTagBadJSON(t *testing.T) {
 		t.Fatalf("expected 400, got %d", resp.StatusCode)
 	}
 	resp.Body.Close()
+}
+
+// TestWriteTagMissingType enforces the documented contract at the API
+// boundary: a payload without a "type" key must be rejected with 400 —
+// without this check the zero-value DataType decodes as TypeBool and the
+// write silently lands on the PLC as a bool.
+func TestWriteTagMissingType(t *testing.T) {
+	eng := &mockEngineV2{writeResult: core.WriteResult{Success: true}}
+	ts := newTestServer("", eng)
+	defer ts.Close()
+
+	// Hand-written payload WITHOUT "type" — the silent-bool hazard.
+	body := []byte(`{"driver":"plc1","tag":"temp","value":50}`)
+	req, _ := http.NewRequest("POST", ts.URL+"/write", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatalf("POST /write failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing type, got %d", resp.StatusCode)
+	}
+	var errResp map[string]string
+	decodeJSON(t, resp, &errResp)
+	if !strings.Contains(errResp["error"], `"type" is required`) {
+		t.Errorf("expected type-required error, got %q", errResp["error"])
+	}
+	if eng.writeCalls != 0 {
+		t.Errorf("write must not reach the engine when type is missing, got %d calls", eng.writeCalls)
+	}
+}
+
+// TestBatchWriteMissingType: same contract per batch element.
+func TestBatchWriteMissingType(t *testing.T) {
+	eng := &mockEngineV2{writeResult: core.WriteResult{Success: true}}
+	ts := newTestServer("", eng)
+	defer ts.Close()
+
+	// Second element omits "type" — the whole batch is rejected.
+	body := []byte(`{"writes":[{"driver":"plc1","tag":"a","value":1,"type":"int16"},{"driver":"plc1","tag":"b","value":2}]}`)
+	req, _ := http.NewRequest("POST", ts.URL+"/write/batch", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatalf("POST /write/batch failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing type in batch, got %d", resp.StatusCode)
+	}
+	var errResp map[string]string
+	decodeJSON(t, resp, &errResp)
+	if !strings.Contains(errResp["error"], `writes[1]`) || !strings.Contains(errResp["error"], `"type" is required`) {
+		t.Errorf("expected writes[1] type-required error, got %q", errResp["error"])
+	}
+	if eng.writeCalls != 0 {
+		t.Errorf("batch must not reach the engine when an element lacks type, got %d calls", eng.writeCalls)
+	}
 }
 
 func TestUpdateConfigs(t *testing.T) {

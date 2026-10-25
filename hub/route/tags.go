@@ -3,6 +3,7 @@ package route
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -74,10 +75,44 @@ func getAllTags(w http.ResponseWriter, r *http.Request) {
 	render(w, r, http.StatusOK, map[string]any{"tags": tags})
 }
 
+// requireWriteCommandType enforces the documented contract that every
+// write command names its value type. WriteCommand.Type is a plain
+// DataType with zero value TypeBool, and DataType.UnmarshalJSON only
+// runs when the field is present — so a hand-written payload without a
+// "type" key decodes as TypeBool and silently writes a bool to the PLC,
+// corrupting the register instead of rejecting the request. The check
+// is enforced at the API boundary only; the MQTT command path keeps
+// lenient decoding (its senders are documented to always sign and
+// carry the type).
+func requireWriteCommandType(raw []byte) error {
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return err
+	}
+	if _, ok := probe["type"]; !ok {
+		return fmt.Errorf(`"type" is required (one of: bool, int8, int16, int32, int64, uint8, uint16, uint32, uint64, float32, float64, string, bytes) — an omitted type would silently write a bool value`)
+	}
+	return nil
+}
+
 // writeTag only depends on the DataAccessor role of the engine.
 func writeTag(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(limitedBody(r).Body)
+	if err != nil {
+		renderInternalError(w, r, err)
+		return
+	}
+	if err := requireWriteCommandType(body); err != nil {
+		slog.Info("tag write rejected",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"remote", r.RemoteAddr,
+			"error", err)
+		renderError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
 	var cmd core.WriteCommand
-	if err := json.NewDecoder(limitedBody(r).Body).Decode(&cmd); err != nil {
+	if err := json.Unmarshal(body, &cmd); err != nil {
 		slog.Info("tag write rejected",
 			"method", r.Method,
 			"path", r.URL.Path,
@@ -174,8 +209,29 @@ type batchWriteRequest struct {
 // order; per-command errors are verbatim (driver-not-found etc.),
 // and the summary counts make partial success visible at a glance.
 func batchWrite(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(limitedBody(r).Body)
+	if err != nil {
+		renderInternalError(w, r, err)
+		return
+	}
+	// Same type-presence contract as single writes, per element: probe
+	// the raw JSON first so a missing "type" key is a 400 at the
+	// boundary instead of a silent bool write on the PLC.
+	var probe struct {
+		Writes []json.RawMessage `json:"writes"`
+	}
+	if err := json.Unmarshal(body, &probe); err != nil {
+		renderError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	for i, raw := range probe.Writes {
+		if err := requireWriteCommandType(raw); err != nil {
+			renderError(w, r, http.StatusBadRequest, fmt.Sprintf("writes[%d]: %s", i, err))
+			return
+		}
+	}
 	var req batchWriteRequest
-	if err := json.NewDecoder(limitedBody(r).Body).Decode(&req); err != nil {
+	if err := json.Unmarshal(body, &req); err != nil {
 		renderError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
