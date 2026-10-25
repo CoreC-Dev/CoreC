@@ -392,7 +392,7 @@ settings:
 
 ### default 解析器
 
-无需额外配置，消息体须为 `DataPoint` 的 JSON 表示。
+无需额外配置，消息体须为 `DataPoint` 的 JSON 表示。数值按数据点的 `type` 字段精确反序列化——上游 CoreC 发布的 64 位整数（int64/uint64）逐位保留，超过 ±2^53 的值不会因浮点转换失真。
 
 ### jsonpath 解析器
 
@@ -401,7 +401,7 @@ settings:
 | `parser.driver` | string | 否 | — | 静态 driver 字段值 |
 | `parser.tag` | string | 否 | — | tag 字段的模板或静态字符串 |
 | `parser.value` | string | 否 | — | value 字段的模板路径 |
-| `parser.data-type` | string | 否 | — | 数据类型名，如 `float32` |
+| `parser.data-type` | string | 否 | — | 数据类型名，如 `float32`、`int64`。设为整数类型时，数字载荷按声明的位宽从原文精确解析（不经浮点），超过 ±2^53 的 64 位值不失真 |
 | `parser.group` | string | 否 | — | 静态 group 字段值 |
 | `parser.device` | string | 否 | — | 静态 device 字段值 |
 | `parser.timestamp` | string | 否 | — | timestamp 字段的模板路径 |

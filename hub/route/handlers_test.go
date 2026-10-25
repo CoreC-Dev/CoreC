@@ -457,6 +457,42 @@ func TestBatchWriteMissingType(t *testing.T) {
 	}
 }
 
+// TestWriteTagInt64Precision: an int64 write above ±2^53 must reach the
+// engine bit-exactly. The default `any` JSON decode coerces numbers to
+// float64 (9007199254740993 → 9007199254740992), which would make the
+// PLC receive a rounded register payload.
+func TestWriteTagInt64Precision(t *testing.T) {
+	var captured core.WriteCommand
+	eng := &mockEngineV2{
+		writeResult: core.WriteResult{Success: true},
+		writeTagHook: func(_ context.Context, cmd core.WriteCommand) (*core.WriteResult, error) {
+			captured = cmd
+			return &core.WriteResult{Success: true}, nil
+		},
+	}
+	ts := newTestServer("", eng)
+	defer ts.Close()
+
+	body := []byte(`{"driver":"plc1","tag":"counter64","value":9007199254740993,"type":"int64"}`)
+	req, _ := http.NewRequest("POST", ts.URL+"/write", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatalf("POST /write failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	v, ok := captured.Value.(int64)
+	if !ok {
+		t.Fatalf("engine received %T (%v), want int64", captured.Value, captured.Value)
+	}
+	if v != 9007199254740993 {
+		t.Fatalf("engine received corrupted value %d, want 9007199254740993", v)
+	}
+}
+
 func TestUpdateConfigs(t *testing.T) {
 	eng := &mockEngineV2{}
 	ts := newTestServer("", eng)

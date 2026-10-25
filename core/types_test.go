@@ -175,8 +175,11 @@ func TestDataTypeUnmarshalLegacyIntegerViaStruct(t *testing.T) {
 	if cmd.Type != TypeFloat32 {
 		t.Errorf("legacy type 9 decoded as %d, want %d (TypeFloat32)", cmd.Type, TypeFloat32)
 	}
-	if cmd.Value != 99.9 {
-		t.Errorf("value = %v, want 99.9", cmd.Value)
+	// The declared type now also governs the value decode: a float32
+	// command decodes its value as float32 (the exact Go type the PLC
+	// write path expects), not the historical float64 default.
+	if v, ok := cmd.Value.(float32); !ok || v != float32(99.9) {
+		t.Errorf("value = %T (%v), want float32(99.9)", cmd.Value, cmd.Value)
 	}
 }
 

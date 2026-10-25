@@ -17,7 +17,7 @@ func TestDefaultParser(t *testing.T) {
 	dp := core.DataPoint{
 		Driver:    "plc",
 		Tag:       "temp",
-		Value:     23.5,
+		Value:     float32(23.5),
 		Type:      core.TypeFloat32,
 		Quality:   core.QualityGood,
 		Timestamp: time.Date(2026, 9, 9, 20, 0, 0, 0, time.UTC),
@@ -31,8 +31,15 @@ func TestDefaultParser(t *testing.T) {
 	if got.Driver != "plc" || got.Tag != "temp" {
 		t.Errorf("unexpected: %+v", got)
 	}
-	if got.Value != 23.5 {
-		t.Errorf("value: expected 23.5, got %v", got.Value)
+	// The declared type must survive the JSON round-trip: a float32
+	// point decodes back as float32 (not the float64 default), so a
+	// chained consumer sees exactly what the upstream driver produced.
+	gotF, ok := got.Value.(float32)
+	if !ok {
+		t.Fatalf("value: expected float32, got %T (%v)", got.Value, got.Value)
+	}
+	if gotF != 23.5 {
+		t.Errorf("value: expected 23.5, got %v", gotF)
 	}
 }
 
@@ -156,5 +163,90 @@ func TestUnknownParserType(t *testing.T) {
 	_, err := New(settings)
 	if err == nil {
 		t.Fatal("expected error for unknown parser type")
+	}
+}
+
+// TestJSONPathParserInt64Precision guards the same corruption class as
+// the core round-trip fix, on the inbound third-party path: gjson's
+// .Value() coerces numbers to float64, which rounds integers above ±2^53
+// when a chained core declares data-type int64.
+func TestJSONPathParserInt64Precision(t *testing.T) {
+	settings := map[string]any{
+		"parser": map[string]any{
+			"type":      "jsonpath",
+			"driver":    "gw",
+			"tag":       "{{ .payload.dev_id }}",
+			"value":     "{{ .payload.counter }}",
+			"data-type": "int64",
+		},
+	}
+	p, err := New(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	payload := []byte(`{"dev_id":"meter_01","counter":9007199254740993}`)
+	got, err := p.Parse(payload, "gw/meter_01/data")
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	v, ok := got.Value.(int64)
+	if !ok {
+		t.Fatalf("expected int64, got %T (%v)", got.Value, got.Value)
+	}
+	if v != 9007199254740993 {
+		t.Fatalf("silently corrupted: buffered 9007199254740993, parsed %d", v)
+	}
+}
+
+// TestJSONPathParserUntypedKeepsGJSONTyping pins the fallback: without a
+// configured data-type, values keep gjson's native typing (numbers →
+// float64), matching the historical behavior for untyped configs.
+func TestJSONPathParserUntypedKeepsGJSONTyping(t *testing.T) {
+	settings := map[string]any{
+		"parser": map[string]any{
+			"type":   "jsonpath",
+			"driver": "gw",
+			"tag":    "{{ .payload.dev_id }}",
+			"value":  "{{ .payload.counter }}",
+		},
+	}
+	p, err := New(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	payload := []byte(`{"dev_id":"m1","counter":42}`)
+	got, err := p.Parse(payload, "gw/m1/data")
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if v, ok := got.Value.(float64); !ok || v != 42 {
+		t.Fatalf("expected default float64(42), got %T (%v)", got.Value, got.Value)
+	}
+}
+
+// TestRawParserInt64: the raw parser now parses int64/uint64 exactly from
+// the payload digits (previously data-type int64 fell to the string
+// default because parseScalar had no int64/uint64 cases).
+func TestRawParserInt64(t *testing.T) {
+	settings := map[string]any{
+		"parser": map[string]any{
+			"type":      "raw",
+			"driver":    "dev",
+			"tag":       "counter64",
+			"data-type": "int64",
+		},
+	}
+	p, err := New(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := p.Parse([]byte("9007199254740993"), "any/topic")
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if v, ok := got.Value.(int64); !ok || v != 9007199254740993 {
+		t.Fatalf("expected int64(9007199254740993), got %T (%v)", got.Value, got.Value)
 	}
 }

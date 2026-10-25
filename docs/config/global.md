@@ -196,7 +196,7 @@ wscat -c "ws://localhost:9090/tags/stream?token=corec-secret-token"
 | `engine.command-concurrency` | int | 否 | `16` | 写入指令最大并行数，超限施加背压并溢入死信队列；设 `1` 恢复串行 |
 | `engine.high-priority-workers` | int | 否 | `2` | 快间隔标签（`interval` ≤ 1s）专用处理协程数，与批量读取协程隔离 |
 | `engine.alert-active-window` | duration | 否 | `15m` | 告警活动窗口——告警静默满该时长后自动清除（移入历史）。确认（ack）不会清除告警，只有静默会；详见 [告警 API](../api/alerts.md) |
-| `engine.dead-letter-path` | string | 否 | `""`（禁用） | 写死信队列**落盘持久化**：追加式 JSONL 文件，重启时回放进内存队列（`GET /write/failed` 可查、可重放）。文件超过 5MiB 轮转为 `<path>.old`，磁盘占用上限约 2×5MiB（轮转丢弃更早世代，与滚动日志同语义）。未设置时死信队列仅存于内存，进程退出即丢失 |
+| `engine.dead-letter-path` | string | 否 | `""`（禁用） | 写死信队列**落盘持久化**：追加式 JSONL 文件，重启时回放进内存队列（`GET /write/failed` 可查、可重放；命令值含 64 位整数逐位保留，回放不失真）。文件超过 5MiB 轮转为 `<path>.old`，磁盘占用上限约 2×5MiB（轮转丢弃更早世代，与滚动日志同语义）。未设置时死信队列仅存于内存，进程退出即丢失 |
 
 ```yaml
 global:
@@ -296,7 +296,7 @@ global:
 
 ## buffer
 
-离线持久化缓冲配置。当北向传输（MQTT Broker / HTTP Endpoint）不可达时，批量器重试耗尽后会将失败批次写入本地磁盘，待传输恢复后自动回放（drain），防止数据丢失。
+离线持久化缓冲配置。当北向传输（MQTT Broker / HTTP Endpoint）不可达时，批量器重试耗尽后会将失败批次写入本地磁盘，待传输恢复后自动回放（drain），防止数据丢失。回放的批次与落盘前**逐位一致**——数据点按声明的 `type` 反序列化，64 位整数（int64/uint64）不经过浮点转换，超过 ±2^53 的值不会失真。
 
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |

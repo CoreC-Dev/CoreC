@@ -124,8 +124,12 @@ func (f jsonPathField) resolve(payload []byte, topic string) string {
 }
 
 // resolveValue is like resolve but preserves the original JSON type
-// (number, bool, string) instead of always returning a string.
-func (f jsonPathField) resolveValue(payload []byte, topic string) any {
+// (number, bool, string) instead of always returning a string. When a
+// data-type is configured and it is an integer type, number tokens are
+// parsed exactly from their digits — gjson's .Value() coerces every
+// number to float64, which rounds integers above ±2^53 (the same
+// corruption class the core DataPoint.UnmarshalJSON fix addresses).
+func (f jsonPathField) resolveValue(payload []byte, topic string, dt core.DataType, typed bool) any {
 	if f.isStatic {
 		return parseTplValueString(f.static)
 	}
@@ -140,6 +144,15 @@ func (f jsonPathField) resolveValue(payload []byte, topic string) any {
 		case r.IsBool():
 			return r.Bool()
 		default:
+			if typed && r.Type == gjson.Number {
+				switch dt {
+				case core.TypeInt8, core.TypeInt16, core.TypeInt32, core.TypeInt64,
+					core.TypeUint8, core.TypeUint16, core.TypeUint32, core.TypeUint64:
+					// parseScalar re-parses the raw digits into the exact
+					// Go type (int64/uint64 included), never through float64.
+					return parseScalar(r.Raw, dt)
+				}
+			}
 			// Numbers, strings, and nulls are handled via .Value()
 			return r.Value()
 		}
@@ -185,10 +198,18 @@ func (p *jsonPathParser) Parse(payload []byte, topic string) (core.DataPoint, er
 	}
 
 	dp.Tag = p.tagField.resolve(payload, topic)
-	dp.Value = p.valueField.resolveValue(payload, topic)
 
-	if p.typeStr != "" {
-		dt, _ := core.ParseDataType(p.typeStr)
+	// The configured data-type drives exact number decoding for integer
+	// types (see resolveValue); when absent the value keeps gjson's
+	// native typing, matching the historical behavior.
+	var dt core.DataType
+	typed := p.typeStr != ""
+	if typed {
+		dt, _ = core.ParseDataType(p.typeStr)
+	}
+	dp.Value = p.valueField.resolveValue(payload, topic, dt, typed)
+
+	if typed {
 		dp.Type = dt
 	}
 
@@ -308,30 +329,15 @@ func parseTimestamp(s, format string) time.Time {
 	return time.Time{}
 }
 
+// parseScalar converts a scalar token (digits for numbers, "true"/"false",
+// or arbitrary text) into the exact Go type the DataType names. Integer
+// types parse from the digit text directly — never through float64 — so
+// 64-bit values survive bit-exactly (9007199254740993 must not become
+// 9007199254740992).
 func parseScalar(s string, dt core.DataType) any {
 	switch dt {
 	case core.TypeBool:
 		return s == "true" || s == "1"
-	case core.TypeUint16:
-		if v, err := strconv.ParseUint(s, 10, 16); err == nil {
-			return uint16(v)
-		}
-		return uint16(0)
-	case core.TypeInt16:
-		if v, err := strconv.ParseInt(s, 10, 16); err == nil {
-			return int16(v)
-		}
-		return int16(0)
-	case core.TypeUint32:
-		if v, err := strconv.ParseUint(s, 10, 32); err == nil {
-			return uint32(v)
-		}
-		return uint32(0)
-	case core.TypeInt32:
-		if v, err := strconv.ParseInt(s, 10, 32); err == nil {
-			return int32(v)
-		}
-		return int32(0)
 	case core.TypeFloat32:
 		if v, err := strconv.ParseFloat(s, 32); err == nil {
 			return float32(v)
@@ -342,7 +348,74 @@ func parseScalar(s string, dt core.DataType) any {
 			return v
 		}
 		return float64(0)
+	}
+	if v, ok := parseIntScalar(s, dt); ok {
+		return v
+	}
+	return s
+}
+
+// intSpecs maps each integer DataType to its parse width and signedness.
+// Package-level so the per-message parse path allocates nothing extra.
+var intSpecs = map[core.DataType]struct {
+	bits   int
+	signed bool
+}{
+	core.TypeInt8:   {8, true},
+	core.TypeInt16:  {16, true},
+	core.TypeInt32:  {32, true},
+	core.TypeInt64:  {64, true},
+	core.TypeUint8:  {8, false},
+	core.TypeUint16: {16, false},
+	core.TypeUint32: {32, false},
+	core.TypeUint64: {64, false},
+}
+
+// parseIntScalar handles the eight integer widths. ok=false means dt is
+// not an integer type and the caller keeps its own default.
+func parseIntScalar(s string, dt core.DataType) (any, bool) {
+	spec, ok := intSpecs[dt]
+	if !ok {
+		return nil, false
+	}
+	if spec.signed {
+		v, err := strconv.ParseInt(s, 10, spec.bits)
+		if err != nil {
+			v = 0
+		}
+		return narrowSigned(v, dt), true
+	}
+	v, err := strconv.ParseUint(s, 10, spec.bits)
+	if err != nil {
+		v = 0
+	}
+	return narrowUnsigned(v, dt), true
+}
+
+// narrowSigned converts a parsed int64 to the declared Go width.
+func narrowSigned(v int64, dt core.DataType) any {
+	switch dt {
+	case core.TypeInt8:
+		return int8(v)
+	case core.TypeInt16:
+		return int16(v)
+	case core.TypeInt32:
+		return int32(v)
 	default:
-		return s
+		return v
+	}
+}
+
+// narrowUnsigned converts a parsed uint64 to the declared Go width.
+func narrowUnsigned(v uint64, dt core.DataType) any {
+	switch dt {
+	case core.TypeUint8:
+		return uint8(v)
+	case core.TypeUint16:
+		return uint16(v)
+	case core.TypeUint32:
+		return uint32(v)
+	default:
+		return v
 	}
 }

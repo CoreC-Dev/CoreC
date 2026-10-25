@@ -219,37 +219,6 @@ type DataPoint struct {
 	IsStale bool `json:"is_stale,omitempty"`
 }
 
-// WriteCommand represents a command to write a value to a device.
-type WriteCommand struct {
-	Driver string   `json:"driver"`
-	Device string   `json:"device"`
-	Tag    string   `json:"tag"`
-	Value  any      `json:"value"`
-	Type   DataType `json:"type"`
-
-	// Source records where the command originated: "api" for direct
-	// HTTP writes (POST /write) and "command" for reverse-path commands
-	// arriving via a transport command channel. It is stamped by the
-	// trust boundary (the route handler / the engine command listener),
-	// never trusted from client payloads, so the write audit history
-	// cannot be mislabeled by an external sender. Omitted when empty.
-	Source string `json:"source,omitempty"`
-
-	// Remote records the network address of the caller for
-	// API-originated writes (r.RemoteAddr()). Reverse-path commands have
-	// no meaningful peer address and leave it empty. Omitted when empty.
-	Remote string `json:"remote,omitempty"`
-
-	// Raw requests a raw-device-value write: the driver skips the inverse
-	// of the read path's scale/offset transform and encodes the command
-	// value as-is. By default (Raw=false) a write carrying the
-	// engineering value is converted back to the raw representation so
-	// reads and writes round-trip for scaled tags.
-	// Use Raw=true for commissioning flows that speak the device's own
-	// units. Omitted when false.
-	Raw bool `json:"raw,omitempty"`
-}
-
 // WriteResult represents the result of a write operation.
 type WriteResult struct {
 	Success bool   `json:"success"`

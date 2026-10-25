@@ -199,14 +199,14 @@ func TestJsonPathFieldResolveEmpty(t *testing.T) {
 
 func TestJsonPathFieldResolveValueStatic(t *testing.T) {
 	f := jsonPathField{isStatic: true, static: "3.14"}
-	if got := f.resolveValue(nil, ""); got != 3.14 {
+	if got := f.resolveValue(nil, "", core.TypeBool, false); got != 3.14 {
 		t.Errorf("static resolveValue: got %v, want 3.14", got)
 	}
 }
 
 func TestJsonPathFieldResolveValueTopic(t *testing.T) {
 	f := jsonPathField{isTopic: true}
-	if got := f.resolveValue(nil, "t/x"); got != "t/x" {
+	if got := f.resolveValue(nil, "t/x", core.TypeBool, false); got != "t/x" {
 		t.Errorf("topic resolveValue: got %v", got)
 	}
 }
@@ -214,7 +214,7 @@ func TestJsonPathFieldResolveValueTopic(t *testing.T) {
 func TestJsonPathFieldResolveValueBool(t *testing.T) {
 	f := jsonPathField{gjsonPath: "flag"}
 	payload := []byte(`{"flag": true}`)
-	if got := f.resolveValue(payload, ""); got != true {
+	if got := f.resolveValue(payload, "", core.TypeBool, false); got != true {
 		t.Errorf("bool resolveValue: got %v, want true", got)
 	}
 }
