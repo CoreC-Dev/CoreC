@@ -204,7 +204,9 @@ histogram_quantile(0.5, sum by (transport, le) (rate(corec_publish_latency_secon
 
 ### 抓取配置示例
 
-```yaml
+::: code-group
+
+```yaml [默认：随主 API 认证抓取]
 # prometheus.yml — /metrics 位于主 API 端口的 Bearer 认证组内
 scrape_configs:
   - job_name: corec
@@ -215,8 +217,21 @@ scrape_configs:
       - targets: ['localhost:9090']
 ```
 
-::: warning 关于 `global.api.metrics-addr`
-`global.api.metrics-addr` 字段可以解析，但当前守护进程的启动路径不会把它传入 API 服务配置（`hub.Start` 构造服务配置时未传递该字段）：配置与否都不影响行为，`/metrics` 始终在主 API 端口上、位于 Bearer 认证组内提供，专用免密指标端口不会启动。抓取方需要携带与 `api.secret` 一致的 token。
+```yaml [生产推荐：专用免密指标接口]
+# CoreC 侧：global.api.metrics-addr: "127.0.0.1:9109"（仅回环）
+# Prometheus 侧：无需 token —— 抓取面拿不到能 PUT /configs 的主 API secret
+scrape_configs:
+  - job_name: corec
+    scrape_interval: 15s
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['localhost:9109']
+```
+
+:::
+
+::: info 专用指标接口的行为
+配置 `global.api.metrics-addr` 后：`/metrics` **从主 API 撤下**，只在专用端口上免认证提供（该端口除 `/metrics` 外无任何路由）。因无认证，**只允许绑定回环地址**（`127.0.0.1` / `localhost` / `::1`）——非回环绑定会被拒绝启动该端口，且此时主 API 的 `/metrics` 已撤下、指标将无处暴露（fail-closed）。Prometheus 与 CoreC 同机或经 SSH 隧道/私有网桥时用此模式。
 :::
 
 ### 常用 PromQL 查询

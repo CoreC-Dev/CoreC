@@ -259,6 +259,54 @@ func TestStartWithRateLimit(t *testing.T) {
 
 // TestStartWithAPIAndVerifyHealth checks that the API server actually
 // responds to requests after Start.
+// TestStartWithMetricsAddr verifies that hub.Start passes the configured
+// global.api.metrics-addr through to the route server config: the
+// credential-free dedicated /metrics server must actually come up, and
+// the authenticated copy on the main API must be suppressed (404).
+// Regression guard for the wiring gap where MetricsAddr was parsed but
+// never passed to route.Config, silently disabling the whole feature.
+func TestStartWithMetricsAddr(t *testing.T) {
+	apiAddr := freeAddr(t)
+	metricsAddr := freeAddr(t)
+	eng := &mockEngineForHub{}
+	cfg := &core.Config{
+		Global: core.GlobalConfig{
+			API: core.APIConfig{
+				Listen:      apiAddr,
+				Secret:      "test-secret",
+				MetricsAddr: metricsAddr,
+			},
+		},
+	}
+
+	Start(eng, cfg, "config.yaml")
+	defer Stop()
+
+	// The dedicated server must serve /metrics without any auth header.
+	waitForHTTPReady(t, "http://"+metricsAddr+"/metrics", 2*time.Second)
+	resp, err := http.Get("http://" + metricsAddr + "/metrics")
+	if err != nil {
+		t.Fatalf("dedicated metrics server not reachable: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("dedicated /metrics without auth: expected 200, got %d", resp.StatusCode)
+	}
+
+	// The main API must suppress its own /metrics copy (single exposure
+	// path) — 404 even for authenticated callers.
+	req, _ := http.NewRequest("GET", "http://"+apiAddr+"/metrics", http.NoBody)
+	req.Header.Set("Authorization", "Bearer test-secret")
+	resp2, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("main API not reachable: %v", err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusNotFound {
+		t.Errorf("main API /metrics with dedicated server on: expected 404, got %d", resp2.StatusCode)
+	}
+}
+
 func TestStartWithAPIAndVerifyHealth(t *testing.T) {
 	// Use a dynamic port to avoid collisions with other tests.
 	addr := freeAddr(t)

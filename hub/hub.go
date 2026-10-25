@@ -43,6 +43,7 @@ func Start(engine core.Engine, cfg *core.Config, configPath string) {
 			IdleTimeout:       parseDuration(cfg.Global.API.IdleTimeout),
 			PprofDisabled:     cfg.Global.API.PprofDisabled,
 			PprofAddr:         cfg.Global.API.PprofAddr,
+			MetricsAddr:       cfg.Global.API.MetricsAddr,
 		}
 		route.ReCreateServer(routeCfg)
 	}

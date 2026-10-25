@@ -69,7 +69,7 @@ CoreC 内置管理 API，提供驱动管理、数据读写、规则热更新、�
 | --- | --- | --- | --- | --- |
 | `api.listen` | string | 否 | — | 监听地址，格式 `host:port`；未设置则不启用管理 API |
 | `api.secret` | string | **是**† | — | 鉴权令牌，客户端需以 `Authorization: Bearer <secret>` 携带 |
-| `api.metrics-addr` | string | 否 | — | 当前版本设置后**不生效**：该字段可被解析，但生产启动路径（`hub.Start` 构造 server 配置时）未传递它，专用免密 metrics 端口不会启动，`/metrics` 始终在主 API 上经 Bearer 认证提供 |
+| `api.metrics-addr` | string | 否 | `""`（禁用） | 专用免密 metrics 端口：设置后 `/metrics` 从主 API 撤下，仅在此回环地址上无认证提供（Prometheus 不再需要主 API secret）；**只允许回环地址**，非回环绑定拒绝启动该端口且指标无处暴露（fail-closed）。详见[可观测性指南](../guide/observability.md) |
 | `api.tls-cert` | string | 否 | — | TLS 证书文件路径，启用 HTTPS 时需与 `tls-key` 同时设置 |
 | `api.tls-key` | string | 否 | — | TLS 私钥文件路径 |
 | `api.allowed-origins` | string[] | 否 | — | CORS 允许的来源列表；留空则默认放行所有来源（`*`），生产公网直连建议显式配置（见下方 allowed-origins 节） |
