@@ -6,10 +6,10 @@ package core
 // statsd, no-op, …) out of the domain and lets each component depend on
 // exactly this capability.
 //
-// NOTE: This port is defined but NOT yet injected into drivers. Wiring it
-// through Driver.Init / a driver constructor is a larger, separate
-// refactor; the goal here is to establish the port so future work can
-// adopt it without changing the core contract.
+// Injection: drivers implementing SetMetrics receive the engine's
+// metrics registry from the engine's driver manager at Init time, so
+// protocol-level driver metrics (e.g. modbus exception codes) flow to
+// /metrics; drivers that don't implement the injector keep NoopMetrics.
 type Metrics interface {
 	// IncCounter increments a named counter by 1, tagged with labels.
 	IncCounter(name string, labels map[string]string)

@@ -6,10 +6,9 @@ package core
 // capture, …) out of the domain and lets each component depend on exactly
 // this capability.
 //
-// NOTE: This port is defined but NOT yet injected into drivers. Wiring it
-// through Driver.Init / a driver constructor is a larger, separate
-// refactor; the goal here is to establish the port so future work can
-// adopt it without changing the core contract.
+// Injection: drivers implementing SetLogger receive the project's
+// log.DefaultLogger from the engine's driver manager at Init time;
+// drivers that don't implement the injector keep their internal default.
 type Logger interface {
 	Debug(msg string, args ...any)
 	Info(msg string, args ...any)

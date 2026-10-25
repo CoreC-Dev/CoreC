@@ -89,11 +89,14 @@ func writeDeadLetterMetrics(b *strings.Builder) {
 
 // writeDroppedBreakdown emits the per-cause drop counters so operators
 // can attribute loss instead of diffing the umbrella total
-// (corec_dropped_total alone sums four unrelated
-// kinds of loss — data-bus overflow, slow subscribers, bad-quality
-// policy discards, and dropped log events — with no labels). The
-// umbrella family stays for backward compatibility; engines without
-// the core.DroppedBreakdownProvider role omit the breakdown.
+// (corec_dropped_total alone sums four unrelated kinds of loss —
+// main-channel data-bus overflow, high-priority-channel data-bus
+// overflow, slow subscribers, and dropped log events — with no labels;
+// see statsCollector.TotalDropped. Bad-quality policy discards are
+// counted separately in corec_bad_quality_dropped_total and are NOT
+// part of the umbrella total). The umbrella family stays for backward
+// compatibility; engines without the core.DroppedBreakdownProvider
+// role omit the breakdown.
 func writeDroppedBreakdown(b *strings.Builder) {
 	provider, ok := getEngine().(core.DroppedBreakdownProvider)
 	if !ok || provider == nil {
