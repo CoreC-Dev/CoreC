@@ -137,3 +137,93 @@ func TestWriteCommandValuePrecisionRoundTrip(t *testing.T) {
 		})
 	}
 }
+
+// TestDecodeValueByTypeBranches covers the token-decoder helpers'
+// fallback branches directly: these paths guard malformed or untyped
+// payloads whose outer JSON is valid, so the public round-trip cannot
+// always reach them. All assertions pin the pre-fix behavior: the
+// default `any` decode (numbers → float64), never a silent error.
+func TestDecodeValueByTypeBranches(t *testing.T) {
+	t.Parallel()
+
+	t.Run("int16 and uint32 narrow exactly", func(t *testing.T) {
+		if got := decodeValueByType([]byte("-32768"), TypeInt16); got != int16(-32768) {
+			t.Errorf("int16 narrow: got %v (%T)", got, got)
+		}
+		if got := decodeValueByType([]byte("4294967295"), TypeUint32); got != uint32(4294967295) {
+			t.Errorf("uint32 narrow: got %v (%T)", got, got)
+		}
+	})
+
+	t.Run("unsigned non-number and unparseable tokens fall back", func(t *testing.T) {
+		if got := decodeValueByType([]byte(`"abc"`), TypeUint64); got != "abc" {
+			t.Errorf("uint64 string token: got %v (%T)", got, got)
+		}
+		if got := decodeValueByType([]byte("1e16"), TypeUint64); got != float64(1e16) {
+			t.Errorf("uint64 exponent token: got %v (%T)", got, got)
+		}
+	})
+
+	t.Run("float non-number token falls back", func(t *testing.T) {
+		if got := decodeValueByType([]byte(`"x"`), TypeFloat32); got != "x" {
+			t.Errorf("float32 string token: got %v (%T)", got, got)
+		}
+		// Overflowing float literals fail ParseFloat (ErrRange) and the
+		// default decode equally — the defensive fallback yields nil
+		// rather than a wrong value.
+		if got := decodeValueByType([]byte("1e999"), TypeFloat64); got != nil {
+			t.Errorf("float64 overflow token: got %v (%T), want nil", got, got)
+		}
+	})
+
+	t.Run("string and bytes types reject mismatched tokens", func(t *testing.T) {
+		if got := decodeValueByType([]byte("123"), TypeString); got != float64(123) {
+			t.Errorf("string type with number token: got %v (%T)", got, got)
+		}
+		if got := decodeValueByType([]byte("123"), TypeBytes); got != float64(123) {
+			t.Errorf("bytes type with number token: got %v (%T)", got, got)
+		}
+		// Valid string token, but not base64: falls back to the string.
+		if got := decodeValueByType([]byte(`"!!!"`), TypeBytes); got != "!!!" {
+			t.Errorf("bytes type with non-base64 string: got %v (%T)", got, got)
+		}
+	})
+
+	t.Run("unknown DataType falls back to the default decode", func(t *testing.T) {
+		if got := decodeValueByType([]byte("42"), DataType(999)); got != float64(42) {
+			t.Errorf("unknown type: got %v (%T)", got, got)
+		}
+	})
+
+	t.Run("decodeDefaultAny returns nil on invalid JSON", func(t *testing.T) {
+		if got := decodeDefaultAny([]byte("not json")); got != nil {
+			t.Errorf("invalid JSON: got %v (%T)", got, got)
+		}
+	})
+
+	t.Run("probeRawValue returns nil on invalid JSON", func(t *testing.T) {
+		if got := probeRawValue([]byte(`{invalid`)); got != nil {
+			t.Errorf("invalid JSON: got %v", got)
+		}
+	})
+}
+
+// TestUnmarshalJSONFieldErrors pins the error paths: a payload whose
+// fields do not match the struct (bad timestamp, wrong scalar kind)
+// must surface encoding/json's error, not be swallowed into a zero
+// value.
+func TestUnmarshalJSONFieldErrors(t *testing.T) {
+	t.Parallel()
+	if err := json.Unmarshal([]byte(`{"tag":"t","timestamp":123}`), &DataPoint{}); err == nil {
+		t.Error("DataPoint: expected error for non-time timestamp")
+	}
+	if err := json.Unmarshal([]byte(`{"driver":5}`), &WriteCommand{}); err == nil {
+		t.Error("WriteCommand: expected error for numeric driver field")
+	}
+	if err := json.Unmarshal([]byte(`[1,2]`), &DataPoint{}); err == nil {
+		t.Error("DataPoint: expected error for array payload")
+	}
+	if err := json.Unmarshal([]byte(`"str"`), &WriteCommand{}); err == nil {
+		t.Error("WriteCommand: expected error for string payload")
+	}
+}
