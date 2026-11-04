@@ -30,6 +30,7 @@ logs/
 .DS_Store
 Thumbs.db
 /corec
+/corec-mcp
 /corec-stripped
 
 # VitePress docs

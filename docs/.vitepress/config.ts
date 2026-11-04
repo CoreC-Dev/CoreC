@@ -50,6 +50,7 @@ export default defineConfig({
             { text: '链式核心', link: '/guide/chained-core' },
             { text: '规则引擎', link: '/guide/rules' },
             { text: '可观测性', link: '/guide/observability' },
+            { text: 'MCP 服务', link: '/guide/mcp' },
           ],
         },
       ],
