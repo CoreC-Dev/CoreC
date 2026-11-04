@@ -60,8 +60,12 @@ type writeManager struct {
 	// Bounded by writeAuditCapacity; oldest entries are evicted when
 	// full. Guarded by its own small mutex so audit recording never
 	// contends with the engine-wide e.mu.
-	writeAuditMu      sync.Mutex
-	writeAuditHistory []core.WriteAuditEntry
+	writeAudits writeAuditTrail
+
+	// pacer enforces each driver's write-min-interval floor (see
+	// engine/write_pacing.go). Nil until newEngineShell wires it; every
+	// method tolerates a nil receiver.
+	pacer *writePacer
 
 	// eng is the owning engine: WriteTag reaches the driver registry and
 	// shared lock through it; the retry loop reaches the lifecycle
@@ -83,9 +87,32 @@ var _ core.WriteAuditor = (*CoreCEngine)(nil)
 func (w *writeManager) WriteTag(ctx context.Context, cmd core.WriteCommand) (*core.WriteResult, error) {
 	w.eng.mu.RLock()
 	d, ok := w.eng.driverReg.drivers[cmd.Driver]
+	dc, hasConfig := w.eng.driverReg.driverConfigs[cmd.Driver]
 	w.eng.mu.RUnlock()
 	if !ok {
 		err := fmt.Errorf("driver not found: %s", cmd.Driver)
+		w.recordWriteAudit(cmd, false, err.Error())
+		return nil, err
+	}
+
+	// Configuration-level write protection. WriteTag is the single choke
+	// point every write path funnels through (API single write, batch
+	// write and the MQTT command channel), so enforcing the tag's `protect`
+	// here also binds third-party drivers that never implement a check.
+	if hasConfig {
+		if reason := tagWriteProtectionReason(dc.Tags, cmd.Tag); reason != "" {
+			w.recordWriteAudit(cmd, false, reason)
+			return nil, fmt.Errorf("%s", reason)
+		}
+	}
+
+	// Per-driver write pacing (settings.write-min-interval): the same choke
+	// point as the protection check, so every path — API single write bag,
+	// batch and the MQTT command channel — honours the device's minimum
+	// spacing. Rejection is a client-actionable ErrWritePaced (429 on the
+	// API, immediate dead letter on the command channel), never a silent
+	// queue.
+	if err := w.pacer.check(cmd.Driver); err != nil {
 		w.recordWriteAudit(cmd, false, err.Error())
 		return nil, err
 	}
@@ -123,28 +150,18 @@ func (w *writeManager) recordWriteAudit(cmd core.WriteCommand, success bool, err
 		Remote:    cmd.Remote,
 		Raw:       cmd.Raw,
 	}
-	w.writeAuditMu.Lock()
-	defer w.writeAuditMu.Unlock()
-	w.writeAuditHistory = append(w.writeAuditHistory, entry)
-	if len(w.writeAuditHistory) > writeAuditCapacity {
-		w.writeAuditHistory = w.writeAuditHistory[len(w.writeAuditHistory)-writeAuditCapacity:]
-	}
+	w.writeAudits.record(entry)
 }
 
 // WriteHistory returns a newest-first copy of the write audit history
 // (index 0 = most recent write attempt), satisfying core.WriteAuditor.
 // The result is always non-nil so it serializes as a JSON array.
 func (w *writeManager) WriteHistory() []core.WriteAuditEntry {
-	w.writeAuditMu.Lock()
-	defer w.writeAuditMu.Unlock()
-	n := len(w.writeAuditHistory)
-	result := make([]core.WriteAuditEntry, n)
-	// Index rather than range-copy: WriteAuditEntry is a wide struct and
-	// gocritic's rangeValCopy flags the per-iteration copy.
-	for i := range w.writeAuditHistory {
-		result[n-1-i] = w.writeAuditHistory[i]
-	}
-	return result
+	w.writeAudits.mu.Lock()
+	defer w.writeAudits.mu.Unlock()
+	// newestFirstLocked indexes rather than range-copies: WriteAuditEntry is a
+	// wide struct and gocritic's rangeValCopy flags the per-iteration copy.
+	return newestFirstLocked(w.writeAudits.items)
 }
 
 // --- Command Execution ---
@@ -297,6 +314,7 @@ func (w *writeManager) forwardCommand(ctx context.Context, cmd core.WriteCommand
 var permanentWriteErrPatterns = []string{
 	"tag not found",            // all drivers: command references no configured tag
 	"read-only area",           // modbus: discrete-input / input-register target
+	"protect: read-only",       // engine: TagConfig.Protect rejected the write
 	"is not supported on",      // modbus: type not supported on the tag's area
 	"expected bool value",      // modbus: value/type mismatch on bit areas
 	"unsupported write type",   // modbus: unrepresentable command type
@@ -471,12 +489,26 @@ func (w *writeManager) applyConfig(cfg *core.EngineConfig) error {
 	if cfg.CommandConcurrency > 0 {
 		w.commandConcurrency = cfg.CommandConcurrency
 	}
+
+	if cfg.WriteMinInterval != "" {
+		interval, err := time.ParseDuration(cfg.WriteMinInterval)
+		if err != nil {
+			return fmt.Errorf("invalid write-min-interval %q: %w", cfg.WriteMinInterval, err)
+		}
+		if interval < 0 {
+			return fmt.Errorf("invalid write-min-interval %q: must not be negative", cfg.WriteMinInterval)
+		}
+		w.pacer.setInterval(interval)
+	}
 	if cfg.DeadLetterPath != "" {
 		store, err := openDeadLetterStore(cfg.DeadLetterPath)
 		if err != nil {
 			return err
 		}
 		w.deadLetters.store = store
+	}
+	if err := w.writeAudits.configure(cfg.WriteAuditPath); err != nil {
+		return err
 	}
 	return nil
 }

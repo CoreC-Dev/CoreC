@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -658,5 +659,32 @@ func TestDisableRuleBadJSON(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+// TestWriteTagPacedAnswers429: a write refused by the driver pacing floor
+// carries core.ErrWritePaced and must answer 429 + Retry-After — the
+// command is valid, the device is busy, so the client backs off rather
+// than treating it as a malformed request.
+func TestWriteTagPacedAnswers429(t *testing.T) {
+	eng := &mockEngineV2{
+		writeErr: fmt.Errorf("%w: driver %q accepts a write every 200ms", core.ErrWritePaced, "plc1"),
+	}
+	ts := newTestServer("", eng)
+	defer ts.Close()
+
+	body := []byte(`{"driver":"plc1","tag":"temp","value":50,"type":"int16"}`)
+	req, _ := http.NewRequest("POST", ts.URL+"/write", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatalf("POST /write failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("paced write: status = %d, want 429", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Retry-After"); got != "1" {
+		t.Errorf("Retry-After = %q, want \"1\"", got)
 	}
 }

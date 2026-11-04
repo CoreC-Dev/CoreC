@@ -44,6 +44,14 @@ type taskRunner struct {
 
 	// Deadband: last reported numeric value per tag
 	lastValues map[string]float64
+	// lastSent records when each tag's value was last released downstream
+	// (deadband skip or not). Heartbeats (enforce-interval) compare against
+	// it; tags without a heartbeat never write to the map.
+	lastSent map[string]time.Time
+
+	// heartbeats counts samples released by an elapsed enforce-interval
+	// heartbeat (atomic: read from the metrics path without s.mu).
+	heartbeats atomic.Uint64
 
 	// Error throttling state
 	lastErrLog time.Time
@@ -131,6 +139,7 @@ func (s *scheduler) AddTask(task core.ScheduleTask) error {
 		task:       task,
 		cancel:     taskCancel,
 		lastValues: make(map[string]float64),
+		lastSent:   make(map[string]time.Time),
 	}
 	s.tasks[task.ID] = runner
 
@@ -175,6 +184,7 @@ func (s *scheduler) Health() []core.TaskHealth {
 			h.ConsecutiveErrors = t.consecutiveErrors
 		}
 		h.OverrunsTotal += t.overrunsTotal
+		h.HeartbeatsTotal += t.heartbeats.Load()
 	}
 
 	names := make([]string, 0, len(byDriver))
@@ -432,6 +442,11 @@ func applyDeadbandFilter(runner *taskRunner, values []core.TagValue) []core.TagV
 	if len(runner.task.DeadBands) == 0 {
 		return values
 	}
+	// Lazily allocated so a runner built without AddTask (tests, embedded
+	// callers) does not need to know about the heartbeat clock.
+	if runner.lastSent == nil {
+		runner.lastSent = make(map[string]time.Time)
+	}
 	filtered := make([]core.TagValue, 0, len(values))
 	for _, v := range values {
 		threshold, ok := runner.task.DeadBands[v.Tag]
@@ -457,6 +472,20 @@ func applyDeadbandFilter(runner *taskRunner, values []core.TagValue) []core.TagV
 		if !hasLast || math.Abs(numVal-lastVal) >= threshold {
 			filtered = append(filtered, v)
 			runner.lastValues[v.Tag] = numVal
+			runner.lastSent[v.Tag] = time.Now()
+			continue
+		}
+		// The value stayed inside the deadband. If the tag declares a
+		// heartbeat period (enforce-interval), release one sample once
+		// that period has elapsed since the last published one, so the
+		// consumer can refresh its last-known-value and timestamp
+		// instead of reading "no messages" as "link dead".
+		if heartbeat, ok := runner.task.EnforceIntervals[v.Tag]; ok && heartbeat > 0 {
+			if last, sent := runner.lastSent[v.Tag]; !sent || time.Since(last) >= heartbeat {
+				filtered = append(filtered, v)
+				runner.lastSent[v.Tag] = time.Now()
+				runner.heartbeats.Add(1)
+			}
 		}
 	}
 	return filtered

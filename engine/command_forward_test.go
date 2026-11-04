@@ -151,6 +151,7 @@ func newTestEngine(t *testing.T) *CoreCEngine {
 	t.Helper()
 	e := newEngineShell()
 	e.driverReg.drivers = make(map[string]core.Driver)
+	e.driverReg.driverConfigs = make(map[string]core.DriverConfig)
 	e.transportMgr.transports = make(map[string]core.Transport)
 	e.writes.writeRetryCount = 0 // single attempt: keeps failure tests fast
 	e.writes.deadLetters.maxLen = 1000

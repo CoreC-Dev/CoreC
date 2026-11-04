@@ -13,6 +13,14 @@ type ScheduleTask struct {
 	Priority  int                `json:"priority"`
 	DeadBands map[string]float64 `json:"deadbands,omitempty"` // tag → deadband threshold
 
+	// EnforceIntervals are per-tag heartbeat periods on top of the deadband:
+	// when a value has been suppressed as unchanged for longer than the
+	// tag's period, the next sample is released anyway so a consumer can
+	// tell "no change" apart from "link dead" (upsert/heartbeat pattern).
+	// Only meaningful for tags that also declare a deadband; absent map =
+	// no heartbeats (deadband suppresses unchanged values indefinitely).
+	EnforceIntervals map[string]time.Duration `json:"enforce_intervals,omitempty"`
+
 	// ReadTimeout is the maximum duration for a single read operation.
 	// <=0 means fall back to Interval. This decouples the read deadline
 	// from the collection cadence so that high-frequency tasks (e.g.
@@ -42,6 +50,12 @@ type TaskHealth struct {
 	Degraded          bool   `json:"degraded"`
 	ConsecutiveErrors int    `json:"consecutive_errors"`
 	OverrunsTotal     uint64 `json:"overruns_total"`
+	// HeartbeatsTotal is the number of samples released because a tag's
+	// enforce-interval heartbeat elapsed while the value stayed inside its
+	// deadband. Exposed as corec_deadband_heartbeats_total{driver}: a
+	// rising counter means the system is publishing unchanged values to
+	// keep the consumer's last-known-value fresh, not that data changed.
+	HeartbeatsTotal uint64 `json:"heartbeats_total,omitempty"`
 }
 
 // SchedulerHealthProvider is the optional role the metrics route
@@ -52,4 +66,20 @@ type SchedulerHealthProvider interface {
 	// driver name for deterministic exposition. nil/empty means no
 	// scheduled tasks (idle engine).
 	SchedulerHealth() []TaskHealth
+}
+
+// IntervalLimiter is the optional role a Driver implements to declare the
+// fastest collection cadence its protocol/device can sustain (e.g. a Modbus
+// RTU device at 9600 baud cannot answer 10 ms polls). The engine clamps a
+// task's interval up to this floor at scheduling time and logs one warning
+// naming the tag, the requested interval and the floor — a configuration that
+// would silently overload the device fails loudly instead.
+//
+// It is a separate optional interface, not a DriverCapabilities field, so
+// existing drivers and third-party drivers are unaffected: a driver that does
+// not implement it keeps whatever interval the operator configured.
+type IntervalLimiter interface {
+	// MinInterval returns the driver's minimum sustainable collection
+	// interval. <= 0 means "no floor declared" and is treated as absent.
+	MinInterval() time.Duration
 }

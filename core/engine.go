@@ -387,6 +387,25 @@ type EngineConfig struct {
 	// <path>.old past 5 MiB, bounding disk at ~2×5 MiB.
 	DeadLetterPath string `yaml:"dead-letter-path,omitempty"`
 
+	// WriteMinInterval is the minimum spacing between two write commands
+	// that reach the same device. Old PLCs that service their
+	// communication interface from a single CPU loop drop or misapply
+	// back-to-back writes. A write arriving inside the window is REFUSED,
+	// never queued: the API answers 429 (the client backs off) and the
+	// command channel dead-letters the command with the reason intact.
+	// Only accepted writes advance the window. Empty = disabled (writes
+	// proceed immediately). Parse as a duration string, e.g. "200ms".
+	WriteMinInterval string `yaml:"write-min-interval,omitempty"`
+
+	// WriteAuditPath enables on-disk persistence of the write audit trail
+	// (GET /write/history): an append-only JSONL file that survives process
+	// restarts, so an operator can still answer "who wrote what, and when"
+	// after an outage. Empty = disabled (in-memory only, the historical
+	// behaviour). Records are fsynced before the write returns; the file
+	// rotates to <path>.old past 5 MiB (bounding disk at ~2x5 MiB) and the
+	// newest entries replay into the in-memory ring at startup.
+	WriteAuditPath string `yaml:"write-audit-path,omitempty"`
+
 	// AlertActiveWindow is how long an alert stays active after its
 	// last fire. An alert that has not re-fired for a full window is
 	// cleared (moves to history and stops appearing in GET /alerts).

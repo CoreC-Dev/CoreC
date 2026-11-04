@@ -48,4 +48,10 @@ func writeSchedulerMetrics(b *strings.Builder) {
 		fmt.Fprintf(b, "corec_scheduler_overruns_total{driver=\"%s\"} %d\n",
 			promEscape(h.Driver), h.OverrunsTotal)
 	}
+
+	writePromHeader(b, "corec_deadband_heartbeats_total", "counter", "Total samples released by an enforce-interval heartbeat while the value stayed inside its deadband, per driver (cumulative over the process lifetime)")
+	for _, h := range health {
+		fmt.Fprintf(b, "corec_deadband_heartbeats_total{driver=\"%s\"} %d\n",
+			promEscape(h.Driver), h.HeartbeatsTotal)
+	}
 }

@@ -120,8 +120,10 @@ global:
 #     # stale-threshold: 30s              # mark cached values as is_stale if not updated within this duration (default: disabled)
 #     # write-retry-count: 3              # write command retry count before entering dead letter queue (default 3)
 #     # command-concurrency: 16           # max parallel write commands; excess applies backpressure→dead-letter (default 16; set 1 for serial)
+#     # write-min-interval: 200ms        # min spacing between writes to the same device; paced writes are REFUSED (HTTP 429), never queued (default: disabled)
 #     # high-priority-workers: 2          # dedicated workers for fast-interval tags (interval≤1s); isolated from bulk-read workers (default 2)
 #     # alert-active-window: 15m           # how long an alert stays active after its last fire; silence clears it to history (default 15m)
+#     # write-audit-path: write-audit.jsonl # persist GET /write/history to an append-only JSONL file; replays the newest at startup (default: memory-only)
 #     # dead-letter-path: deadletters.jsonl # persist the write dead-letter queue to an append-only JSONL file;
 #     ##                                   replays into the queue at startup so crashed-out entries stay queryable/replayable.
 #     ##                                   Rotates to <path>.old past 5MiB (disk bounded at ~2x5MiB). Empty = disabled.
@@ -163,6 +165,8 @@ global:
 #         group: sensors
 #         interval: 1s
 #         deadband: 0.2          # suppress publishing if |value - last_value| < deadband (optional, default 0 = disabled)
+#         enforce-interval: 30s # heartbeat on top of deadband: republish at least this often even when unchanged (optional; needs deadband > 0 and >= interval)
+#         protect: read-only    # write protection: read-only rejects every write path (400); write-only accepts writes but is never collected (optional, default read-write)
 #         read-timeout: 500ms   # per-tag read timeout (optional, default = interval)
 #         scale: 0.1            # linear scaling: published = raw * scale + offset
 #         offset: -50.0         # e.g. raw=1000 → published=50.0 (optional, default 0)

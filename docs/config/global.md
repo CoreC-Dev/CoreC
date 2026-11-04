@@ -194,6 +194,8 @@ wscat -c "ws://localhost:9090/tags/stream?token=corec-secret-token"
 | `engine.stale-threshold` | duration | 否 | `0`（禁用） | 数据陈旧判定阈值，超过此时长未更新的缓存值标记为 `is_stale` |
 | `engine.write-retry-count` | int | 否 | `3` | 写入指令失败重试次数，重试耗尽后进入死信队列 |
 | `engine.command-concurrency` | int | 否 | `16` | 写入指令最大并行数，超限施加背压并溢入死信队列；设 `1` 恢复串行 |
+| `engine.write-min-interval` | duration | 否 | `""`（不限速） | 同一设备两次写入的最小间隔。窗口内的写入**拒绝而非排队**：API 返回 `429`（响应头 `Retry-After`），命令通道立即进死信队列并保留原因。仅被接受的写入推进时间窗 |
+| `engine.write-audit-path` | string | 否 | `""`（仅内存） | 写审计轨迹**落盘持久化**：追加式 JSONL，重启回放进内存环形（`GET /write/history` 立即有历史）。文件超过 5MiB 轮转为 `<path>.old`，磁盘占用上限约 2×5MiB |
 | `engine.high-priority-workers` | int | 否 | `2` | 快间隔标签（`interval` ≤ 1s）专用处理协程数，与批量读取协程隔离 |
 | `engine.alert-active-window` | duration | 否 | `15m` | 告警活动窗口——告警静默满该时长后自动清除（移入历史）。确认（ack）不会清除告警，只有静默会；详见 [告警 API](../api/alerts.md) |
 | `engine.dead-letter-path` | string | 否 | `""`（禁用） | 写死信队列**落盘持久化**：追加式 JSONL 文件，重启时回放进内存队列（`GET /write/failed` 可查、可重放；命令值含 64 位整数逐位保留，回放不失真）。文件超过 5MiB 轮转为 `<path>.old`，磁盘占用上限约 2×5MiB（轮转丢弃更早世代，与滚动日志同语义）。未设置时死信队列仅存于内存，进程退出即丢失 |
@@ -210,6 +212,8 @@ global:
     stale-threshold: 30s
     write-retry-count: 3
     # command-concurrency: 16
+    # write-min-interval: 200ms      # per-device write spacing; paced writes are refused (429), never queued
+    # write-audit-path: ./data/write-audit.jsonl  # durable write audit trail (survives restarts)
     # high-priority-workers: 2
 ```
 
@@ -290,6 +294,31 @@ global:
 global:
   engine:
     high-priority-workers: 4
+```
+
+### write-min-interval
+
+同一设备两次写入指令的最小间隔。老旧 PLC 由单个 CPU 循环服务通信接口，指令背靠背到达时会被丢弃或错误应用；即使按点位配置了采集间隔，一次批量写入仍可能把同一设备的多个点位挤在一起。设置该值后，落在窗口内的写入**被拒绝，不排队**：
+
+- API 写入（`POST /write`、`POST /write/batch`）返回 `429` 并带 `Retry-After`，调用方应退避后重试；
+- MQTT 命令通道的写入立即进入死信队列（`GET /write/failed` 可见原因），可重放。
+
+不排队是刻意选择：排队只会把突发挪到下一个时间窗，并让控制指令的调用方付出无上限的延迟。未设置或设为 `0` 时不限速，行为与此前一致；时间窗按**驱动名**（即设备）独立计算——只有被接受的写入才推进该设备的时间窗，失败写入不占用下一次机会。
+
+```yaml
+global:
+  engine:
+    write-min-interval: 200ms
+```
+
+### write-audit-path
+
+写审计轨迹（`GET /write/history`）的**落盘持久化**。默认审计轨迹仅在内存中保留最近 1000 条，进程重启即丢失——合规场景需要重启后仍能回答"谁在何时写了什么"。设置后每条记录在写入返回前 fsync 到追加式 JSONL 文件；启动时把最近 1000 条回放进内存环形，`GET /write/history` 立即有历史。文件超过 5MiB 轮转为 `<path>.old`（替换上一世代），磁盘占用上限约 2×5MiB。与死信队列落盘（`dead-letter-path`）同一套机制：文件打开失败时拒绝启动，不静默降级为内存。
+
+```yaml
+global:
+  engine:
+    write-audit-path: /var/lib/corec/write-audit.jsonl
 ```
 
 ---

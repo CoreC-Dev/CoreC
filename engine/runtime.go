@@ -123,11 +123,10 @@ func (r *engineRuntime) Start(ctx context.Context, config *core.Config) error {
 	// Replay persisted dead letters: entries that
 	// survived a crash come back into the queryable/replayable queue.
 	if store := r.eng.writes.deadLetters.store; store != nil {
-		store.load(r.eng.writes.deadLetters.maxLen, func(e core.DeadLetterEntry) {
-			r.eng.writes.deadLetters.mu.Lock()
-			r.eng.writes.deadLetters.queue = append(r.eng.writes.deadLetters.queue, e)
-			r.eng.writes.deadLetters.mu.Unlock()
-		})
+		replayed := store.load(r.eng.writes.deadLetters.maxLen)
+		r.eng.writes.deadLetters.mu.Lock()
+		r.eng.writes.deadLetters.queue = append(r.eng.writes.deadLetters.queue, replayed...)
+		r.eng.writes.deadLetters.mu.Unlock()
 	}
 
 	// Build this run's alert registry with the
@@ -190,6 +189,8 @@ func (r *engineRuntime) Stop() error {
 	// Close the dead-letter store (flush + fd release) after all
 	// writers are joined.
 	r.eng.writes.deadLetters.store.close()
+
+	r.eng.writes.writeAudits.close()
 
 	// Stop the alert registry last: the engine-wide wait group has
 	// joined every processing worker, so no record() can race the

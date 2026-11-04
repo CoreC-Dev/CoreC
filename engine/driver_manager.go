@@ -155,6 +155,8 @@ func (r *driverRegistry) RemoveDriver(name string) error {
 	delete(r.driverConfigs, name)
 	r.eng.mu.Unlock()
 
+	r.eng.writes.pacer.forget(name)
+
 	// Evict the driver's cached values: without this the cache keeps
 	// serving a deleted driver's last values in
 	// GET /tags forever (stale-flagged, but never gone) and derived
@@ -188,16 +190,30 @@ func (r *driverRegistry) ListDrivers() []core.DriverStatus {
 }
 
 func (r *driverRegistry) scheduleDriverTags(config core.DriverConfig) {
+	// The driver instance supplies its optional interval floor. Look it up
+	// here instead of threading it through the call sites: the tag-file
+	// watcher rebuilds tasks without ever holding the driver variable.
+	r.eng.mu.RLock()
+	inst := r.drivers[config.Name]
+	r.eng.mu.RUnlock()
+
 	// Group tags by their parsed interval so that equivalent spellings
 	// (e.g. "1s" and "1000ms") collapse into a single task instead of
 	// creating duplicate tasks with the same cadence.
 	intervalGroups := make(map[time.Duration][]string)
 	deadBands := make(map[string]float64)
+	enforceIntervals := make(map[string]time.Duration)
 	// readTimeouts tracks the max parsed read-timeout per interval group.
 	// Tags in the same group are read together in a single readFunc call,
 	// so the effective timeout is the most generous one requested.
 	readTimeouts := make(map[time.Duration]time.Duration)
 	for _, tag := range config.Tags {
+		// write-only points accept writes but are never collected: skipping
+		// them here keeps them out of every read path, the cache and rule
+		// input, matching the documented `protect: write-only` contract.
+		if tag.Protect == "write-only" {
+			continue
+		}
 		interval := r.eng.lifecycle.defaultTagInterval
 		if tag.Interval != "" {
 			if d, err := time.ParseDuration(tag.Interval); err == nil && d > 0 {
@@ -210,6 +226,11 @@ func (r *driverRegistry) scheduleDriverTags(config core.DriverConfig) {
 		if tag.DeadBand > 0 {
 			deadBands[tag.Name] = tag.DeadBand
 		}
+		if tag.EnforceInterval != "" {
+			if d, err := time.ParseDuration(tag.EnforceInterval); err == nil && d > 0 {
+				enforceIntervals[tag.Name] = d
+			}
+		}
 		if tag.ReadTimeout != "" {
 			if d, err := time.ParseDuration(tag.ReadTimeout); err == nil && d > 0 {
 				if d > readTimeouts[interval] {
@@ -219,23 +240,40 @@ func (r *driverRegistry) scheduleDriverTags(config core.DriverConfig) {
 		}
 	}
 
+	// Clamp each group's interval up to the driver's declared floor (the
+	// optional core.IntervalLimiter role). A configuration that asks for a
+	// cadence the protocol cannot sustain (e.g. 10 ms over 9600-baud Modbus
+	// RTU) must not silently saturate the device: the task runs at the floor
+	// and one WARN per affected group names the tags and both numbers.
+	minInterval := driverMinInterval(inst)
+
 	for interval, tags := range intervalGroups {
-		taskID := fmt.Sprintf("%s_%s", config.Name, interval.String())
+		effective := interval
+		if minInterval > 0 && interval < minInterval {
+			effective = minInterval
+			slog.Warn("collection interval raised to the driver minimum",
+				"driver", config.Name,
+				"interval", interval.String(),
+				"min_interval", minInterval.String(),
+				"tags", tags)
+		}
+		taskID := fmt.Sprintf("%s_%s", config.Name, effective.String())
 		// Classify as high-priority when the collection interval is at or
 		// below the threshold. Fast-interval tasks get dedicated workers so
 		// a burst of low-frequency bulk reads cannot delay them.
 		priority := 0
-		if interval > 0 && interval <= core.DefaultHighPriorityInterval {
+		if effective > 0 && effective <= core.DefaultHighPriorityInterval {
 			priority = 1
 		}
 		if err := r.eng.lifecycle.scheduler.AddTask(core.ScheduleTask{
-			ID:          taskID,
-			Driver:      config.Name,
-			Tags:        tags,
-			Interval:    interval,
-			Priority:    priority,
-			DeadBands:   deadBands,
-			ReadTimeout: readTimeouts[interval],
+			ID:               taskID,
+			Driver:           config.Name,
+			Tags:             tags,
+			Interval:         effective,
+			Priority:         priority,
+			DeadBands:        deadBands,
+			EnforceIntervals: enforceIntervals,
+			ReadTimeout:      readTimeouts[interval],
 		}); err != nil {
 			slog.Error("failed to add schedule task", "task", taskID, "error", err)
 		}
@@ -277,4 +315,20 @@ func (e *CoreCEngine) GetDriver(name string) (core.Driver, bool) {
 
 func (e *CoreCEngine) ListDrivers() []core.DriverStatus {
 	return e.driverReg.ListDrivers()
+}
+
+// driverMinInterval returns the minimum collection interval a driver declares
+// through the optional core.IntervalLimiter role, or 0 when the driver does not
+// implement the role (or declares no meaningful floor). Keeping the probe here
+// — rather than in core.DriverCapabilities — means drivers opt in without the
+// engine contract changing.
+func driverMinInterval(d core.Driver) time.Duration {
+	limiter, ok := d.(core.IntervalLimiter)
+	if !ok || limiter == nil {
+		return 0
+	}
+	if floor := limiter.MinInterval(); floor > 0 {
+		return floor
+	}
+	return 0
 }

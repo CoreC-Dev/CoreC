@@ -241,6 +241,36 @@ func validateTag(driverName string, tag core.TagConfig, tagNames map[string]bool
 	if err := validatePositiveDuration(driverName, tag.Name, "read-timeout", tag.ReadTimeout); err != nil {
 		return err
 	}
+	// Protect's spelling is contract, not decoration: "readonly"/"r-only"
+	// silently meaning "writable" would be exactly the failure mode the
+	// field exists to prevent. Unknown values fail the load.
+	switch tag.Protect {
+	case "", "read-write", "read-only", "write-only":
+	default:
+		return fmt.Errorf("driver %s: tag %q: invalid protect %q (valid: read-write, read-only, write-only, or empty)", driverName, tag.Name, tag.Protect)
+	}
+	// enforce-interval is a heartbeat ON TOP of the deadband: it only changes
+	// anything when the deadband would otherwise suppress an unchanged value
+	// (without a deadband every sample is published already), and a heartbeat
+	// shorter than the collection interval could never fire. Both
+	// misconfigurations fail the load instead of being silently ignored.
+	if tag.EnforceInterval != "" {
+		if tag.DeadBand <= 0 {
+			return fmt.Errorf("driver %s: tag %q: enforce-interval requires a non-zero deadband (every sample is already published without one)", driverName, tag.Name)
+		}
+		enforce, err := time.ParseDuration(tag.EnforceInterval)
+		if err != nil {
+			return fmt.Errorf("driver %s: tag %q: invalid enforce-interval %q: %w", driverName, tag.Name, tag.EnforceInterval, err)
+		}
+		if enforce <= 0 {
+			return fmt.Errorf("driver %s: tag %q: enforce-interval must be positive, got %v", driverName, tag.Name, enforce)
+		}
+		if tag.Interval != "" {
+			if interval, err := time.ParseDuration(tag.Interval); err == nil && enforce < interval {
+				return fmt.Errorf("driver %s: tag %q: enforce-interval %v must be >= interval %v (a shorter heartbeat can never fire)", driverName, tag.Name, enforce, interval)
+			}
+		}
+	}
 	return nil
 }
 

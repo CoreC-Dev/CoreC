@@ -84,6 +84,7 @@ func newEngineShell() *CoreCEngine {
 	e.driverReg.eng = e
 	e.transportMgr.eng = e
 	e.writes.eng = e
+	e.writes.pacer = newWritePacer()
 	e.processing.eng = e
 	e.lifecycle.eng = e
 	e.runtime.eng = e

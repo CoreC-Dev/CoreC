@@ -44,10 +44,7 @@ func TestDeadLetterStore64BitRoundTrip(t *testing.T) {
 		t.Fatalf("reopen: %v", err)
 	}
 	defer st2.close()
-	var replayed []core.DeadLetterEntry
-	st2.load(100, func(e core.DeadLetterEntry) {
-		replayed = append(replayed, e)
-	})
+	replayed := st2.load(100)
 	if len(replayed) != 1 {
 		t.Fatalf("expected 1 replayed entry, got %d", len(replayed))
 	}

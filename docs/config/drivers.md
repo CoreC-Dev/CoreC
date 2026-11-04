@@ -423,6 +423,8 @@ tags:
 | `offset` | float | 否 | `0.0` | 线性偏移量 |
 | `deadband` | float | 否 | `0` | 死区过滤阈值，变化量小于该值时不输出 |
 | `read-timeout` | duration | 否 | 同 `interval` | 单次读取超时时间，独立于采集周期 |
+| `enforce-interval` | duration | 否 | — | 死区心跳周期：值在死区内被抑制时，距上次发布超过该时长强制发布一次（需 `deadband` > 0，且 ≥ `interval`） |
+| `protect` | string | 否 | `read-write` | 写保护：`read-only` 拒绝一切写入（API 单写、批量写、MQTT 命令）；`write-only` 只写不采集（不轮询、不进缓存与规则） |
 
 ### 支持的数据类型
 
@@ -507,11 +509,65 @@ tags:
 `deadband` 仅对数值类型（int*/uint*/float*）生效，`bool`、`string`、`bytes` 类型忽略该设置——非数值类型的每次采集值都会照常输出，且不参与基线比较。设为 `0` 表示禁用死区，每次采集都输出。
 :::
 
+### enforce-interval
+
+死区心跳：死区会**无限期**抑制没有变化的点，下游平台因此无法区分"值没变"与"链路已断"。`enforce-interval` 在死区之上叠加一个心跳周期——被抑制的点距上次实际发布超过该周期时，强制发布一次（值取自本轮采集，时间戳照常刷新），发布后心跳时钟重置上线。
+
+```yaml
+- name: temperature
+  address: "40001"
+  type: float32
+  interval: 1s
+  deadband: 0.2
+  enforce-interval: 30s   # 值不变也至少每 30s 上报一次
+```
+
+语义要点：
+
+- 心跳只影响**被死区抑制**的点；值真正变化（越过死区阈值）时照常立即发布，不额外插入中间样本。
+- 心跳标签的内部"上次发布时间"只在该点上维护，未配置心跳的点的行为与此前逐字节一致。
+- 首次采集即发布（不存在历史的点不会等待一个心跳周期才开始上报）。
+- `bad` / `uncertain` 质量穿透死区，本身就会发布，同样计入"上次发布"时间。
+- `enforce-interval` 必须 **≥ `interval`**（否则心跳永远来不及触发，加载期拒绝）；且必须与**非零 `deadband`** 搭配（没有死区时每次采集本来就会输出，配置心跳无意义，加载期拒绝）。
+- 心跳发布计入 `/stats` 的 `total_publish`，并单独计数为 Prometheus 指标 `corec_deadband_heartbeats_total{driver}`——该计数器增长表示"系统在按心跳重复上报未变化的值"，不是数据变化。
+
+::: info
+`deadband` 与 `enforce-interval` 都是**稳健性**设置而非业务逻辑：采集侧不受影响（每次都读），只在数据点发往下游前决定是否放行。因此心跳不会让慢设备读得更快，设备读取预算不变。
+:::
+
 ### read-timeout
 
 为标签单独设置读取超时时间，独立于采集周期 `interval`。默认不设置时读取超时等于 `interval`。在高频采集场景（如 `interval: 200ms`）下，网络抖动可能导致读取耗时接近 `interval` 而频繁超时；通过设置较大的 `read-timeout`（如 `500ms`）可以容忍更多抖动。反之，低频场景下可以设置较小的 `read-timeout` 避免一个卡住的连接阻塞调度过久。
 
 注意：`interval` 相同的标签合并为同一个采集任务，任务内所有标签共用该组中**最大**的 `read-timeout`。
+
+### protect
+
+点位级写保护，在配置边界声明该点是否允许写入：
+
+| 值 | 语义 |
+| --- | --- |
+| `read-write`（默认，或省略） | 可读可写，与历史行为一致 |
+| `read-only` | 可正常采集；**所有**写入路径（`POST /write`、`POST /write/batch`、MQTT 命令通道）在到达驱动前被拒绝，API 返回 400 并带明确原因，命令通道直接进死信队列（不重试） |
+| `write-only` | 只接受写入、**永不采集**：不加入调度任务，因此不出现在 `/tags`、`/tags/stream`、缓存与规则引擎输入中，也不消耗设备读取预算 |
+
+```yaml
+- name: setpoint           # 操作员设定值：允许写入
+  address: "40010"
+  type: float32
+  protect: read-only
+
+- name: reset_command      # 只下发的命令寄存器：从不读取
+  address: "40011"
+  type: bool
+  protect: write-only
+```
+
+写保护由引擎在写入路径统一强制（`WriteTag` 是所有写入的唯一汇聚点），**对任何驱动生效，包括第三方驱动**——驱动无需（也无法绕过）自行实现。非法拼写（如 `readonly`）在加载期直接报错，不会被静默忽略为"可写"。
+
+::: warning
+`write-only` 点位若被规则或派生标签引用，将永远拿不到读值。需要"读回校验"的场景不要把它设为 `write-only`。
+:::
 
 ```yaml
 - name: temperature

@@ -278,6 +278,15 @@ type TagConfig struct {
 	Offset   float64 `yaml:"offset,omitempty"`
 	DeadBand float64 `yaml:"deadband,omitempty"`
 
+	// EnforceInterval is an optional heartbeat period layered on top of
+	// DeadBand: even when a value stays within the deadband (i.e. would be
+	// suppressed as unchanged), it is published at least this often, so the
+	// consumer can distinguish "unchanged" from "link dead" and refresh a
+	// last-known-value with a fresh timestamp. It only makes sense with a
+	// deadband (otherwise every sample is published anyway) and must be
+	// >= the tag's collection interval — both are rejected at config load.
+	EnforceInterval string `yaml:"enforce-interval,omitempty"`
+
 	// ReadTimeout is an optional per-tag read timeout, independent of the
 	// collection interval. When unset (empty), the scheduler falls back to
 	// the collection interval. This decouples "how often to poll" from
@@ -285,6 +294,16 @@ type TagConfig struct {
 	// 采集 (e.g. interval=200ms but read-timeout=1s) and low-frequency
 	// 采集 (e.g. interval=10s but read-timeout=3s).
 	ReadTimeout string `yaml:"read-timeout,omitempty"`
+
+	// Protect declares the point's write permission at the configuration
+	// boundary. Empty (default) and "read-write" are writable; "read-only"
+	// rejects every write command — API single write, batch write and the
+	// MQTT command channel — before it reaches the driver; "write-only"
+	// accepts writes but is never collected (excluded from scheduling, so
+	// it never appears in reads, the cache or rule input). The value is
+	// validated at config load: an unknown spelling is rejected there
+	// rather than silently ignored.
+	Protect string `yaml:"protect,omitempty"`
 }
 
 // ─── Shared default constants ───────────────────────────────────────

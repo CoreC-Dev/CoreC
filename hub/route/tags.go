@@ -2,6 +2,7 @@ package route
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -133,28 +134,32 @@ func writeTag(w http.ResponseWriter, r *http.Request) {
 	var da core.DataAccessor = getEngine()
 	res, err := da.WriteTag(r.Context(), cmd)
 	if err != nil {
-		// Distinguish client errors (wrong driver/tag name) from server
-		// errors (internal processing failure). "not found" and
-		// "not connected" are client-actionable (400); other errors are
-		// 500 with a generic message to avoid leaking internals.
+		// Distinguish client errors (wrong driver/tag name, write-protected
+		// tag, pacing refusal) from server errors (internal processing
+		// failure). Pacing is identified by the sentinel — a stable,
+		// non-string signal — and answers 429 + Retry-After: the command is
+		// valid, the device just will not take another write yet. "not found",
+		// "not connected" and "read-only" are client-actionable (400) with the
+		// reason; other errors are 500 with a generic message to avoid leaking
+		// internals.
 		errMsg := err.Error()
-		if strings.Contains(errMsg, "not found") || strings.Contains(errMsg, "not connected") {
-			slog.Error("tag write failed",
-				"method", r.Method,
-				"path", r.URL.Path,
-				"driver", cmd.Driver,
-				"tag", cmd.Tag,
-				"remote", r.RemoteAddr,
-				"error", err)
+		slog.Error("tag write failed",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"driver", cmd.Driver,
+			"tag", cmd.Tag,
+			"remote", r.RemoteAddr,
+			"error", err)
+		switch {
+		case errors.Is(err, core.ErrWritePaced):
+			// The command is valid; the device is busy. Tell the client to
+			// back off rather than treating it as a malformed request.
+			w.Header().Set("Retry-After", "1")
+			renderError(w, r, http.StatusTooManyRequests, errMsg)
+		case strings.Contains(errMsg, "not found"), strings.Contains(errMsg, "not connected"),
+			strings.Contains(errMsg, "read-only"):
 			renderError(w, r, http.StatusBadRequest, errMsg)
-		} else {
-			slog.Error("tag write failed",
-				"method", r.Method,
-				"path", r.URL.Path,
-				"driver", cmd.Driver,
-				"tag", cmd.Tag,
-				"remote", r.RemoteAddr,
-				"error", err)
+		default:
 			renderInternalError(w, r, err)
 		}
 		return

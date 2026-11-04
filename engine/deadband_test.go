@@ -2,6 +2,7 @@ package engine
 
 import (
 	"testing"
+	"time"
 
 	"github.com/CoreC-Dev/CoreC/core"
 )
@@ -164,5 +165,78 @@ func TestApplyDeadbandFilterNonNumericPasses(t *testing.T) {
 	}
 	if v := runner.lastValues["level"]; v != 20.0 {
 		t.Errorf("baseline not updated after passing numeric value: got %v, want 20", v)
+	}
+}
+
+// TestApplyDeadbandFilterHeartbeatRelease covers enforce-interval: a value
+// that stays inside the deadband is normally suppressed forever, which a
+// consumer cannot tell apart from a dead link. With a heartbeat the next
+// sample is released once the period has elapsed since the last published
+// one, and the heartbeat clock restarts after every release.
+func TestApplyDeadbandFilterHeartbeatRelease(t *testing.T) {
+	runner := &taskRunner{
+		task: core.ScheduleTask{
+			ID:               "t1",
+			DeadBands:        map[string]float64{"temp": 5.0},
+			EnforceIntervals: map[string]time.Duration{"temp": 30 * time.Second},
+		},
+		lastValues: map[string]float64{"temp": 10.0}, // baseline 10
+		lastSent:   make(map[string]time.Time),
+	}
+
+	within := []core.TagValue{{Tag: "temp", Value: 10.5, Quality: core.QualityGood}}
+
+	// 1. A heartbeat tag that has never published releases its first sample:
+	// the consumer must receive an initial last-known-value instead of waiting
+	// forever for a change that may never come.
+	if got := applyDeadbandFilter(runner, within); len(got) != 1 {
+		t.Fatalf("the first sample of a heartbeat tag must be released, got %d", len(got))
+	}
+	if runner.lastSent["temp"].IsZero() {
+		t.Fatalf("the first release should have started the heartbeat clock")
+	}
+
+	// 2. Backdate the last release past the heartbeat period: the same
+	// unchanged sample must now be released exactly once and refresh the
+	// clock.
+	runner.lastSent["temp"] = time.Now().Add(-31 * time.Second)
+	if got := applyDeadbandFilter(runner, within); len(got) != 1 {
+		t.Fatalf("heartbeat should release the unchanged sample, got %d", len(got))
+	}
+	if since := time.Since(runner.lastSent["temp"]); since > 5*time.Second {
+		t.Fatalf("heartbeat release should refresh the clock, last release was %v ago", since)
+	}
+
+	// 3. Immediately after the release the next unchanged sample is
+	// suppressed again (never a burst of duplicates).
+	runner.lastValues["temp"] = 10.5 // baseline now matches the sample
+	if got := applyDeadbandFilter(runner, within); len(got) != 0 {
+		t.Fatalf("sample right after a heartbeat release must be suppressed, got %d", len(got))
+	}
+}
+
+// TestApplyDeadbandFilterNoHeartbeat pins the historical behaviour: without
+// enforce-interval, unchanged samples stay suppressed indefinitely
+// (no release, no clock traffic).
+func TestApplyDeadbandFilterNoHeartbeat(t *testing.T) {
+	runner := &taskRunner{
+		task: core.ScheduleTask{
+			ID:        "t1",
+			DeadBands: map[string]float64{"temp": 5.0},
+		},
+		lastValues: map[string]float64{"temp": 10.0},
+		lastSent:   make(map[string]time.Time),
+	}
+	sample := []core.TagValue{{Tag: "temp", Value: 10.5, Quality: core.QualityGood}}
+	applyDeadbandFilter(runner, sample) // first sample publishes and starts the clock
+	runner.lastSent["temp"] = time.Now().Add(-time.Hour)
+	if got := applyDeadbandFilter(runner, sample); len(got) != 0 {
+		t.Fatalf("without enforce-interval an unchanged sample must stay suppressed, got %d", len(got))
+	}
+	// Exactly the first-release clock entry from step 1: no heartbeat
+	// configuration means the entry is never refreshed, but it is not
+	// an ever-growing map either.
+	if len(runner.lastSent) != 1 {
+		t.Fatalf("expected only the first-release clock entry without enforce-interval, got %v", runner.lastSent)
 	}
 }

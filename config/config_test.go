@@ -426,3 +426,77 @@ func TestIdleWarningsBatchTailRetention(t *testing.T) {
 		}
 	})
 }
+
+// TestValidateTagProtectAndEnforceInterval covers the two collection-side
+// point fields added together with the write-protection guard:
+//
+//   - protect accepts exactly "", read-write, read-only and write-only; any
+//     other spelling is rejected at load so a typo can never silently grant
+//     write access;
+//   - enforce-interval is a heartbeat on top of the deadband, so it requires
+//     a non-zero deadband US.
+func TestValidateTagProtectAndEnforceInterval(t *testing.T) {
+	base := func(tag core.TagConfig) *core.Config {
+		return &core.Config{
+			Drivers: []core.DriverConfig{{Name: "d1", Type: "modbus-tcp", Tags: []core.TagConfig{tag}}},
+		}
+	}
+	tests := []struct {
+		name    string
+		tag     core.TagConfig
+		wantErr string
+	}{
+		{
+			name: "protect empty is valid",
+			tag:  core.TagConfig{Name: "t1", Address: "40001", Type: "float32"},
+		},
+		{
+			name: "protect read-write is valid",
+			tag:  core.TagConfig{Name: "t1", Address: "40001", Type: "float32", Protect: "read-write"},
+		},
+		{
+			name: "protect read-only is valid",
+			tag:  core.TagConfig{Name: "t1", Address: "40001", Type: "float32", Protect: "read-only"},
+		},
+		{
+			name: "protect write-only is valid",
+			tag:  core.TagConfig{Name: "t1", Address: "40001", Type: "float32", Protect: "write-only"},
+		},
+		{
+			name:    "protect spelling typo is rejected",
+			tag:     core.TagConfig{Name: "t1", Address: "40001", Type: "float32", Protect: "readonly"},
+			wantErr: "invalid protect",
+		},
+		{
+			name:    "enforce-interval without deadband is rejected",
+			tag:     core.TagConfig{Name: "t1", Address: "40001", Type: "float32", EnforceInterval: "30s"},
+			wantErr: "enforce-interval requires a non-zero deadband",
+		},
+		{
+			name:    "enforce-interval shorter than interval is rejected",
+			tag:     core.TagConfig{Name: "t1", Address: "40001", Type: "float32", Interval: "10s", DeadBand: 0.5, EnforceInterval: "5s"},
+			wantErr: "must be >= interval",
+		},
+		{
+			name: "enforce-interval with deadband is valid",
+			tag:  core.TagConfig{Name: "t1", Address: "40001", Type: "float32", Interval: "1s", DeadBand: 0.5, EnforceInterval: "30s"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := Validate(base(tt.tag))
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected error containing %q, got nil", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error %q should contain %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}

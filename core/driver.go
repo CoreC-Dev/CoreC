@@ -9,6 +9,14 @@ import (
 // ErrSubscribeNotSupported is returned by drivers that don't support subscription mode.
 var ErrSubscribeNotSupported = errors.New("subscribe not supported by this driver")
 
+// ErrWritePaced marks a write refused by the driver-level pacing floor
+// (settings.write-min-interval): the device accepted a write too recently.
+// The command itself is sound, so control planes answer it with a
+// client-retryable status (HTTP 429) and dead-letter it with the reason
+// intact rather than reporting consequence-less success or an internal
+// failure.
+var ErrWritePaced = errors.New("write paced")
+
 // Driver defines the southbound driver interface for industrial protocol communication.
 type Driver interface {
 	// Lifecycle

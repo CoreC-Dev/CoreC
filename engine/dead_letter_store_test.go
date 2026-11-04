@@ -41,8 +41,7 @@ func TestDeadLetterStoreAppendLoadRoundTrip(t *testing.T) {
 	}
 	defer reopened.close()
 
-	var loaded []core.DeadLetterEntry
-	reopened.load(10, func(e core.DeadLetterEntry) { loaded = append(loaded, e) })
+	loaded := reopened.load(10)
 
 	if len(loaded) != 3 {
 		t.Fatalf("replayed %d entries, want 3", len(loaded))
@@ -73,8 +72,7 @@ func TestDeadLetterStoreCapKeepsNewest(t *testing.T) {
 	}
 	defer reopened.close()
 
-	var loaded []core.DeadLetterEntry
-	reopened.load(2, func(e core.DeadLetterEntry) { loaded = append(loaded, e) })
+	loaded := reopened.load(2)
 	if len(loaded) != 2 || loaded[0].Command.Tag != "d" || loaded[1].Command.Tag != "e" {
 		t.Errorf("capped replay = %+v, want the newest two [d e]", loaded)
 	}
@@ -104,8 +102,7 @@ func TestDeadLetterStoreTornLineSkipped(t *testing.T) {
 
 	reopened, _ := newDeadLetterStore(path, 0)
 	defer reopened.close()
-	var loaded []core.DeadLetterEntry
-	reopened.load(10, func(e core.DeadLetterEntry) { loaded = append(loaded, e) })
+	loaded := reopened.load(10)
 	if len(loaded) != 2 {
 		t.Fatalf("replayed %d entries after torn line, want 2 (torn line skipped)", len(loaded))
 	}
@@ -151,8 +148,7 @@ func TestDeadLetterStoreRotationBoundsDisk(t *testing.T) {
 	}
 	reopened, _ := newDeadLetterStore(path, 3*lineSize+32)
 	defer reopened.close()
-	var loaded []core.DeadLetterEntry
-	reopened.load(1000, func(e core.DeadLetterEntry) { loaded = append(loaded, e) })
+	loaded := reopened.load(1000)
 	if len(loaded) < 4 {
 		t.Errorf("replayed %d entries across both generations, want ≥4 (the full recent window)", len(loaded))
 	}
@@ -174,5 +170,7 @@ func TestDeadLetterStoreDisabledIsNil(t *testing.T) {
 	// The nil store's methods must be no-ops (addDeadLetter calls them).
 	st.append(dlEntry("x", time.Now()))
 	st.close()
-	st.load(10, func(core.DeadLetterEntry) { t.Error("load on nil store must not replay") })
+	if got := st.load(10); got != nil {
+		t.Errorf("load on nil store must not replay, got %v", got)
+	}
 }

@@ -399,7 +399,7 @@ func TestPromMetricsLatencyAndDataAge(t *testing.T) {
 func TestPromMetricsSchedulerHealth(t *testing.T) {
 	eng := &mockEngineV2{
 		schedulerHealth: []core.TaskHealth{
-			{Driver: "plc1", Degraded: true, ConsecutiveErrors: 6, OverrunsTotal: 42},
+			{Driver: "plc1", Degraded: true, ConsecutiveErrors: 6, OverrunsTotal: 42, HeartbeatsTotal: 7},
 			{Driver: "plc2", Degraded: false, ConsecutiveErrors: 0, OverrunsTotal: 0},
 		},
 	}
@@ -416,6 +416,7 @@ func TestPromMetricsSchedulerHealth(t *testing.T) {
 		"corec_scheduler_degraded{driver=\"plc2\"} 0",
 		"corec_scheduler_consecutive_errors{driver=\"plc1\"} 6",
 		"corec_scheduler_overruns_total{driver=\"plc1\"} 42",
+		"corec_deadband_heartbeats_total{driver=\"plc1\"} 7",
 	}
 	for _, s := range checks {
 		if !strings.Contains(output, s) {
