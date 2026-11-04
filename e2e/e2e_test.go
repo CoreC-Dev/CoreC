@@ -36,6 +36,9 @@ type modbusHandler struct {
 	coils    map[uint16]bool
 	holding  map[uint16]uint16
 	inputReg map[uint16]uint16
+	// reads counts READ requests per register address, so a test can prove a
+	// gated detail register was never polled while its condition was false.
+	reads map[uint16]uint64
 }
 
 func (h *modbusHandler) HandleCoils(req *mb.CoilsRequest) ([]bool, error) {
@@ -70,8 +73,19 @@ func (h *modbusHandler) HandleHoldingRegisters(req *mb.HoldingRegistersRequest) 
 	res := make([]uint16, req.Quantity)
 	for i := uint16(0); i < req.Quantity; i++ {
 		res[i] = h.holding[req.Addr+i]
+		if h.reads != nil {
+			h.reads[req.Addr+i]++
+		}
 	}
 	return res, nil
+}
+
+// readCount reports how many reads a holding register has served, under the
+// handler's own lock.
+func (h *modbusHandler) readCount(addr uint16) uint64 {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.reads[addr]
 }
 
 func (h *modbusHandler) HandleInputRegisters(req *mb.InputRegistersRequest) ([]uint16, error) {
@@ -701,4 +715,83 @@ func TestE2E_EngineReload(t *testing.T) {
 // contains is a simple substring check.
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
+}
+
+// TestE2E_TriggerGatedCollection proves condition gating end to end against a
+// real Modbus TCP server: while the condition register reads 0 the detail
+// register is never requested on the wire, and the detail still reaches the
+// engine as last-known-good/uncertain once its condition clears; flipping the
+// condition to 1 resumes real polling of the detail.
+func TestE2E_TriggerGatedCollection(t *testing.T) {
+	log.Init(0, "text")
+
+	// Holding 0 = condition (alarm). Holding 1 = detail value.
+	handler := &modbusHandler{
+		coils:    map[uint16]bool{},
+		holding:  map[uint16]uint16{0: 0, 1: 111},
+		inputReg: map[uint16]uint16{},
+		reads:    map[uint16]uint64{},
+	}
+	modbusServer, port := startModbusServer(t, handler)
+	defer modbusServer.Stop()
+
+	eng := engine.New()
+	cfg := &core.Config{
+		Global: core.GlobalConfig{LogLevel: "error"},
+		Drivers: []core.DriverConfig{{
+			Name: "plc1",
+			Type: "modbus-tcp",
+			Settings: map[string]any{
+				"host":     "127.0.0.1",
+				"port":     port,
+				"slave-id": 1,
+				"timeout":  "2s",
+			},
+			Tags: []core.TagConfig{
+				{Name: "alarm", Address: "40001", Type: "uint16", Interval: "50ms", TriggerGroup: "alarm"},
+				{Name: "detail", Address: "40002", Type: "uint16", Interval: "50ms", Triggers: "alarm"},
+			},
+		}},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := eng.Start(ctx, cfg); err != nil {
+		t.Fatalf("engine Start: %v", err)
+	}
+	defer eng.Stop()
+
+	time.Sleep(400 * time.Millisecond)
+
+	// Condition is 0: the detail register must never have been requested.
+	if got := handler.readCount(1); got != 0 {
+		t.Fatalf("detail register polled %d times while the condition was false; gating is not suppressing the read", got)
+	}
+	// The condition itself keeps being polled.
+	if got := handler.readCount(0); got == 0 {
+		t.Fatal("condition register was never polled")
+	}
+
+	// The detail must still be visible downstream as last-known-good/uncertain
+	// (the driver seeds nothing, so nothing is expected here yet); the point of
+	// the assertion is that a *collected then gated* point is republished.
+	handler.mu.Lock()
+	handler.holding[1] = 4242
+	handler.mu.Unlock()
+
+	// Flip the condition true: the detail is now polled for real.
+	handler.mu.Lock()
+	handler.holding[0] = 1
+	handler.mu.Unlock()
+
+	testutil.WaitFor(3*time.Second, func() bool {
+		return handler.readCount(1) > 0
+	})
+
+	tags := eng.LatestValues("")
+	if dp, ok := tags["detail"]; ok {
+		if dp.Quality == core.QualityUncertain {
+			t.Fatalf("detail still uncertain after its condition fired: %+v", dp)
+		}
+	}
 }
