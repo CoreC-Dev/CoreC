@@ -116,7 +116,8 @@ func (r *driverRegistry) AddDriver(config core.DriverConfig) error {
 	// Build tag -> group map for DataPoint.Group enrichment in onDriverData.
 	// Only tags that declare a group are stored, keeping the map small.
 	tagGroups := make(map[string]string, len(config.Tags))
-	for _, t := range config.Tags {
+	for i := range config.Tags {
+		t := config.Tags[i]
 		if t.Group != "" {
 			tagGroups[t.Name] = t.Group
 		}
@@ -203,11 +204,14 @@ func (r *driverRegistry) scheduleDriverTags(config core.DriverConfig) {
 	intervalGroups := make(map[time.Duration][]string)
 	deadBands := make(map[string]float64)
 	enforceIntervals := make(map[string]time.Duration)
+	groupTrigger := make(map[string]string) // trigger-group -> condition tag
+	gatedTags := make(map[string][]string)  // trigger-group -> gated detail tags
 	// readTimeouts tracks the max parsed read-timeout per interval group.
 	// Tags in the same group are read together in a single readFunc call,
 	// so the effective timeout is the most generous one requested.
 	readTimeouts := make(map[time.Duration]time.Duration)
-	for _, tag := range config.Tags {
+	for i := range config.Tags {
+		tag := config.Tags[i]
 		// write-only points accept writes but are never collected: skipping
 		// them here keeps them out of every read path, the cache and rule
 		// input, matching the documented `protect: write-only` contract.
@@ -231,6 +235,7 @@ func (r *driverRegistry) scheduleDriverTags(config core.DriverConfig) {
 				enforceIntervals[tag.Name] = d
 			}
 		}
+		collectTriggerTag(tag, groupTrigger, gatedTags)
 		if tag.ReadTimeout != "" {
 			if d, err := time.ParseDuration(tag.ReadTimeout); err == nil && d > 0 {
 				if d > readTimeouts[interval] {
@@ -273,6 +278,8 @@ func (r *driverRegistry) scheduleDriverTags(config core.DriverConfig) {
 			Priority:         priority,
 			DeadBands:        deadBands,
 			EnforceIntervals: enforceIntervals,
+			GroupTrigger:     groupTrigger,
+			GroupGated:       gatedTags,
 			ReadTimeout:      readTimeouts[interval],
 		}); err != nil {
 			slog.Error("failed to add schedule task", "task", taskID, "error", err)
@@ -331,4 +338,17 @@ func driverMinInterval(d core.Driver) time.Duration {
 		return floor
 	}
 	return 0
+}
+
+// collectTriggerTag records a tag's role in trigger groups: a condition point
+// declares the group (GroupTrigger -> condition tag), a detail point declares
+// the condition that gates it (GroupGated -> gated tags). Kept out of
+// scheduleDriverTags to hold that function under the cyclomatic ceiling.
+func collectTriggerTag(tag core.TagConfig, groupTrigger map[string]string, gatedTags map[string][]string) {
+	if tag.TriggerGroup != "" {
+		groupTrigger[tag.TriggerGroup] = tag.Name
+	}
+	if tag.Triggers != "" {
+		gatedTags[tag.Triggers] = append(gatedTags[tag.Triggers], tag.Name)
+	}
 }

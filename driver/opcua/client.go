@@ -133,7 +133,8 @@ func (d *OPCUADriver) Init(ctx context.Context, config core.DriverConfig) error 
 	d.maxBatchSize = util.GetIntSetting(settings, "max-batch-size", 1000)
 
 	// Parse tags and node IDs
-	for _, tag := range config.Tags {
+	for i := range config.Tags {
+		tag := config.Tags[i]
 		d.tags[tag.Name] = tag
 		nodeID, err := ua.ParseNodeID(tag.Address)
 		if err != nil {

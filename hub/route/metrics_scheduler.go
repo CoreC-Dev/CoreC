@@ -54,4 +54,10 @@ func writeSchedulerMetrics(b *strings.Builder) {
 		fmt.Fprintf(b, "corec_deadband_heartbeats_total{driver=\"%s\"} %d\n",
 			promEscape(h.Driver), h.HeartbeatsTotal)
 	}
+
+	writePromHeader(b, "corec_trigger_group_skipped_total", "counter", "Total detail reads suppressed because a trigger group's condition was false, per driver (cumulative over the process lifetime)")
+	for _, h := range health {
+		fmt.Fprintf(b, "corec_trigger_group_skipped_total{driver=\"%s\"} %d\n",
+			promEscape(h.Driver), h.TriggerSkipsTotal)
+	}
 }

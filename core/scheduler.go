@@ -21,6 +21,14 @@ type ScheduleTask struct {
 	// no heartbeats (deadband suppresses unchanged values indefinitely).
 	EnforceIntervals map[string]time.Duration `json:"enforce_intervals,omitempty"`
 
+	// GroupTrigger maps a trigger-group name to the tag whose value gates the
+	// group (its condition). GroupGated maps the same name to the tags read
+	// only when that condition evaluates true. Both empty for ordinary tasks;
+	// a task with a group reads its condition every cycle and the detail tags
+	// only on a true evaluation.
+	GroupTrigger map[string]string   `json:"group_trigger,omitempty"`
+	GroupGated   map[string][]string `json:"group_gated,omitempty"`
+
 	// ReadTimeout is the maximum duration for a single read operation.
 	// <=0 means fall back to Interval. This decouples the read deadline
 	// from the collection cadence so that high-frequency tasks (e.g.
@@ -56,6 +64,13 @@ type TaskHealth struct {
 	// rising counter means the system is publishing unchanged values to
 	// keep the consumer's last-known-value fresh, not that data changed.
 	HeartbeatsTotal uint64 `json:"heartbeats_total,omitempty"`
+
+	// TriggerSkipsTotal is the number of detail reads suppressed because a
+	// trigger group's condition evaluated false. Exposed as
+	// corec_trigger_group_skipped_total{driver}: a healthy gating setup climbs
+	// steadily, a permanently flat counter means the condition is stuck true
+	// and the gating saves nothing.
+	TriggerSkipsTotal uint64 `json:"trigger_skips_total,omitempty"`
 }
 
 // SchedulerHealthProvider is the optional role the metrics route

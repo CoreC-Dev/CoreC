@@ -425,6 +425,8 @@ tags:
 | `read-timeout` | duration | 否 | 同 `interval` | 单次读取超时时间，独立于采集周期 |
 | `enforce-interval` | duration | 否 | — | 死区心跳周期：值在死区内被抑制时，距上次发布超过该时长强制发布一次（需 `deadband` > 0，且 ≥ `interval`） |
 | `protect` | string | 否 | `read-write` | 写保护：`read-only` 拒绝一切写入（API 单写、批量写、MQTT 命令）；`write-only` 只写不采集（不轮询、不进缓存与规则） |
+| `trigger-group` | string | 否 | — | 声明本点是一个触发组的**条件点**（值为组名）。条件点每轮必读；其值判定为真时才读取同组的详情点 |
+| `triggers` | string | 否 | — | 指定本点被哪个条件点**门控**（值为条件点名字）。条件为假时本点不读取，缓存保留最后好值并自然变陈旧 |
 
 ### 支持的数据类型
 
@@ -665,4 +667,44 @@ drivers:
 - 从文件中删除的标签会同时清空其缓存值。
 - `tags-interval` 为空时不启动 watcher，标签仅在启动时加载一次。
 - 通过 API `PUT /configs` 触发的全量配置重载会重新读取并合并标签文件。
+:::
+
+### trigger-group / triggers
+
+触发式条件采集：**平时只poll一个"有没有事"的布尔/数值点，为真时才去读一大票详情寄存器**。
+
+典型场景是报警详情组——`alarm` 标志位 + `d1..d200` 二十个报警码/时间戳/参数寄存器。不门控时 200 个点每秒都要在总线上跑一遍 200 次；门控后平时只读 1 个点，报警发生的那一轮才读全。
+
+```yaml
+tags:
+  - name: alarm_flag
+    address: "40000"
+    type: bool
+    interval: 1s
+    trigger-group: alarm-group    # 条件点：声明它是哪个组的门禁
+
+  - name: AlarmAdvance
+    address: "40100"
+    type: int16
+    interval: 1s
+    triggers: alarm_flag          # 详情点：被 alarm_flag 门控
+#  - name: d1 / d2 ... 同理 triggers: alarm_flag
+```
+
+**判定规则（fail-closed）**：条件值必须"质量 good 且为真"。`bool` 为 `true`、数值非零算真；其余一律算假——包括坏质量、uncertain、字符串（`"true"` 这类不当作真）、空值，以及条件点**读取失败**。flag 不可信时宁可不读详情，也不喷数据。
+
+**几条语义**：
+
+- 条件点**每轮都读并照常上报**——下游要能看见它从 true 翻回 false。
+- 详情点被抑制期间**不产生新数据点**：不会进规则管线、不会触发告警、不会推北向。缓存里保留最后一次已知好值，超过 `stale-threshold` 后自然标记 `is_stale`。
+- 被抑制的轮次计入 Prometheus 计数 `corec_trigger_group_skipped_total{driver}`。计数是**按轮**而非按点：一个设备三组同时被抑制，该轮只加一。
+
+**约束（加载期校验，不满足拒绝启动）**：
+
+- 同一个点上 `trigger-group` 与 `triggers` **互斥**——既是门禁又是被门控的点，读取次序无定义。
+- `triggers` 指向的条件点必须**同驱动**存在且带 `trigger-group`。悬空引用永远为假，等于静默停止采集，必须拦在加载期。
+- 组名不得含空格或分隔符。
+
+::: warning
+触发式采集省的是**读取预算**，代价是**被抑制点的实时性**。触发指标本身劣化（读数抖动、迟迟不恢复 true）时，详情点会长期陈旧——监控 `corec_trigger_group_skipped_total` 的增长速率，停滞的增长往往比增长更快更有信息量。
 :::

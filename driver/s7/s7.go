@@ -120,7 +120,8 @@ func (d *S7Driver) Init(ctx context.Context, config core.DriverConfig) error {
 	d.ParseReconnectSettings(settings)
 
 	// Parse tags and addresses
-	for _, tag := range config.Tags {
+	for i := range config.Tags {
+		tag := config.Tags[i]
 		d.tags[tag.Name] = tag
 		dt, _ := core.ParseDataType(tag.Type)
 		addr, err := parseS7Address(tag.Address, dt)

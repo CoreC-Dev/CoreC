@@ -136,7 +136,8 @@ func (b *modbusBase) initCommon(driverType string, settings map[string]any, conf
 	b.SetTagCountFunc(func() int { return len(b.tags) })
 
 	// Register tags and parse addresses
-	for _, tag := range config.Tags {
+	for i := range config.Tags {
+		tag := config.Tags[i]
 		b.tags[tag.Name] = tag
 		ai, err := parseModbusAddress(tag.Address)
 		if err != nil {

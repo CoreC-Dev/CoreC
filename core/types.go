@@ -304,6 +304,31 @@ type TagConfig struct {
 	// validated at config load: an unknown spelling is rejected there
 	// rather than silently ignored.
 	Protect string `yaml:"protect,omitempty"`
+
+	// Trigger marks this point as the CONDITION of a trigger group named by
+	// TriggerGroup: the scheduler reads it every cycle, and reads the group's
+	// non-trigger points only when it evaluates true. It is meant for
+	// "is-there-anything-to-read?" flags -- an alarm bit in front of 50-200
+	// detail registers -- where polling everything every cycle wastes PLC
+	// cycles and fieldbus bandwidth.
+	//
+	// Evaluating true means: bool quality-good and true; numeric quality-good
+	// and non-zero. Any other quality, a non-numeric type, or the tag not
+	// reading at all means "not triggered" (fail-closed: a broken flag stops
+	// the detail reads instead of spraying them).
+	//
+	// While a group is suppressed its non-trigger points keep their
+	// last-known-good values in the cache and go stale under stale-threshold;
+	// the rule engine sees no fresh sample for them, so alert rules cannot
+	// fire on stale detail values.
+	TriggerGroup string `yaml:"trigger-group,omitempty"`
+
+	// Triggers points at the name of another tag on the same driver that
+	// gates this one: it is collected only when that tag evaluates true in
+	// the same cycle. Combining TriggerGroup with Triggers (a point that is
+	// both a condition and gated) is rejected at config load -- such a
+	// group has no defined read order.
+	Triggers string `yaml:"triggers,omitempty"`
 }
 
 // ─── Shared default constants ───────────────────────────────────────

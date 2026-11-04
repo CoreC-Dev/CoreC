@@ -208,9 +208,31 @@ func validateDriver(d core.DriverConfig, driverNames, registeredDrivers map[stri
 
 	// M7: validate tag fields
 	tagNames := make(map[string]bool)
-	for _, tag := range d.Tags {
+	for i := range d.Tags {
+		tag := d.Tags[i]
 		if err := validateTag(d.Name, tag, tagNames); err != nil {
 			return err
+		}
+	}
+
+	// Trigger gating is driver-local: a gated tag must name a condition that
+	// exists on the SAME driver and is itself declared as one. A dangling or
+	// cross-driver reference can never fire, so the details would silently
+	// stop being collected -- reject it at load instead.
+	conditions := make(map[string]bool)
+	for i := range d.Tags {
+		if d.Tags[i].TriggerGroup != "" {
+			conditions[d.Tags[i].Name] = true
+		}
+	}
+	for i := range d.Tags {
+		tag := d.Tags[i]
+		if tag.Triggers == "" || !tagNames[tag.Name] {
+			continue
+		}
+		if !conditions[tag.Triggers] {
+			return fmt.Errorf("driver %s: tag %q: triggers %q, which is not a trigger-group condition on this driver",
+				d.Name, tag.Name, tag.Triggers)
 		}
 	}
 	return nil
@@ -240,6 +262,18 @@ func validateTag(driverName string, tag core.TagConfig, tagNames map[string]bool
 	}
 	if err := validatePositiveDuration(driverName, tag.Name, "read-timeout", tag.ReadTimeout); err != nil {
 		return err
+	}
+	// Trigger gating: a point is either the CONDITION of a group
+	// (trigger-group) or GATED by a condition (triggers) -- never both, or
+	// the read order is undefined. The referenced condition must exist on
+	// the same driver, or the group can never fire.
+	if tag.TriggerGroup != "" && tag.Triggers != "" {
+		return fmt.Errorf("driver %s: tag %q: trigger-group and triggers are mutually exclusive",
+			driverName, tag.Name)
+	}
+	if tag.TriggerGroup != "" && strings.ContainsAny(tag.TriggerGroup, " ,;") {
+		return fmt.Errorf("driver %s: tag %q: invalid trigger-group %q (no spaces or separators)",
+			driverName, tag.Name, tag.TriggerGroup)
 	}
 	// Protect's spelling is contract, not decoration: "readonly"/"r-only"
 	// silently meaning "writable" would be exactly the failure mode the

@@ -74,8 +74,8 @@ func newSimScenarioDriver(t *testing.T, name string, tags []core.TagConfig) (*S7
 // namesOf returns the tag names of the configs in order.
 func namesOf(tags []core.TagConfig) []string {
 	names := make([]string, len(tags))
-	for i, tag := range tags {
-		names[i] = tag.Name
+	for i := range tags {
+		names[i] = tags[i].Name
 	}
 	return names
 }

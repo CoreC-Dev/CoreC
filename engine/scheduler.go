@@ -52,6 +52,17 @@ type taskRunner struct {
 	// heartbeats counts samples released by an elapsed enforce-interval
 	// heartbeat (atomic: read from the metrics path without s.mu).
 	heartbeats atomic.Uint64
+	// Trigger gating state, derived from the tag configs at AddTask time.
+	// groupTrigger maps a trigger-group name to the tag whose value decides
+	// it; gated maps the same group name to the tags read only when that
+	// condition evaluates true. Both nil for ordinary tasks, which is the
+	// common case and keeps the read path a single call.
+	groupTrigger map[string]string
+	gated        map[string][]string
+
+	// skipped counts suppressions per group, exposed as
+	// corec_trigger_group_skipped_total{driver,group}.
+	skipped atomic.Uint64
 
 	// Error throttling state
 	lastErrLog time.Time
@@ -136,10 +147,12 @@ func (s *scheduler) AddTask(task core.ScheduleTask) error {
 	}
 	taskCtx, taskCancel := context.WithCancel(ctx)
 	runner := &taskRunner{
-		task:       task,
-		cancel:     taskCancel,
-		lastValues: make(map[string]float64),
-		lastSent:   make(map[string]time.Time),
+		task:         task,
+		cancel:       taskCancel,
+		lastValues:   make(map[string]float64),
+		lastSent:     make(map[string]time.Time),
+		groupTrigger: task.GroupTrigger,
+		gated:        task.GroupGated,
 	}
 	s.tasks[task.ID] = runner
 
@@ -185,6 +198,7 @@ func (s *scheduler) Health() []core.TaskHealth {
 		}
 		h.OverrunsTotal += t.overrunsTotal
 		h.HeartbeatsTotal += t.heartbeats.Load()
+		h.TriggerSkipsTotal += t.skipped.Load()
 	}
 
 	names := make([]string, 0, len(byDriver))
@@ -313,7 +327,28 @@ func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) {
 			readTimeout = interval
 		}
 		readCtx, readCancel := context.WithTimeout(ctx, readTimeout)
-		values, err := s.readFunc(readCtx, task.Driver, task.Tags)
+
+		// Condition-gated reads: poll the group conditions first, then read
+		// only the groups whose condition evaluated true. Ordinary tasks (no
+		// gated tags) read task.Tags once, exactly as before. The conditions
+		// themselves are always published -- a consumer watching the flag
+		// must see it change even in the cycle where the details are skipped.
+		readTags := task.Tags
+		var values []core.TagValue
+		var err error
+		if len(runner.gated) > 0 {
+			var conditions []core.TagValue
+			readTags, conditions = runner.gateTriggerTags(readCtx, task, s.readFunc)
+			values = append(values, conditions...)
+		}
+		if len(readTags) > 0 {
+			detail, readErr := s.readFunc(readCtx, task.Driver, readTags)
+			if readErr != nil {
+				err = readErr
+			} else {
+				values = append(values, detail...)
+			}
+		}
 		readCancel()
 
 		latency := time.Since(start)

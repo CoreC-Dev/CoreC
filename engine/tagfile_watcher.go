@@ -55,10 +55,12 @@ func (r *driverRegistry) startTagFileWatcher(config core.DriverConfig) {
 		// cached values must go with them — otherwise /tags keeps
 		// serving ghosts and derived tags keep consuming them.
 		newNames := make(map[string]bool, len(newTags))
-		for _, t := range newTags {
+		for i := range newTags {
+			t := newTags[i]
 			newNames[t.Name] = true
 		}
-		for _, t := range baseCfg.Tags {
+		for i := range baseCfg.Tags {
+			t := baseCfg.Tags[i]
 			if !newNames[t.Name] {
 				r.eng.processing.cache.DeleteTag(driverName, t.Name)
 				slog.Info("evicted cached value for removed tag", "driver", driverName, "tag", t.Name)
@@ -133,7 +135,8 @@ func (r *driverRegistry) reloadDriverTags(config core.DriverConfig) error {
 	r.eng.mu.Lock()
 	r.drivers[config.Name] = driver
 	tagGroups := make(map[string]string, len(config.Tags))
-	for _, t := range config.Tags {
+	for i := range config.Tags {
+		t := config.Tags[i]
 		if t.Group != "" {
 			tagGroups[t.Name] = t.Group
 		}

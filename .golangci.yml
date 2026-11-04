@@ -26,12 +26,6 @@ linters:
     gocritic:
       disabled-checks:
         - hugeParam
-        # rangeValCopy: config-carrying structs (TagConfig, DriverConfig) are
-        # value types by design and easily outgrow the 128-byte copy default
-        # as optional fields accumulate; rewriting every `range cfg.Tags`
-        # into an index loop to satisfy the check is churn, not safety.
-        # The hot paths (read/route loops) do use index loops where it matters.
-        - rangeValCopy
       enabled-tags:
         - performance
         - style
