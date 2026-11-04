@@ -92,7 +92,7 @@ func TestWriteProtectWriteOnlyNotScheduled(t *testing.T) {
 	// non-nil no-ops and the scheduler must be stopped on cleanup (goleak).
 	e.lifecycle.scheduler = NewScheduler(
 		func(context.Context, string, []string) ([]core.TagValue, error) { return nil, nil },
-		func(string, []core.TagValue, int) {},
+		func(string, []core.TagValue, *triggerPlan, int) {},
 		0,
 	)
 	t.Cleanup(func() { _ = e.lifecycle.scheduler.Stop() })

@@ -542,7 +542,7 @@ func BenchmarkSchedulerManyTasks(b *testing.B) {
 					}
 					return vals, nil
 				},
-				func(driver string, values []core.TagValue, _ int) {
+				func(driver string, values []core.TagValue, _ *triggerPlan, _ int) {
 					totalRead.Add(int64(len(values)))
 				},
 				0, // default error-throttle window

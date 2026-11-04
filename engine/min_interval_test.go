@@ -23,7 +23,7 @@ func newSchedulerForTest(t *testing.T) *scheduler {
 	t.Helper()
 	s := NewScheduler(
 		func(context.Context, string, []string) ([]core.TagValue, error) { return nil, nil },
-		func(string, []core.TagValue, int) {},
+		func(string, []core.TagValue, *triggerPlan, int) {},
 		0,
 	)
 	t.Cleanup(func() { _ = s.Stop() })

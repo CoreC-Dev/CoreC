@@ -6,9 +6,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CoreC-Dev/CoreC/common/metrics"
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
+// triggerRecorder stands in for the scheduler's readFunc: it answers every tag
+// request with a configured value and records which tags each round read.
 type triggerRecorder struct {
 	mu     sync.Mutex
 	values map[string]any
@@ -44,6 +47,15 @@ func (r *triggerRecorder) rounds() [][]string {
 	return out
 }
 
+func hasTag(r []string, tag string) bool {
+	for _, x := range r {
+		if x == tag {
+			return true
+		}
+	}
+	return false
+}
+
 func newTriggerRunner() *taskRunner {
 	return &taskRunner{
 		task: core.ScheduleTask{
@@ -58,28 +70,23 @@ func newTriggerRunner() *taskRunner {
 	}
 }
 
-func hasTag(r []string, tag string) bool {
-	for _, x := range r {
-		if x == tag {
-			return true
-		}
-	}
-	return false
-}
-
 // TestTriggerGroupSkipsDetailsWhenConditionFalse is the core contract: while
 // the condition is false the detail tags are never requested, the condition
-// itself still is (consumers must see the flag change).
+// itself still is, and the skipped detail tags are reported in the plan so the
+// engine can republish them as last-known-good/uncertain.
 func TestTriggerGroupSkipsDetailsWhenConditionFalse(t *testing.T) {
 	rec := &triggerRecorder{values: map[string]any{"alarm": false}}
 	runner := newTriggerRunner()
 
-	readTags, cond := runner.gateTriggerTags(context.Background(), runner.task, rec.read)
-	if len(cond) != 1 || cond[0].Tag != "alarm" {
-		t.Fatalf("condition read returned %+v, want the alarm tag", cond)
+	plan := runner.gateTriggerTags(context.Background(), runner.task, rec.read)
+	if len(plan.conditions) != 1 || plan.conditions[0].Tag != "alarm" {
+		t.Fatalf("condition read returned %+v, want the alarm tag", plan.conditions)
 	}
-	if len(readTags) != 0 {
-		t.Fatalf("detail tags must be skipped while the condition is false, got %v", readTags)
+	if len(plan.read) != 0 {
+		t.Fatalf("detail tags must be skipped while the condition is false, got %v", plan.read)
+	}
+	if !hasTag(plan.suppressed, "d1") || !hasTag(plan.suppressed, "d2") {
+		t.Fatalf("suppressed details must be reported, got %v", plan.suppressed)
 	}
 	if got := runner.skipped.Load(); got != 1 {
 		t.Errorf("suppression counter = %d, want 1", got)
@@ -93,38 +100,27 @@ func TestTriggerGroupSkipsDetailsWhenConditionFalse(t *testing.T) {
 	}
 }
 
-// TestTriggerGroupFollowsConditionChange: the same runner collects nothing
-// while the flag is false and collects the details once it flips true --
-// gating must track the flag, not latch on the first evaluation.
+// TestTriggerGroupFollowsConditionChange: gating tracks the flag, it does not
+// latch on the first evaluation.
 func TestTriggerGroupFollowsConditionChange(t *testing.T) {
 	rec := &triggerRecorder{values: map[string]any{"alarm": false}}
 	runner := newTriggerRunner()
 
-	if tags, _ := runner.gateTriggerTags(context.Background(), runner.task, rec.read); len(tags) != 0 {
-		t.Fatalf("false flag must suppress details, got %v", tags)
+	if plan := runner.gateTriggerTags(context.Background(), runner.task, rec.read); len(plan.read) != 0 {
+		t.Fatalf("false flag must suppress details, got %v", plan.read)
 	}
+
 	rec.set("alarm", true)
-	tags, _ := runner.gateTriggerTags(context.Background(), runner.task, rec.read)
-	if !hasTag(tags, "d1") || !hasTag(tags, "d2") {
-		t.Fatalf("true flag must release the details, got %v", tags)
+	plan := runner.gateTriggerTags(context.Background(), runner.task, rec.read)
+	if !hasTag(plan.read, "d1") || !hasTag(plan.read, "d2") {
+		t.Fatalf("true flag must release the details, got %v", plan.read)
 	}
-}
-
-// TestTriggerGroupReadsDetailsWhenConditionTrue: a true condition yields the
-// gated tags and never re-lists the condition (it was already read).
-func TestTriggerGroupReadsDetailsWhenConditionTrue(t *testing.T) {
-	rec := &triggerRecorder{values: map[string]any{"alarm": true}}
-	runner := newTriggerRunner()
-
-	readTags, _ := runner.gateTriggerTags(context.Background(), runner.task, rec.read)
-	if !hasTag(readTags, "d1") || !hasTag(readTags, "d2") {
-		t.Fatalf("both details must be read when the condition fired, got %v", readTags)
+	// The condition was read on its own, never re-requested with the details.
+	if hasTag(plan.read, "alarm") {
+		t.Errorf("condition must not be re-requested in the detail pass, got %v", plan.read)
 	}
-	if hasTag(readTags, "alarm") {
-		t.Errorf("the condition must not be re-requested in the detail pass, got %v", readTags)
-	}
-	if runner.skipped.Load() != 0 {
-		t.Errorf("a fired condition must not count as a suppression")
+	if len(plan.suppressed) != 0 {
+		t.Errorf("a fired condition must suppress nothing, got %v", plan.suppressed)
 	}
 }
 
@@ -152,15 +148,18 @@ func TestTriggerFiredFailClosed(t *testing.T) {
 }
 
 // TestTriggerGroupConditionReadErrorSuppressesAll: an unreachable flag cannot
-// authorize a detail read; every gated tag stays out of the round.
+// authorise a detail read; every gated tag is reported as suppressed.
 func TestTriggerGroupConditionReadErrorSuppressesAll(t *testing.T) {
 	runner := newTriggerRunner()
 	failing := func(context.Context, string, []string) ([]core.TagValue, error) {
 		return nil, context.DeadlineExceeded
 	}
-	readTags, _ := runner.gateTriggerTags(context.Background(), runner.task, failing)
-	if len(readTags) != 0 {
-		t.Fatalf("a failed condition read must suppress the details, got %v", readTags)
+	plan := runner.gateTriggerTags(context.Background(), runner.task, failing)
+	if len(plan.read) != 0 {
+		t.Fatalf("a failed condition read must suppress the details, got %v", plan.read)
+	}
+	if !hasTag(plan.suppressed, "d1") || !hasTag(plan.suppressed, "d2") {
+		t.Fatalf("suppressed details must still be reported, got %v", plan.suppressed)
 	}
 	if got := runner.skipped.Load(); got != 1 {
 		t.Errorf("suppression counter = %d, want 1", got)
@@ -168,16 +167,55 @@ func TestTriggerGroupConditionReadErrorSuppressesAll(t *testing.T) {
 }
 
 // TestTriggerGroupNoGroupsReadsAllTags: a task without gating keeps the
-// single-read path (task.Tags returned untouched).
+// single-read path (task.Tags returned untouched, nothing suppressed).
 func TestTriggerGroupNoGroupsReadsAllTags(t *testing.T) {
 	runner := newTriggerRunner()
 	runner.groupTrigger = nil
 	runner.gated = nil
-	readTags, cond := runner.gateTriggerTags(context.Background(), runner.task, nil)
-	if len(cond) != 0 {
-		t.Errorf("no conditions expected, got %v", cond)
+	plan := runner.gateTriggerTags(context.Background(), runner.task, nil)
+	if len(plan.conditions) != 0 || len(plan.suppressed) != 0 {
+		t.Errorf("ungated task must report nothing, got %+v", plan)
 	}
-	if len(readTags) != len(runner.task.Tags) {
-		t.Fatalf("ungated task must read all tags, got %v", readTags)
+	if len(plan.read) != len(runner.task.Tags) {
+		t.Fatalf("ungated task must read all tags, got %v", plan.read)
+	}
+}
+
+// TestSuppressedDetailsRepublishedAsUncertain proves the engine leaves a visible
+// trace of a skipped detail point: the cached last-known-good value is pushed
+// again with quality uncertain, and a never-collected detail stays absent
+// rather than materialising as a fabricated zero.
+func TestSuppressedDetailsRepublishedAsUncertain(t *testing.T) {
+	e := newTestEngine(t)
+	bus := NewDataBus(16)
+	e.processing.dataBus = bus
+	e.stats.readRate = metrics.NewRateWindow()
+	e.processing.cache = NewLatestCache()
+	e.processing.cache.Update(core.DataPoint{
+		Driver: "plc", Tag: "d1", Value: float64(42), Type: core.TypeFloat32,
+		Quality: core.QualityGood, Timestamp: time.Now().Add(-time.Minute),
+	})
+
+	lc := &lifecycleSupport{eng: e}
+	plan := &triggerPlan{suppressed: []string{"d1", "d2"}}
+	lc.onDriverData("plc", nil, plan, 0)
+
+	select {
+	case got := <-bus.Channel():
+		if got.Tag != "d1" || got.Quality != core.QualityUncertain {
+			t.Fatalf("republished point = %+v, want d1/uncertain", got)
+		}
+		if got.Value != float64(42) {
+			t.Errorf("republished point must carry last-known-good value 42, got %v", got.Value)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no republished point: a skipped detail point must surface as uncertain")
+	}
+
+	// d2 was suppressed too but was never collected: nothing to republish.
+	select {
+	case extra := <-bus.Channel():
+		t.Fatalf("a never-collected detail must stay absent, got %+v", extra)
+	case <-time.After(50 * time.Millisecond):
 	}
 }

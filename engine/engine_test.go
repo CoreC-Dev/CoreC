@@ -90,7 +90,7 @@ func TestScheduler(t *testing.T) {
 				{Tag: tags[0], Value: 42, Timestamp: time.Now()},
 			}, nil
 		},
-		func(driver string, values []core.TagValue, _ int) {
+		func(driver string, values []core.TagValue, _ *triggerPlan, _ int) {
 			received <- values
 		},
 		0, // default error-throttle window

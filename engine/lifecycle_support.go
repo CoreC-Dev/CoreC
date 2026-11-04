@@ -198,7 +198,7 @@ func (l *lifecycleSupport) readFromDriver(ctx context.Context, driver string, ta
 // onDriverData is the scheduler's data callback: it enriches each value
 // with its tag group and pushes it into the data bus (high-priority
 // channel for fast-interval tasks).
-func (l *lifecycleSupport) onDriverData(driver string, values []core.TagValue, priority int) {
+func (l *lifecycleSupport) onDriverData(driver string, values []core.TagValue, plan *triggerPlan, priority int) {
 	// Enrich DataPoint.Group from the TagConfig.Group captured in AddDriver.
 	// TagValue only carries the tag name, so the group must be looked up by
 	// (driver, tag). We read the per-driver map once under RLock to avoid
@@ -218,6 +218,44 @@ func (l *lifecycleSupport) onDriverData(driver string, values []core.TagValue, p
 	// channel so a burst of low-frequency bulk reads cannot delay
 	// high-frequency collection.
 	highPriority := priority > 0
+
+	// Suppressed detail points (trigger gating): republish the cached
+	// last-known-good value as quality-uncertain, so a consumer sees
+	// "value is stale, not current" rather than silence. A point that was
+	// suppressed but never collected has nothing to republish and stays
+	// absent -- inventing a zero would be worse than the gap.
+	if plan != nil {
+		for _, tag := range plan.suppressed {
+			last, ok := l.eng.processing.cache.Get(driver, tag)
+			if !ok {
+				continue
+			}
+			v := core.TagValue{
+				Tag:       tag,
+				Value:     last.Value,
+				Type:      last.Type,
+				Quality:   core.QualityUncertain,
+				Timestamp: time.Now(),
+			}
+			l.eng.stats.recordRead(1)
+			point := core.DataPoint{
+				Driver:    driver,
+				Tag:       v.Tag,
+				Value:     v.Value,
+				Type:      v.Type,
+				Quality:   v.Quality,
+				Timestamp: v.Timestamp,
+			}
+			if groups != nil {
+				point.Group = groups[v.Tag]
+			}
+			if highPriority {
+				l.eng.processing.dataBus.PushHighPriority(point)
+			} else {
+				l.eng.processing.dataBus.Push(point)
+			}
+		}
+	}
 
 	for _, v := range values {
 		l.eng.stats.recordRead(1)

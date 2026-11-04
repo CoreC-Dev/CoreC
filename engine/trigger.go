@@ -18,9 +18,9 @@ import (
 // per group and logged at debug level, since it is normal for a flag to be
 // unreachable while the device is idle.
 func (r *taskRunner) gateTriggerTags(ctx context.Context, task core.ScheduleTask,
-	read func(context.Context, string, []string) ([]core.TagValue, error)) ([]string, []core.TagValue) {
+	read func(context.Context, string, []string) ([]core.TagValue, error)) triggerPlan {
 	if len(r.groupTrigger) == 0 {
-		return task.Tags, nil
+		return triggerPlan{read: task.Tags}
 	}
 
 	// Read all conditions in one round-trip; they live on the same device.
@@ -37,7 +37,7 @@ func (r *taskRunner) gateTriggerTags(ctx context.Context, task core.ScheduleTask
 		// on one device do not inflate it. Nothing is left to read --
 		// condValues is empty, the condition itself failed.
 		r.skipped.Add(1)
-		return nil, condValues
+		return triggerPlan{conditions: nil, suppressed: task.Tags}
 	}
 
 	fired := make(map[string]bool, len(condValues))
@@ -50,8 +50,7 @@ func (r *taskRunner) gateTriggerTags(ctx context.Context, task core.ScheduleTask
 	// requested twice in one cycle. A gated tag is added when ITS group's
 	// condition fired; adding everything because one group fired would drag
 	// unrelated details along.
-	var tags []string
-	suppressed := false
+	var tags, suppressed []string
 	for _, tag := range task.Tags {
 		group, gated := r.gatedOf(tag)
 		if !gated {
@@ -60,16 +59,14 @@ func (r *taskRunner) gateTriggerTags(ctx context.Context, task core.ScheduleTask
 		if fired[r.groupTrigger[group]] {
 			tags = append(tags, tag)
 		} else {
-			suppressed = true
+			suppressed = append(suppressed, tag)
 		}
 	}
 	// Counted per cycle (not per suppressed tag) for the same reason as above.
-	if suppressed {
+	if len(suppressed) > 0 {
 		r.skipped.Add(1)
 	}
-	// The condition values are returned so the caller publishes them in this
-	// cycle too: they were just read and belong to the same sample batch.
-	return tags, condValues
+	return triggerPlan{read: tags, conditions: condValues, suppressed: suppressed}
 }
 
 // gatedOf reports whether tag is gated by a trigger group, and which one.
@@ -98,4 +95,20 @@ func triggerFired(v core.TagValue) bool {
 		f, ok := util.ToFloat64OK(v.Value)
 		return ok && f != 0
 	}
+}
+
+// triggerPlan is one cycle's gating decision.
+type triggerPlan struct {
+	// read holds the detail tags to collect this cycle (empty when every
+	// group is suppressed).
+	read []string
+	// conditions holds the freshly read condition values. They are
+	// published every cycle -- a consumer watching the flag must see it
+	// fall back to false in the very cycle the details stop.
+	conditions []core.TagValue
+	// suppressed lists the detail tags skipped this cycle. They are NOT
+	// read, but the engine still publishes them as last-known-good + quality
+	// uncertain, so a consumer can tell "value is old, not current" from
+	// "tag is gone".
+	suppressed []string
 }

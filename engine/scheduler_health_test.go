@@ -17,7 +17,7 @@ func quietReadFunc(ctx context.Context, driver string, tags []string) ([]core.Ta
 	return nil, nil
 }
 
-func quietOnData(driver string, values []core.TagValue, priority int) {}
+func quietOnData(driver string, values []core.TagValue, plan *triggerPlan, priority int) {}
 
 // TestSchedulerHealthAggregation pins the per-driver aggregation the
 // metrics route exposes: degraded is
@@ -97,7 +97,7 @@ func TestSchedulerPauseResumeRoundTrip(t *testing.T) {
 		mu.Unlock()
 		return []core.TagValue{{Tag: tags[0], Value: 1, Timestamp: time.Now()}}, nil
 	}
-	s := NewScheduler(readFn, func(driver string, values []core.TagValue, priority int) {},
+	s := NewScheduler(readFn, func(driver string, values []core.TagValue, plan *triggerPlan, priority int) {},
 		0)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

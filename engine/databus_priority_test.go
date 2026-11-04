@@ -166,7 +166,7 @@ func TestScheduleDriverTagsSetsPriority(t *testing.T) {
 		func(ctx context.Context, driver string, tags []string) ([]core.TagValue, error) {
 			return nil, nil
 		},
-		func(driver string, values []core.TagValue, priority int) {},
+		func(driver string, values []core.TagValue, _ *triggerPlan, priority int) {},
 		0,
 	)
 	if err := e.lifecycle.scheduler.Start(e.runtime.ctx); err != nil {

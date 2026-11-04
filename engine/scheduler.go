@@ -21,7 +21,7 @@ type scheduler struct {
 	paused       map[string]bool
 	globalPaused atomic.Bool
 	readFunc     func(ctx context.Context, driver string, tags []string) ([]core.TagValue, error)
-	onData       func(driver string, values []core.TagValue, priority int)
+	onData       func(driver string, values []core.TagValue, plan *triggerPlan, priority int)
 
 	// errorThrottleWindow is the time window for suppressing repeated
 	// error/overrun log messages. Defaults to core.DefaultErrorThrottleWindow.
@@ -91,7 +91,7 @@ type taskRunner struct {
 // logs; <=0 falls back to core.DefaultErrorThrottleWindow.
 func NewScheduler(
 	readFunc func(ctx context.Context, driver string, tags []string) ([]core.TagValue, error),
-	onData func(driver string, values []core.TagValue, priority int),
+	onData func(driver string, values []core.TagValue, plan *triggerPlan, priority int),
 	errorThrottleWindow time.Duration,
 ) *scheduler {
 	if errorThrottleWindow <= 0 {
@@ -334,12 +334,14 @@ func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) {
 		// themselves are always published -- a consumer watching the flag
 		// must see it change even in the cycle where the details are skipped.
 		readTags := task.Tags
+		var plan *triggerPlan
 		var values []core.TagValue
 		var err error
 		if len(runner.gated) > 0 {
-			var conditions []core.TagValue
-			readTags, conditions = runner.gateTriggerTags(readCtx, task, s.readFunc)
-			values = append(values, conditions...)
+			p := runner.gateTriggerTags(readCtx, task, s.readFunc)
+			plan = &p
+			readTags = p.read
+			values = append(values, p.conditions...)
 		}
 		if len(readTags) > 0 {
 			detail, readErr := s.readFunc(readCtx, task.Driver, readTags)
@@ -370,7 +372,7 @@ func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) {
 
 		values = applyDeadbandFilter(runner, values)
 		if len(values) > 0 {
-			s.onData(task.Driver, values, task.Priority)
+			s.onData(task.Driver, values, plan, task.Priority)
 		}
 	}
 }
