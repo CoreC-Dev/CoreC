@@ -170,6 +170,13 @@ global:
 #         read-timeout: 500ms   # per-tag read timeout (optional, default = interval)
 #         scale: 0.1            # linear scaling: published = raw * scale + offset
 #         offset: -50.0         # e.g. raw=1000 → published=50.0 (optional, default 0)
+#         # ── trigger-gated collection ───────────────────────────────────────────────
+#         # One condition point gates a group of detail points: the details are read only
+#         # in the cycles where the condition is true, and are republished as quality
+#         # uncertain (last-known-good) while suppressed.
+#         trigger-group: alarm  # this point IS the condition of group "alarm" (optional)
+#         triggers: alarm_bit   # this point is read only when alarm_bit is true (optional;
+#                               #   same driver, mutually exclusive with trigger-group)
 #       - name: pressure
 #         address: "40003"      # Holding register 2
 #         type: float32
