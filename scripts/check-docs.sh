@@ -165,6 +165,32 @@ while IFS= read -r dir; do
 done < <(find . -type d -not -path './.git/*' -not -path './vendor/*' | sed 's|^\./||')
 if [[ $missing_pkg -eq 0 ]]; then ok "所有包有注释"; else errors=$((errors + missing_pkg)); fi
 
+# ── 5. front-matter 结构合法（VitePress 站点构建的前置条件）────────────────
+# 前四项都是静态文本检查，从不渲染站点。docs/guide/mcp.md 曾把 layout/outline
+# 缩进在没有父键的位置：Docs Gate（跑本脚本）保持绿色，Deploy Docs 红在
+# "bad indentation of a mapping entry"。本地必须能拦住这一类。
+#
+# 不引入 YAML 依赖（R6），只验结构不验语义：首个 --- 在第 1 行、有闭合 ---、
+# front-matter 非空。缩进层级是否正确由站点构建最终裁定 —— 这里宁可漏报，
+# 也不误报（误报会让人习惯性跳过这个门禁，比没有门禁更糟）。
+fm_checked=0
+fm_errors=0
+while IFS= read -r f; do
+  [[ "$(head -1 "$f")" == "---" ]] || continue
+  fm_checked=$((fm_checked + 1))
+  close=$(awk 'NR>1 && /^---$/{print NR; exit}' "$f")
+  if [[ -z "$close" ]]; then
+    report "$f 的 front-matter 缺少闭合 ---"
+    fm_errors=$((fm_errors + 1))
+    continue
+  fi
+  if [[ -z "$(awk -v end="$close" 'NR>1 && NR<end && NF && !/^[[:space:]]*#/{print; exit}' "$f")" ]]; then
+    report "$f 的 front-matter 为空（第 $close 行 --- 之后立即 ---）"
+    fm_errors=$((fm_errors + 1))
+  fi
+done < <(find docs -name '*.md' -not -path 'docs/node_modules/*' -not -path 'docs/.vitepress/dist/*')
+if [[ $fm_errors -eq 0 ]]; then ok "$fm_checked 个文件的 front-matter 结构合法"; else errors=$((errors + fm_errors)); fi
+
 echo ""
 echo "=== 结果 ==="
 if [[ $errors -eq 0 ]]; then
