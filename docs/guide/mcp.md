@@ -1,8 +1,8 @@
 ---
 title: MCP 服务
-description: corec-mcp — 把运行中的 CoreC 实例暴露为 AI 智能体的工具体，支持只读与受控写入。
-  layout: doc
-  outline: [2, 3]
+description: corec-mcp — 把运行中的 CoreC 实例暴露为 AI 智能体可调用的工具集，默认只读。
+layout: doc
+outline: [2, 3]
 ---
 
 # MCP 服务
