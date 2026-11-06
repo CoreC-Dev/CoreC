@@ -38,5 +38,5 @@ features:
     details: REST API 与 WebSocket 实时查看数据流、日志、流量与内存；内置 Prometheus 指标与 Kubernetes 存活 / 就绪探针。
   - icon: 🖥️
     title: 部署与配套界面
-    details: 单二进制、一份 YAML 描述完整采集拓扑，可独立运行或作为 Go 库嵌入；官方 Dashboard（独立仓库）提供多实例监控、配置中心与规则管理。
+    details: 单二进制、一份 YAML 描述完整采集拓扑，可独立运行或作为 Go 库嵌入；官方 Dashboard（独立仓库）提供多实例监控、配置中心、规则管理，以及一个经由同一套 REST 控制面查询现场的 AI 对话助手（见 [MCP 服务](./guide/mcp.md)）。
 ---

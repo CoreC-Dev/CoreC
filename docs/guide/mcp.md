@@ -11,7 +11,7 @@ outline: [2, 3]
 
 ## 为什么是独立程序
 
-MCP 带来一个客户端SDK、一层 stdio 帧、一个常驻协议栈。把它编进 `corec` 会：
+MCP 带来一个客户端 SDK、一层 stdio 帧、一个常驻协议栈。把它编进 `corec` 会：
 
 - 增加第二个协议的攻击面（**违背** fail-closed 的最小暴露面原则）；
 - 打破单二进制的交叉编译矩阵与 `CGO_ENABLED=0` 静态产物（**R6**）；
@@ -100,6 +100,27 @@ go build -o corec-mcp ./cmd/corec-mcp
 3. **不引入额外权限模型**。没有 MCP 侧的 ACL、审批流或白名单；需要这些，做法是给智能体一个**只授予部分驱动的 CoreC 实例**（独立部署、独立 secret），而不是在适配器里加一层谁都说不清的过滤。
 4. **审计在引擎侧**。智能体写了什么点、什么值、什么时候，都在 `GET /write/history`（`source: api`），与人工 API 调用混在同一条流里——这正是要的：审计不该因为"入口是谁"而有盲区。
 5. **别把它暴露到公网**。stdio 是本地传输；若要用 HTTP 传输，请把 `corec-mcp` 与 CoreC 一起放在同一个可信网络边界内，并对接入反向代理做认证。
+
+## 与 Dashboard AI 助手的关系
+
+官方 Dashboard（独立仓库 `CoreC-Dashboard`）在实例页内也有一个 AI 对话面板。它和 `corec-mcp` 是**同一个 REST 控制面的两个客户端**，不是两套权限：
+
+| | `corec-mcp` | Dashboard AI 助手 |
+|---|---|---|
+| 运行位置 | 本地进程，stdio 给桌面 MCP 客户端 | 浏览器，`fetch` 直连你配置的 OpenAI 兼容端点 |
+| 谁持 secret | 启动参数 / 环境变量 | 浏览器 localStorage（UI 明示披露） |
+| 工具面 | 10 个（读 + 控制） | 11 个：与 MCP 同名同参数 9 个，另有 `get_configs` / `validate_configs`；无 `read_tag` |
+| 写操作 | `-allow-write` 默认关 | "允许写操作"默认关、刷新即回落，且每次写需人工确认 |
+
+**对后端的影响：没有。** 助手不新增端点、不改鉴权、不改写保护；它产生的写入与人工 API、`corec-mcp` 的写入在引擎侧不可区分，审计同样落在 `GET /write/history`（`source: api`）。
+
+由此，以下约束属于 Dashboard 那一侧的实现，**不在 CoreC 里做**：
+
+- 助手只能对**已连通**的实例工作——它复用 `/corec/:id/*` 下已有的连接上下文；`/`（实例选择页）没有活跃连接，放不下能真正执行的工具调用。
+- provider 密钥存浏览器 localStorage，是 Dashboard 侧的凭据披露问题。
+- 两份工具定义（Go 与 TypeScript）靠测试断言工具名一致来防漂移；参数与错误语义的同步仍是人工纪律。
+
+CoreC 侧对任何 AI 客户端的立场不变：**它只是 `source: api` 的又一个写入者**，没有特权，也没有豁免。
 
 ## 验证
 
