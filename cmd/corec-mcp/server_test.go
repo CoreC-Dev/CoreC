@@ -187,3 +187,124 @@ func TestReadTagNarrowsSubstringMatches(t *testing.T) {
 		t.Errorf("the named point must survive, got %v", out.Tags)
 	}
 }
+
+// get_configs must ask for YAML, not JSON: the control plane content-negotiates
+// on /configs/raw, and a JSON answer is the config wrapped in a quoted string
+// with its newlines escaped -- unreadable to a model and useless to
+// validate_configs without a decode step on the caller's side.
+func TestGetConfigsAsksForYAML(t *testing.T) {
+	var gotAccept, gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAccept = r.Header.Get("Accept")
+		gotPath = r.URL.Path
+		_, _ = w.Write([]byte("global:\n  engine:\n    workers: 4\n"))
+	}))
+	t.Cleanup(srv.Close)
+
+	s := &server{base: srv.URL, secret: "sekrit", client: srv.Client()}
+	text, isErr := s.callTool("get_configs", nil)
+	if isErr {
+		t.Fatalf("get_configs failed: %s", text)
+	}
+	if gotPath != "/configs/raw" {
+		t.Errorf("path = %q, want /configs/raw", gotPath)
+	}
+	if gotAccept != "application/yaml" {
+		t.Errorf("Accept = %q, want application/yaml", gotAccept)
+	}
+	if !strings.Contains(text, "workers: 4") {
+		t.Errorf("YAML did not come through as text: %q", text)
+	}
+}
+
+// validate_configs posts the candidate under "payload" -- the field
+// POST /configs/validate decodes -- and must not be callable with an empty one,
+// which the server would reject as a malformed request rather than an invalid
+// config; the two are different answers for the agent.
+func TestValidateConfigsPostsPayload(t *testing.T) {
+	var gotBody map[string]any
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		_, _ = w.Write([]byte(`{"valid":false,"error":"driver x: tag y: address cannot be empty"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	s := &server{base: srv.URL, secret: "sekrit", client: srv.Client()}
+	text, isErr := s.callTool("validate_configs", map[string]any{"payload": "drivers: []"})
+	if isErr {
+		t.Fatalf("validate_configs: the engine's verdict is an answer, not a transport error: %s", text)
+	}
+	if gotPath != "/configs/validate" {
+		t.Errorf("path = %q, want /configs/validate", gotPath)
+	}
+	if gotBody["payload"] != "drivers: []" {
+		t.Errorf("payload sent as %v, want the candidate verbatim", gotBody["payload"])
+	}
+	if !strings.Contains(text, "address cannot be empty") {
+		t.Errorf("validator's reason missing from %q", text)
+	}
+}
+
+// An empty payload is refused locally: asking the server would produce a
+// malformed-request error that reads like "your config is wrong".
+func TestValidateConfigsRefusesEmptyPayload(t *testing.T) {
+	srv, paths := fakeCoreC(t, 200, `{}`)
+	s := &server{base: srv.URL, secret: "sekrit", client: srv.Client(), write: true}
+
+	text, isErr := s.callTool("validate_configs", map[string]any{})
+	if !isErr {
+		t.Fatalf("empty payload accepted: %q", text)
+	}
+	if len(*paths) != 0 {
+		t.Errorf("sent %d request(s) to the server, want none", len(*paths))
+	}
+}
+
+// TestToolsCallEnvelope covers the path an agent actually takes:
+// tools/call over the JSON-RPC line, not callTool directly. It is the branch
+// hasTool() guards -- unknown names must be invalid-params here, before any
+// HTTP request is made, and a tool's isErr must land in the result's isError
+// field rather than in the error object, or the agent cannot tell "this verb
+// failed" from "this server does not speak JSON-RPC".
+func TestToolsCallEnvelope(t *testing.T) {
+	srv, paths := fakeCoreC(t, 200, `{"drivers":[]}`)
+	s := &server{base: srv.URL, secret: "sekrit", client: srv.Client(), write: false}
+
+	cases := []struct {
+		name     string
+		params   string
+		wantErr  bool
+		wantPath int // number of HTTP requests expected
+	}{
+		{name: "known tool", params: `{"name":"list_drivers","arguments":{}}`, wantPath: 1},
+		{name: "no arguments field", params: `{"name":"list_drivers"}`, wantPath: 1},
+		{name: "control verb hidden in read-only", params: `{"name":"write_tag","arguments":{}}`, wantErr: true, wantPath: 0},
+		{name: "unknown tool", params: `{"name":"drop_database","arguments":{}}`, wantErr: true, wantPath: 0},
+		{name: "missing name", params: `{"arguments":{}}`, wantErr: true, wantPath: 0},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			*paths = nil
+			req := fmt.Sprintf(`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":%s}`, tc.params)
+			resp := s.handleLine([]byte(req))
+
+			b, err := json.Marshal(resp)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			if tc.wantErr {
+				if !strings.Contains(string(b), `"error"`) {
+					t.Fatalf("want a JSON-RPC error, got %s", b)
+				}
+			} else if strings.Contains(string(b), `"error"`) {
+				t.Fatalf("want a result, got %s", b)
+			}
+			if len(*paths) != tc.wantPath {
+				t.Errorf("made %d HTTP request(s) %v, want %d", len(*paths), *paths, tc.wantPath)
+			}
+		})
+	}
+}
