@@ -1,7 +1,8 @@
 # 门禁清单（Gates）
 
 > 每项门禁：检查名 · 触发时机 · 失败含义 · 修复指引 · 本地复现命令。
-> G1–G8 可通过 `make gates` 一条命令本地复现；G9（版本一致性）与 G10（交叉编译矩阵）在 CI 中触发（见 `docs/CI.md`）。
+> G1–G8、G11 可通过 `make gates` 一条命令本地复现；G9（版本一致性）与 G10（交叉编译矩阵）在 CI 中触发（见 `docs/CI.md`）。
+> 注：G11 在命令行上带 `--skip-if-missing`，找不到同级 `CoreC-Dashboard` 检出（CI 的单仓 checkout）时**跳过并打印 ⏭️**，而不是静默通过——另加 `COREC_DASHBOARD_DIR` 指向检出即强制比对；指定了却读不到文件，一律 exit 2 失败。
 
 ## 门禁总览
 
@@ -66,7 +67,8 @@
 - **豁免**：`t.Skip()` 须附原因
 
 ### G8: 覆盖率门禁（T10）
-- **失败含义**：整体覆盖率低于 75%，或任一登记包低于其按包下限（`scripts/check-coverage.sh`：core 95 / hub 90 / hub/route 85 / config 80 / rule 80 / engine 75 …）
+- **失败含义**：整体覆盖率低于 75%，或任一登记包低于其按包下限（`scripts/check-coverage.sh`：core 95 / hub 90 / hub/route 85 / config 80 / rule 80 / engine 75 / **cmd/corec 85 / cmd/corec-mcp 65** …——完整表以脚本的 `threshold_for` 为准，这里只是摘录）
+- **为什么 cmd 也要下限**：命令入口此前落在阈值表之外，实测 `cmd/corec` 87.9%、`cmd/corec-mcp` 67.9%，都不低；但“没被登记”意味着**以后掉下来也没人说话**。`cmd/corec-mcp` 的门禁值取 65，只比现值低不到 3 个点，而不是凑个整数 60：贴着走才有信号；宽 8 个点则在下一次大改之前都不会响。
 - **修复指引**：`go test -cover -coverprofile=cover.out ./... && go tool cover -func=cover.out` 找出低覆盖包，补充测试
 - **本地命令**：`make cover-gate`（判定，与 CI 同一脚本）；`make cover` 仅生成报告不做判定
 - **当前基线**：81.9% 整体（阈值 75%；复现：`make cover-gate`，包级下限全部通过）
