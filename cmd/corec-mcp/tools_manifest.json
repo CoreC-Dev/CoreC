@@ -1,0 +1,45 @@
+{
+  "comment": "Generated from toolDefs() by cmd/corec-mcp/tools_manifest_test.go; do not edit by hand. Rewrite with: go test ./cmd/corec-mcp -run TestToolsManifest -update",
+  "tools": [
+    {
+      "name": "ack_alert",
+      "write": true
+    },
+    {
+      "name": "driver_status",
+      "write": false
+    },
+    {
+      "name": "list_alerts",
+      "write": false
+    },
+    {
+      "name": "list_drivers",
+      "write": false
+    },
+    {
+      "name": "list_paused_drivers",
+      "write": false
+    },
+    {
+      "name": "list_tags",
+      "write": false
+    },
+    {
+      "name": "pause_driver",
+      "write": true
+    },
+    {
+      "name": "read_tag",
+      "write": false
+    },
+    {
+      "name": "resume_driver",
+      "write": true
+    },
+    {
+      "name": "write_tag",
+      "write": true
+    }
+  ]
+}

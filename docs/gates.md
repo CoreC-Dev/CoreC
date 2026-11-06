@@ -17,6 +17,7 @@
 | G8 | 覆盖率门禁 | T10: 整体 ≥75% + 按包下限 | CI (push/PR) | `make cover-gate` |
 | G9 | 版本一致性 | D3: tag == ldflags 注入点 | CI (tag push) | 见下方 |
 | G10 | 交叉编译 | linux/darwin/windows × amd64/arm64(+armv7) | CI (push/PR) | 见下方 |
+| G11 | 工具面一致性 | Dashboard AI 助手的工具名与读写分类与本仓 `corec-mcp` 一致 | CI / pre-commit | `make parity` |
 
 ## 各门禁详情
 
@@ -115,3 +116,13 @@ func TestSomething(t *testing.T) {
 - **最小阻塞式门禁**：门禁只拦截明确错误，不追求完美
 - **偶发失败**：flaky 测试用重跑解决，不无限阻塞；连续 3 次失败则开 issue
 - **先护栏后动手**：改动受保护不足的模块时，先补测试/门禁再重构（R3）
+
+### G11: 工具面一致性（tools parity）
+- **失败含义**：`cmd/corec-mcp` 与 Dashboard AI 助手的工具清单出现差异——一边新增/改名/删除了工具，另一边没跟；或同一个工具在两边读写分类不同。后者最危险：意味着 UI 侧可能在不打开写开关时调用到能改变设备的动词。
+- **修复指引**：先在本仓改 `tools.go`，跑 `go test ./cmd/corec-mcp -run TestToolsManifest -update` 重新生成 `cmd/corec-mcp/tools_manifest.json`；再到 `CoreC-Dashboard` 同步 `src/features/assistant/tools.ts`。**两边一起提交**，不要只改一侧让 CI 红着过夜——下次别人会以为那条红是环境噪声。
+- **检查方式**：`scripts/check-tools-parity.mjs` 读本仓生成的清单（`tools_manifest.json`）与 Dashboard 的 `tools.ts` 做集合比对。Dashboard 的工具名不硬编码在脚本里，所以任何一侧的改动都会被看到。
+- **已知有意差异**（登记在脚本里，不是漏洞）：
+  - `read_tag`：CoreC 侧是独立工具，Dashboard 侧由 `list_tags(tag=)` 覆盖——`coveredBy`。
+  - `get_configs` / `validate_configs`：Dashboard 独有的只读工具，不属控制动词——`uiOnly`。
+- 两边都独有、或读写分类冲突的，一律失败，**不自动豁免**。
+- **何时可跳过**：仅当同级 `CoreC-Dashboard` 检出不存在。`make parity` 已带 `--skip-if-missing`，跳过时输出 `⏭️` 并说明原因，不会伪装成通过。手动跑脚本不加该 flag 时，缺输入退出码为 `2`（与"发现漂移"的 `1` 区分），这样"我看不到"不会被误读成"它没问题"。

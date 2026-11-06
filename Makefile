@@ -65,8 +65,13 @@ cover:
 cover-gate:
 	@bash scripts/check-coverage.sh
 
+# T12: Tool-surface parity with the dashboard's AI assistant
+# Skips (exit 0) when the sibling checkout is absent, so this repo builds alone.
+parity:
+	@node scripts/check-tools-parity.mjs --skip-if-missing
+
 # All gates in one command — the canonical "is this commit safe?" check
-gates: vet lint arch taste docs test cover-gate
+gates: vet lint arch taste docs parity test cover-gate
 	@echo ""
 	@echo "✅ All gates passed"
 

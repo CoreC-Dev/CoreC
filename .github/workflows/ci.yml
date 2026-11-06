@@ -116,6 +116,12 @@ jobs:
       - name: "Document lint (T9: dead links, required sections, orphans, package comments)"
         run: bash scripts/check-docs.sh
 
+      # G11 (T12): the dashboard AI assistant's tool list must match this
+      # repo's corec-mcp. The sibling checkout does not exist here, so the
+      # step skips -- and says so, rather than reporting a silent pass.
+      - name: "Tool-surface parity (T12: corec-mcp vs dashboard assistant)"
+        run: node scripts/check-tools-parity.mjs --skip-if-missing
+
   # Phase 3: Coverage gate (T10). H4: calls the SAME script as
   # `make cover-gate` — per-package floors (core 95 / hub 90 / route 85 …)
   # previously enforced ONLY locally; CI checked a weaker overall ≥75%.
