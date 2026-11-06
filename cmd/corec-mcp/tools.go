@@ -72,6 +72,22 @@ func (s *server) toolDefs() []map[string]any {
 			name:        "list_paused_drivers",
 			description: "List drivers whose collection is currently paused.",
 		},
+		{
+			// Read-only on purpose: the agent can inspect and dry-run a
+			// configuration before proposing a change, but applying one stays
+			// a human action through the dashboard / PUT /configs. Config
+			// writes need a permission model (can it touch secret? whose
+			// audit entry?) that is not this adapter's to invent.
+			name:        "get_configs",
+			description: "Read the running configuration as YAML text (GET /configs/raw). Read-only: applying a change is not exposed here.",
+		},
+		{
+			name:        "validate_configs",
+			description: "Dry-run a candidate configuration against CoreC's validator without applying it (POST /configs/validate). Reports valid/invalid plus the server's own error message.",
+			schema: obj(map[string]any{
+				"payload": strProp("full configuration as YAML text"),
+			}, []string{"payload"}),
+		},
 	}
 
 	if s.write {
@@ -202,6 +218,19 @@ func (s *server) callTool(name string, args map[string]any) (string, bool) {
 		return s.get("/alerts" + withQuery(q))
 	case "list_paused_drivers":
 		return s.get("/drivers/paused")
+	case "get_configs":
+		// /configs/raw answers YAML. The JSON client here would hand back a
+		// quoted blob, so fetch it as text like the dashboard does.
+		return s.getRaw("/configs/raw", "application/yaml")
+	case "validate_configs":
+		payload := argStr(args, "payload")
+		if payload == "" {
+			return "validate_configs requires a non-empty payload", true
+		}
+		// Dry run: the server parses and checks but keeps no copy. A rejected
+		// config comes back as its normal error body, which the agent can act
+		// on -- no special casing, same as every other verb.
+		return s.post("/configs/validate", map[string]any{"payload": payload})
 	case "write_tag":
 		body := map[string]any{
 			"driver": argStr(args, "driver"),
@@ -254,6 +283,19 @@ func (s *server) get(path string) (string, bool) {
 	if err != nil {
 		return err.Error(), true
 	}
+	return s.do(req)
+}
+
+// getRaw is get() with an Accept header. /configs/raw content-negotiates: the
+// default is JSON-looking while the dashboard asks for application/yaml,ullo and a
+// config the caller intends to re-submit should come back in the shape it was
+// written.
+func (s *server) getRaw(path, accept string) (string, bool) {
+	req, err := http.NewRequest(http.MethodGet, s.base+path, http.NoBody)
+	if err != nil {
+		return err.Error(), true
+	}
+	req.Header.Set("Accept", accept)
 	return s.do(req)
 }
 

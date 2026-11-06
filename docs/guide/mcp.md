@@ -59,6 +59,8 @@ go build -o corec-mcp ./cmd/corec-mcp
 | `read_tag` | `GET /tags?driver=<d>&tag=<t>`（REST 侧 `tag` 为子串过滤，工具内再精确匹配） | 精确读一个点的最新缓存值 |
 | `list_alerts` | `GET /alerts` | 活动告警及确认状态 |
 | `list_paused_drivers` | `GET /drivers/paused` | 当前被暂停采集的驱动 |
+| `get_configs` | `GET /configs/raw` | 运行中配置的 YAML 原文；**只读**，应用变更不是工具 |
+| `validate_configs` | `POST /configs/validate` | dry-run 校验候选配置，返回 valid/invalid 与引擎原话；不改任何状态 |
 
 写类工具（**仅** `-allow-write` 时可见；不开时连工具 definition 都不下发，智能体无法知道它们存在）：
 
@@ -109,7 +111,7 @@ go build -o corec-mcp ./cmd/corec-mcp
 |---|---|---|
 | 运行位置 | 本地进程，stdio 给桌面 MCP 客户端 | 浏览器，`fetch` 直连你配置的 OpenAI 兼容端点 |
 | 谁持 secret | 启动参数 / 环境变量 | 浏览器 localStorage（UI 明示披露） |
-| 工具面 | 10 个（读 + 控制） | 11 个：与 MCP 同名同参数 9 个，另有 `get_configs` / `validate_configs`；无 `read_tag` |
+| 工具面 | 12 个（8 读 + 4 控制） | 11 个：与 MCP 同名 11 个；无 `read_tag`（由 `list_tags(exact)` 覆盖） |
 | 写操作 | `-allow-write` 默认关 | "允许写操作"默认关、刷新即回落，且每次写需人工确认 |
 
 **对后端的影响：没有。** 助手不新增端点、不改鉴权、不改写保护；它产生的写入与人工 API、`corec-mcp` 的写入在引擎侧不可区分，审计同样落在 `GET /write/history`（`source: api`）。
@@ -125,7 +127,7 @@ CoreC 侧对任何 AI 客户端的立场不变：**它只是 `source: api` 的�
 ## 验证
 
 ```bash
-# 只读握手：应看到 6 个工具，其中没有任何写类工具
+# 只读握手：应看到 8 个工具，其中没有任何写类工具
 printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | ./corec-mcp -url http://127.0.0.1:8080
 ```
 

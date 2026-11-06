@@ -95,10 +95,11 @@ if (ui.size === 0) {
   process.exit(1)
 }
 
-// Tools the dashboard adds on top of MCP: the control plane's dry-run config
-// validator and config reader. They are not control verbs, so corec-mcp does
-// not carry them. Kept as an explicit allowlist so adding another is a decision.
-const uiOnly = new Set(['get_configs', 'validate_configs'])
+// Tools the dashboard adds on top of MCP, with no MCP counterpart. Empty
+// today: get_configs and validate_configs used to live here, and are now on
+// both sides. Kept as a named set so that re-adding one is a deliberate line in
+// a diff rather than a quietly tolerated difference.
+const uiOnly = new Set()
 
 // MCP verbs the dashboard deliberately folds into an existing one.
 // read_tag(driver, tag) is GET /tags?driver=&tag=, which list_tags already takes

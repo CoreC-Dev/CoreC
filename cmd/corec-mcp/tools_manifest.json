@@ -10,6 +10,10 @@
       "write": false
     },
     {
+      "name": "get_configs",
+      "write": false
+    },
+    {
       "name": "list_alerts",
       "write": false
     },
@@ -36,6 +40,10 @@
     {
       "name": "resume_driver",
       "write": true
+    },
+    {
+      "name": "validate_configs",
+      "write": false
     },
     {
       "name": "write_tag",
