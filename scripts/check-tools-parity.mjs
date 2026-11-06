@@ -30,7 +30,20 @@ const dashboardRoot = process.env.COREC_DASHBOARD_DIR
   : resolve(corecRoot, '../CoreC-Dashboard')
 const dashboardTools = join(dashboardRoot, 'src/features/assistant/tools.ts')
 
+// explicitlyAsked is true when the caller named a directory via COREC_DASHBOARD_DIR
+// rather than relying on the sibling checkout being present. CI sets it after
+// cloning the dashboard: there, a missing file is a broken checkout, NOT
+// "this repo has no dashboard next to it". Skipping in that case would report
+// the job green while the comparison never happened.
+const explicitlyAsked = Boolean(process.env.COREC_DASHBOARD_DIR)
+
 function unavailable(why) {
+  if (explicitlyAsked) {
+    console.error(`  ❌ tools parity: ${why}`)
+    console.error('     COREC_DASHBOARD_DIR was set, so a skip would mean the comparison')
+    console.error('     silently did not happen. Failing instead.')
+    process.exit(2)
+  }
   if (skipIfMissing) {
     // Said out loud: a skipped check that prints nothing is indistinguishable
     // from a passing one in a CI log.
@@ -42,11 +55,17 @@ function unavailable(why) {
   process.exit(2)
 }
 
+// The manifest lives in THIS repo, so its absence is never "not applicable":
+// it is a stale checkout or a forgotten `-update`, and both mean the comparison
+// below would be against nothing. --skip-if-missing covers the sibling checkout
+// only, never this file.
 if (!existsSync(manifestPath)) {
-  unavailable(`${manifestPath} missing — generate it with: go test ./cmd/corec-mcp -run TestToolsManifest -update`)
+  console.error(`  \u274c tools parity: ${manifestPath} is missing from this checkout`)
+  console.error('     generate it with: go test ./cmd/corec-mcp -run TestToolsManifest -update')
+  process.exit(2)
 }
 if (!existsSync(dashboardTools)) {
-  unavailable(`${dashboardTools} missing — set COREC_DASHBOARD_DIR to the CoreC-Dashboard checkout`)
+  unavailable(`${dashboardTools} missing — the CoreC-Dashboard checkout is incomplete or absent`)
 }
 
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
