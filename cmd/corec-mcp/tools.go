@@ -218,19 +218,10 @@ func (s *server) callTool(name string, args map[string]any) (string, bool) {
 		return s.get("/alerts" + withQuery(q))
 	case "list_paused_drivers":
 		return s.get("/drivers/paused")
-	case "get_configs":
-		// /configs/raw answers YAML. The JSON client here would hand back a
-		// quoted blob, so fetch it as text like the dashboard does.
-		return s.getRaw("/configs/raw", "application/yaml")
-	case "validate_configs":
-		payload := argStr(args, "payload")
-		if payload == "" {
-			return "validate_configs requires a non-empty payload", true
-		}
-		// Dry run: the server parses and checks but keeps no copy. A rejected
-		// config comes back as its normal error body, which the agent can act
-		// on -- no special casing, same as every other verb.
-		return s.post("/configs/validate", map[string]any{"payload": payload})
+	case "get_configs", "validate_configs":
+		// The two config verbs share a dispatch case to keep callTool under
+		// the complexity ceiling; callConfig holds the branching.
+		return s.callConfig(name, args)
 	case "write_tag":
 		body := map[string]any{
 			"driver": argStr(args, "driver"),
@@ -248,6 +239,30 @@ func (s *server) callTool(name string, args map[string]any) (string, bool) {
 		return s.post("/drivers/"+url.PathEscape(argStr(args, "name"))+"/resume", nil)
 	case "ack_alert":
 		return s.post("/alerts/ack", map[string]any{"key": argStr(args, "key")})
+	}
+	return "unknown tool " + name, true
+}
+
+// callConfig answers the config-inspection verbs: read the running config as
+// YAML, or dry-run a candidate through the server's validator.
+//
+// Applying is deliberately absent (no PUT /configs): a whole-file reload can
+// drop a driver, invented by a model, with no permission model behind it.
+func (s *server) callConfig(name string, args map[string]any) (string, bool) {
+	switch name {
+	case "get_configs":
+		// /configs/raw answers YAML. The JSON client would return it as a
+		// quoted blob with the newlines escaped, so fetch it as text.
+		return s.getRaw("/configs/raw", "application/yaml")
+	case "validate_configs":
+		payload := argStr(args, "payload")
+		if payload == "" {
+			return "validate_configs requires a non-empty payload", true
+		}
+		// Dry run: the server parses and checks but keeps no copy. A rejected
+		// config comes back as its normal error body, which the agent can act
+		// on -- no special casing, same as every other verb.
+		return s.post("/configs/validate", map[string]any{"payload": payload})
 	}
 	return "unknown tool " + name, true
 }
