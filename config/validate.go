@@ -384,6 +384,22 @@ func validateEngine(cfg *core.Config) error {
 			return fmt.Errorf("%s: must be positive, got %q", f.name, f.value)
 		}
 	}
+
+	// on-bad-quality is an enum, not a duration, but it belongs to the same family
+	// of engine tuning knobs with the same failure shape. It used to be checked in
+	// exactly one place: parseBadQualityPolicy, called from engine.New() during
+	// Start. So POST /configs/validate answered 200 for `on-bad-quality: nonsense`,
+	// the Dashboard applied it to a running engine, and the NEXT restart refused to
+	// start -- the error surfacing one restart away from the request that caused
+	// it, in a process nobody was watching.
+	//
+	// Empty stays valid: it means "keep the default", which is publish.
+	switch strings.ToLower(cfg.Global.Engine.OnBadQuality) {
+	case "", "publish", "drop", "mark-and-publish", "alert":
+	default:
+		return fmt.Errorf("engine.on-bad-quality: invalid value %q (want publish|drop|mark-and-publish|alert)",
+			cfg.Global.Engine.OnBadQuality)
+	}
 	return nil
 }
 
