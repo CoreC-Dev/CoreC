@@ -58,8 +58,19 @@ func (p *writePacer) currentInterval() time.Duration {
 }
 
 // check reports whether a write to driver may proceed now. On refusal the
-// returned error wraps core.ErrWritePaced and names the remaining wait. On
-// success the pacing slot is consumed (that driver's clock advances).
+// returned error wraps core.ErrWritePaced and names the remaining wait.
+//
+// It does NOT consume the slot. A check is a question, and the same question has
+// to be askable again if the write it precedes turns out to fail: the docs promise
+// 失败写入不占用下一次机会, and the old version of this function broke that promise
+// by advancing the clock here, before the driver had been asked. Advancing is now
+// a separate act (record), taken only once the device has accepted the write.
+//
+// Consequently check-then-Write is not atomic between two concurrent writers: both
+// may be admitted inside the same gap and the device may see them back to back.
+// That is the honest shape of the guarantee -- pacing bounds the spacing of
+// ACCEPTED writes, not the admission of attempts -- and it is the same race the
+// driver-side floor protects against.
 func (p *writePacer) check(driver string) error {
 	if p == nil {
 		return nil
@@ -77,8 +88,28 @@ func (p *writePacer) check(driver string) error {
 		return fmt.Errorf("%w: driver %q accepts a write every %s (retry in %s)",
 			core.ErrWritePaced, driver, interval, wait.Round(time.Millisecond))
 	}
-	p.last[driver] = now
 	return nil
+}
+
+// record advances driver's clock after a write the device ACCEPTED.
+//
+// Callers that pass check must reach this only when the write succeeded. A
+// refused or errored write spent nothing at the device and must leave the window
+// open, otherwise the next attempt waits a full interval to learn the same thing.
+//
+// The timestamp is taken here rather than inside check so that the spacing is
+// measured between accepted writes; taking it at admission would let the gap
+// between admission and acceptance count against the next writer.
+func (p *writePacer) record(driver string) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.interval <= 0 {
+		return
+	}
+	p.last[driver] = time.Now()
 }
 
 // forget drops the clock for a driver (driver removed or reconfigured).

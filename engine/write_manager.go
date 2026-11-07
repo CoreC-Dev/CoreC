@@ -129,6 +129,12 @@ func (w *writeManager) WriteTag(ctx context.Context, cmd core.WriteCommand) (*co
 	}
 	res := &results[0]
 	w.recordWriteAudit(cmd, res.Success, res.Error)
+	// Only a write the device accepted advances its clock: the docs promise
+	// 失败写入不占用下一次机会, so a refusal must leave the window open for the
+	// retry rather than make it wait out the floor to hear the same refusal.
+	if res.Success {
+		w.pacer.record(cmd.Driver)
+	}
 	return res, nil
 }
 
