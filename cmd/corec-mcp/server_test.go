@@ -308,3 +308,32 @@ func TestToolsCallEnvelope(t *testing.T) {
 		})
 	}
 }
+
+// An invalid config is this verb's ANSWER, not its failure. corec's validator
+// reports "invalid" as 400 + a JSON body; post() maps every non-2xx to isErr, so
+// without the downgrade in callConfig the agent is told its tool call broke --
+// and an agent that thinks a call broke retries it or apologises to the operator,
+// instead of fixing the config. 401 and friends are NOT downgraded: those mean
+// the call did not happen, which is a different sentence to a model.
+func TestValidateConfigsReports400AsVerdict(t *testing.T) {
+	srv, _ := fakeCoreC(t, 400, `{"error":"api.secret is required when api.listen is set","valid":false}`)
+	s := &server{base: srv.URL, secret: "sekrit", client: srv.Client()}
+
+	text, isErr := s.callTool("validate_configs", map[string]any{"payload": "global: {}"})
+	if isErr {
+		t.Fatalf("an invalid config must not be reported as a failed call: %q", text)
+	}
+	if !strings.Contains(text, "api.secret is required") {
+		t.Errorf("validator's reason lost: %q", text)
+	}
+}
+
+func TestValidateConfigsKeepsAuthFailureAsError(t *testing.T) {
+	srv, _ := fakeCoreC(t, 401, `{"error":"unauthorized"}`)
+	s := &server{base: srv.URL, secret: "sekrit", client: srv.Client()}
+
+	text, isErr := s.callTool("validate_configs", map[string]any{"payload": "global: {}"})
+	if !isErr {
+		t.Fatalf("a 401 must stay an error: %q", text)
+	}
+}

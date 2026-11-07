@@ -259,10 +259,18 @@ func (s *server) callConfig(name string, args map[string]any) (string, bool) {
 		if payload == "" {
 			return "validate_configs requires a non-empty payload", true
 		}
-		// Dry run: the server parses and checks but keeps no copy. A rejected
-		// config comes back as its normal error body, which the agent can act
-		// on -- no special casing, same as every other verb.
-		return s.post("/configs/validate", map[string]any{"payload": payload})
+		// Dry run: the server parses and checks but keeps no copy. An INVALID
+		// config comes back as 400 {"error":...,"valid":false} -- that is this
+		// tool's result, not this tool failing. post() marks every non-2xx as
+		// isErr, which would make the agent retry a config it should fix, so a
+		// 400 is downgraded to a plain answer carrying the server's text. Any
+		// other status (401/429/5xx) stays in the error channel: those are "the
+		// call did not happen", not "here is your verdict".
+		text, bad := s.post("/configs/validate", map[string]any{"payload": payload})
+		if bad && strings.HasPrefix(text, "HTTP 400") {
+			return text, false
+		}
+		return text, bad
 	}
 	return "unknown tool " + name, true
 }
