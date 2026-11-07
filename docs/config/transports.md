@@ -105,7 +105,7 @@ transports:
 
 命令/数据通道容量（内部 command/data channel）。当入站速率超过引擎消费速率、通道已满时执行**非阻塞丢弃**：
 
-- MQTT 命令：转入传输本地的死信存储（有界，可通过 `GET /write/failed?source=ingress` 查询重放），并累加 `dropped_commands` 计数；
+- MQTT 命令：转入传输本地的死信存储（有界；`GET /write/failed?source=ingress` **只能查询**原因，没有重放端点），并累加 `dropped_commands` 计数；
 - MQTT 数据点 / HTTP webhook 数据点：直接丢弃并记录 `warn` 日志（webhook 场景计入响应体的 `queue_dropped`）。
 
 默认 `100`。
