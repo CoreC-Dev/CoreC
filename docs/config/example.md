@@ -36,6 +36,24 @@ CoreC 配置采用 YAML，顶层段如下：
 `drivers` 与 `transports` 均非必填。CoreC 支持以仅含 `global.api` 的最小配置启动（idle 模式），再通过 Dashboard 从零配置全部业务。启动时若无数据源或无传输，日志会输出非阻塞告警（`no data source configured` / `no transport configured`），引擎以空管线安全运行。详见下方"空配置 / Idle 模式"小节。
 :::
 
+::: warning 未知字段是启动错误，不是被忽略的行
+配置里出现 CoreC 不认识的键（拼错的字段名、上一版本遗留的旧字段、手工编辑时打错的 `lstin` / `workerz` / `protect` 之类），**会让加载失败**，不会被静默忽略：
+
+```
+failed to parse config: unknown key "lstin" -- [3:5] unknown field "lstin"
+   1 | global:
+   2 |   api:
+>  3 |     lstin: 0.0.0.0:9091
+         ^
+check the field name against config.example.yaml)
+```
+
+这是刻意的取舍，两面都要说清：
+
+- **代价**：一份以前能加载的配置，若夹带走私的键，现在会启动失败。这些键此前是**不生效的**——看着像配置了，引擎实际用的是默认值。失败会逼着人去核对它到底该叫什么、该放在哪一层（`broker` 在 `transports[].settings` 下合法，直接放在 `transports[]` 下不合法）；
+- **换来的**：`api.lstin` 这类拼写错误不会再有 200 的"成功"回应。静默忽略的代价不是一行配置，是其余所有配置的可信度——写了的不知道有没有生效，没写的不知道是不是被当成了默认。
+:::
+
 ::: info
 `node` 段是可选的。省略时所有自动发现功能关闭。设置 `node.id` 后，MQTT 传输省略的 `topic-template`、`command-topic` 会自动生成；显式设置 `data-topic` 时省略的 `parser` 自动补全。
 :::

@@ -32,8 +32,9 @@ drivers:
 transports:
   - name: t1
     type: mqtt
-    broker: "tcp://localhost:1883"
-    topic: "test/topic"
+    settings:
+      broker: "tcp://localhost:1883"
+      topic: "test/topic"
 `
 	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
 		t.Fatalf("failed to write temp config: %v", err)
@@ -139,8 +140,9 @@ drivers:
 transports:
   - name: t1
     type: mqtt
-    broker: "tcp://localhost:1883"
-    topic: "test"
+    settings:
+      broker: "tcp://localhost:1883"
+      topic: "test"
 `
 	if err := os.WriteFile(basePath, []byte(baseContent), 0o644); err != nil {
 		t.Fatalf("failed to write base config: %v", err)
@@ -165,8 +167,9 @@ drivers:
 transports:
   - name: t1
     type: mqtt
-    broker: "tcp://localhost:1883"
-    topic: "test2"
+    settings:
+      broker: "tcp://localhost:1883"
+      topic: "test2"
 `
 	if err := os.WriteFile(newPath, []byte(newContent), 0o644); err != nil {
 		t.Fatalf("failed to write new config: %v", err)

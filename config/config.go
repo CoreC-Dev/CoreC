@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/CoreC-Dev/CoreC/core"
 	"github.com/goccy/go-yaml"
@@ -60,6 +61,19 @@ func Parse(data []byte) (*core.Config, error) {
 }
 
 // ParseNoValidate parses YAML bytes into a Config WITHOUT running validation.
+//
+// Unknown keys are refused, not ignored. A YAML field the struct does not have is
+// a typo -- `lstin` for `listen`, `workerz` for `workers`, `protct` for `protect` --
+// and silently dropping it is the worst of the available answers: the load
+// succeeds, the operator believes the value is in force, and the engine runs on
+// whatever the default was. The failure then appears far away, as an API that
+// never bound a port or a write that was never paced, with nothing left on the
+// machine pointing back at the misspelling.
+//
+// The other answers are worse still. Warning is not noticed on a 200. Continuing
+// but recording the key adds a second source of truth beside the struct. So the
+// load fails, and the message names the key that has no field -- the same rule
+// this package already applies to values, now applied to names.
 func ParseNoValidate(data []byte) (*core.Config, error) {
 	expanded, err := expandEnvVars(data)
 	if err != nil {
@@ -67,8 +81,9 @@ func ParseNoValidate(data []byte) (*core.Config, error) {
 	}
 
 	var cfg core.Config
-	if err := yaml.Unmarshal(expanded, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config: %w", err)
+	decodeErr := yaml.UnmarshalWithOptions(expanded, &cfg, yaml.DisallowUnknownField())
+	if decodeErr != nil {
+		return nil, unknownKeyError(decodeErr)
 	}
 
 	if err := loadTagsFiles(&cfg); err != nil {
@@ -76,6 +91,25 @@ func ParseNoValidate(data []byte) (*core.Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// unknownKeyError rewrites the library's struct-tag-shaped message
+// (`unknown field "lstin" in core.APIConfig`) into the two things an operator
+// needs and the decoder does not say: what to fix, and where to look it up.
+func unknownKeyError(err error) error {
+	msg := err.Error()
+	const marker = `unknown field "`
+	i := strings.Index(msg, marker)
+	if i < 0 {
+		return fmt.Errorf("failed to parse config: %w", err)
+	}
+	rest := msg[i+len(marker):]
+	j := strings.IndexByte(rest, '"')
+	if j < 0 {
+		return fmt.Errorf("failed to parse config: %w", err)
+	}
+	key := rest[:j]
+	return fmt.Errorf("failed to parse config: unknown key %q -- %w (check the field name against config.example.yaml)", key, err)
 }
 
 // Validate runs the full validation rules against a parsed Config using
