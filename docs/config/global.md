@@ -200,6 +200,13 @@ wscat -c "ws://localhost:9090/tags/stream?token=corec-secret-token"
 | `engine.alert-active-window` | duration | 否 | `15m` | 告警活动窗口——告警静默满该时长后自动清除（移入历史）。确认（ack）不会清除告警，只有静默会；详见 [告警 API](../api/alerts.md) |
 | `engine.dead-letter-path` | string | 否 | `""`（禁用） | 写死信队列**落盘持久化**：追加式 JSONL 文件，重启时回放进内存队列（`GET /write/failed` 可查、可重放；命令值含 64 位整数逐位保留，回放不失真）。文件超过 5MiB 轮转为 `<path>.old`，磁盘占用上限约 2×5MiB（轮转丢弃更早世代，与滚动日志同语义）。未设置时死信队列仅存于内存，进程退出即丢失 |
 
+`engine.*` 里的 **duration** 字段一律用 Go 时长语法（`500ms`、`30s`、`15m`、`1h`；单位必写，`200` 裸数字不合法）。
+**留空 = 使用默认值；写错 = 启动失败**（`error` 指明字段与期望语法，同时经 `POST /configs/validate` 返回同样的错误）。
+
+写错会失败而不是"悄悄回落到默认值"，是因为回落会把一次拼写错误变成一次被遗忘的变更：
+`write-min-interval: 200 ms`（多了空格）在旧行为下不会限速、也不会报错，
+运维要等到某次批量写把设备打挂才会发现限速从没生效。
+
 ```yaml
 global:
   engine:

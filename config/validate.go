@@ -30,6 +30,9 @@ func validate(cfg *core.Config, drivers DriverRegistry, transports TransportRegi
 	if err := validateBuffer(cfg); err != nil {
 		return err
 	}
+	if err := validateEngine(cfg); err != nil {
+		return err
+	}
 	if err := validateDataSources(cfg); err != nil {
 		return err
 	}
@@ -335,6 +338,50 @@ func validateAPI(cfg *core.Config) error {
 		// especially before rate limiting was added (and as defense-in-depth).
 		if len(cfg.Global.API.Secret) < 8 {
 			return fmt.Errorf("api.secret must be at least 8 characters, got %d", len(cfg.Global.API.Secret))
+		}
+	}
+	return nil
+}
+
+// validateEngine rejects malformed global.engine durations.
+//
+// Why this exists at all: the runtime parses each of these with the shape
+//
+//	if d, err := time.ParseDuration(cfg.X); err == nil && d > 0 { use(d) }
+//
+// i.e. a value it cannot parse is skipped and the built-in default is used in
+// silence. That is defensible for a zero value ("unset -> default") and wrong
+// for a typo: "200 ms" (space), "30秒" (unit), "2m30" (missing unit) all parse to
+// an error, so the operator's intent is discarded, the engine runs on 1s/30s/
+// whatever the default is, and nothing anywhere says a word. A config that is
+// spelled wrong is a FORGOTTEN change, not a request for the default.
+//
+// Checking it at load (and therefore at POST /configs/validate<｜place▁holder▁no▁541｜>, which runs the
+// same function) turns that silent discard into a startup failure naming the
+// field. An empty value stays valid: that is how "leave the default alone" is
+// already spelled everywhere else in this file.
+func validateEngine(cfg *core.Config) error {
+	// Duration fields the engine reads with the err==nil-and-ignore pattern.
+	// Kept as a slice so the messages are uniform and a new field is one line.
+	durations := []struct{ name, value string }{
+		{"engine.default-tag-interval", cfg.Global.Engine.DefaultTagInterval},
+		{"engine.shutdown-timeout", cfg.Global.Engine.ShutdownTimeout},
+		{"engine.error-throttle-window", cfg.Global.Engine.ErrorThrottleWindow},
+		{"engine.stale-threshold", cfg.Global.Engine.StaleThreshold},
+		{"engine.write-min-interval", cfg.Global.Engine.WriteMinInterval},
+		{"engine.alert-active-window", cfg.Global.Engine.AlertActiveWindow},
+	}
+	for _, f := range durations {
+		if f.value == "" {
+			continue // unset is the documented way to keep the default
+		}
+		d, err := time.ParseDuration(f.value)
+		if err != nil {
+			return fmt.Errorf("%s: invalid duration %q (use Go duration syntax, e.g. 500ms, 30s, 15m): %w",
+				f.name, f.value, err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("%s: must be positive, got %q", f.name, f.value)
 		}
 	}
 	return nil
