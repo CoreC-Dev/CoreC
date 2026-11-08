@@ -48,13 +48,15 @@ func MergeFileAndInlineTags(dc *DriverConfig, fileTags []TagConfig) error {
 		dc.InlineTags = []TagConfig{}
 	}
 	seen := make(map[string]struct{}, len(fileTags)+len(dc.InlineTags))
-	for _, t := range fileTags {
+	for i := range fileTags {
+		t := &fileTags[i]
 		if _, dup := seen[t.Name]; dup {
 			return fmt.Errorf("driver %s: duplicate tag name %q in tags file", dc.Name, t.Name)
 		}
 		seen[t.Name] = struct{}{}
 	}
-	for _, t := range dc.InlineTags {
+	for i := range dc.InlineTags {
+		t := &dc.InlineTags[i]
 		if _, dup := seen[t.Name]; dup {
 			return fmt.Errorf("driver %s: tag %q is defined by both the tags file and inline tags", dc.Name, t.Name)
 		}

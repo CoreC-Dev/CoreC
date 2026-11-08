@@ -481,8 +481,8 @@ func reloadChangeKeys(path, payload string) []string {
 // reports whether it existed. Generics keep it copy-free at the call
 // sites (the slices are small; simplicity wins).
 func removeNamedDriver(cfg *core.Config, name string) bool {
-	for i, d := range cfg.Drivers {
-		if d.Name == name {
+	for i := range cfg.Drivers {
+		if cfg.Drivers[i].Name == name {
 			cfg.Drivers = append(cfg.Drivers[:i], cfg.Drivers[i+1:]...)
 			return true
 		}
@@ -491,8 +491,8 @@ func removeNamedDriver(cfg *core.Config, name string) bool {
 }
 
 func removeNamedTransport(cfg *core.Config, name string) bool {
-	for i, t := range cfg.Transports {
-		if t.Name == name {
+	for i := range cfg.Transports {
+		if cfg.Transports[i].Name == name {
 			cfg.Transports = append(cfg.Transports[:i], cfg.Transports[i+1:]...)
 			return true
 		}
@@ -501,8 +501,8 @@ func removeNamedTransport(cfg *core.Config, name string) bool {
 }
 
 func removeNamedRule(cfg *core.Config, name string) bool {
-	for i, r := range cfg.Rules {
-		if r.Name == name {
+	for i := range cfg.Rules {
+		if cfg.Rules[i].Name == name {
 			cfg.Rules = append(cfg.Rules[:i], cfg.Rules[i+1:]...)
 			return true
 		}

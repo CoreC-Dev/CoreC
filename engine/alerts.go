@@ -190,15 +190,16 @@ func (am *alertManager) record(rule core.Rule, point core.DataPoint) {
 	}
 	var cleared []core.AlertEvent
 	if len(am.active) > alertRegistryCap {
-		byLastFired := make([]*core.Alert, 0, len(am.active))
-		for _, a := range am.active {
-			byLastFired = append(byLastFired, a)
+		keys := make([]string, 0, len(am.active))
+		for key := range am.active {
+			keys = append(keys, key)
 		}
-		sort.Slice(byLastFired, func(i, j int) bool {
-			return byLastFired[i].LastFired.Before(byLastFired[j].LastFired)
+		sort.Slice(keys, func(i, j int) bool {
+			return am.active[keys[i]].LastFired.Before(am.active[keys[j]].LastFired)
 		})
-		for _, a := range byLastFired[:len(am.active)-alertRegistryCap] {
-			delete(am.active, a.Key)
+		for _, key := range keys[:len(am.active)-alertRegistryCap] {
+			a := am.active[key]
+			delete(am.active, key)
 			cev := core.AlertEvent{Type: core.AlertCleared, Alert: *a, At: now}
 			am.appendHistoryLocked(cev)
 			cleared = append(cleared, cev)

@@ -151,14 +151,14 @@ func buildConfigOverview(cfg *core.Config) configOverview {
 			},
 		},
 	}
-	for _, d := range cfg.Drivers {
-		overview.Drivers = append(overview.Drivers, entrySummary{Name: d.Name, Type: d.Type})
+	for i := range cfg.Drivers {
+		overview.Drivers = append(overview.Drivers, entrySummary{Name: cfg.Drivers[i].Name, Type: cfg.Drivers[i].Type})
 	}
-	for _, t := range cfg.Transports {
-		overview.Transports = append(overview.Transports, entrySummary{Name: t.Name, Type: t.Type})
+	for i := range cfg.Transports {
+		overview.Transports = append(overview.Transports, entrySummary{Name: cfg.Transports[i].Name, Type: cfg.Transports[i].Type})
 	}
-	for _, rl := range cfg.Rules {
-		overview.Rules = append(overview.Rules, entrySummary{Name: rl.Name, Type: rl.Match, Action: rl.Action, Priority: rl.Priority})
+	for i := range cfg.Rules {
+		overview.Rules = append(overview.Rules, entrySummary{Name: cfg.Rules[i].Name, Type: cfg.Rules[i].Match, Action: cfg.Rules[i].Action, Priority: cfg.Rules[i].Priority})
 	}
 	return overview
 }

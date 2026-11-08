@@ -160,7 +160,8 @@ func batchingWarnings(cfg *core.Config) []string {
 		return nil
 	}
 	var warnings []string
-	for _, t := range cfg.Transports {
+	for i := range cfg.Transports {
+		t := &cfg.Transports[i]
 		// A batcher is created when any of batch-size / flush-interval /
 		// retry-count is set (mirrors newTransportBatcher's nil check).
 		if t.BatchSize <= 0 && t.FlushInterval == "" && t.RetryCount <= 0 {
@@ -183,8 +184,8 @@ func batchingWarnings(cfg *core.Config) []string {
 // and tag fields are valid.
 func validateDrivers(cfg *core.Config, registeredDrivers map[string]bool, allDriverTypes []string) error {
 	driverNames := make(map[string]bool)
-	for _, d := range cfg.Drivers {
-		if err := validateDriver(d, driverNames, registeredDrivers, allDriverTypes); err != nil {
+	for i := range cfg.Drivers {
+		if err := validateDriver(cfg.Drivers[i], driverNames, registeredDrivers, allDriverTypes); err != nil {
 			return err
 		}
 	}
@@ -411,7 +412,8 @@ func validateEngine(cfg *core.Config) error {
 // Returns the set of valid transport names for use by validateRules.
 func validateTransports(cfg *core.Config, registeredTransports map[string]bool, allTransportTypes []string) (map[string]bool, error) {
 	transportNames := make(map[string]bool)
-	for _, t := range cfg.Transports {
+	for i := range cfg.Transports {
+		t := &cfg.Transports[i]
 		if t.Name == "" {
 			return nil, fmt.Errorf("transport name cannot be empty")
 		}
@@ -445,7 +447,8 @@ func validateRules(cfg *core.Config, transportNames map[string]bool) error {
 	}
 
 	ruleNames := make(map[string]bool, len(cfg.Rules))
-	for _, r := range cfg.Rules {
+	for i := range cfg.Rules {
+		r := &cfg.Rules[i]
 		if r.Name == "" {
 			return fmt.Errorf("rule name cannot be empty")
 		}
@@ -540,16 +543,16 @@ func validateDerivedTags(cfg *core.Config) error {
 // that implements no validator gets no extra checks, so the pass
 // strictly widens validation coverage.
 func validateDriverSettings(cfg *core.Config) error {
-	for _, d := range cfg.Drivers {
-		driver, err := core.CreateDriver(d)
+	for i := range cfg.Drivers {
+		driver, err := core.CreateDriver(cfg.Drivers[i])
 		if err != nil {
 			// Unknown type: reported by validateDrivers below with the
 			// registered-type listing; skip here.
 			continue
 		}
 		if v, ok := driver.(core.SettingsValidator); ok {
-			if err := v.ValidateSettings(d.Settings); err != nil {
-				return fmt.Errorf("driver %s: %w", d.Name, err)
+			if err := v.ValidateSettings(cfg.Drivers[i].Settings); err != nil {
+				return fmt.Errorf("driver %s: %w", cfg.Drivers[i].Name, err)
 			}
 		}
 	}
@@ -558,14 +561,14 @@ func validateDriverSettings(cfg *core.Config) error {
 
 // validateTransportSettings is the transport twin of validateDriverSettings.
 func validateTransportSettings(cfg *core.Config) error {
-	for _, t := range cfg.Transports {
-		transport, err := core.CreateTransport(t)
+	for i := range cfg.Transports {
+		transport, err := core.CreateTransport(cfg.Transports[i])
 		if err != nil {
 			continue // unknown type: validateTransports reports it
 		}
 		if v, ok := transport.(core.SettingsValidator); ok {
-			if err := v.ValidateSettings(t.Settings); err != nil {
-				return fmt.Errorf("transport %s: %w", t.Name, err)
+			if err := v.ValidateSettings(cfg.Transports[i].Settings); err != nil {
+				return fmt.Errorf("transport %s: %w", cfg.Transports[i].Name, err)
 			}
 		}
 	}

@@ -82,13 +82,13 @@ func (a *diffActions) rollback(oldCfg *core.Config) {
 // engine back to the pre-reload set if a later step fails.
 func diffDrivers(oldDrivers, newDrivers []core.DriverConfig, force bool, act *diffActions) error {
 	oldMap := make(map[string]core.DriverConfig, len(oldDrivers))
-	for _, d := range oldDrivers {
-		oldMap[d.Name] = d
+	for i := range oldDrivers {
+		oldMap[oldDrivers[i].Name] = oldDrivers[i]
 	}
 
 	newMap := make(map[string]core.DriverConfig, len(newDrivers))
-	for _, d := range newDrivers {
-		newMap[d.Name] = d
+	for i := range newDrivers {
+		newMap[newDrivers[i].Name] = newDrivers[i]
 	}
 
 	// Remove deleted drivers
@@ -103,7 +103,8 @@ func diffDrivers(oldDrivers, newDrivers []core.DriverConfig, force bool, act *di
 	}
 
 	// Add new or update modified drivers
-	for name, newDriver := range newMap {
+	for name := range newMap {
+		newDriver := newMap[name]
 		oldDriver, exists := oldMap[name]
 		if !exists {
 			slog.Info("adding new driver", "name", name, "type", newDriver.Type)
@@ -131,13 +132,13 @@ func diffDrivers(oldDrivers, newDrivers []core.DriverConfig, force bool, act *di
 // act for rollback (mirrors diffDrivers).
 func diffTransports(oldTransports, newTransports []core.TransportConfig, force bool, act *diffActions) error {
 	oldMap := make(map[string]core.TransportConfig, len(oldTransports))
-	for _, t := range oldTransports {
-		oldMap[t.Name] = t
+	for i := range oldTransports {
+		oldMap[oldTransports[i].Name] = oldTransports[i]
 	}
 
 	newMap := make(map[string]core.TransportConfig, len(newTransports))
-	for _, t := range newTransports {
-		newMap[t.Name] = t
+	for i := range newTransports {
+		newMap[newTransports[i].Name] = newTransports[i]
 	}
 
 	// Remove deleted transports
@@ -152,7 +153,8 @@ func diffTransports(oldTransports, newTransports []core.TransportConfig, force b
 	}
 
 	// Add new or update modified transports
-	for name, newTransport := range newMap {
+	for name := range newMap {
+		newTransport := newMap[name]
 		oldTransport, exists := oldMap[name]
 		if !exists {
 			slog.Info("adding new transport", "name", name, "type", newTransport.Type)

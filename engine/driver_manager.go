@@ -295,10 +295,10 @@ func (r *driverRegistry) hasDriver(name string) bool {
 
 // startDrivers initializes and starts all configured drivers.
 func (r *driverRegistry) startDrivers(config *core.Config) error {
-	for _, dc := range config.Drivers {
-		if err := r.AddDriver(dc); err != nil {
-			slog.Error("failed to add driver", "name", dc.Name, "error", err)
-			return fmt.Errorf("failed to add driver %s: %w", dc.Name, err)
+	for i := range config.Drivers {
+		if err := r.AddDriver(config.Drivers[i]); err != nil {
+			slog.Error("failed to add driver", "name", config.Drivers[i].Name, "error", err)
+			return fmt.Errorf("failed to add driver %s: %w", config.Drivers[i].Name, err)
 		}
 	}
 	return nil
