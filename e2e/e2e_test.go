@@ -2,7 +2,9 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -356,16 +358,33 @@ func TestE2E_ModbusWithTransform(t *testing.T) {
 		t.Fatal("no data received — transform pipeline broken")
 	}
 
-	// With transform value * 0.1, raw 100 → 10.0
+	// With transform value * 0.1, raw 100 → 10.0. Compare the decoded
+	// number, not a substring: "10" would also match 100, register
+	// addresses, and timestamps.
 	foundScaled := false
 	for _, body := range receivedBodies {
-		bodyStr := string(body)
-		if contains(bodyStr, "10") {
-			foundScaled = true
+		var points []map[string]any
+		if err := json.Unmarshal(body, &points); err != nil {
+			var one map[string]any
+			if err := json.Unmarshal(body, &one); err != nil {
+				continue
+			}
+			points = []map[string]any{one}
+		}
+		for _, payload := range points {
+			if v, ok := payload["value"].(float64); ok && math.Abs(v-10) < 1e-6 {
+				foundScaled = true
+				break
+			}
+		}
+		if foundScaled {
 			break
 		}
 	}
 	if !foundScaled {
+		for i, body := range receivedBodies {
+			t.Logf("body[%d]: %s", i, string(body))
+		}
 		t.Error("expected transformed value ~10.0 (100 * 0.1) in published data")
 	}
 }
@@ -761,15 +780,14 @@ func TestE2E_TriggerGatedCollection(t *testing.T) {
 	}
 	defer eng.Stop()
 
-	time.Sleep(400 * time.Millisecond)
-
+	// Wait until the condition register has been polled at least once: the
+	// gating decision is only observable after that tick.
+	if !testutil.WaitFor(2*time.Second, func() bool { return handler.readCount(0) > 0 }) {
+		t.Fatal("condition register was never polled")
+	}
 	// Condition is 0: the detail register must never have been requested.
 	if got := handler.readCount(1); got != 0 {
 		t.Fatalf("detail register polled %d times while the condition was false; gating is not suppressing the read", got)
-	}
-	// The condition itself keeps being polled.
-	if got := handler.readCount(0); got == 0 {
-		t.Fatal("condition register was never polled")
 	}
 
 	// The detail must still be visible downstream as last-known-good/uncertain
@@ -784,9 +802,11 @@ func TestE2E_TriggerGatedCollection(t *testing.T) {
 	handler.holding[0] = 1
 	handler.mu.Unlock()
 
-	testutil.WaitFor(3*time.Second, func() bool {
+	if !testutil.WaitFor(3*time.Second, func() bool {
 		return handler.readCount(1) > 0
-	})
+	}) {
+		t.Fatal("detail register was never polled after the condition flipped true")
+	}
 
 	tags := eng.LatestValues("")
 	if dp, ok := tags["detail"]; ok {

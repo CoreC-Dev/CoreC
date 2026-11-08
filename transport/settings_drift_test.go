@@ -1,7 +1,9 @@
-// test — the transport twin of
-// driver/settings_drift_test.go: every settings key the code parses must
-// appear in the ValidateSettings allowlist, so a new setting without a
-// validator update fails at CI time instead of rejecting user configs.
+// Package transport_test verifies that every settings key the transport
+// code parses is accepted by the production ValidateSettings implementation
+// of that transport. Checking the validator directly (rather than a second
+// hand-maintained allowlist) catches both directions of drift: a new
+// setting without a validator update, and a validator that rejects a
+// setting the transport already accepts.
 package transport_test
 
 import (
@@ -10,40 +12,35 @@ import (
 	"testing"
 
 	"github.com/CoreC-Dev/CoreC/common/testutil"
+	"github.com/CoreC-Dev/CoreC/core"
+	"github.com/CoreC-Dev/CoreC/transport/httppush"
+	"github.com/CoreC-Dev/CoreC/transport/mqtt"
+	"github.com/CoreC-Dev/CoreC/transport/notify"
 )
 
-var knownTransportSettings = map[string]map[string]bool{
-	"mqtt": {
-		"broker": true, "client-id": true, "username": true, "password": true,
-		"qos": true, "retained": true, "topic-template": true,
-		"command-topic": true, "command-secret": true,
-		"command-forward-topic": true, "command-forward-secret": true,
-		"command-max-skew": true, "command-strict-replay": true,
-		"data-topic": true, "parser": true,
-		"keep-alive": true, "connect-timeout": true,
-		"auto-reconnect": true, "clean-session": true,
-		"connect-retry": true, "connect-retry-interval": true,
-		"subscribe-timeout": true, "publish-timeout": true, "disconnect-quiesce": true,
-		"tls-cert-file": true, "tls-key-file": true, "tls-ca-file": true,
-		"will-topic": true, "will-payload": true, "will-qos": true, "will-retain": true,
-	},
-	"httppush": {
-		"url": true, "method": true, "headers": true, "timeout": true,
-		"max-idle-conns": true, "max-idle-conns-per-host": true, "idle-conn-timeout": true,
-		"webhook-addr": true, "webhook-path": true, "webhook-secret": true,
-		"tls-cert-file": true, "tls-key-file": true,
-		"parser": true, // nested map consumed by transport/parser
-	},
-	"notify": {
-		"channel": true, "cooldown": true, "template": true,
-		"webhook-url": true, "url": true, "method": true, "headers": true, "body-template": true,
-		"smtp-host": true, "smtp-port": true, "smtp-user": true, "smtp-pass": true,
-		"from": true, "to": true, "subject": true, "body": true,
-	},
+var transportValidators = map[string]core.SettingsValidator{
+	"mqtt":     &mqtt.MQTTTransport{},
+	"httppush": &httppush.HTTPTransport{},
+	"notify":   &notify.NotifyTransport{},
+}
+
+// sampleSettingValue supplies a value of the type the notify validator
+// requires. mqtt/httppush only reject unknown keys, so any value works
+// there; notify additionally type-checks every field except the two
+// list/map fields.
+func sampleSettingValue(key string) any {
+	switch key {
+	case "headers":
+		return map[string]any{}
+	case "to":
+		return []any{}
+	default:
+		return ""
+	}
 }
 
 func TestTransportSettingsAllowlistsCoverParsedKeys(t *testing.T) {
-	for pkg, known := range knownTransportSettings {
+	for pkg, validator := range transportValidators {
 		t.Run(pkg, func(t *testing.T) {
 			// cwd is transport/.
 			entries, err := os.ReadDir(pkg)
@@ -63,8 +60,8 @@ func TestTransportSettingsAllowlistsCoverParsedKeys(t *testing.T) {
 				testutil.CollectParsedSettingKeys(string(data), parsed)
 			}
 			for key := range parsed {
-				if !known[key] {
-					t.Errorf("%s parses setting %q but its ValidateSettings allowlist does not include it — update the transport's settings validator", pkg, key)
+				if err := validator.ValidateSettings(map[string]any{key: sampleSettingValue(key)}); err != nil {
+					t.Errorf("%s parses setting %q but its ValidateSettings rejects it: %v — update the transport's settings validator", pkg, key, err)
 				}
 			}
 		})

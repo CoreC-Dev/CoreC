@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -94,6 +95,7 @@ type mockTransportWithData struct {
 	cmdCh     chan core.WriteCommand
 	dataCh    chan core.DataPoint
 	status    core.TransportStatus
+	stopCount atomic.Int64
 }
 
 func (m *mockTransportWithData) Init(ctx context.Context, config core.TransportConfig) error {
@@ -105,7 +107,10 @@ func (m *mockTransportWithData) Init(ctx context.Context, config core.TransportC
 	return nil
 }
 func (m *mockTransportWithData) Start(ctx context.Context) error { return nil }
-func (m *mockTransportWithData) Stop() error                     { return nil }
+func (m *mockTransportWithData) Stop() error {
+	m.stopCount.Add(1)
+	return nil
+}
 func (m *mockTransportWithData) Publish(ctx context.Context, point core.DataPoint) error {
 	m.published <- point
 	return nil

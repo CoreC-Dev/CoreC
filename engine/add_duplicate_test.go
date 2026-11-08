@@ -83,22 +83,26 @@ func TestAddTransportDuplicateName(t *testing.T) {
 	}
 	defer eng.Stop()
 
+	orig, ok := eng.GetTransport("dup")
+	if !ok {
+		t.Fatal("original transport not found")
+	}
+	origMT := orig.(*mockTransportWithData)
+
 	// Add a transport with the same name.
 	err := eng.AddTransport(core.TransportConfig{
 		Name: "dup",
 		Type: "mock-data",
 	})
 
-	// Either reject with error, or replace cleanly.
-	// The key is: no panic, and the engine remains usable.
+	// Either reject with error, or replace cleanly. A replacement that does
+	// not stop the old transport leaks its listener goroutines and batcher.
 	if err != nil {
-		// Error is acceptable (reject duplicate).
 		return
 	}
-
-	// If it succeeded, verify the engine still works.
-	stats := eng.Stats()
-	if stats.Transports < 1 {
-		t.Error("engine should still have at least 1 transport after duplicate add")
+	if !testutil.WaitFor(2*time.Second, func() bool {
+		return origMT.stopCount.Load() > 0
+	}) {
+		t.Error("BUG: AddTransport replaced an existing transport without stopping it — goroutine leak")
 	}
 }
