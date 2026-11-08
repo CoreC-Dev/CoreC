@@ -413,6 +413,7 @@ rules:
   - name: r1
     match: ALL
     action: forward
+    target: wh1
 `
 	if _, err := Validate(plaintextYAML); err != nil {
 		t.Fatalf("Validate should pass with plaintext secrets, got: %v", err)
@@ -452,6 +453,7 @@ rules:
   - name: r1
     match: ALL
     action: forward
+    target: wh1
 `
 	if _, err := Validate(rotatedYAML); err != nil {
 		t.Fatalf("Validate with rotated secret should pass, got: %v", err)
@@ -490,6 +492,7 @@ rules:
   - name: r1
     match: ALL
     action: forward
+    target: wh1
 `
 	_, err := Validate(tooShortYAML)
 	if err == nil {

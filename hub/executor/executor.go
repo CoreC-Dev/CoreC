@@ -72,7 +72,14 @@ func ParseWithPath(path string) (*core.Config, error) {
 // ParseWithBytes parses configuration from YAML bytes WITHOUT validating.
 // See ParseWithPath for why validation is deferred.
 func ParseWithBytes(buf []byte) (*core.Config, error) {
-	return config.ParseNoValidate(buf)
+	mux.Lock()
+	p := configPath
+	mux.Unlock()
+	baseDir := ""
+	if p != "" {
+		baseDir = filepath.Dir(p)
+	}
+	return config.ParseNoValidateWithBase(buf, baseDir)
 }
 
 // Validate performs a dry-run validation of a config payload WITHOUT applying
@@ -90,6 +97,17 @@ func Validate(payload string) (warnings []string, err error) {
 	if vErr := config.Validate(cfg); vErr != nil {
 		return nil, fmt.Errorf("config validation failed: %w", vErr)
 	}
+	// config.Validate is intentionally dependency-free and cannot compile
+	// match expressions. Ask the live engine (optional role) to compile the
+	// same rule set ApplyConfig would install, so "valid" here means the PUT
+	// will not fail at SetRules.
+	if engine != nil {
+		if v, ok := engine.(core.RuleValidator); ok {
+			if rErr := v.ValidateRules(cfg); rErr != nil {
+				return nil, fmt.Errorf("config validation failed: %w", rErr)
+			}
+		}
+	}
 	return config.IdleWarnings(cfg), nil
 }
 
@@ -104,7 +122,7 @@ func RawConfigYAML() (string, error) {
 	if cfg == nil {
 		return "", fmt.Errorf("no active configuration")
 	}
-	data, err := yaml.Marshal(cfg)
+	data, err := yaml.Marshal(sourceProjection(cfg))
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal config: %w", err)
 	}
@@ -500,8 +518,7 @@ func removeResource(kind, name, remote string, drop func(*core.Config) bool) err
 	mux.Lock()
 	var snapshot *core.Config
 	if currentCfg != nil {
-		clone := *currentCfg
-		snapshot = &clone
+		snapshot = cloneForMutation(currentCfg)
 	}
 	mux.Unlock()
 	if snapshot == nil {
@@ -510,7 +527,7 @@ func removeResource(kind, name, remote string, drop func(*core.Config) bool) err
 	if !drop(snapshot) {
 		return ErrResourceNotFound
 	}
-	payload, err := yaml.Marshal(snapshot)
+	payload, err := yaml.Marshal(sourceProjection(snapshot))
 	if err != nil {
 		return fmt.Errorf("failed to re-marshal config: %w", err)
 	}

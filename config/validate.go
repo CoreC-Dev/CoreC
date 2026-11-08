@@ -66,6 +66,9 @@ func validate(cfg *core.Config, drivers DriverRegistry, transports TransportRegi
 	if err := validateRules(cfg, transportNames); err != nil {
 		return err
 	}
+	if err := validateRuleGroups(cfg); err != nil {
+		return err
+	}
 	if err := validateDerivedTags(cfg); err != nil {
 		return err
 	}
@@ -455,8 +458,14 @@ func validateRules(cfg *core.Config, transportNames map[string]bool) error {
 		if r.Action == "" {
 			return fmt.Errorf("rule %s: action cannot be empty", r.Name)
 		}
-		if !validActions[strings.ToLower(r.Action)] {
+		action := strings.ToLower(r.Action)
+		if !validActions[action] {
 			return fmt.Errorf("rule %s: unknown action %q (valid: forward, drop, alert, transform, mirror)", r.Name, r.Action)
+		}
+		// forward/mirror without a destination is accepted by the old
+		// validator but silently drops every matching point at runtime.
+		if (action == "forward" || action == "mirror") && r.Target == "" && len(r.Targets) == 0 {
+			return fmt.Errorf("rule %s: action %q requires target or targets", r.Name, action)
 		}
 		if r.Match == "" {
 			return fmt.Errorf("rule %s: match cannot be empty", r.Name)

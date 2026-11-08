@@ -45,6 +45,31 @@ func (r *ruleRole) SetRules(rules []core.RuleConfig) error {
 	return r.ruleEngine.SetRules(rules)
 }
 
+// ValidateRules compiles the rule set in a throwaway engine. The active rule
+// set is untouched; only expression/action construction errors are reported.
+func (r *ruleRole) ValidateRules(cfg *core.Config) error {
+	probe := rule.NewEngine()
+	// Providers may start hot-reload goroutines; the probe is throwaway.
+	defer probe.CloseProviders()
+	for _, pc := range cfg.RuleProviders {
+		p, err := rule.NewFileProvider(pc.Name, pc.Path, pc.Interval)
+		if err != nil {
+			return fmt.Errorf("failed to create rule provider %s: %w", pc.Name, err)
+		}
+		probe.AddProvider(p)
+	}
+	if len(cfg.RuleGroups) > 0 {
+		if err := probe.SetSubRules(cfg.RuleGroups); err != nil {
+			return err
+		}
+	}
+	return probe.SetRules(cfg.Rules)
+}
+
+func (e *CoreCEngine) ValidateRules(cfg *core.Config) error {
+	return e.ruleSet.ValidateRules(cfg)
+}
+
 func (r *ruleRole) GetRuleStats() []core.RuleStat {
 	return r.ruleEngine.RuleStats()
 }

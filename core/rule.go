@@ -49,6 +49,15 @@ type RuleConfig struct {
 	Continue  bool             `yaml:"continue,omitempty"` // if true, keep evaluating after this rule matches
 }
 
+// RuleValidator is an optional engine role: compile-check a rule set without
+// swapping it into the running engine. POST /configs/validate uses it so the
+// dry run rejects the same expressions ApplyConfig would reject.
+type RuleValidator interface {
+	// ValidateRules mirrors the rule half of engine startup (providers,
+	// sub-rule groups, then rules) without touching the live engine.
+	ValidateRules(cfg *Config) error
+}
+
 // RuleProviderConfig defines an external rule-set provider.
 type RuleProviderConfig struct {
 	Name     string `yaml:"name"`

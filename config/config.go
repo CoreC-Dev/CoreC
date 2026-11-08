@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/CoreC-Dev/CoreC/core"
@@ -31,7 +32,7 @@ func Load(path string) (*core.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file %s: %w", path, err)
 	}
-	return Parse(data)
+	return parseWithBase(data, filepath.Dir(path))
 }
 
 // LoadNoValidate reads and parses a YAML configuration file WITHOUT running
@@ -43,14 +44,18 @@ func LoadNoValidate(path string) (*core.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file %s: %w", path, err)
 	}
-	return ParseNoValidate(data)
+	return parseNoValidateWithBase(data, filepath.Dir(path))
 }
 
 // Parse parses YAML bytes into a Config, running the full validation rules.
 // Used at startup and anywhere a freshly authored config (no sentinel
 // placeholders) is loaded.
 func Parse(data []byte) (*core.Config, error) {
-	cfg, err := ParseNoValidate(data)
+	return parseWithBase(data, "")
+}
+
+func parseWithBase(data []byte, baseDir string) (*core.Config, error) {
+	cfg, err := parseNoValidateWithBase(data, baseDir)
 	if err != nil {
 		return nil, err
 	}
@@ -75,6 +80,16 @@ func Parse(data []byte) (*core.Config, error) {
 // load fails, and the message names the key that has no field -- the same rule
 // this package already applies to values, now applied to names.
 func ParseNoValidate(data []byte) (*core.Config, error) {
+	return parseNoValidateWithBase(data, "")
+}
+
+// ParseNoValidateWithBase parses without validating, resolving relative
+// tags-file paths against baseDir (the directory of the active config file).
+func ParseNoValidateWithBase(data []byte, baseDir string) (*core.Config, error) {
+	return parseNoValidateWithBase(data, baseDir)
+}
+
+func parseNoValidateWithBase(data []byte, baseDir string) (*core.Config, error) {
 	expanded, err := expandEnvVars(data)
 	if err != nil {
 		return nil, err
@@ -86,7 +101,7 @@ func ParseNoValidate(data []byte) (*core.Config, error) {
 		return nil, unknownKeyError(decodeErr)
 	}
 
-	if err := loadTagsFiles(&cfg); err != nil {
+	if err := loadTagsFiles(&cfg, baseDir); err != nil {
 		return nil, err
 	}
 
@@ -129,27 +144,38 @@ func ValidateWithRegistries(cfg *core.Config, drivers DriverRegistry, transports
 // tags-file field and merges the loaded tags into each driver's Tags slice.
 // Inline tags (from the Tags field) are appended after file-loaded tags.
 // Tag name uniqueness across both sources is enforced by validate().
-func loadTagsFiles(cfg *core.Config) error {
+func loadTagsFiles(cfg *core.Config, baseDir string) error {
 	for i := range cfg.Drivers {
 		dc := &cfg.Drivers[i]
 		if dc.TagsFile == "" {
 			continue
 		}
-		data, err := os.ReadFile(dc.TagsFile)
+		// A relative tags-file is resolved against the config file's
+		// directory, not the process CWD (systemd/docker start in "/").
+		path := dc.TagsFile
+		if !filepath.IsAbs(path) && baseDir != "" {
+			path = filepath.Join(baseDir, path)
+		}
+		if abs, err := filepath.Abs(path); err == nil {
+			path = abs
+		}
+		dc.TagsFileResolved = path
+		data, err := os.ReadFile(path)
 		if err != nil {
-			return fmt.Errorf("driver %s: failed to read tags file %s: %w", dc.Name, dc.TagsFile, err)
+			return fmt.Errorf("driver %s: failed to read tags file %s: %w", dc.Name, path, err)
 		}
 		// Expand ${ENV_VAR} placeholders safely in tags file.
 		expanded, err := expandEnvVars(data)
 		if err != nil {
-			return fmt.Errorf("driver %s: failed to expand env vars in tags file %s: %w", dc.Name, dc.TagsFile, err)
+			return fmt.Errorf("driver %s: failed to expand env vars in tags file %s: %w", dc.Name, path, err)
 		}
 		var fileTags []core.TagConfig
 		if err := yaml.Unmarshal(expanded, &fileTags); err != nil {
-			return fmt.Errorf("driver %s: failed to parse tags file %s: %w", dc.Name, dc.TagsFile, err)
+			return fmt.Errorf("driver %s: failed to parse tags file %s: %w", dc.Name, path, err)
 		}
-		// File tags first, then inline tags appended.
-		dc.Tags = append(fileTags, dc.Tags...)
+		if err := core.MergeFileAndInlineTags(dc, fileTags); err != nil {
+			return err
+		}
 	}
 	return nil
 }

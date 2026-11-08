@@ -42,21 +42,31 @@ func (r *driverRegistry) startTagFileWatcher(config core.DriverConfig) {
 			return fmt.Errorf("driver %s config not found during tag-file reload", driverName)
 		}
 
-		// Build updated config: new file tags as the complete replacement
-		// (file is the source of truth).
+		// Hot reload keeps the load-time semantics: file tags first, then
+		// the inline tags authored in the main config. Replacing with the
+		// file alone would silently drop every inline tag from the driver,
+		// its scheduler task, and driverConfigs.
 		updatedCfg := baseCfg
-		updatedCfg.Tags = newTags
+		if baseCfg.InlineTags != nil {
+			updatedCfg.Tags = baseCfg.InlineTags
+			if err := core.MergeFileAndInlineTags(&updatedCfg, newTags); err != nil {
+				return fmt.Errorf("driver %s: %w", driverName, err)
+			}
+		} else {
+			// Config built in code has no projection: keep file-only.
+			updatedCfg.Tags = newTags
+		}
+		merged := updatedCfg.Tags
 
 		slog.Info("reloading driver from tags-file",
-			"driver", driverName, "old_tags", len(baseCfg.Tags), "new_tags", len(newTags))
+			"driver", driverName, "old_tags", len(baseCfg.Tags), "new_tags", len(merged))
 
-		// Evict tags that disappeared from the file: the
-		// file is the source of truth, so removed tags'
+		// Evict tags that disappeared from the merged set: removed tags'
 		// cached values must go with them — otherwise /tags keeps
 		// serving ghosts and derived tags keep consuming them.
-		newNames := make(map[string]bool, len(newTags))
-		for i := range newTags {
-			t := newTags[i]
+		newNames := make(map[string]bool, len(merged))
+		for i := range merged {
+			t := merged[i]
 			newNames[t.Name] = true
 		}
 		for i := range baseCfg.Tags {
@@ -73,7 +83,11 @@ func (r *driverRegistry) startTagFileWatcher(config core.DriverConfig) {
 		return nil
 	}
 
-	w, err := newTagFileWatcher(config.Name, config.TagsFile, config.TagsInterval, onReload)
+	watchPath := config.TagsFileResolved
+	if watchPath == "" {
+		watchPath = config.TagsFile
+	}
+	w, err := newTagFileWatcher(config.Name, watchPath, config.TagsInterval, onReload)
 	if err != nil {
 		slog.Error("failed to start tag-file watcher",
 			"driver", config.Name, "path", config.TagsFile, "error", err)

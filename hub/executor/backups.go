@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/CoreC-Dev/CoreC/hub/route"
@@ -69,6 +70,24 @@ func backupFileName(stamp int64) string {
 	return strconv.FormatInt(stamp, 10) + backupExt
 }
 
+// lastBackupStamp keeps generated names strictly increasing. Two reloads
+// within one clock tick (coarse Windows timers, or a test) would otherwise
+// produce the same UnixNano name and overwrite the earlier backup.
+var lastBackupStamp atomic.Int64
+
+func nextBackupStamp() int64 {
+	for {
+		now := time.Now().UnixNano()
+		prev := lastBackupStamp.Load()
+		if now <= prev {
+			now = prev + 1
+		}
+		if lastBackupStamp.CompareAndSwap(prev, now) {
+			return now
+		}
+	}
+}
+
 // saveConfigBackup writes data as a new timestamped backup file (0o600) and
 // prunes the set down to configBackupMax entries. Returns the backup's file
 // name.
@@ -81,7 +100,7 @@ func saveConfigBackup(data []byte) (string, error) {
 		return "", fmt.Errorf("failed to create config backup directory: %w", err)
 	}
 
-	name := backupFileName(time.Now().UnixNano())
+	name := backupFileName(nextBackupStamp())
 	target := filepath.Join(dir, name)
 	// 0o600: owner read/write only, same rationale as the active config file
 	// in Reload — backups contain the API secret and driver/transport
