@@ -39,8 +39,9 @@ func resolveDriverPausable(w http.ResponseWriter, r *http.Request, name string) 
 
 func driverExists(name string) bool {
 	var dm core.DriverManager = getEngine()
-	for _, d := range dm.ListDrivers() {
-		if d.Name == name {
+	statuses := dm.ListDrivers()
+	for i := range statuses {
+		if statuses[i].Name == name {
 			return true
 		}
 	}

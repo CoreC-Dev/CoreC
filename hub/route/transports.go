@@ -18,9 +18,10 @@ func getTransports(w http.ResponseWriter, r *http.Request) {
 func getTransport(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	var tm core.TransportManager = getEngine()
-	for _, t := range tm.ListTransports() {
-		if t.Name == name {
-			render(w, r, http.StatusOK, t)
+	statuses := tm.ListTransports()
+	for i := range statuses {
+		if statuses[i].Name == name {
+			render(w, r, http.StatusOK, statuses[i])
 			return
 		}
 	}

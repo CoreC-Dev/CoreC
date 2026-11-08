@@ -121,8 +121,8 @@ func readinessReason(stats core.EngineStats, drivers []core.DriverStatus, transp
 
 // anyConnectedDriver reports whether at least one driver is connected.
 func anyConnectedDriver(drivers []core.DriverStatus) bool {
-	for _, d := range drivers {
-		if d.State == core.StateConnected {
+	for i := range drivers {
+		if drivers[i].State == core.StateConnected {
 			return true
 		}
 	}
@@ -131,8 +131,8 @@ func anyConnectedDriver(drivers []core.DriverStatus) bool {
 
 // anyConnectedTransport reports whether at least one transport is connected.
 func anyConnectedTransport(transports []core.TransportStatus) bool {
-	for _, t := range transports {
-		if t.State == core.StateConnected {
+	for i := range transports {
+		if transports[i].State == core.StateConnected {
 			return true
 		}
 	}
@@ -151,16 +151,16 @@ func writeHealthNotReady(w http.ResponseWriter, r *http.Request, reason string, 
 			Transports: make([]componentState, 0, len(transports)),
 		},
 	}
-	for _, d := range drivers {
+	for i := range drivers {
 		resp.Components.Drivers = append(resp.Components.Drivers, componentState{
-			Name:      d.Name,
-			Connected: d.State == core.StateConnected,
+			Name:      drivers[i].Name,
+			Connected: drivers[i].State == core.StateConnected,
 		})
 	}
-	for _, t := range transports {
+	for i := range transports {
 		resp.Components.Transports = append(resp.Components.Transports, componentState{
-			Name:      t.Name,
-			Connected: t.State == core.StateConnected,
+			Name:      transports[i].Name,
+			Connected: transports[i].State == core.StateConnected,
 		})
 	}
 	render(w, r, http.StatusServiceUnavailable, resp)

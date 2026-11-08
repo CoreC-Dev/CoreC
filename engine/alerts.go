@@ -212,8 +212,8 @@ func (am *alertManager) record(rule core.Rule, point core.DataPoint) {
 	if ev != nil {
 		am.publish(*ev)
 	}
-	for _, cev := range cleared {
-		am.publish(cev)
+	for i := range cleared {
+		am.publish(cleared[i])
 	}
 }
 

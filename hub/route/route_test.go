@@ -335,7 +335,7 @@ func TestWebSocketSubprotocolTokenAuth(t *testing.T) {
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
-	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/drivers", nil)
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/drivers", http.NoBody)
 	req.Header.Set("Upgrade", "websocket")
 	req.Header.Set("Connection", "Upgrade")
 	req.Header.Set("Sec-WebSocket-Protocol", "corec.v1, token."+url.QueryEscape("ws-secret"))
@@ -349,7 +349,7 @@ func TestWebSocketSubprotocolTokenAuth(t *testing.T) {
 	}
 
 	// A wrong token must still be rejected.
-	bad, _ := http.NewRequest(http.MethodGet, ts.URL+"/drivers", nil)
+	bad, _ := http.NewRequest(http.MethodGet, ts.URL+"/drivers", http.NoBody)
 	bad.Header.Set("Upgrade", "websocket")
 	bad.Header.Set("Sec-WebSocket-Protocol", "token."+url.QueryEscape("nope"))
 	badResp, err := ts.Client().Do(bad)
@@ -373,7 +373,7 @@ func TestDisableRuleRequiresNameOrIndex(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(map[string]any{"disabled": true})
-	req, _ := http.NewRequest("PATCH", ts.URL+"/rules/disable", bytes.NewReader(body))
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/rules/disable", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := ts.Client().Do(req)
 	if err != nil {

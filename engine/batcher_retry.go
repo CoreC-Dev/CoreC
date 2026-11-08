@@ -22,7 +22,6 @@ import (
 func (r *batcherRetryPolicy) publishWithRetryAndBuffer(ctx context.Context, batch []core.DataPoint) bool {
 	b := r.b
 	maxAttempts := r.retryCount + 1
-	baseDelay := defaultRetryBaseDelay
 	var lastErr error
 	pending := batch
 	delivered := 0
@@ -32,8 +31,8 @@ func (r *batcherRetryPolicy) publishWithRetryAndBuffer(ctx context.Context, batc
 		// attempt. This captures the true collection-to-publish delay
 		// including batching, queuing, and retry backoff (observing at
 		// enqueue time instead would miss all of that). Each attempt
-		// observes because data age grows during
-		// retries, giving operators the real freshness distribution.
+		// observes because data age grows during retries, giving
+		// operators the real freshness distribution.
 		if b.dataAge != nil {
 			now := time.Now()
 			for i := range pending {
@@ -50,28 +49,22 @@ func (r *batcherRetryPolicy) publishWithRetryAndBuffer(ctx context.Context, batc
 		}
 
 		if lastErr == nil {
-			// Count the real publish (not just the enqueue) so the
-			// engine's totalPublish reflects actual
-			// successful publishes (counting right after the near-instant
-			// enqueue would over-report batches that later fail).
+			// Count the real publish (not just the enqueue) so the engine's
+			// totalPublish reflects actual successful publishes (counting
+			// right after the near-instant enqueue would over-report
+			// batches that later fail).
 			if b.onPublish != nil {
 				b.onPublish(delivered + len(pending))
 			}
 			return true
 		}
 
-		// Transports that can report partial success (MQTT) return the
-		// failed indexes. Retry only those: resending the whole batch
-		// duplicated every point that already reached the broker.
-		var partial *core.BatchPublishError
-		if errors.As(lastErr, &partial) && len(partial.Failed) > 0 {
-			delivered += len(pending) - len(partial.Failed)
-			next := make([]core.DataPoint, 0, len(partial.Failed))
-			for _, idx := range partial.Failed {
-				if idx >= 0 && idx < len(pending) {
-					next = append(next, pending[idx])
-				}
-			}
+		// Partial success (MQTT): retry only the failed indexes; resending
+		// the whole batch duplicated every point that already reached the
+		// broker.
+		next, delta, partial := shrinkToFailed(pending, lastErr)
+		if partial {
+			delivered += delta
 			if len(next) == 0 {
 				if b.onPublish != nil {
 					b.onPublish(delivered)
@@ -82,10 +75,7 @@ func (r *batcherRetryPolicy) publishWithRetryAndBuffer(ctx context.Context, batc
 		}
 
 		if attempt < maxAttempts-1 {
-			delay := baseDelay * time.Duration(1<<attempt) // exponential backoff
-			if delay > defaultRetryMaxDelay {
-				delay = defaultRetryMaxDelay
-			}
+			delay := retryDelay(attempt)
 			slog.Warn("batch publish retry (only the failed subset is resent when the transport reports per-point failures)",
 				"transport", b.transport.Name(),
 				"attempt", attempt+1,
@@ -96,9 +86,9 @@ func (r *batcherRetryPolicy) publishWithRetryAndBuffer(ctx context.Context, batc
 			)
 			select {
 			case <-ctx.Done():
-				// Context cancelled (e.g. shutdown). Stop retrying and
-				// fall through to the buffering logic below so the
-				// batch is persisted to disk instead of being dropped.
+				// Context cancelled (e.g. shutdown). Stop retrying and fall
+				// through to the buffering logic so the batch is persisted
+				// to disk instead of being dropped.
 				lastErr = fmt.Errorf("context cancelled: %w", ctx.Err())
 				goto exhausted
 			case <-time.After(delay):
@@ -109,6 +99,44 @@ func (r *batcherRetryPolicy) publishWithRetryAndBuffer(ctx context.Context, batc
 exhausted:
 	// All retries exhausted (or context cancelled). Points already
 	// delivered on a partial attempt still count as publishes.
+	r.bufferFailed(pending, delivered, lastErr)
+	return false
+}
+
+// shrinkToFailed interprets a partial-batch error: it returns the points
+// that still need a retry, how many points the attempt delivered, and
+// whether err was a partial-batch error at all. When everything was
+// delivered the returned slice is empty (with partial=true).
+func shrinkToFailed(pending []core.DataPoint, err error) (next []core.DataPoint, delivered int, partial bool) {
+	var batchErr *core.BatchPublishError
+	if !errors.As(err, &batchErr) || len(batchErr.Failed) == 0 {
+		return pending, 0, false
+	}
+	delivered = len(pending) - len(batchErr.Failed)
+	next = make([]core.DataPoint, 0, len(batchErr.Failed))
+	for _, idx := range batchErr.Failed {
+		if idx >= 0 && idx < len(pending) {
+			next = append(next, pending[idx])
+		}
+	}
+	return next, delivered, true
+}
+
+// retryDelay returns the exponential backoff for a zero-based attempt,
+// capped at defaultRetryMaxDelay.
+func retryDelay(attempt int) time.Duration {
+	delay := defaultRetryBaseDelay * time.Duration(1<<attempt)
+	if delay > defaultRetryMaxDelay {
+		delay = defaultRetryMaxDelay
+	}
+	return delay
+}
+
+// bufferFailed is the terminal path after retries are exhausted (or the
+// context was cancelled): count the points that were delivered on partial
+// attempts, then persist what is left to the offline buffer or give up.
+func (r *batcherRetryPolicy) bufferFailed(pending []core.DataPoint, delivered int, lastErr error) {
+	b := r.b
 	if b.onPublish != nil && delivered > 0 {
 		b.onPublish(delivered)
 	}
@@ -138,7 +166,6 @@ exhausted:
 			"error", lastErr,
 		)
 	}
-	return false
 }
 
 // OfflineBufferPending returns the number of batches currently held in this

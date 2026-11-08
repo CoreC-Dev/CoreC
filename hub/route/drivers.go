@@ -17,9 +17,10 @@ func getDrivers(w http.ResponseWriter, r *http.Request) {
 func getDriver(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	var dm core.DriverManager = getEngine()
-	for _, d := range dm.ListDrivers() {
-		if d.Name == name {
-			render(w, r, http.StatusOK, d)
+	statuses := dm.ListDrivers()
+	for i := range statuses {
+		if statuses[i].Name == name {
+			render(w, r, http.StatusOK, statuses[i])
 			return
 		}
 	}

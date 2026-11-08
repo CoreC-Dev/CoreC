@@ -44,16 +44,17 @@ func disableRule(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	index := -1
-	if req.Name != "" {
+	switch {
+	case req.Name != "":
 		// Name addressing wins when both fields are present: it is the
 		// stable identifier and the index may be stale.
 		err = rm.SetRuleDisabledByName(req.Name, req.Disabled)
-	} else if req.Index == nil {
+	case req.Index == nil:
 		// An omitted index used to fall through to index 0 — in a
 		// priority-ordered table that is often the safety interlock.
 		renderError(w, r, http.StatusBadRequest, "name or index is required")
 		return
-	} else {
+	default:
 		index = *req.Index
 		err = rm.SetRuleDisabled(index, req.Disabled)
 	}
