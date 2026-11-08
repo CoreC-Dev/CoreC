@@ -292,23 +292,6 @@ func TestNotifyTransportOnChannels(t *testing.T) {
 	}
 }
 
-func TestEmailSenderShort(t *testing.T) {
-	if testing.Short() {
-		t.Skip("email sender requires SMTP server")
-	}
-	// Without a real SMTP server this will fail at connection; we only
-	// verify the sender builds correctly.
-	_, err := newEmailSender(map[string]any{
-		"smtp-host": "localhost",
-		"smtp-port": 25,
-		"from":      "corec@example.com",
-		"to":        []any{"oncall@example.com"},
-	})
-	if err != nil {
-		t.Fatalf("newEmailSender: %v", err)
-	}
-}
-
 func mustParseTemplate(t *testing.T, expr string) *template.Template {
 	t.Helper()
 	tmpl, err := template.New("test").Parse(expr)

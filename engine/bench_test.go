@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"runtime"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -578,6 +577,3 @@ func BenchmarkSchedulerManyTasks(b *testing.B) {
 		})
 	}
 }
-
-// 防止 unused import 警告
-var _ = sync.Once{}

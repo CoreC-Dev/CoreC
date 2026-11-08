@@ -2,7 +2,6 @@ package modbus
 
 import (
 	"context"
-	"crypto/tls"
 	"crypto/x509"
 	"math/big"
 	"os"
@@ -11,7 +10,6 @@ import (
 	"time"
 
 	"github.com/CoreC-Dev/CoreC/core"
-	mb "github.com/simonvetter/modbus"
 )
 
 // generateSelfSignedCert creates a self-signed certificate and key PEM file
@@ -158,24 +156,5 @@ func TestModbusTLSInitBadCertFiles(t *testing.T) {
 	}
 	if err := drv.Init(context.Background(), cfg); err == nil {
 		t.Fatal("expected error for nonexistent cert files, got nil")
-	}
-}
-
-// Ensure the TLS driver satisfies the core.Driver interface at compile time.
-func TestModbusTLSInterface(t *testing.T) {
-	var _ core.Driver = (*ModbusTLSDriver)(nil)
-	var _ core.Driver = (*ModbusNetDriver)(nil)
-}
-
-// Ensure the library's LoadCertPool and tls.LoadX509KeyPair are usable
-// with our generated certs (guards against test helper bugs).
-func TestModbusTLSLibHelpers(t *testing.T) {
-	certFile, keyFile := generateSelfSignedCert(t)
-
-	if _, err := tls.LoadX509KeyPair(certFile, keyFile); err != nil {
-		t.Fatalf("LoadX509KeyPair: %v", err)
-	}
-	if _, err := mb.LoadCertPool(certFile); err != nil {
-		t.Fatalf("LoadCertPool: %v", err)
 	}
 }

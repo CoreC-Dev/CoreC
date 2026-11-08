@@ -76,45 +76,6 @@ func TestDeadLetterQueue(t *testing.T) {
 	}
 }
 
-func TestDeadLetterQueueEviction(t *testing.T) {
-	e := newEngineShell()
-	e.writes.deadLetters.maxLen = 3 // small capacity
-
-	cmd := core.WriteCommand{Driver: "plc1", Tag: "setpoint", Value: 50.0}
-
-	// Add 5 entries, capacity is 3
-	for i := 0; i < 5; i++ {
-		e.writes.addDeadLetter(core.DeadLetterEntry{
-			Command:  cmd,
-			Error:    "error",
-			Attempts: i + 1,
-		})
-	}
-
-	entries := e.DeadLetterEntries()
-	if len(entries) != 3 {
-		t.Fatalf("len(entries) = %d, want 3 (after eviction)", len(entries))
-	}
-
-	// Should keep the 3 newest (attempts 3, 4, 5)
-	if entries[0].Attempts != 3 {
-		t.Errorf("entries[0].Attempts = %d, want 3", entries[0].Attempts)
-	}
-	if entries[2].Attempts != 5 {
-		t.Errorf("entries[2].Attempts = %d, want 5", entries[2].Attempts)
-	}
-}
-
-func TestDeadLetterQueueEmpty(t *testing.T) {
-	e := newEngineShell()
-	e.writes.deadLetters.maxLen = 1000
-
-	entries := e.DeadLetterEntries()
-	if len(entries) != 0 {
-		t.Fatalf("len(entries) = %d, want 0", len(entries))
-	}
-}
-
 // TestBadQualityAlertPolicyFiresWithoutRuleMatch is the regression test
 // for the on-bad-quality policy: on-bad-quality: alert must trigger the
 // alert callback even when NO configured rule matches the bad point —

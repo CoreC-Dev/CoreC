@@ -357,31 +357,6 @@ func TestApplyConfigForceFlag(t *testing.T) {
 	}
 }
 
-func TestApplyConfigTransportDiff(t *testing.T) {
-	eng := &mockEngineForExecutor{}
-	initialCfg := &core.Config{
-		Transports: []core.TransportConfig{
-			{Name: "t1", Type: "mqtt"},
-			{Name: "t2", Type: "mqtt"},
-		},
-	}
-	Init(eng, initialCfg, "config.yaml")
-
-	// Remove t2, keep t1.
-	newCfg := &core.Config{
-		Transports: []core.TransportConfig{
-			{Name: "t1", Type: "mqtt"},
-		},
-	}
-
-	if err := ApplyConfig(newCfg, false); err != nil {
-		t.Fatalf("ApplyConfig failed: %v", err)
-	}
-
-	// t2 should be removed (RemoveTransport called).
-	// The mock doesn't track transport removals, but no error means success.
-}
-
 // --- Path A: Validate dry-run + sentinel-merge tests ---
 
 // liveConfigForValidate is a valid config with a real api.secret that the

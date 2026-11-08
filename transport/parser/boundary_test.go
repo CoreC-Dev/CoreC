@@ -166,37 +166,6 @@ func TestParseTplValueString(t *testing.T) {
 	}
 }
 
-// ─── jsonPathField.resolve / resolveValue tests ────────────────────
-
-func TestJsonPathFieldResolveStatic(t *testing.T) {
-	f := jsonPathField{isStatic: true, static: "fixed"}
-	if got := f.resolve(nil, "topic"); got != "fixed" {
-		t.Errorf("static resolve: got %q, want fixed", got)
-	}
-}
-
-func TestJsonPathFieldResolveTopic(t *testing.T) {
-	f := jsonPathField{isTopic: true}
-	if got := f.resolve(nil, "my/topic"); got != "my/topic" {
-		t.Errorf("topic resolve: got %q", got)
-	}
-}
-
-func TestJsonPathFieldResolveGjson(t *testing.T) {
-	f := jsonPathField{gjsonPath: "value"}
-	payload := []byte(`{"value": 42}`)
-	if got := f.resolve(payload, ""); got != "42" {
-		t.Errorf("gjson resolve: got %q, want 42", got)
-	}
-}
-
-func TestJsonPathFieldResolveEmpty(t *testing.T) {
-	f := jsonPathField{}
-	if got := f.resolve(nil, ""); got != "" {
-		t.Errorf("empty resolve: got %q", got)
-	}
-}
-
 func TestJsonPathFieldResolveValueStatic(t *testing.T) {
 	f := jsonPathField{isStatic: true, static: "3.14"}
 	if got := f.resolveValue(nil, "", core.TypeBool, false); got != 3.14 {

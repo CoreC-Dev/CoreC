@@ -90,3 +90,85 @@ func TestWritePacingAppliedFromConfig(t *testing.T) {
 		t.Fatal("malformed write-min-interval must fail startup")
 	}
 }
+
+// A write the device answered and refused must not consume that driver's window.
+func TestFailedWriteDoesNotConsumeTheWindow(t *testing.T) {
+	e := newTestEngine(t)
+	e.writes.pacer.setInterval(200 * time.Millisecond)
+	installDriver(e, "plc", &refusingDriver{})
+
+	// First write is admitted by the gate, then refused by the device. A device
+	// refusal arrives as Success=false on the result, not as an error: WriteTag
+	// only sets err when the call itself could not be made.
+	res, err := e.WriteTag(context.Background(), core.WriteCommand{
+		Driver: "plc", Tag: "t", Value: 1.0, Type: core.TypeFloat32,
+	})
+	if err != nil {
+		t.Fatalf("setup: want a per-result refusal, got error %v", err)
+	}
+	if res == nil || res.Success {
+		t.Fatalf("setup: want Success=false from the refusing device, got %+v", res)
+	}
+
+	// The very next attempt must be admissible. Nothing reached the device, so
+	// nothing has been spaced out.
+	_, err = e.WriteTag(context.Background(), core.WriteCommand{
+		Driver: "plc", Tag: "t", Value: 2.0, Type: core.TypeFloat32,
+	})
+	if errors.Is(err, core.ErrWritePaced) {
+		t.Fatalf("a write the device refused consumed the window: %v "+
+			"(docs promise 失败写入不占用下一次机会)", err)
+	}
+}
+
+// A write that errored before reaching the device is the same event from the
+// pacer's point of view, and must also leave the window open.
+func TestWriteErrorDoesNotConsumeTheWindow(t *testing.T) {
+	e := newTestEngine(t)
+	e.writes.pacer.setInterval(200 * time.Millisecond)
+	installDriver(e, "plc", &brokenDriver{})
+
+	_, err := e.WriteTag(context.Background(), core.WriteCommand{
+		Driver: "plc", Tag: "t", Value: 1.0, Type: core.TypeFloat32,
+	})
+	if !errors.Is(err, errTransportDown) {
+		t.Fatalf("setup: want the transport error, got %v", err)
+	}
+
+	_, err = e.WriteTag(context.Background(), core.WriteCommand{
+		Driver: "plc", Tag: "t", Value: 2.0, Type: core.TypeFloat32,
+	})
+	if errors.Is(err, core.ErrWritePaced) {
+		t.Fatalf("a write that never reached the device consumed the window: %v", err)
+	}
+}
+
+// --- fixtures -----------------------------------------------------------
+
+var (
+	errDeviceRefused = errors.New("device refused write")
+	errTransportDown = errors.New("transport down")
+)
+
+type refusingDriver struct{ mockDriver }
+
+// Write reports the device refused every command: the PLC answered, and said no.
+func (d *refusingDriver) Write(ctx context.Context, cmds []core.WriteCommand) ([]core.WriteResult, error) {
+	out := make([]core.WriteResult, len(cmds))
+	for i := range out {
+		out[i] = core.WriteResult{Success: false, Error: errDeviceRefused.Error()}
+	}
+	return out, nil
+}
+
+type brokenDriver struct{ mockDriver }
+
+// Write never reaches the device.
+func (d *brokenDriver) Write(ctx context.Context, cmds []core.WriteCommand) ([]core.WriteResult, error) {
+	return nil, errTransportDown
+}
+
+func installDriver(e *CoreCEngine, name string, d core.Driver) {
+	e.driverReg.drivers[name] = d
+	e.driverReg.driverConfigs[name] = core.DriverConfig{Name: name, Type: "mock"}
+}

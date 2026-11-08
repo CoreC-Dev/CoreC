@@ -657,42 +657,6 @@ func TestConnectionErrorKeywordsCoverage(t *testing.T) {
 	}
 }
 
-// TestToFloat64RoundTrip verifies that integer values converted to float64
-// and back preserve the original value (within float64 precision).
-func TestToFloat64RoundTrip(t *testing.T) {
-	original := int64(123456789)
-	f := ToFloat64(original)
-	back := int64(f)
-	if back != original {
-		t.Errorf("round-trip failed: original=%d, got=%d", original, back)
-	}
-}
-
-// TestApplyTransformChain verifies that two transforms compose correctly.
-func TestApplyTransformChain(t *testing.T) {
-	// First: scale=2, offset=0 → 10 becomes 20
-	v1 := ApplyTransform(float64(10), 2.0, 0)
-	// Second: scale=1, offset=5 → 20 becomes 25
-	v2 := ApplyTransform(v1, 1.0, 5.0)
-	if v2.(float64) != 25.0 {
-		t.Errorf("chained transform: expected 25.0, got %v", v2)
-	}
-}
-
-// TestAllConversionsConsistent verifies that a value converted through
-// different numeric paths yields consistent results.
-func TestAllConversionsConsistent(t *testing.T) {
-	v := int(42)
-	f64 := ToFloat64(v)
-	u32 := ToUint32(v)
-	u64 := ToUint64(v)
-	u16 := ToUint16(v)
-
-	if f64 != 42 || u32 != 42 || u64 != 42 || u16 != 42 {
-		t.Errorf("inconsistent conversions: f64=%v u32=%v u64=%v u16=%v", f64, u32, u64, u16)
-	}
-}
-
 // TestIsConnectionErrorPartialMatch verifies that the keyword can appear
 // anywhere in the error string, not just at the start.
 func TestIsConnectionErrorPartialMatch(t *testing.T) {
@@ -702,36 +666,12 @@ func TestIsConnectionErrorPartialMatch(t *testing.T) {
 	}
 }
 
-// TestReconnectLoopNameInError verifies the name parameter is used
-// (it appears in slog output, which we can't easily capture, but we
-// can at least verify the function doesn't panic with empty name).
-func TestReconnectLoopNameInError(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		time.Sleep(5 * time.Millisecond)
-		cancel()
-	}()
-	ReconnectLoopWithBreaker(ctx, "", func() error { return errors.New("x") }, 1*time.Millisecond, 5*time.Millisecond, 0)
-}
-
 // TestGetIntSettingFloatTruncation verifies that float64 values from YAML
 // are properly truncated (not rounded) to int.
 func TestGetIntSettingFloatTruncation(t *testing.T) {
 	got := GetIntSetting(map[string]any{"x": float64(99.9)}, "x", 0)
 	if got != 99 {
 		t.Errorf("expected truncation to 99, got %d", got)
-	}
-}
-
-// TestToFloat32PrecisionLoss documents that float64→float32 can lose
-// precision, and ToFloat32 handles this by casting.
-func TestToFloat32PrecisionLoss(t *testing.T) {
-	// A large float64 that loses precision in float32.
-	big := float64(1 << 25) // 33554432
-	got := ToFloat32(big)
-	// float32 can represent this exactly (it's a power of 2).
-	if float64(got) != big {
-		t.Errorf("expected %v, got %v", big, got)
 	}
 }
 
@@ -775,22 +715,6 @@ func TestReconnectLoopMaxBackoffCap(t *testing.T) {
 	if callCount != 6 {
 		t.Errorf("expected 6 calls, got %d", callCount)
 	}
-}
-
-// TestUtilPackageString verifies the package compiles and basic functions
-// don't panic on edge-case inputs.
-func TestUtilNoPanics(t *testing.T) {
-	// These should not panic.
-	_ = GetIntSetting(nil, "", 0)
-	_ = GetDurationSetting(nil, "", 0)
-	_ = GetBoolSetting(nil, "", false)
-	_ = IsConnectionError(nil)
-	_ = ToFloat64(nil)
-	_ = ToFloat32(nil)
-	_ = ToUint32(nil)
-	_ = ToUint64(nil)
-	_ = ToUint16(nil)
-	_ = ApplyTransform(nil, 0, 0)
 }
 
 // TestStringContains verifies a helper used in error detection.

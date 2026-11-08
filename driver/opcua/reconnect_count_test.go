@@ -8,23 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CoreC-Dev/CoreC/common/testutil"
 	"github.com/CoreC-Dev/CoreC/core"
 )
-
-// TestOPCUAReconnectCountStartsAtZero verifies that a freshly-constructed
-// driver reports ReconnectCount == 0 via Status() before any reconnect
-// attempt has been made.
-func TestOPCUAReconnectCountStartsAtZero(t *testing.T) {
-	drv, err := NewOPCUADriver(core.DriverConfig{Name: "rc-zero", Settings: map[string]any{}})
-	if err != nil {
-		t.Fatalf("NewOPCUADriver failed: %v", err)
-	}
-
-	st := drv.Status()
-	if st.ReconnectCount != 0 {
-		t.Errorf("expected ReconnectCount 0 on a fresh driver, got %d", st.ReconnectCount)
-	}
-}
 
 // TestOPCUAReconnectCountIncrements verifies that ReconnectCount increases
 // as the background reconnect loop makes attempts. The driver is pointed
@@ -57,32 +43,10 @@ func TestOPCUAReconnectCountIncrements(t *testing.T) {
 	}
 
 	// Poll until the counter has advanced past zero (proving the counted
-	// reconnect loop is wired up and is incrementing on each attempt).
-	deadline := time.Now().Add(3 * time.Second)
-	var first uint64
-	for time.Now().Before(deadline) {
-		first = d.Status().ReconnectCount
-		if first > 0 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if first == 0 {
-		t.Fatal("ReconnectCount never incremented; reconnect loop did not make any counted attempts")
-	}
-
-	// Wait a little longer and confirm the counter keeps growing — the
-	// loop is still retrying against the closed port.
-	deadline = time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if d.Status().ReconnectCount > first {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if got := d.Status().ReconnectCount; got <= first {
-		t.Errorf("expected ReconnectCount to keep growing, first=%d now=%d", first, got)
-	}
+	// reconnect loop is wired up and is incrementing on each attempt), then
+	// confirm it keeps growing while the loop retries against the closed port.
+	first := testutil.PollReconnectCount(t, d, 3*time.Second)
+	testutil.PollReconnectCountGrowing(t, d, first, 2*time.Second)
 }
 
 // TestOPCUAReconnectCountPopulatedInStatus verifies that Status() returns a

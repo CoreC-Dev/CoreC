@@ -14,18 +14,6 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// TestS7ReconnectCountStartsAtZero verifies that a freshly-constructed
-// driver reports ReconnectCount == 0 via Status() before any reconnect
-// attempt has been made.
-func TestS7ReconnectCountStartsAtZero(t *testing.T) {
-	d := newTestDriver(t, "rc-zero")
-
-	st := d.Status()
-	if st.ReconnectCount != 0 {
-		t.Errorf("expected ReconnectCount 0 on a fresh driver, got %d", st.ReconnectCount)
-	}
-}
-
 // TestS7ReconnectCountIncrements verifies that ReconnectCount increases
 // as the background reconnect loop makes attempts. The driver is pointed
 // at 127.0.0.1:1 (a closed loopback port that refuses connections

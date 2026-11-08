@@ -468,11 +468,10 @@ func TestPublishTimeout(t *testing.T) {
 
 // ─── Start-time subscribe wiring (on-connect handler) ──────────────
 
-// TestOnConnectHandlerSubscribes verifies that the on-connect handler set up
-// by Start subscribes to both the command and data topics when both are
-// configured. The real paho client is replaced by a mock before invoking the
-// handler, so no broker connection is required.
-func TestOnConnectHandlerSubscribes(t *testing.T) {
+// TestSubscribeCommandAndDataTopics verifies that a transport configured with
+// both topics subscribes to both. The real paho client is replaced by a mock,
+// so no broker connection is required.
+func TestSubscribeCommandAndDataTopics(t *testing.T) {
 	mtr := newInitdTransport(t, "onconnect-mqtt", map[string]any{
 		"broker":         "tcp://127.0.0.1:1883",
 		"command-topic":  "corec/commands/+/set",

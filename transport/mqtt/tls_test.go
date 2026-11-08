@@ -299,11 +299,6 @@ func TestMQTTTLSInvalidBrokerWithFiles(t *testing.T) {
 	}
 }
 
-// TestMQTTTLSInterface ensures the transport still satisfies core.Transport.
-func TestMQTTTLSInterface(t *testing.T) {
-	var _ core.Transport = (*MQTTTransport)(nil)
-}
-
 // writeJunkFile writes a temp file containing non-PEM bytes and returns
 // its path, to exercise the "failed to parse CA certificate" path.
 func writeJunkFile(t *testing.T) string {

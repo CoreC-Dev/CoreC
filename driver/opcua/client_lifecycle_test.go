@@ -59,9 +59,6 @@ func TestNewOPCUADriver(t *testing.T) {
 	if d.Name() != "opcua-1" {
 		t.Errorf("expected name %q, got %q", "opcua-1", d.Name())
 	}
-	if d.Name() != "opcua-1" {
-		t.Errorf("Name() = %q, want %q", d.Name(), "opcua-1")
-	}
 	if d.Type() != "opcua" {
 		t.Errorf("Type() = %q, want %q", d.Type(), "opcua")
 	}

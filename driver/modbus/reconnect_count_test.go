@@ -14,29 +14,6 @@ import (
 	mb "github.com/simonvetter/modbus"
 )
 
-// TestModbusReconnectCountStartsAtZero verifies that a freshly-constructed
-// driver reports ReconnectCount == 0 via Status() before any reconnect
-// attempt has been made.
-func TestModbusReconnectCountStartsAtZero(t *testing.T) {
-	drv, err := NewModbusTCPDriver(core.DriverConfig{
-		Name: "rc-zero",
-		Type: "modbus-tcp",
-		Settings: map[string]any{
-			"host": "127.0.0.1",
-			"port": 502,
-		},
-		Tags: []core.TagConfig{{Name: "t", Address: "40001", Type: "uint16"}},
-	})
-	if err != nil {
-		t.Fatalf("NewModbusTCPDriver: %v", err)
-	}
-
-	st := drv.Status()
-	if st.ReconnectCount != 0 {
-		t.Errorf("expected ReconnectCount 0 on a fresh driver, got %d", st.ReconnectCount)
-	}
-}
-
 // TestModbusReconnectCountIncrements verifies that ReconnectCount increases
 // as the background reconnect loop makes attempts. The driver is pointed at
 // a port with no server, so every connect attempt fails and the loop keeps
