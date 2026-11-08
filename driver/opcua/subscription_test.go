@@ -442,7 +442,7 @@ func TestOPCUASubscriptionLoopLocalTimestamp(t *testing.T) {
 	select {
 	case dp := <-d.subChannel:
 		if age := time.Since(dp.Timestamp); age > time.Minute {
-			t.Errorf("subscription point stamped with the server clock: age = %v, want a fresh local receive time (B5-4)", age)
+			t.Errorf("subscription point stamped with the server clock: age = %v, want a fresh local receive time", age)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for forwarded data point")

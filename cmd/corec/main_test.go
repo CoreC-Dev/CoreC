@@ -170,7 +170,7 @@ func buildTestBinary(t *testing.T, path string) error {
 	return cmd.Run()
 }
 
-// TestArmForcedExit verifies the B3.0 fix: after the first shutdown
+// TestArmForcedExit verifies the fix: after the first shutdown
 // signal starts the graceful stop, a second signal must force-exit the
 // process instead of being silently swallowed (previously a hung
 // graceful shutdown could only be ended with kill -9).

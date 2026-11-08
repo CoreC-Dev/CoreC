@@ -104,7 +104,7 @@ func (e *Engine) SetRules(configs []core.RuleConfig) error {
 
 	// Wrap each rule with statistics wrapper. seq records the position
 	// in the sorted list so the matcher can tie-break equal priorities
-	// by configuration order (B7-1).
+	// by configuration order.
 	wrapped := make([]core.Rule, len(rules))
 	for i, r := range rules {
 		w := newRuleWrapper(r)

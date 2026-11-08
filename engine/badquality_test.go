@@ -130,7 +130,7 @@ func TestBadQualityAlertPolicyFiresWithoutRuleMatch(t *testing.T) {
 	})
 	e.processing.dataBus = NewDataBus(4096)
 	e.processing.cache = NewLatestCache()
-	e.ruleSet.ruleEngine = rule.NewEngine() // zero rules: the B5-1 minimal repro
+	e.ruleSet.ruleEngine = rule.NewEngine() // zero rules: the minimal repro
 	e.processing.badQualityPolicy = badQualityAlert
 
 	type alertEvent struct {
@@ -160,7 +160,7 @@ func TestBadQualityAlertPolicyFiresWithoutRuleMatch(t *testing.T) {
 			t.Errorf("alerted point quality = %v, want QualityBad", a.point.Quality)
 		}
 	case <-time.After(500 * time.Millisecond):
-		t.Fatal("on-bad-quality: alert policy never fired — zero rules must not silence the policy alert (B5-1)")
+		t.Fatal("on-bad-quality: alert policy never fired — zero rules must not silence the policy alert")
 	}
 }
 

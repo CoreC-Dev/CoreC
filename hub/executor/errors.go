@@ -44,10 +44,6 @@ func (e *ConfigError) ClientFixable() bool { return true }
 // import cycle): missing name → 404; client-fixable config fallout →
 // 400 with the reason; everything else → masked 500.
 func classifyResourceError(err error) int {
-	// B5: returns the route package's EXPORTED class constants — the two
-	// sides of the injected boundary share one declaration, so a rename
-	// or renumber is a compile error here instead of a silent 404↔400
-	// misroute.
 	switch {
 	case errors.Is(err, ErrResourceNotFound):
 		return route.ResourceErrNotFound

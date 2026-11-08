@@ -27,7 +27,7 @@ func TestApplyDeadbandFilterBadQualityPasses(t *testing.T) {
 	}
 	got := applyDeadbandFilter(runner, values)
 	if len(got) != 1 {
-		t.Fatalf("bad-quality point swallowed by deadband: got %d values, want 1 (B5-2: quality degradation must be visible)", len(got))
+		t.Fatalf("bad-quality point swallowed by deadband: got %d values, want 1", len(got))
 	}
 
 	// 2. Baseline must be untouched (not poisoned to 0).
@@ -119,7 +119,7 @@ func TestApplyDeadbandFilterNonNumericPasses(t *testing.T) {
 		{Tag: "recipe", Value: "mixB", Quality: core.QualityGood},
 	}
 	if got := applyDeadbandFilter(runner, values); len(got) != 1 {
-		t.Fatalf("changed string value swallowed by deadband: got %d values, want 1 (B5-3: non-numeric tags must never freeze)", len(got))
+		t.Fatalf("changed string value swallowed by deadband: got %d values, want 1", len(got))
 	}
 
 	// Bool transitions must pass on every sample.

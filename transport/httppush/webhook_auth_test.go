@@ -128,7 +128,7 @@ func TestWebhookAuthReject(t *testing.T) {
 }
 
 // TestWebhookNoSecretFailClosed verifies that without a webhook-secret
-// the transport refuses to start (fail-closed, D9).
+// the transport refuses to start (fail-closed).
 func TestWebhookNoSecretFailClosed(t *testing.T) {
 	addr := freePort(t)
 	settings := map[string]any{
@@ -154,8 +154,7 @@ func TestWebhookNoSecretFailClosed(t *testing.T) {
 	}
 }
 
-// TestWebhookBodySizeLimit verifies that an oversized body is rejected
-// (H1: OOM protection via http.MaxBytesReader).
+// TestWebhookBodySizeLimit verifies that an oversized body is rejected.
 func TestWebhookBodySizeLimit(t *testing.T) {
 	tr, addr := newWebhookTransport(t, "wh-sizelimit", "s3cr3t")
 	defer tr.Stop()

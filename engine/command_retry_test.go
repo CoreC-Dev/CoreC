@@ -2,7 +2,7 @@
 // configuration-class write failures (tag not found, read-only
 // area, type mismatch) are dead-lettered immediately instead of being
 // blind-retried writeRetryCount+1 times, while every other failure
-// keeps the retry loop; and B3.2 — stranded commands (held by a
+// keeps the retry loop; and stranded commands (held by a
 // listener blocked on the semaphore, or buffered in a removed
 // transport's channel) are dead-lettered on listener exit instead of
 // vanishing silently.

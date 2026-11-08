@@ -1,6 +1,3 @@
-# Dependabot (H6, quality audit 2026-10-21): nothing previously bumped the
-# golangci-lint pin, action tags, Go toolchain, or dependencies — drift
-# entered silently (the 8+ recurring fix-lint commits were partly this).
 version: 2
 updates:
   - package-ecosystem: gomod

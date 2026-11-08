@@ -740,8 +740,8 @@ func TestOPCUAAssembleReadResultsLocalTimestamp(t *testing.T) {
 		t.Errorf("results[0].Value = %v, want 42", results[0].Value)
 	}
 	if !results[0].Timestamp.Equal(now) {
-		t.Errorf("good point stamped with non-local time: got %v, want %v (B5-4: local clock must win over SourceTimestamp %v)",
-			results[0].Timestamp, now, slowServerTs)
+		t.Errorf("good point stamped with non-local time: got %v, want %v",
+			results[0].Timestamp, now)
 	}
 
 	// Bad point: same local receive time as the good point — the two

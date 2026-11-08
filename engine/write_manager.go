@@ -214,7 +214,7 @@ func (w *writeManager) startCommandListener(t core.Transport, tCtx context.Conte
 					// The listener is already holding this command off
 					// the channel; it must not vanish. Dead-letter it,
 					// then drain whatever else is still buffered behind
-					// it (B3.2).
+					// it.
 					w.deadLetterStrandedCommands(ch, &cmd)
 					return
 				}

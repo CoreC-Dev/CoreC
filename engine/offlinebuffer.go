@@ -320,7 +320,7 @@ func (ob *OfflineBuffer) Drain(source string, tryPublish func([]core.DataPoint) 
 			continue
 		}
 
-		// Ownership filter (B2.3): only replay batches this transport
+		// Ownership filter: only replay batches this transport
 		// originally accepted. Foreign batches stay on disk untouched
 		// for their owning transport's drain loop.
 		if entry.Source != source {

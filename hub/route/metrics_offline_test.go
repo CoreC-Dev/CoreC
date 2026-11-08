@@ -69,7 +69,7 @@ func TestWriteOfflineBufferMetricsDirect(t *testing.T) {
 		"# HELP corec_offline_buffer_pushed_total",
 		"# TYPE corec_offline_buffer_pushed_total counter",
 		"corec_offline_buffer_pushed_total 2",
-		// B2.1: eviction counter must be emitted alongside the others.
+		// eviction counter must be emitted alongside the others.
 		"# HELP corec_offline_buffer_evicted_total",
 		"# TYPE corec_offline_buffer_evicted_total counter",
 		"corec_offline_buffer_evicted_total 7",

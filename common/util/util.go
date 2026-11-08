@@ -378,8 +378,6 @@ func jitteredBackoff(d time.Duration) time.Duration {
 // not track reconnect attempts. Use the counted variant when a driver
 // wants to expose a reconnect Prometheus metric.
 // ReconnectOpts bundles the parameters for reconnect loop configuration.
-// Use it with ReconnectLoopOpts to avoid passing 6+ positional arguments
-// (taste invariant T4: parameter count ≤ 5).
 type ReconnectOpts struct {
 	InitialBackoff time.Duration
 	MaxBackoff     time.Duration

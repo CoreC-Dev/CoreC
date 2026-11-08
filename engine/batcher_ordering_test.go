@@ -10,7 +10,7 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// TestBatcherFlushDeferredWhileQueueBacklogged verifies the B1.3 fix at
+// TestBatcherFlushDeferredWhileQueueBacklogged verifies the fix at
 // the unit level: a periodic flush must not publish the newer partial
 // buffer while older full batches are still queued in flushBatches —
 // that would reorder batches across the queue. Once the backlog is
@@ -67,7 +67,7 @@ func TestBatcherFlushDeferredWhileQueueBacklogged(t *testing.T) {
 	}
 }
 
-// TestBatcherCrossBatchOrderingUnderBacklog verifies the B1.3 fix
+// TestBatcherCrossBatchOrderingUnderBacklog verifies the fix
 // end-to-end: with a slow transport building a flush-queue backlog
 // while the periodic flush keeps ticking, the newer partial batch must
 // never be published before the older queued batches. Before the fix

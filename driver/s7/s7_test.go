@@ -160,7 +160,7 @@ func TestS7EncodeDecode(t *testing.T) {
 
 // TestS7DecodeBufferTooSmall verifies that decodeS7Buffer returns a graceful
 // error instead of panicking when the buffer is too small for the configured
-// data type (H14). This happens when an address kind and data type disagree,
+// data type. This happens when an address kind and data type disagree,
 // e.g. DB1.DBB0 (1-byte buffer) configured with type uint16.
 func TestS7DecodeBufferTooSmall(t *testing.T) {
 	h := &gos7.Helper{}
@@ -194,7 +194,7 @@ func TestS7DecodeBufferTooSmall(t *testing.T) {
 }
 
 // TestS7DecodeBufferSizedOK verifies that correctly-sized buffers still decode
-// successfully after the bounds-check change (a regression guard for H14).
+// successfully.
 func TestS7DecodeBufferSizedOK(t *testing.T) {
 	h := &gos7.Helper{}
 

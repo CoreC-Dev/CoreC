@@ -84,7 +84,7 @@ func (t *ctxRecordingTransport) sawCancelled() bool {
 	return t.cancelled
 }
 
-// TestBatcherFlushFinalBudgetPersistsToOffline verifies the B3.1 fix:
+// TestBatcherFlushFinalBudgetPersistsToOffline verifies the fix:
 // flushFinal publishes on a context bounded by the batcher's shutdown
 // budget, so a shutdown flush against a hanging transport stops when
 // the budget expires and persists the batch to the offline buffer
@@ -137,7 +137,7 @@ func TestBatcherFlushFinalBudgetPersistsToOffline(t *testing.T) {
 	}
 }
 
-// TestBatcherDrainOnceInheritsBatcherContext verifies the B3.1 fix: the
+// TestBatcherDrainOnceInheritsBatcherContext verifies the fix: the
 // drainOnce replay callback derives its per-batch context from b.ctx,
 // so an in-flight replay is aborted promptly once the batcher stops.
 // Before the fix the callback used context.Background(), so shutdown
@@ -181,7 +181,7 @@ func TestBatcherDrainOnceInheritsBatcherContext(t *testing.T) {
 	}
 }
 
-// TestRemoveTransportBoundsBatcherStop verifies the B3.1/B3.6 fix: the
+// TestRemoveTransportBoundsBatcherStop verifies the fix: the
 // batcher stop on the RemoveTransport path is bounded by the engine's
 // shutdown timeout instead of blocking the management API for the whole
 // flush retry chain.
@@ -223,7 +223,7 @@ func TestRemoveTransportBoundsBatcherStop(t *testing.T) {
 	}
 }
 
-// TestBatcherPublishRejectedAfterStop verifies the B1.6/B3.4 fix: after
+// TestBatcherPublishRejectedAfterStop verifies the fix: after
 // stop(), publish() rejects new points (counted + logged) instead of
 // letting them strand silently in the buffer or the flush queue after
 // the final flush has already run.
@@ -261,7 +261,7 @@ func TestBatcherPublishRejectedAfterStop(t *testing.T) {
 // effect from the very first step of stop(), not only after it
 // completes: stop() sets the stopped flag before cancelling its loops,
 // so a worker racing with shutdown gets a counted, logged rejection
-// instead of silently stranding its point (B1.6/B3.4).
+// instead of silently stranding its point.
 func TestBatcherPublishRejectedWhileStopping(t *testing.T) {
 	tr := &ctxAwaitTransport{}
 	cfg := core.TransportConfig{Name: "test", BatchSize: 100, RetryCount: 3}
@@ -305,7 +305,7 @@ func TestBatcherPublishRejectedWhileStopping(t *testing.T) {
 	}
 }
 
-// TestStopComponentsDropsAndCountsQueuedPoints verifies the B3.4
+// TestStopComponentsDropsAndCountsQueuedPoints verifies the
 // visibility fix: points still queued in the data bus when the batchers
 // are about to be stopped are drained, counted as errors and logged,
 // instead of being silently abandoned when the bus is closed.

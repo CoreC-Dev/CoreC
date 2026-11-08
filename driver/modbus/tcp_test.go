@@ -287,7 +287,7 @@ func TestModbusDiscreteInputsRead(t *testing.T) {
 // TestModbusNonBoolOnBitArea verifies that configuring a non-bool type on a
 // coil (0xxxx) or discrete-input (1xxxx) address returns an explicit error on
 // both read and write, instead of silently routing the request to a holding
-// register and reading/writing the wrong memory area (H12).
+// register and reading/writing the wrong memory area.
 func TestModbusNonBoolOnBitArea(t *testing.T) {
 	port, err := getFreePort()
 	if err != nil {

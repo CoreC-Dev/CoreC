@@ -25,7 +25,7 @@ type ruleWrapper struct {
 }
 
 // Seq returns the rule's position in the engine's build order, used as
-// the tie-break when two rules share a priority (B7-1).
+// the tie-break when two rules share a priority.
 func (r *ruleWrapper) Seq() int { return r.seq }
 
 func (r *ruleWrapper) IsDisabled() bool {

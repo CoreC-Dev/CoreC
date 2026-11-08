@@ -27,7 +27,7 @@ func ruleSeq(r core.Rule) int {
 // order and collects all matching rules until a terminal match (a rule
 // with Continue() == false). It uses a two-pointer merge so the evaluation
 // order is identical to a single sorted list. On equal priority the
-// build-order sequence breaks the tie (B7-1): the rule that appeared first
+// build-order sequence breaks the tie: the rule that appeared first
 // in the configuration evaluates first, regardless of which list it came
 // from — a universal rule no longer implicitly shadows a same-priority
 // driver rule.

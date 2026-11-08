@@ -1,6 +1,5 @@
 name: Release Multi-Arch
 
-# 触发条件：推送 v* 格式的 tag 时自动构建并发布 Release
 on:
   push:
     tags:
@@ -35,18 +34,9 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      # H4 (quality audit 2026-10-21): the release path previously ran only
-      # test+vet — lint/architecture/taste/docs were never re-verified on the
-      # tagged commit. The tests already executed archtest/tastetest inside
-      # ./...; the remaining gates complete the sweep.
       - name: Lint + document gates
         run: make lint && bash scripts/check-docs.sh
 
-  # H2 (quality audit 2026-10-21): the D3 version-consistency guard was
-  # previously a ci.yml job gated on tags — unreachable, because a
-  # branch-filtered workflow never fires on tag pushes. It moved here
-  # (the workflow that DOES fire on tags) and became behavioral: build
-  # with the release ldflags, then assert the binary REPORTS the tag.
   version-check:
     runs-on: ubuntu-latest
     timeout-minutes: 10

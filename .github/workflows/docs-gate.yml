@@ -1,10 +1,5 @@
 name: Docs Gate
 
-# H4 (quality audit 2026-10-21): ci.yml's paths-ignore meant docs-only
-# PRs ran NO CI at all — including the doc-gate job that exists to lint
-# docs. This lightweight workflow covers exactly those changes; the
-# Dashboard's CI already runs its docs lint unconditionally (no path
-# filter), so the two repos' doc gates now agree.
 on:
   push:
     branches: [main]
@@ -34,5 +29,5 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: "Document lint (T9: dead links, required sections, orphans, package comments)"
+      - name: Document lint
         run: bash scripts/check-docs.sh

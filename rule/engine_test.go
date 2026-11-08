@@ -340,7 +340,7 @@ func TestDriverIndexMatch(t *testing.T) {
 
 	// plc-rule: hit on plc/temp. Misses from the modbus and opcua data
 	// points. The modbus point's evaluation order is [plc-rule(seq0)@10,
-	// modbus-rule(seq1)@10, ...]: with the config-order tie-break (B7-1),
+	// modbus-rule(seq1)@10, ...]: with the config-order tie-break,
 	// plc-rule is reached (and misses) before modbus-rule terminates, so
 	// it records a miss there too — plus one from the opcua point where
 	// it is evaluated before catchall matches. Total: 2.

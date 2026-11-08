@@ -1,6 +1,6 @@
-// T1: File size上限 — no .go file exceeds maxLines without a documented exemption.
-// T6: Structured logging — no fmt.Println/fmt.Printf in production code.
-// T8: Platform reliability — every go statement must be context-bound (checked via grep).
+// File size上限 — no .go file exceeds maxLines without a documented exemption.
+// Structured logging — no fmt.Println/fmt.Printf in production code.
+// Platform reliability — every go statement must be context-bound (checked via grep).
 package tastetest
 
 import (
@@ -74,12 +74,9 @@ func TestFileSizeLimit(t *testing.T) {
 
 		reason, exempted := exemptedFiles[relPath]
 		if exempted {
-			// B5: exemptions are size-pinned — growth beyond the recorded
-			// cap fails the gate instead of passing silently (publisher.go
-			// grew 733→768 before this pin existed).
 			if cap, pinned := exemptedFileCaps[relPath]; pinned && lines > cap {
 				t.Errorf(
-					"T1 VIOLATION: exempted file %s grew to %d lines (exemption pinned at %d)\n"+
+					"VIOLATION: exempted file %s grew to %d lines (exemption pinned at %d)\n"+
 						"  Fix: split the file and lower/remove the exemption, or raise the pin CONSCIOUSLY with a tracker update .\n"+
 						"  Reason on file: %s",
 					relPath, lines, cap, reason)
@@ -89,7 +86,7 @@ func TestFileSizeLimit(t *testing.T) {
 		}
 
 		t.Errorf(
-			"T1 VIOLATION: %s has %d lines (max %d)\n"+
+			"VIOLATION: %s has %d lines (max %d)\n"+
 				"  Fix: Split this file into smaller files by responsibility. If splitting is not yet possible, add an entry to exemptedFiles in tastetest/taste_test.go with a reason and a tracker ID.\n"+
 				"  Note: If this is a new file, it should be born under %d lines.",
 			relPath, lines, maxLines, maxLines)
@@ -107,7 +104,7 @@ func TestFileSizeLimit(t *testing.T) {
 
 func TestStructuredLogging(t *testing.T) {
 	root := findModuleRoot()
-	// T6: Ban fmt.Println and fmt.Printf in production code (not test, not demo, not log package itself)
+	// Ban fmt.Println and fmt.Printf in production code (not test, not demo, not log package itself)
 	violations := 0
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -141,7 +138,7 @@ func TestStructuredLogging(t *testing.T) {
 			}
 			if strings.Contains(line, "fmt.Println") || strings.Contains(line, "fmt.Printf") {
 				t.Errorf(
-					"T6 VIOLATION: %s:%d uses fmt.Println/Printf for output\n"+
+					"VIOLATION: %s:%d uses fmt.Println/Printf for output\n"+
 						"  Fix: Use slog (via the log package) for structured logging instead of fmt.Print*. Example: log.Info(\"message\", \"key\", value) instead of fmt.Printf(\"message %%v\\n\", value).\n"+
 						"  Why: Structured logs are searchable, filterable, and won't break log aggregation. fmt.Print* bypasses the logging pipeline.",
 					relPath, i+1)

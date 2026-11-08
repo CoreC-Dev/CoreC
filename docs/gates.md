@@ -10,13 +10,13 @@
 |---|--------|--------|---------|---------|
 | G1 | `go vet` | 静态分析 | CI / pre-commit | `make vet` |
 | G2 | `golangci-lint` | bodyclose/errcheck/gocritic/gocyclo/govet/ineffassign/misspell/nilerr/nilnil/revive/staticcheck/unused | CI / pre-commit | `make lint` |
-| G3 | 架构结构测试 | T7: 依赖方向与允许的边 | CI / pre-commit | `make arch` |
-| G4 | 文件大小上限 | T1: ≤600 行 | CI / pre-commit | `make taste` |
-| G5 | 结构化日志 | T6: 禁止 fmt.Println/Printf | CI / pre-commit | `make taste` |
-| G6 | 文档校验 | T9: 死链/必填节/孤儿/包注释 | CI / pre-commit | `make docs` |
+| G3 | 架构结构测试 | 依赖方向与允许的边 | CI / pre-commit | `make arch` |
+| G4 | 文件大小上限 | ≤600 行 | CI / pre-commit | `make taste` |
+| G5 | 结构化日志 | 禁止 fmt.Println/Printf | CI / pre-commit | `make taste` |
+| G6 | 文档校验 | 死链/必填节/孤儿/包注释 | CI / pre-commit | `make docs` |
 | G7 | 单元测试 | 全量 -short -race | CI | `make test` |
-| G8 | 覆盖率门禁 | T10: 整体 ≥75% + 按包下限 | CI (push/PR) | `make cover-gate` |
-| G9 | 版本一致性 | D3: tag == ldflags 注入点 | CI (tag push) | 见下方 |
+| G8 | 覆盖率门禁 | 整体 ≥75% + 按包下限 | CI (push/PR) | `make cover-gate` |
+| G9 | 版本一致性 | tag == ldflags 注入点 | CI (tag push) | 见下方 |
 | G10 | 交叉编译 | linux/darwin/windows × amd64/arm64(+armv7) | CI (push/PR) | 见下方 |
 | G11 | 工具面一致性 | Dashboard AI 助手的工具名与读写分类与本仓 `corec-mcp` 一致 | CI / pre-commit | `make parity` |
 
@@ -37,24 +37,24 @@
 - **钉版**：`GOLANGCI_VERSION ?= v2.15.0` 定义于 Makefile（唯一版本源），`make lint` 缺失时自装该版本，与 CI 完全一致
 - **豁免**：`//nolint:linter名 // 原因` — 须附原因，见下方豁免机制
 
-### G3: 架构结构测试（T7）
+### G3: 架构结构测试
 - **失败含义**：包的 import 违反 `archtest/arch_test.go` 中 `allowedDeps` 的允许边表（与 ARCHITECTURE.md 的分层规则对应），或命中跨域禁止边（driver 之间互不依赖、transport/mqtt ↔ transport/httppush 互不依赖）。未在表中登记的新包默认拒绝一切内部依赖（default-deny），新包必须显式归类
 - **修复指引**：错误信息格式：`ARCH VIOLATION: X imports Y (not in allowed dependencies)` / `(cross-domain forbidden)` + `Fix: ...`
 - **测试位置**：`archtest/arch_test.go`
 - **豁免**：无（架构违规必须修复，或更新 archtest 允许边表并经人工评审）
 
-### G4: 文件大小上限（T1）
+### G4: 文件大小上限
 - **失败含义**：.go 文件超过 600 行且未在 `exemptedFiles` 中登记（豁免条目还须在 `exemptedFileCaps` 钉上限：超过钉死的行数同样失败）
 - **修复指引**：按职责拆分为更小文件。若暂不能拆，在 `tastetest/taste_test.go` 的 `exemptedFiles` 中添加条目并附 tracker ID
 - **测试位置**：`tastetest/taste_test.go::TestFileSizeLimit`
 
-### G5: 结构化日志（T6）
+### G5: 结构化日志
 - **失败含义**：生产代码中使用 `fmt.Println` 或 `fmt.Printf`（跳过：测试文件、demo/、cmd/corec/、log/、archtest/、tastetest/、vendor）
 - **修复指引**：改用结构化日志：`slog.Info("msg", "key", val)`（引擎/驱动等生产代码的实际写法），或 log 包的 printf 风格 `log.Infoln("msg %v", val)`；勿用 `fmt.Printf("msg %v\n", val)`
 - **测试位置**：`tastetest/taste_test.go::TestStructuredLogging`
 - **豁免**：无
 
-### G6: 文档校验（T9）
+### G6: 文档校验
 - **失败含义**：死链 / 缺必填节 / 孤儿文档 / 缺包注释
 - **修复指引**：`scripts/check-docs.sh` 输出具体问题和文件。按提示修复链接/补充章节/添加引用
 - **豁免**：孤儿文档为警告（不阻断）；其余为错误（阻断）
@@ -65,13 +65,13 @@
 - **本地命令**：`make test`（= `go test -race -short -timeout 120s ./...`，race 经 Makefile `GOFLAGS` 注入；`make test-all` 为不带 `-short` 的全量长测）
 - **豁免**：`t.Skip()` 须附原因
 
-### G8: 覆盖率门禁（T10）
+### G8: 覆盖率门禁
 - **失败含义**：整体覆盖率低于 75%，或任一登记包低于其按包下限（`scripts/check-coverage.sh`：core 95 / hub 90 / hub/route 85 / config 80 / rule 80 / engine 75 / **cmd/corec 85 / cmd/corec-mcp 65** …——完整表以脚本的 `threshold_for` 为准，这里只是摘录）
 - **修复指引**：`go test -cover -coverprofile=cover.out ./... && go tool cover -func=cover.out` 找出低覆盖包，补充测试
 - **本地命令**：`make cover-gate`（判定，与 CI 同一脚本）；`make cover` 仅生成报告不做判定
 - **豁免**：无
 
-### G9: 版本一致性（D3）
+### G9: 版本一致性
 - **失败含义**：git tag 不符合 semver，或以 tag ldflags 构建出的二进制 `-version` 输出与 tag 不符
 - **触发**：tag push 时的 `release.yml` version-check job——真实行为断言：以 tag ldflags 注入两处版本声明点构建后，`./corec -version` 必须等于 tag（tag 前缀 v 由脚本剥去）
 - **修复指引**：确保 tag 格式为 `vX.Y.Z`；检查 `cmd/corec/main.go` 的 `version` 变量与 `hub/route/server.go` 的 `Version` 注入点未被重命名

@@ -119,7 +119,7 @@ func TestOfflineBufferEviction(t *testing.T) {
 		t.Fatalf("Len = %d, want 3 (after eviction)", got)
 	}
 
-	// B2.1: every eviction must be observable, not silent. 5 pushes into
+	// every eviction must be observable, not silent. 5 pushes into
 	// a capacity-3 buffer evict exactly 2 oldest batches.
 	if got := ob.EvictedCount(); got != 2 {
 		t.Fatalf("EvictedCount = %d, want 2 (5 pushes into capacity 3)", got)
@@ -354,7 +354,7 @@ func TestOfflineBufferDrainCount(t *testing.T) {
 	}
 }
 
-// TestOfflineBufferDrainFiltersBySource verifies the B2.3 ownership
+// TestOfflineBufferDrainFiltersBySource verifies the ownership
 // filter: the buffer is shared across all transport batchers, so a
 // drain for transport B must leave transport A's batches on disk —
 // replaying them through B would misroute the data and delete the

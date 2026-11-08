@@ -134,7 +134,7 @@ func (e *Engine) Match(point core.DataPoint) []*MatchResult {
 	// over the global (priority, config-order) evaluation sequence, rules
 	// after the terminal match are NOT evaluated, so we only record
 	// misses for rules that precede it: strictly lower priority, or equal
-	// priority with an earlier build position (B7-1 tie-break). If no
+	// priority with an earlier build position. If no
 	// terminal match, all rules would have been evaluated.
 	var terminalPriority int
 	var terminalSeq int

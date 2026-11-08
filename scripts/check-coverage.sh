@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Coverage gate — fails if overall or per-package coverage drops below
-# the configured thresholds. Integrated into `make gates` (Phase 5).
+# the configured thresholds. Integrated into `make gates`.
 #
 # Usage: bash scripts/check-coverage.sh
 # Exit: 0 if all thresholds met, 1 otherwise.

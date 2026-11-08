@@ -24,7 +24,7 @@ func closedPort(t *testing.T) string {
 	return addr
 }
 
-// TestMQTTStartFailsWhenNoReconnect verifies H10: when the initial MQTT
+// TestMQTTStartFailsWhenNoReconnect verifies that when the initial MQTT
 // connection fails and auto-reconnect is disabled (both auto-reconnect
 // and connect-retry are false), Start() surfaces the error instead of
 // returning nil and leaving the transport silently stuck.

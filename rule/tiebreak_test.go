@@ -28,7 +28,7 @@ func ruleStatsByName(eng *Engine) map[string]core.RuleStat {
 // TestMatchSamePriorityConfigOrderDriverFirst verifies that a driver rule
 // listed before a same-priority universal rule is evaluated first and the
 // universal rule is never reached when the driver rule terminates. Under
-// the pre-B7-1 behaviour the universal rule always evaluated first on
+// the previous behaviour the universal rule always evaluated first on
 // equal priority, systematically shadowing the driver rule.
 func TestMatchSamePriorityConfigOrderDriverFirst(t *testing.T) {
 	eng := NewEngine()
