@@ -83,6 +83,10 @@ func TestHTTPMetricsMiddlewareCountsRequests(t *testing.T) {
 	beforeCounts, beforeBuckets, beforeSum, beforeCount := httpMetricsCollector.snapshot()
 
 	okHandler := httpMetricsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A non-zero duration is required by the sum assertion below; some
+		// virtualized clocks have coarse monotonic resolution and a trivial
+		// handler can measure as exactly 0.
+		time.Sleep(2 * time.Millisecond)
 		render(w, r, http.StatusOK, map[string]string{"ok": "true"})
 	}))
 	errHandler := httpMetricsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

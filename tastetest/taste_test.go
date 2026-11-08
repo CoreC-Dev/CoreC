@@ -1,6 +1,5 @@
 // File size上限 — no .go file exceeds maxLines without a documented exemption.
 // Structured logging — no fmt.Println/fmt.Printf in production code.
-// Platform reliability — every go statement must be context-bound (checked via grep).
 package tastetest
 
 import (
@@ -49,6 +48,7 @@ func TestFileSizeLimit(t *testing.T) {
 		}
 		// Make path relative to module root
 		relPath, _ := filepath.Rel(root, path)
+		relPath = filepath.ToSlash(relPath) // normalize \ on Windows before prefix checks
 		// Only check .go files
 		if !strings.HasSuffix(relPath, ".go") {
 			return nil
@@ -111,6 +111,7 @@ func TestStructuredLogging(t *testing.T) {
 			return nil //nolint:nilerr // WalkDir: skip unreadable entries, don't abort walk
 		}
 		relPath, _ := filepath.Rel(root, path)
+		relPath = filepath.ToSlash(relPath) // normalize \ on Windows before prefix checks
 		if !strings.HasSuffix(relPath, ".go") {
 			return nil
 		}

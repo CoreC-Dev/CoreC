@@ -4,8 +4,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CoreC-Dev/CoreC/core"
 	"github.com/CoreC-Dev/CoreC/hub/route"
@@ -85,8 +87,11 @@ func TestReloadAutoSnapshot_CreatesBackupBeforePersist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to stat backup file: %v", err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Errorf("backup permissions = %o, want 600 (config contains credentials)", perm)
+	// Windows has no POSIX permission bits: chmod 0600 reports 0666 there.
+	if runtime.GOOS != "windows" {
+		if perm := info.Mode().Perm(); perm != 0o600 {
+			t.Errorf("backup permissions = %o, want 600 (config contains credentials)", perm)
+		}
 	}
 	if info.Size() != b.Size {
 		t.Errorf("listed size %d != on-disk size %d", b.Size, info.Size())
@@ -167,6 +172,9 @@ func TestReloadAutoSnapshot_RetentionLimit(t *testing.T) {
 		if err := Reload("", "global:\n  log-level: debug\n"); err != nil {
 			t.Fatalf("reload %d failed: %v", i+1, err)
 		}
+		// Backup names are UnixNano; keep them distinct even on platforms
+		// with coarse clock resolution, otherwise retention order is a tie.
+		time.Sleep(time.Millisecond)
 		backups, err := ListConfigBackups()
 		if err != nil {
 			t.Fatalf("list after reload %d failed: %v", i+1, err)

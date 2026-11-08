@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -148,7 +147,7 @@ transports:
 	case <-time.After(5 * time.Second):
 		t.Fatal("subprocess did not produce any output within 5s")
 	}
-	_ = cmd.Process.Signal(syscall.SIGTERM)
+	_ = terminateProcess(cmd.Process)
 
 	err = cmd.Wait()
 	if err != nil {
@@ -188,7 +187,7 @@ func TestArmForcedExit(t *testing.T) {
 	}
 
 	// Second signal: forced exit with code 1.
-	sigCh <- syscall.SIGINT
+	sigCh <- os.Interrupt
 	select {
 	case code := <-exitCalls:
 		if code != 1 {
@@ -381,7 +380,10 @@ transports:
 	// Deliver SIGTERM to trigger the graceful-shutdown path. run()
 	// registered for SIGTERM via signal.Notify, so the signal is
 	// received by its channel rather than terminating the process.
-	_ = syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
+	// The delivery is POSIX-only; the Windows helper skips the test.
+	if !sendSIGTERM(t) {
+		return
+	}
 
 	select {
 	case code := <-done:

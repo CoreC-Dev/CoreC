@@ -919,7 +919,8 @@ func TestWriteHistoryFiltering(t *testing.T) {
 		t.Errorf("?driver=plc1&tag=setpoint = %+v", got)
 	}
 	// since: entries at-or-after the cutoff (newest-first list).
-	if got := get("?since=" + older.Format(time.RFC3339)); len(got) != 2 {
+	// UTC (Z suffix) keeps the query free of "+", which a URL decodes as a space.
+	if got := get("?since=" + older.UTC().Format(time.RFC3339)); len(got) != 2 {
 		t.Errorf("?since = %d entries, want 2 (old and older)", len(got))
 	}
 	if got := get("?limit=1"); len(got) != 1 || !got[0].Timestamp.Equal(old) {
