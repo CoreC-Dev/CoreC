@@ -1,4 +1,3 @@
-// Package engine implements the CoreC orchestration engine.
 //
 // This file holds the command-path tests for two invariants:
 // configuration-class write failures (tag not found, read-only

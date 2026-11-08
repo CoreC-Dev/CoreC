@@ -259,7 +259,7 @@ t.client = &http.Client{
 ```
 
 ::: tip 连接池的意义
-没有连接池时，每次 POST 都要建立 TCP 连接 + TLS 握手，延迟显著。连接池复用使后续请求直接走已建立的连接，吞吐量可提升数倍。`MaxIdleConnsPerHost: 20` 意味着对同一目标服务最多保持 20 条空闲连接。
+没有连接池时，每次 POST 都要建立 TCP 连接 + TLS 握手，延迟显著。连接池复用使后续请求直接走已建立的连接。
 :::
 
 #### 批量发布
@@ -302,7 +302,7 @@ HTTP 传输的 `PublishBatch` 将多个 `DataPoint` 序列化为 JSON 数组，�
 |:---|:---|:---|
 | 凑满即发 | 累积消息数达到 `batch-size` | 高吞吐，追求每请求最大负载 |
 | 到时即发 | 距上次发送超过 `flush-interval` | 低延迟，保证数据及时上报 |
-| 两者取早 | 任意条件先满足 | 推荐，兼顾吞吐与延迟 |
+| 两者取早 | 任意条件先满足 | — |
 
 ::: info 批量聚合实现
 引擎在 `publishToTargets` 中通过 `transportBatcher` 包装层实现批量聚合：数据点先进入内存缓冲，当缓冲达到 `batch-size` 或 `flush-interval` 定时器触发时，一次性调用 `PublishBatch` 发送。发送失败时按 `retry-count` 进行指数退避重试。重试耗尽后，若启用了全局 `buffer`，数据批次写入本地磁盘缓冲待后续回放；否则数据丢弃。只要配置了 `batch-size` / `flush-interval` / `retry-count` 任意一项，或启用了全局离线 `buffer`，该传输就走批量路径；三项都未配置且无离线缓冲的传输仍逐点调用 `Publish`。

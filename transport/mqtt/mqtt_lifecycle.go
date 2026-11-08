@@ -1,4 +1,3 @@
-// Package mqtt: transport lifecycle — Start (broker connect + subscribe),
 // client-option assembly, TLS wiring, and the command/data subscriptions.
 package mqtt
 

@@ -1,4 +1,3 @@
-// Package engine implements the CoreC orchestration engine.
 package engine
 
 import (

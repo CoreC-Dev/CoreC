@@ -1,4 +1,3 @@
-// Package modbus implements the Modbus TCP and RTU protocol drivers for CoreC.
 //
 // This file holds tests for the ReconnectCount status field, which is
 // populated from the reconnect loop's counted variant and surfaced via

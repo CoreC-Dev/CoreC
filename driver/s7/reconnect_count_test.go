@@ -1,4 +1,3 @@
-// Package s7 implements the Siemens S7 protocol driver for CoreC.
 // Supports S7-200, S7-300, S7-400, S7-1200, and S7-1500 PLCs.
 //
 // This file holds tests for the ReconnectCount status field, which is

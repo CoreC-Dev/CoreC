@@ -29,7 +29,7 @@ description: CoreC 是什么 —— 面向工业物联网的高性能、配置�
   IIoT Data Collection and Distribution Core
 ```
 
-> 版本号由构建时 ldflags 注入（`-X main.version=x.y.z`）：发布版显示对应 git tag 的版本（当前最新 tag 为 `v0.0.4`），未注入时默认显示 `dev`，可用 `-version` 参数直接打印。
+> 版本号由构建时 ldflags 注入（`-X main.version=x.y.z`）：发布版显示对应 git tag 的版本，未注入时默认显示 `dev`，可用 `-version` 参数直接打印。
 
 ## 核心特性
 

@@ -169,7 +169,7 @@ if [[ $missing_pkg -eq 0 ]]; then ok "所有包有注释"; else errors=$((errors
 # 缩进在没有父键的位置：Docs Gate（跑本脚本）保持绿色，Deploy Docs 红在
 # "bad indentation of a mapping entry"。本地必须能拦住这一类。
 #
-# 不引入 YAML 依赖（R6），只验结构不验语义：首个 --- 在第 1 行、有闭合 ---、
+# 不引入 YAML 依赖，只验结构不验语义：首个 --- 在第 1 行、有闭合 ---、
 # front-matter 非空。缩进层级是否正确由站点构建最终裁定 —— 这里宁可漏报，
 # 也不误报（误报会让人习惯性跳过这个门禁，比没有门禁更糟）。
 fm_checked=0

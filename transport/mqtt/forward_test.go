@@ -1,4 +1,3 @@
-// Package mqtt implements the MQTT transport for CoreC.
 package mqtt
 
 import (

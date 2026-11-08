@@ -1,4 +1,3 @@
-// Package config — environment variable substitution tests.
 package config
 
 import (

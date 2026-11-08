@@ -47,7 +47,6 @@
 - **失败含义**：.go 文件超过 600 行且未在 `exemptedFiles` 中登记（豁免条目还须在 `exemptedFileCaps` 钉上限：超过钉死的行数同样失败）
 - **修复指引**：按职责拆分为更小文件。若暂不能拆，在 `tastetest/taste_test.go` 的 `exemptedFiles` 中添加条目并附 tracker ID
 - **测试位置**：`tastetest/taste_test.go::TestFileSizeLimit`
-- **当前豁免**：**0 个**（`exemptedFiles` 与 `exemptedFileCaps` 均为空表，保持为空除非确实无法拆分）
 
 ### G5: 结构化日志（T6）
 - **失败含义**：生产代码中使用 `fmt.Println` 或 `fmt.Printf`（跳过：测试文件、demo/、cmd/corec/、log/、archtest/、tastetest/、vendor）
@@ -93,7 +92,7 @@ func (b *Batcher) runTask(...) {
 
 **规则**：
 - 每个 `//nolint` 必须附 `// 原因` 注释
-- 原因应含 tracker ID（如 `CPLX-014`）或具体理由
+- 原因应含 tracker ID 或具体理由
 - 触发豁免的问题修复后，对应的 nolint 应被移除
 
 ### 文件大小豁免

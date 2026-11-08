@@ -1,4 +1,3 @@
-// Package util provides shared helper functions used across drivers,
 // transports, and the rule engine.
 //
 // This file holds tests for ReconnectLoopWithBreakerCounted, the

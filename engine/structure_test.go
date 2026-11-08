@@ -182,7 +182,7 @@ func TestCoreCEngineMethodsAreForwarders(t *testing.T) {
 			}
 			total++
 			if fd.Body == nil || len(fd.Body.List) != 1 {
-				t.Errorf("%s: CoreCEngine.%s must be a single-statement forwarder to a role (CPLX-020 shell discipline); move the logic into the owning role struct",
+				t.Errorf("%s: CoreCEngine.%s must be a single-statement forwarder to a role; move the logic into the owning role struct",
 					name, fd.Name.Name)
 				continue
 			}
@@ -190,13 +190,13 @@ func TestCoreCEngineMethodsAreForwarders(t *testing.T) {
 			case *ast.ReturnStmt, *ast.ExprStmt:
 				// Forwarder shape: a single delegation to a role.
 			default:
-				t.Errorf("%s: CoreCEngine.%s must be a single return/expr statement delegating to a role (CPLX-020 shell discipline)",
+				t.Errorf("%s: CoreCEngine.%s must be a single return/expr statement delegating to a role",
 					name, fd.Name.Name)
 			}
 		}
 	}
 	if total == 0 {
-		t.Fatal("no CoreCEngine methods found — the parser scan is broken and cannot guard the CPLX-020 shell discipline")
+		t.Fatal("no CoreCEngine methods found — the parser scan is broken and cannot guard the shell discipline")
 	}
 }
 

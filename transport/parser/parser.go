@@ -279,7 +279,6 @@ func (p *rawParser) Parse(payload []byte, topic string) (core.DataPoint, error) 
 }
 
 // ============================================================
-// Helpers
 // ============================================================
 
 func getMapSetting(settings map[string]any, key string) map[string]any {

@@ -98,7 +98,7 @@ global:
     ## pprof configuration:
     # pprof-disabled: false         # set true to disable pprof endpoints entirely
     # pprof-addr: "127.0.0.1:6060"  # optional: run pprof on a separate port (no auth)
-    ## Dedicated metrics server (audit OBS-12): when set, /metrics is removed
+    ## Dedicated metrics server: when set, /metrics is removed
     ## from the main authenticated API and served credential-free on this
     ## loopback-only address (Prometheus no longer needs the API secret).
     # metrics-addr: "127.0.0.1:9109"
@@ -422,7 +422,7 @@ global:
 #       ##     that predate timestamp enforcement.
 #       # command-max-skew: 5m
 #       # command-strict-replay: false
-#       ## Last Will and Testament (audit TRA-2): the broker publishes the
+#       ## Last Will and Testament: the broker publishes the
 #       ## will message on will-topic if this CoreC disconnects without a
 #       ## DISCONNECT packet (crash, network cut, power loss) — the standard
 #       ## edge-gateway liveness signal for downstream systems. Arming

@@ -359,7 +359,7 @@ CoreC-B（中继节点）通过 `command-topic` 收到云端命令后，如果**
 
 **配置要点**：
 - `command-forward-topic`：转发命令的目标 topic（通常是下游节点的 `command-topic`）
-- `command-forward-secret`：签名密钥，建议使用环境变量 `${COREC_COMMAND_SECRET}`，取值与下游节点 A 的 `command-secret` 一致
+- `command-forward-secret`：签名密钥，使用环境变量 `${COREC_COMMAND_SECRET}`，取值与下游节点 A 的 `command-secret` 一致
 - 如果所有 forwarder 都失败（或未配置），命令进入死信队列（`GET /write/failed` 可查）
 :::
 

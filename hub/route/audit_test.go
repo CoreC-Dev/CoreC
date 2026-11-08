@@ -1,4 +1,3 @@
-// Package route implements the HTTP API for the CoreC industrial gateway.
 // This file holds tests for the audit logging added to the config-, rule-,
 // and tag-writing handlers. The tests verify that the slog audit records
 // are emitted on both success and failure paths while preserving each

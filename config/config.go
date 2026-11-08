@@ -12,13 +12,13 @@ import (
 
 // globalDriverRegistry wraps core's package-level functions to satisfy
 // the DriverRegistry interface, keeping validate() decoupled from
-// global state (ARCH-002).
+// global state.
 type globalDriverRegistry struct{}
 
 func (globalDriverRegistry) RegisteredDrivers() []string { return core.RegisteredDrivers() }
 
 // globalTransportRegistry wraps core's package-level functions to satisfy
-// the TransportRegistry interface (ARCH-002).
+// the TransportRegistry interface.
 type globalTransportRegistry struct{}
 
 func (globalTransportRegistry) RegisteredTransports() []string { return core.RegisteredTransports() }
@@ -120,7 +120,7 @@ func Validate(cfg *core.Config) error {
 
 // ValidateWithRegistries runs validation against a Config using the
 // provided driver and transport registries. Used in tests to avoid
-// depending on global registration state (ARCH-002).
+// depending on global registration state.
 func ValidateWithRegistries(cfg *core.Config, drivers DriverRegistry, transports TransportRegistry) error {
 	return validate(cfg, drivers, transports)
 }

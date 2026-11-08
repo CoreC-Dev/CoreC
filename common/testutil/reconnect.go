@@ -1,4 +1,3 @@
-// Package testutil provides shared test helpers for driver reconnect behavior.
 // Import only from _test.go files.
 package testutil
 

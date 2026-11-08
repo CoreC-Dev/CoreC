@@ -1,4 +1,3 @@
-// Package tastetest contains taste invariant tests (T1–T10).
 //
 // T1: File size上限 — no .go file exceeds maxLines without a documented exemption.
 // T6: Structured logging — no fmt.Println/fmt.Printf in production code.
@@ -82,7 +81,7 @@ func TestFileSizeLimit(t *testing.T) {
 			if cap, pinned := exemptedFileCaps[relPath]; pinned && lines > cap {
 				t.Errorf(
 					"T1 VIOLATION: exempted file %s grew to %d lines (exemption pinned at %d)\n"+
-						"  Fix: split the file and lower/remove the exemption, or raise the pin CONSCIOUSLY with a tracker update (CPLX-001).\n"+
+						"  Fix: split the file and lower/remove the exemption, or raise the pin CONSCIOUSLY with a tracker update .\n"+
 						"  Reason on file: %s",
 					relPath, lines, cap, reason)
 				violations++

@@ -1,4 +1,3 @@
-// Package opcua implements the OPC UA client driver for CoreC.
 //
 // This file holds tests for the ReconnectCount status field, which is
 // populated from the reconnect loop's counted variant and surfaced via

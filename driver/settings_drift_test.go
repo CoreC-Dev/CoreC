@@ -1,4 +1,3 @@
-// Package driver_test hosts cross-package settings-allowlist drift tests:
 // each ValidateSettings implementation
 // declares its known keys; this test scans the production sources for
 // every settings key the code actually parses and fails when a parsed

@@ -1,4 +1,3 @@
-// Package mqtt: the I/O surface — publish paths (single/batch/forward),
 // channel accessors, status snapshot, and topic-template assembly.
 package mqtt
 

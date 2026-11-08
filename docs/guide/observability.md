@@ -217,7 +217,7 @@ scrape_configs:
       - targets: ['localhost:9090']
 ```
 
-```yaml [生产推荐：专用免密指标接口]
+```yaml [专用免密指标接口]
 # CoreC 侧：global.api.metrics-addr: "127.0.0.1:9109"（仅回环）
 # Prometheus 侧：无需 token —— 抓取面拿不到能 PUT /configs 的主 API secret
 scrape_configs:
@@ -416,7 +416,7 @@ trace.InjectTraceparent(ctx, req)
 `NewSpanID()` 同理生成 8 字节（16 hex 字符）的 span ID。
 
 ::: info 升级路径
-追踪系统设计为可平滑升级至 OpenTelemetry。当前 trace ID 格式已兼容 W3C Trace Context，未来可通过替换 `common/trace/` 内部实现接入 OTLP exporter，无需修改调用方代码。
+trace ID 格式已兼容 W3C Trace Context。
 :::
 
 ## pprof 性能分析

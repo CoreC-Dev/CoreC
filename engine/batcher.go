@@ -24,16 +24,11 @@ const (
 	defaultDrainInterval = 30 * time.Second
 
 	// defaultFlushInterval is the periodic flush interval used when an
-	// offline buffer is configured but no explicit FlushInterval is set,
-	// so buffered points are actually sent rather than accumulating
-	// indefinitely.
+	// offline buffer is configured but no explicit FlushInterval is set.
 	defaultFlushInterval = 5 * time.Second
 
 	// defaultCommandRetryMaxDelay caps the exponential backoff for
-	// command-write retries (CoreCEngine.executeWriteWithRetry). It is
-	// intentionally tighter than defaultRetryMaxDelay (used for batch
-	// publish) because command writes are user-initiated and should fail
-	// fast to the dead letter queue instead of blocking the command loop.
+	// command-write retries (CoreCEngine.executeWriteWithRetry).
 	defaultCommandRetryMaxDelay = 2 * time.Second
 
 	// defaultFlushBatchQueueSize bounds the number of full batches pending
@@ -45,8 +40,7 @@ const (
 )
 
 // batcherRetryPolicy groups the retry/backoff tuning of the batch publish
-// path and its offline-buffer push counter, so transportBatcher itself
-// stays under the per-struct field ceiling.
+// path and its offline-buffer push counter.
 type batcherRetryPolicy struct {
 	// retryCount is the number of publish retries after the first
 	// attempt (TransportConfig.RetryCount).
@@ -77,8 +71,7 @@ type batcherRetryPolicy struct {
 
 // batcherBufferState groups the batcher's mutable in-memory buffering
 // state — the partial buffer, the bounded flush queue, and their
-// observability counters — so transportBatcher itself stays under the
-// per-struct field ceiling. mu guards buffer, stopped, and
+// observability counters. mu guards buffer, stopped, and
 // flushBatches together: publish()'s append+enqueue and stop()'s
 // stopped-flag must form one critical section.
 type batcherBufferState struct {

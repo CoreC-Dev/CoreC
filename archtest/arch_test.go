@@ -1,4 +1,3 @@
-// Package archtest contains architecture structure tests that mechanically enforce
 // the dependency direction rules defined in ARCHITECTURE.md.
 //
 // These tests run `go list -json ./...` to obtain the actual import graph,

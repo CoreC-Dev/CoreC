@@ -79,7 +79,7 @@ func TestNoHardcodedDemoTokenInConfigs(t *testing.T) {
 			continue
 		}
 		if strings.Contains(string(data), `secret: "demo-token"`) {
-			t.Errorf("SEC-005 regression: %s still contains hardcoded secret \"demo-token\"", f)
+			t.Errorf("regression: %s still contains hardcoded secret \"demo-token\"", f)
 		}
 	}
 }

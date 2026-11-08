@@ -13,7 +13,7 @@ CoreC 是一个纯 Go 单二进制程序，部署非常简单。本章介绍前�
 
 | 项目 | 要求 | 说明 |
 |:---|:---|:---|
-| 操作系统 | Linux / macOS / Windows | 推荐 Linux 部署于边缘网关 |
+| 操作系统 | Linux / macOS / Windows | — |
 | 架构 | amd64 / arm64（Linux 另发布 armv7） | 树莓派等 ARM 设备同样支持，见 Release 构建矩阵 |
 | 内存 | 无硬性下限 | 占用随点位规模、DataBus 容量与缓冲配置而定 |
 | 网络 | 能访问设备协议端口与北向端点 | Modbus 502、S7 102、OPC UA 4840 等 |
@@ -30,7 +30,7 @@ CoreC 是一个纯 Go 单二进制程序，部署非常简单。本章介绍前�
 CoreC 需要 Go ≥ 1.27.3 工具链。请通过 `go version` 确认。
 :::
 
-## 方式一：从源码构建（推荐）
+## 方式一：从源码构建
 
 从源码构建可以获得最新特性，且便于二次开发。
 
@@ -151,9 +151,9 @@ ERROR failed to load config path=config.yaml error="failed to read config file c
 请确保运行目录下有配置文件，或通过 `-c` 显式指定路径。
 :::
 
-### 推荐的部署目录结构
+### 部署目录结构
 
-生产环境推荐如下目录布局：
+目录布局：
 
 ```text
 /opt/corec/
@@ -164,7 +164,7 @@ ERROR failed to load config path=config.yaml error="failed to read config file c
 ```
 
 ::: tip 离线缓冲
-启用 `global.buffer` 后，传输失败时数据会写入 `buffer.path` 指定目录，待传输恢复后自动回放。生产环境建议将缓冲目录放在独立磁盘分区以避免空间不足。
+启用 `global.buffer` 后，传输失败时数据会写入 `buffer.path` 指定目录，待传输恢复后自动回放。
 :::
 
 对应的 systemd 服务单元示例：
@@ -196,9 +196,9 @@ sudo systemctl enable --now corec
 
 CoreC 管理 API 默认对浏览器开放 CORS：未配置 `global.api.allowed-origins` 时输出 `Access-Control-Allow-Origin: *`。这是刻意设计，服务于 Dashboard 的**直连部署形态**（静态 SPA——如 GitHub Pages——直接访问远程 CoreC），否则浏览器无法跨域直连后端。CORS 不影响认证：所有业务端点仍需 `Authorization: Bearer <secret>`，无 token 的跨域页面只能拿到 401。
 
-两种部署形态的推荐姿势：
+两种部署形态：
 
-| 形态 | 说明 | CORS 建议 |
+| 形态 | 说明 | CORS |
 |:---|:---|:---|
 | **同源反向代理**（生产首选） | Dashboard 部署形态的 `server.mjs` 将 `/corec-api/*` 反代到 CoreC，浏览器只访问同源 | 无需 CORS，也无需配置 |
 | **直连** | 浏览器直接访问 CoreC API 地址 | **公网部署务必**配置 `global.api.allowed-origins` 为 Dashboard 域名 allowlist |
@@ -248,7 +248,7 @@ INFO CoreC engine started successfully
 INFO CoreC is running config=config.yaml
 ```
 
-两条 WARN 是预期行为：空管道是一个合法的启动状态（详见 [快速上手](./quickstart.md)）。
+空管道是一个合法的启动状态（详见 [快速上手](./quickstart.md)）。
 
 > `types=` 列表包含全部 8 个内置驱动类型；列表来自注册表的 map 遍历，每次启动的顺序不固定。
 

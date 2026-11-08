@@ -1,4 +1,3 @@
-// Package transport_test hosts the transport settings-allowlist drift
 // test — the transport twin of
 // driver/settings_drift_test.go: every settings key the code parses must
 // appear in the ValidateSettings allowlist, so a new setting without a

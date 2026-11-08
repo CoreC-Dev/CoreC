@@ -154,10 +154,8 @@ func (t *NotifyTransport) OnCommand() <-chan core.WriteCommand { return nil }
 // OnData returns nil — notify does not ingest upstream data.
 func (t *NotifyTransport) OnData() <-chan core.DataPoint { return nil }
 
-// Name returns the transport instance name.
 func (t *NotifyTransport) Name() string { return t.name }
 
-// Type returns the transport protocol type name.
 func (t *NotifyTransport) Type() string { return TypeName }
 
 // Status reports the current transport status and counters.

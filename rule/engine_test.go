@@ -40,7 +40,6 @@ func TestEngineMatch(t *testing.T) {
 		t.Fatalf("failed to set rules: %v", err)
 	}
 
-	// Case 1: matches high temp alert
 	p1 := core.DataPoint{
 		Driver: "modbus1",
 		Tag:    "temperature",
@@ -57,7 +56,6 @@ func TestEngineMatch(t *testing.T) {
 		t.Errorf("expected targets [mqtt-alerts], got %v", res1.Targets)
 	}
 
-	// Case 2: normal temp matches default-route
 	p2 := core.DataPoint{
 		Driver: "modbus1",
 		Tag:    "temperature",

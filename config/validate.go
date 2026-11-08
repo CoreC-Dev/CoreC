@@ -10,14 +10,14 @@ import (
 
 // DriverRegistry provides access to the set of registered driver types.
 // Implemented by core.Registry or test doubles — eliminates the config
-// package's direct coupling to core.RegisteredDrivers() (ARCH-002).
+// package's direct coupling to core.RegisteredDrivers().
 type DriverRegistry interface {
 	RegisteredDrivers() []string
 }
 
 // TransportRegistry provides access to the set of registered transport
 // types. Implemented by core.Registry or test doubles — eliminates the
-// config package's direct coupling to core.RegisteredTransports() (ARCH-002).
+// config package's direct coupling to core.RegisteredTransports().
 type TransportRegistry interface {
 	RegisteredTransports() []string
 }
@@ -25,7 +25,7 @@ type TransportRegistry interface {
 // validate performs config validation, failing fast on invalid values
 // that would otherwise only surface at runtime. The driver and transport
 // registries are injected so the config package does not depend on
-// global state (ARCH-002).
+// global state.
 func validate(cfg *core.Config, drivers DriverRegistry, transports TransportRegistry) error {
 	if err := validateBuffer(cfg); err != nil {
 		return err

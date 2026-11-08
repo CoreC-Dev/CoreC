@@ -187,10 +187,8 @@ func (d *BaseDriver) Status() core.DriverStatus {
 	}
 }
 
-// Name returns the driver instance name.
 func (d *BaseDriver) Name() string { return d.name }
 
-// Type returns the driver type string.
 func (d *BaseDriver) Type() string { return d.driverType }
 
 // reconnectLoop runs the shared reconnect loop with circuit breaker.

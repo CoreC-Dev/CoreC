@@ -24,7 +24,7 @@ DataPoint 进入规则引擎
         └─ 规则N (priority=999) match: "ALL"  ──▶ 兜底匹配
 ```
 
-没有规则匹配的数据点将被**静默丢弃**（不转发到任何传输，但仍会更新 `LatestCache` 与广播给订阅者）。因此实践中**始终建议配置一条 `match: "ALL"` 的兜底规则**。
+没有规则匹配的数据点将被**静默丢弃**（不转发到任何传输，但仍会更新 `LatestCache` 与广播给订阅者）。
 
 ## 规则配置结构
 
@@ -314,7 +314,7 @@ rules:
 4. **drop 不可 continue**：`drop` + `continue: true` 是矛盾的（丢弃意味着停止），配置校验会拒绝
 :::
 
-### 推荐的优先级分层
+### 优先级分层
 
 | 优先级范围 | 用途 | 示例 |
 |:---|:---|:---|
@@ -392,10 +392,10 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 ### 运行时禁用 / 启用规则
 
-无需重启即可临时禁用某条规则（如告警风暴时静默）。`PATCH /rules/disable` 同时支持按名称（推荐，名称在配置校验下唯一且在重载后稳定）与按下标（兼容旧客户端）寻址：
+无需重启即可临时禁用某条规则（如告警风暴时静默）。`PATCH /rules/disable` 同时支持按名称（名称在配置校验下唯一且在重载后稳定）与按下标（兼容旧客户端）寻址：
 
 ```bash
-# 按名称禁用（推荐）
+# 按名称禁用
 curl -s -X PATCH -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "high-temp-alert", "disabled": true}' \
