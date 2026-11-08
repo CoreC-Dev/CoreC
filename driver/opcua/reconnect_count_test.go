@@ -1,4 +1,3 @@
-//
 // This file holds tests for the ReconnectCount status field, which is
 // populated from the reconnect loop's counted variant and surfaced via
 // Status() so it can be exposed as a Prometheus metric.

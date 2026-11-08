@@ -1,4 +1,3 @@
-//
 // This file holds the command-path tests for two invariants:
 // configuration-class write failures (tag not found, read-only
 // area, type mismatch) are dead-lettered immediately instead of being

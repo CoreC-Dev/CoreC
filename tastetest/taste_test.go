@@ -1,4 +1,3 @@
-//
 // T1: File size上限 — no .go file exceeds maxLines without a documented exemption.
 // T6: Structured logging — no fmt.Println/fmt.Printf in production code.
 // T8: Platform reliability — every go statement must be context-bound (checked via grep).
