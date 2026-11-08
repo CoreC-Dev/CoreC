@@ -82,3 +82,17 @@ func (r *readAccessor) applyConfig(cfg *core.EngineConfig) {
 		r.staleThreshold.Store(int64(d))
 	}
 }
+
+// --- CoreCEngine forwarders (core.DataAccessor / core.StatsProvider) ---
+
+func (e *CoreCEngine) ReadTag(ctx context.Context, driver, tag string) (*core.TagValue, error) {
+	return e.reads.ReadTag(ctx, driver, tag)
+}
+
+func (e *CoreCEngine) LatestValues(driver string) map[string]core.DataPoint {
+	return e.reads.LatestValues(driver)
+}
+
+func (e *CoreCEngine) StaleThreshold() time.Duration {
+	return e.reads.StaleThreshold()
+}

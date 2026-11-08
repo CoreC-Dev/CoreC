@@ -285,9 +285,6 @@ func (d *BaseDriver) ErrorCount() uint64 { return d.errorCount.Load() }
 // Context returns the driver's context (set during Start).
 func (d *BaseDriver) Context() context.Context { return d.ctx }
 
-// Config returns the driver's config.
-func (d *BaseDriver) Config() core.DriverConfig { return d.config }
-
 // Logger returns the driver's logger.
 func (d *BaseDriver) Logger() core.Logger { return d.logger }
 
