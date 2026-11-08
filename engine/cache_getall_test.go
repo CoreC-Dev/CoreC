@@ -44,11 +44,11 @@ func TestCacheGetAllMultipleDriversSharedTag(t *testing.T) {
 	if len(all) != 1 {
 		t.Fatalf("expected 1 entry (shared tag), got %d", len(all))
 	}
-	// The value should be one of the two drivers' values; the DataPoint
-	// carries its own Driver field so the source is identifiable.
+	// Sorted driver names make the winner deterministic: drv2 is visited
+	// last and overwrites drv1.
 	dp := all["temp"]
-	if dp.Value != 10.0 && dp.Value != 20.0 {
-		t.Errorf("temp value = %v, want 10.0 or 20.0", dp.Value)
+	if dp.Value != 20.0 || dp.Driver != "drv2" {
+		t.Errorf("temp = %v from %q, want 20.0 from drv2 (deterministic last in sorted order)", dp.Value, dp.Driver)
 	}
 }
 

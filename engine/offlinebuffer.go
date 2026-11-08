@@ -40,6 +40,10 @@ type OfflineBuffer struct {
 	// by scanning the directory on startup so that sequence numbers
 	// remain monotonic across restarts.
 	nextSeq uint64
+	// seqs is the in-memory, sorted index of buffered sequence numbers.
+	// Push/evict/drain maintain it so the hot path never scans the
+	// directory (which was O(files) on every failed publish).
+	seqs []uint64
 
 	// drainCount tracks the total number of batches successfully
 	// replayed by Drain. It is incremented atomically inside Drain on
@@ -83,32 +87,45 @@ func NewOfflineBuffer(dir string, maxEntries int) (*OfflineBuffer, error) {
 		dir:        dir,
 		maxEntries: maxEntries,
 	}
-	ob.nextSeq = ob.scanMaxSeq() + 1
+	ob.seqs = ob.scanSeqs()
+	if n := len(ob.seqs); n > 0 {
+		ob.nextSeq = ob.seqs[n-1] + 1
+	} else {
+		ob.nextSeq = 1
+	}
 	return ob, nil
 }
 
-// scanMaxSeq reads the directory and returns the highest sequence
-// number found, so that new entries don't collide with old ones
-// after a restart.
-func (ob *OfflineBuffer) scanMaxSeq() uint64 {
+// scanSeqs reads the directory once at startup and returns the sorted
+// sequence numbers already on disk, seeding both the in-memory index and
+// nextSeq.
+func (ob *OfflineBuffer) scanSeqs() []uint64 {
 	entries, err := os.ReadDir(ob.dir)
 	if err != nil {
-		return 0
+		return nil
 	}
-	var maxSeq uint64
+	seqs := make([]uint64, 0, len(entries))
 	for _, ent := range entries {
 		if ent.IsDir() {
 			continue
 		}
-		seq, ok := parseSeqFile(ent.Name())
-		if !ok {
-			continue
-		}
-		if seq > maxSeq {
-			maxSeq = seq
+		if seq, ok := parseSeqFile(ent.Name()); ok {
+			seqs = append(seqs, seq)
 		}
 	}
-	return maxSeq
+	sort.Slice(seqs, func(i, j int) bool { return seqs[i] < seqs[j] })
+	return seqs
+}
+
+// dropSeqLocked removes one sequence from the in-memory index. Caller
+// holds ob.mu.
+func (ob *OfflineBuffer) dropSeqLocked(seq uint64) {
+	for i, s := range ob.seqs {
+		if s == seq {
+			ob.seqs = append(ob.seqs[:i], ob.seqs[i+1:]...)
+			return
+		}
+	}
 }
 
 func parseSeqFile(name string) (uint64, bool) {
@@ -177,6 +194,8 @@ func (ob *OfflineBuffer) Push(points []core.DataPoint, source string) error {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("offline buffer: rename: %w", err)
 	}
+	// The file is now visible; keep the in-memory index in sync.
+	ob.seqs = append(ob.seqs, seq)
 
 	// Fsync the directory to persist the rename metadata (directory entry
 	// update). Without this, a power loss could leave the file content
@@ -199,35 +218,21 @@ func (ob *OfflineBuffer) Push(points []core.DataPoint, source string) error {
 }
 
 // evictIfNeeded removes the oldest entries until the count is below
-// maxEntries. Caller must hold ob.mu.
+// maxEntries. Caller must hold ob.mu and ob.seqs is sorted ascending.
 func (ob *OfflineBuffer) evictIfNeeded() {
-	entries, err := os.ReadDir(ob.dir)
-	if err != nil {
-		return
-	}
-
-	// Collect and sort sequence numbers.
-	var seqs []uint64
-	for _, ent := range entries {
-		if ent.IsDir() {
-			continue
-		}
-		if seq, ok := parseSeqFile(ent.Name()); ok {
-			seqs = append(seqs, seq)
-		}
-	}
-	sort.Slice(seqs, func(i, j int) bool { return seqs[i] < seqs[j] })
-
 	// Evict oldest (lowest seq) until we have room for one more.
-	for len(seqs) >= ob.maxEntries {
-		oldest := seqs[0]
-		seqs = seqs[1:]
+	for len(ob.seqs) >= ob.maxEntries {
+		oldest := ob.seqs[0]
 		path := filepath.Join(ob.dir, seqFileName(oldest))
-		if err := os.Remove(path); err != nil {
-			if !os.IsNotExist(err) {
-				slog.Warn("offline buffer: failed to evict", "file", path, "error", err)
-			}
-			// Nothing was actually removed; do not count a phantom eviction.
+		err := os.Remove(path)
+		if err != nil && !os.IsNotExist(err) {
+			slog.Warn("offline buffer: failed to evict", "file", path, "error", err)
+			return
+		}
+		ob.seqs = ob.seqs[1:]
+		if err != nil {
+			// Already gone: drop the stale index entry, but do not count a
+			// phantom eviction.
 			continue
 		}
 		// The eviction dropped real data: surface it. Capacity-based
@@ -263,24 +268,11 @@ func (ob *OfflineBuffer) Drain(source string, tryPublish func([]core.DataPoint) 
 	ob.drainMu.Lock()
 	defer ob.drainMu.Unlock()
 
+	// Snapshot the in-memory index (sorted oldest-first) instead of
+	// rescanning the directory on every drain round.
 	ob.mu.Lock()
-	entries, err := os.ReadDir(ob.dir)
+	seqs := append([]uint64(nil), ob.seqs...)
 	ob.mu.Unlock()
-	if err != nil {
-		return 0, fmt.Errorf("offline buffer: read dir: %w", err)
-	}
-
-	// Collect and sort sequence numbers (oldest first).
-	var seqs []uint64
-	for _, ent := range entries {
-		if ent.IsDir() {
-			continue
-		}
-		if seq, ok := parseSeqFile(ent.Name()); ok {
-			seqs = append(seqs, seq)
-		}
-	}
-	sort.Slice(seqs, func(i, j int) bool { return seqs[i] < seqs[j] })
 
 	drained := 0
 	foreignSkipped := 0
@@ -315,7 +307,9 @@ func (ob *OfflineBuffer) Drain(source string, tryPublish func([]core.DataPoint) 
 		if err := json.Unmarshal(data, &entry); err != nil {
 			slog.Warn("offline buffer: corrupt entry, removing", "file", path, "error", err)
 			ob.mu.Lock()
-			_ = os.Remove(path)
+			if remErr := os.Remove(path); remErr == nil || os.IsNotExist(remErr) {
+				ob.dropSeqLocked(seq)
+			}
 			ob.mu.Unlock()
 			continue
 		}
@@ -337,14 +331,20 @@ func (ob *OfflineBuffer) Drain(source string, tryPublish func([]core.DataPoint) 
 		}
 
 		ob.mu.Lock()
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			// The batch stays on disk and will be replayed again on the
-			// next drain round — a duplicate delivery under the
-			// documented at-least-once semantics (see
-			// docs/architecture/dataflow.md). The error is logged rather
-			// than ignored so the repeat delivery is visible.
-			slog.Warn("offline buffer: failed to remove replayed batch, it will be re-published on the next drain (duplicate delivery)",
-				"file", path, "error", err)
+		if err := os.Remove(path); err != nil {
+			if !os.IsNotExist(err) {
+				// The batch stays on disk and will be replayed again on the
+				// next drain round — a duplicate delivery under the
+				// documented at-least-once semantics (see
+				// docs/architecture/dataflow.md). The error is logged rather
+				// than ignored so the repeat delivery is visible.
+				slog.Warn("offline buffer: failed to remove replayed batch, it will be re-published on the next drain (duplicate delivery)",
+					"file", path, "error", err)
+			} else {
+				ob.dropSeqLocked(seq)
+			}
+		} else {
+			ob.dropSeqLocked(seq)
 		}
 		ob.mu.Unlock()
 		drained++
@@ -353,21 +353,12 @@ func (ob *OfflineBuffer) Drain(source string, tryPublish func([]core.DataPoint) 
 	return drained, nil
 }
 
-// Len returns the number of buffered batches currently on disk.
+// Len returns the number of buffered batches currently on disk, from the
+// in-memory index (no directory scan).
 func (ob *OfflineBuffer) Len() int {
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
-	entries, err := os.ReadDir(ob.dir)
-	if err != nil {
-		return 0
-	}
-	count := 0
-	for _, ent := range entries {
-		if !ent.IsDir() && strings.HasSuffix(ent.Name(), ".json") {
-			count++
-		}
-	}
-	return count
+	return len(ob.seqs)
 }
 
 // PendingCount returns the number of buffered batches currently awaiting

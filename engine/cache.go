@@ -2,6 +2,7 @@ package engine
 
 import (
 	"hash/fnv"
+	"sort"
 	"sync"
 	"sync/atomic"
 
@@ -68,8 +69,11 @@ func (c *LatestCache) Update(point core.DataPoint) {
 
 	dc.mu.Lock()
 	dc.values[point.Tag] = point
-	dc.mu.Unlock()
+	// Set dirty under the same lock that publishes the value: a reader
+	// between Unlock and Store would see the new value but a false dirty
+	// flag and take the stale fast-path snapshot.
 	dc.dirty.Store(true)
+	dc.mu.Unlock()
 }
 
 // Get retrieves the latest value for a specific driver and tag.
@@ -128,15 +132,22 @@ func (c *LatestCache) GetByDriver(driver string) map[string]core.DataPoint {
 }
 
 // GetAll retrieves the latest values for every driver, keyed by tag name.
-// When two drivers share a tag name, the last one visited wins (the
-// DataPoint value carries its own Driver field, so the source is not lost).
-// This is the backing implementation for the GET /tags endpoint.
+// When two drivers share a tag name, the last driver in sorted-name order
+// wins (the DataPoint value carries its own Driver field, so the source is
+// not lost). Sorting makes the winner deterministic across calls; ranging
+// the map directly made GET /tags flap between drivers.
 func (c *LatestCache) GetAll() map[string]core.DataPoint {
 	all := make(map[string]core.DataPoint)
 	for i := range c.shards {
 		shard := &c.shards[i]
 		shard.mu.RLock()
-		for _, dc := range shard.drivers {
+		names := make([]string, 0, len(shard.drivers))
+		for name := range shard.drivers {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			dc := shard.drivers[name]
 			dc.mu.RLock()
 			for k := range dc.values {
 				all[k] = dc.values[k]

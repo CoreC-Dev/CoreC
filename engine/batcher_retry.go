@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -23,6 +24,8 @@ func (r *batcherRetryPolicy) publishWithRetryAndBuffer(ctx context.Context, batc
 	maxAttempts := r.retryCount + 1
 	baseDelay := defaultRetryBaseDelay
 	var lastErr error
+	pending := batch
+	delivered := 0
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		// Observe data age for each point at the moment of the publish
@@ -33,14 +36,14 @@ func (r *batcherRetryPolicy) publishWithRetryAndBuffer(ctx context.Context, batc
 		// retries, giving operators the real freshness distribution.
 		if b.dataAge != nil {
 			now := time.Now()
-			for i := range batch {
-				b.dataAge.Observe(now.Sub(batch[i].Timestamp))
+			for i := range pending {
+				b.dataAge.Observe(now.Sub(pending[i].Timestamp))
 			}
 		}
 
 		start := time.Now()
 		timeoutCtx, cancel := context.WithTimeout(ctx, defaultPublishTimeout)
-		lastErr = b.transport.PublishBatch(timeoutCtx, batch)
+		lastErr = b.transport.PublishBatch(timeoutCtx, pending)
 		cancel()
 		if b.publishLatency != nil {
 			b.publishLatency.Observe(time.Since(start))
@@ -52,9 +55,30 @@ func (r *batcherRetryPolicy) publishWithRetryAndBuffer(ctx context.Context, batc
 			// successful publishes (counting right after the near-instant
 			// enqueue would over-report batches that later fail).
 			if b.onPublish != nil {
-				b.onPublish(len(batch))
+				b.onPublish(delivered + len(pending))
 			}
 			return true
+		}
+
+		// Transports that can report partial success (MQTT) return the
+		// failed indexes. Retry only those: resending the whole batch
+		// duplicated every point that already reached the broker.
+		var partial *core.BatchPublishError
+		if errors.As(lastErr, &partial) && len(partial.Failed) > 0 {
+			delivered += len(pending) - len(partial.Failed)
+			next := make([]core.DataPoint, 0, len(partial.Failed))
+			for _, idx := range partial.Failed {
+				if idx >= 0 && idx < len(pending) {
+					next = append(next, pending[idx])
+				}
+			}
+			if len(next) == 0 {
+				if b.onPublish != nil {
+					b.onPublish(delivered)
+				}
+				return true
+			}
+			pending = next
 		}
 
 		if attempt < maxAttempts-1 {
@@ -62,12 +86,12 @@ func (r *batcherRetryPolicy) publishWithRetryAndBuffer(ctx context.Context, batc
 			if delay > defaultRetryMaxDelay {
 				delay = defaultRetryMaxDelay
 			}
-			slog.Warn("batch publish retry (note: partial success may cause duplicates on retry; use QoS≥1 or downstream dedup by driver+tag+timestamp)",
+			slog.Warn("batch publish retry (only the failed subset is resent when the transport reports per-point failures)",
 				"transport", b.transport.Name(),
 				"attempt", attempt+1,
 				"max", maxAttempts,
 				"delay", delay,
-				"batch_size", len(batch),
+				"batch_size", len(pending),
 				"error", lastErr,
 			)
 			select {
@@ -83,12 +107,16 @@ func (r *batcherRetryPolicy) publishWithRetryAndBuffer(ctx context.Context, batc
 	}
 
 exhausted:
-	// All retries exhausted (or context cancelled).
+	// All retries exhausted (or context cancelled). Points already
+	// delivered on a partial attempt still count as publishes.
+	if b.onPublish != nil && delivered > 0 {
+		b.onPublish(delivered)
+	}
 	if b.offlineBuffer != nil {
-		if bufErr := b.offlineBuffer.Push(batch, b.transport.Name()); bufErr != nil {
+		if bufErr := b.offlineBuffer.Push(pending, b.transport.Name()); bufErr != nil {
 			slog.Error("batch publish failed and offline buffer push failed",
 				"transport", b.transport.Name(),
-				"batch_size", len(batch),
+				"batch_size", len(pending),
 				"publish_error", lastErr,
 				"buffer_error", bufErr,
 			)
@@ -99,14 +127,14 @@ exhausted:
 			r.offlineBufferPushes.Add(1)
 			slog.Warn("batch publish failed, buffered to offline storage",
 				"transport", b.transport.Name(),
-				"batch_size", len(batch),
+				"batch_size", len(pending),
 				"error", lastErr,
 			)
 		}
 	} else {
 		slog.Error("batch publish failed after retries",
 			"transport", b.transport.Name(),
-			"batch_size", len(batch),
+			"batch_size", len(pending),
 			"error", lastErr,
 		)
 	}

@@ -169,5 +169,6 @@ func (t *NotifyTransport) Status() core.TransportStatus {
 		Published:   t.published.Load(),
 		Failed:      t.failed.Load(),
 		LastPublish: t.lastPublish,
+		Endpoint:    t.channel,
 	}
 }

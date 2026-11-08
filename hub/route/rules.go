@@ -21,8 +21,9 @@ type disableRuleRequest struct {
 	// reordered or removed.
 	Name string `json:"name"`
 	// Index addresses the rule by position; kept for backward
-	// compatibility with clients that predate name addressing.
-	Index    int  `json:"index"`
+	// compatibility with clients that predate name addressing. A pointer
+	// distinguishes "omitted" from the valid index 0.
+	Index    *int `json:"index"`
 	Disabled bool `json:"disabled"`
 }
 
@@ -42,20 +43,26 @@ func disableRule(w http.ResponseWriter, r *http.Request) {
 	var rm core.RuleManager = getEngine()
 
 	var err error
+	index := -1
 	if req.Name != "" {
 		// Name addressing wins when both fields are present: it is the
 		// stable identifier and the index may be stale.
 		err = rm.SetRuleDisabledByName(req.Name, req.Disabled)
+	} else if req.Index == nil {
+		// An omitted index used to fall through to index 0 — in a
+		// priority-ordered table that is often the safety interlock.
+		renderError(w, r, http.StatusBadRequest, "name or index is required")
+		return
 	} else {
-		// Legacy index addressing: index defaults to 0 when omitted.
-		err = rm.SetRuleDisabled(req.Index, req.Disabled)
+		index = *req.Index
+		err = rm.SetRuleDisabled(index, req.Disabled)
 	}
 	if err != nil {
 		slog.Error("rule disable failed",
 			"method", r.Method,
 			"path", r.URL.Path,
 			"rule", req.Name,
-			"rule_index", req.Index,
+			"rule_index", index,
 			"disabled", req.Disabled,
 			"remote", r.RemoteAddr,
 			"error", err)
@@ -68,7 +75,7 @@ func disableRule(w http.ResponseWriter, r *http.Request) {
 	// valid here (SetRuleDisabled succeeded), so the lookup is safe.
 	ruleName := req.Name
 	if ruleName == "" {
-		ruleName = ruleNameAt(rm, req.Index)
+		ruleName = ruleNameAt(rm, index)
 	}
 	msg := "rule disabled"
 	if !req.Disabled {
@@ -78,7 +85,7 @@ func disableRule(w http.ResponseWriter, r *http.Request) {
 		"method", r.Method,
 		"path", r.URL.Path,
 		"rule", ruleName,
-		"rule_index", req.Index,
+		"rule_index", index,
 		"remote", r.RemoteAddr)
 
 	renderNoContent(w)

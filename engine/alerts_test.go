@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -167,6 +168,43 @@ func TestAlertRegistryCap(t *testing.T) {
 	}
 	if got := len(am.active); got > alertRegistryCap {
 		t.Errorf("registry size = %d, exceeds cap %d", got, alertRegistryCap)
+	}
+}
+
+// TestAlertRegistryOverflowOrderIsFiredFirst pins the P3-5 event ordering:
+// when the registry overflows, a stream consumer sees the new alert's
+// fired event before the cleared events of the alerts it evicted.
+func TestAlertRegistryOverflowOrderIsFiredFirst(t *testing.T) {
+	am := newAlertManager(time.Hour)
+	ch, unsub := am.subscribe()
+	defer unsub()
+	rule := testAlertRule{"flood-order"}
+
+	go func() {
+		for i := 0; i <= alertRegistryCap; i++ {
+			am.record(rule, alertPoint(fmt.Sprintf("d%d", i), "t", 1))
+		}
+	}()
+
+	// Stream until a fired event is immediately followed by a cleared one —
+	// the overflow boundary. Publishing and draining run concurrently so the
+	// bounded subscriber channel does not drop mid-flood.
+	lastType := ""
+	readOne := func() core.AlertEvent {
+		select {
+		case ev := <-ch:
+			return ev
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out waiting for events; last type = %q", lastType)
+			return core.AlertEvent{}
+		}
+	}
+	for {
+		ev := readOne()
+		if lastType == string(core.AlertFired) && ev.Type == core.AlertCleared {
+			return // fired came before cleared: ordering fixed
+		}
+		lastType = string(ev.Type)
 	}
 }
 

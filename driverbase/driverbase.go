@@ -9,6 +9,7 @@ package driverbase
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -184,7 +185,64 @@ func (d *BaseDriver) Status() core.DriverStatus {
 		ReadCount:      d.readCount.Load(),
 		ErrorCount:     d.errorCount.Load(),
 		ReconnectCount: d.reconnectCount.Load(),
+		Endpoint:       connectionEndpoint(d.driverType, d.config),
 	}
+}
+
+// connectionEndpoint renders a compact, operator-facing connection target
+// from the driver's settings. It exists so status consumers (topology page,
+// instance panel) do not need the raw config YAML.
+func connectionEndpoint(driverType string, cfg core.DriverConfig) string {
+	get := func(key string) string {
+		if v, ok := cfg.Settings[key].(string); ok {
+			return v
+		}
+		return ""
+	}
+	getInt := func(key string) (int, bool) {
+		switch v := cfg.Settings[key].(type) {
+		case int:
+			return v, true
+		case int64:
+			return int(v), true
+		case float64:
+			return int(v), true
+		}
+		return 0, false
+	}
+
+	switch driverType {
+	case "modbus-tcp", "modbus-tls", "modbus-net":
+		host := get("host")
+		if host == "" {
+			return ""
+		}
+		if port, ok := getInt("port"); ok && port > 0 {
+			return fmt.Sprintf("%s:%d", host, port)
+		}
+		return host
+	case "modbus-rtu":
+		return get("serial-device")
+	case "s7":
+		ip := get("ip")
+		if ip == "" {
+			return ""
+		}
+		rack, _ := getInt("rack")
+		slot, _ := getInt("slot")
+		if rack != 0 || slot != 0 {
+			return fmt.Sprintf("%s (rack %d, slot %d)", ip, rack, slot)
+		}
+		return ip
+	case "opcua":
+		return get("endpoint")
+	}
+	for _, key := range []string{"endpoint", "broker", "url", "host", "device"} {
+		if v := get(key); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func (d *BaseDriver) Name() string { return d.name }

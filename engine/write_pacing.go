@@ -57,6 +57,25 @@ func (p *writePacer) currentInterval() time.Duration {
 	return p.interval
 }
 
+// pacedError carries the remaining wait so the command retry loop can sleep
+// exactly the device window instead of a generic exponential backoff.
+type pacedError struct {
+	driver   string
+	interval time.Duration
+	wait     time.Duration
+}
+
+func (e *pacedError) Error() string {
+	return fmt.Sprintf("%s: driver %q accepts a write every %s (retry in %s)",
+		core.ErrWritePaced, e.driver, e.interval, e.wait.Round(time.Millisecond))
+}
+
+func (e *pacedError) Unwrap() error { return core.ErrWritePaced }
+
+// RetryAfter reports how long the caller must wait before the same write can
+// be admitted.
+func (e *pacedError) RetryAfter() time.Duration { return e.wait }
+
 // check reports whether a write to driver may proceed now. On refusal the
 // returned error wraps core.ErrWritePaced and names the remaining wait.
 //
@@ -85,8 +104,7 @@ func (p *writePacer) check(driver string) error {
 	now := time.Now()
 	if ok && now.Sub(prev) < interval {
 		wait := interval - now.Sub(prev)
-		return fmt.Errorf("%w: driver %q accepts a write every %s (retry in %s)",
-			core.ErrWritePaced, driver, interval, wait.Round(time.Millisecond))
+		return &pacedError{driver: driver, interval: interval, wait: wait}
 	}
 	return nil
 }

@@ -125,7 +125,10 @@ func (r *engineRuntime) Start(ctx context.Context, config *core.Config) error {
 	if store := r.eng.writes.deadLetters.store; store != nil {
 		replayed := store.load(r.eng.writes.deadLetters.maxLen)
 		r.eng.writes.deadLetters.mu.Lock()
-		r.eng.writes.deadLetters.queue = append(r.eng.writes.deadLetters.queue, replayed...)
+		// Replace, do not append: the queue is in-memory state that dies
+		// with Stop(); appending a replay of the same JSONL on every
+		// Start/Reload would duplicate entries (n, n+k, n+2k...).
+		r.eng.writes.deadLetters.queue = replayed
 		r.eng.writes.deadLetters.mu.Unlock()
 	}
 

@@ -183,6 +183,12 @@ func (am *alertManager) record(rule core.Rule, point core.DataPoint) {
 	// without limit. (Inlined rather than a helper method — single
 	// caller, and the alertManager must stay within the role-method
 	// ceiling.)
+	// History keeps causal order: the new alert's fired event is recorded
+	// before the overflow evictions it caused.
+	if ev != nil {
+		am.appendHistoryLocked(*ev)
+	}
+	var cleared []core.AlertEvent
 	if len(am.active) > alertRegistryCap {
 		byLastFired := make([]*core.Alert, 0, len(am.active))
 		for _, a := range am.active {
@@ -193,18 +199,20 @@ func (am *alertManager) record(rule core.Rule, point core.DataPoint) {
 		})
 		for _, a := range byLastFired[:len(am.active)-alertRegistryCap] {
 			delete(am.active, a.Key)
-			ev := core.AlertEvent{Type: core.AlertCleared, Alert: *a, At: now}
-			am.appendHistoryLocked(ev)
-			am.publish(ev)
+			cev := core.AlertEvent{Type: core.AlertCleared, Alert: *a, At: now}
+			am.appendHistoryLocked(cev)
+			cleared = append(cleared, cev)
 		}
-	}
-	if ev != nil {
-		am.appendHistoryLocked(*ev)
 	}
 	am.mu.Unlock()
 
+	// Publish the new alert before the evictions it caused; publishing
+	// cleared first made a stream consumer see "cleared" before "fired".
 	if ev != nil {
 		am.publish(*ev)
+	}
+	for _, cev := range cleared {
+		am.publish(cev)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -207,14 +208,17 @@ func authentication(secret string) func(http.Handler) http.Handler {
 					token = token[7:]
 				}
 			} else {
-				// Only allow query-parameter token for WebSocket upgrade
-				// requests, where the browser WebSocket API does not
-				// support custom Authorization headers. For regular HTTP
-				// requests, require the Authorization header to avoid
-				// token leakage via browser history, reverse-proxy access
-				// logs, and HTTP Referer headers.
+				// Only allow WebSocket upgrade requests to carry the token
+				// out-of-band: via Sec-WebSocket-Protocol (preferred — it
+				// never reaches access logs) or the legacy query parameter.
+				// For regular HTTP requests, require the Authorization
+				// header to avoid token leakage via browser history,
+				// reverse-proxy access logs, and HTTP Referer headers.
 				if isWebSocketUpgrade(r) {
-					token = r.URL.Query().Get("token")
+					token = wsSubprotocolToken(r)
+					if token == "" {
+						token = r.URL.Query().Get("token")
+					}
 				}
 			}
 
@@ -239,4 +243,25 @@ func authentication(secret string) func(http.Handler) http.Handler {
 // query parameter as a narrowly-scoped exception.
 func isWebSocketUpgrade(r *http.Request) bool {
 	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
+}
+
+// wsSubprotocolToken extracts a bearer token offered as a WebSocket
+// subprotocol ("token.<url-encoded-secret>"). Browsers cannot set custom
+// Authorization headers on WebSocket upgrades, but they can offer
+// subprotocols; keeping the secret out of the URL query keeps it out of
+// reverse-proxy access logs and Referer headers.
+func wsSubprotocolToken(r *http.Request) string {
+	for _, headerValue := range r.Header.Values("Sec-WebSocket-Protocol") {
+		for _, part := range strings.Split(headerValue, ",") {
+			part = strings.TrimSpace(part)
+			const prefix = "token."
+			if !strings.HasPrefix(part, prefix) {
+				continue
+			}
+			if decoded, err := url.QueryUnescape(strings.TrimPrefix(part, prefix)); err == nil {
+				return decoded
+			}
+		}
+	}
+	return ""
 }

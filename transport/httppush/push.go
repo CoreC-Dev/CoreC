@@ -433,5 +433,6 @@ func (t *HTTPTransport) Status() core.TransportStatus {
 		Received:    t.received.Load(),
 		LastPublish: t.lastPublish,
 		QueueSize:   0,
+		Endpoint:    t.url,
 	}
 }

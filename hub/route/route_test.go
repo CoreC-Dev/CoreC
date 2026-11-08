@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sort"
 	"strings"
 	"testing"
@@ -320,6 +321,71 @@ func TestDisableRule(t *testing.T) {
 	}
 	if me.disabledIdx != 1 || !me.disabledVal {
 		t.Errorf("expected index=1 disabled=true, got index=%d disabled=%v", me.disabledIdx, me.disabledVal)
+	}
+}
+
+// TestWebSocketSubprotocolTokenAuth: browsers cannot set Authorization on
+// WebSocket upgrades, so the dashboard offers the bearer token as a
+// subprotocol. The token must be accepted without ever touching the URL.
+func TestWebSocketSubprotocolTokenAuth(t *testing.T) {
+	me := &mockEngine{}
+	SetEngine(me)
+
+	handler := router(context.Background(), "ws-secret", nil, 0, true, false)
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/drivers", nil)
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Sec-WebSocket-Protocol", "corec.v1, token."+url.QueryEscape("ws-secret"))
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("subprotocol token auth failed: %d", resp.StatusCode)
+	}
+
+	// A wrong token must still be rejected.
+	bad, _ := http.NewRequest(http.MethodGet, ts.URL+"/drivers", nil)
+	bad.Header.Set("Upgrade", "websocket")
+	bad.Header.Set("Sec-WebSocket-Protocol", "token."+url.QueryEscape("nope"))
+	badResp, err := ts.Client().Do(bad)
+	if err != nil {
+		t.Fatalf("bad token request failed: %v", err)
+	}
+	defer badResp.Body.Close()
+	if badResp.StatusCode == http.StatusOK {
+		t.Fatal("wrong subprotocol token should be rejected")
+	}
+}
+
+// TestDisableRuleRequiresNameOrIndex: an omitted index used to fall through
+// to rule 0, which is often the safety interlock in a priority-ordered list.
+func TestDisableRuleRequiresNameOrIndex(t *testing.T) {
+	me := &mockEngine{}
+	SetEngine(me)
+
+	handler := router(context.Background(), "", nil, 0, true, false)
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	body, _ := json.Marshal(map[string]any{"disabled": true})
+	req, _ := http.NewRequest("PATCH", ts.URL+"/rules/disable", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatalf("PATCH /rules/disable failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing name/index, got %d", resp.StatusCode)
+	}
+	if me.disabledVal {
+		t.Error("no rule should have been disabled")
 	}
 }
 

@@ -100,11 +100,9 @@ func (r *driverRegistry) AddDriver(config core.DriverConfig) error {
 	// Stop the old driver outside the lock — it's already removed from the
 	// map, so no concurrent caller can interact with it.
 	if oldDriver != nil {
-		if r.eng.lifecycle.scheduler != nil {
-			if err := r.eng.lifecycle.scheduler.PauseDriver(config.Name); err != nil {
-				slog.Error("failed to pause old driver in scheduler", "name", config.Name, "error", err)
-			}
-		}
+		// Do NOT pause the scheduler here: the old driver is already out
+		// of the map, and a pause flag keyed by driver name would survive
+		// into the new driver, silently stopping collection forever.
 		if err := oldDriver.Stop(); err != nil {
 			slog.Error("failed to stop old driver on replacement", "name", config.Name, "error", err)
 		}

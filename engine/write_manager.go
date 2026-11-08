@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -78,6 +79,15 @@ type writeManager struct {
 // when the buffer is full. In-memory only — the trail survives config
 // reloads but not process restarts.
 const writeAuditCapacity = 1000
+
+// Pacing is "device busy", not a permanent failure: the command retry loop
+// waits out the remaining window and retries without consuming a normal
+// attempt. Both bounds keep a very long interval from pinning a listener
+// slot indefinitely.
+const (
+	maxPacingRetries = 3
+	maxPacingWait    = 10 * time.Second
+)
 
 // Compile-time guard: the engine satisfies the optional write-audit
 // role interface that the route layer type-asserts.
@@ -365,6 +375,7 @@ func (w *writeManager) executeWriteWithRetry(cmd core.WriteCommand) {
 
 	maxAttempts := w.writeRetryCount + 1
 	var lastErr string
+	pacedRetries := 0
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		result, err := w.WriteTag(w.eng.runtime.ctx, cmd)
@@ -376,6 +387,39 @@ func (w *writeManager) executeWriteWithRetry(cmd core.WriteCommand) {
 		default:
 			slog.Info("command write success", "driver", cmd.Driver, "tag", cmd.Tag, "attempt", attempt+1)
 			return
+		}
+
+		// Pacing is neither success nor permanent failure: the command is
+		// sound and the device is merely busy. Wait out the remaining window
+		// without consuming a retry, so a valid command is not dead-lettered
+		// just because write-min-interval exceeds the backoff schedule.
+		var pe *pacedError
+		if err != nil && errors.As(err, &pe) {
+			if pacedRetries >= maxPacingRetries {
+				break
+			}
+			pacedRetries++
+			wait := pe.RetryAfter()
+			if wait <= 0 {
+				wait = w.pacer.currentInterval()
+			}
+			if wait <= 0 {
+				wait = defaultRetryBaseDelay
+			}
+			if wait > maxPacingWait {
+				wait = maxPacingWait
+			}
+			slog.Info("command write paced, waiting for the device window",
+				"driver", cmd.Driver, "tag", cmd.Tag, "wait", wait)
+			select {
+			case <-w.eng.runtime.ctx.Done():
+				slog.Error("command write abandoned by shutdown while paced",
+					"driver", cmd.Driver, "tag", cmd.Tag)
+				return
+			case <-time.After(wait):
+			}
+			attempt-- // pacing does not consume a normal retry
+			continue
 		}
 
 		// Configuration-class failures (unknown tag, read-only target,
@@ -506,11 +550,23 @@ func (w *writeManager) applyConfig(cfg *core.EngineConfig) error {
 		w.pacer.setInterval(interval)
 	}
 	if cfg.DeadLetterPath != "" {
+		// Reconfiguration: close the previous store before replacing it so
+		// a path change cannot leak the old descriptor.
+		if w.deadLetters.store != nil {
+			w.deadLetters.store.close()
+		}
 		store, err := openDeadLetterStore(cfg.DeadLetterPath)
 		if err != nil {
 			return err
 		}
 		w.deadLetters.store = store
+	} else if w.deadLetters.store != nil {
+		// The setting was removed: leave no pointer to a closed file.
+		// Otherwise addDeadLetter keeps writing to a dead descriptor
+		// (silently dropping persistence) and the next Start replays the
+		// old path.
+		w.deadLetters.store.close()
+		w.deadLetters.store = nil
 	}
 	if err := w.writeAudits.configure(cfg.WriteAuditPath); err != nil {
 		return err

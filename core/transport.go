@@ -33,6 +33,24 @@ type Transport interface {
 	Status() TransportStatus
 }
 
+// BatchPublishError reports which points in a batch failed. A transport that
+// can distinguish partial success returns it so the retry loop resends only
+// the failed subset instead of duplicating the points that were delivered.
+type BatchPublishError struct {
+	// Failed indexes into the points slice passed to PublishBatch.
+	Failed []int
+	Err    error
+}
+
+func (e *BatchPublishError) Error() string {
+	if e.Err == nil {
+		return "batch publish failed"
+	}
+	return e.Err.Error()
+}
+
+func (e *BatchPublishError) Unwrap() error { return e.Err }
+
 // CommandForwarder is an optional capability for transports that can
 // republish write commands to downstream nodes. This enables chained-core
 // command passthrough: when a relay node receives a command via
@@ -87,4 +105,7 @@ type TransportStatus struct {
 	// command channel was full. Non-zero indicates sustained command
 	// backpressure; investigate buffer-size tuning or consumer throughput.
 	DroppedCommands uint64 `json:"dropped_commands"`
+	// Endpoint is a compact connection target (broker URL, webhook URL,
+	// notify channel) for topology/connection summaries.
+	Endpoint string `json:"endpoint,omitempty"`
 }

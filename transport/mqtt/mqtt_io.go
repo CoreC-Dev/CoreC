@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -183,31 +184,45 @@ func (t *MQTTTransport) PublishBatch(ctx context.Context, points []core.DataPoin
 		return fmt.Errorf("mqtt transport %s is not connected", t.name)
 	}
 
-	// Concurrent publish: fire all tokens, then wait for all to complete.
-	// This reduces batch latency from N×RTT to ~RTT.
-	type publishResult struct {
-		index int
-		err   error
-	}
-	results := make([]publishResult, len(points))
+	// Bounded concurrent publish: fire tokens in small groups, then wait.
+	// One goroutine + one Paho token per point made a large batch spike
+	// memory/handles without bound.
+	const maxConcurrent = 8
+	sem := make(chan struct{}, maxConcurrent)
 	var wg sync.WaitGroup
-	wg.Add(len(points))
+	var mu sync.Mutex
+	var firstErr error
+	failed := make([]int, 0)
 
 	for i := range points {
+		sem <- struct{}{}
+		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			results[idx] = publishResult{index: idx, err: t.Publish(ctx, points[idx])}
+			defer func() { <-sem }()
+			if err := t.Publish(ctx, points[idx]); err != nil {
+				mu.Lock()
+				failed = append(failed, idx)
+				if firstErr == nil {
+					firstErr = err
+				}
+				mu.Unlock()
+			}
 		}(i)
 	}
 	wg.Wait()
 
-	var firstErr error
-	for _, r := range results {
-		if r.err != nil && firstErr == nil {
-			firstErr = fmt.Errorf("publishBatch: point %d/%d: %w", r.index+1, len(points), r.err)
-		}
+	if firstErr == nil {
+		return nil
 	}
-	return firstErr
+	sort.Ints(failed)
+	// The indexed error lets the batcher retry only the failed points;
+	// returning a bare error made it resend the whole batch, duplicating
+	// every point that had already been published.
+	return &core.BatchPublishError{
+		Failed: failed,
+		Err:    fmt.Errorf("publishBatch: %d/%d points failed: %w", len(failed), len(points), firstErr),
+	}
 }
 
 func (t *MQTTTransport) OnCommand() <-chan core.WriteCommand {
@@ -245,6 +260,7 @@ func (t *MQTTTransport) Status() core.TransportStatus {
 		Received:        t.received.Load(),
 		LastPublish:     t.lastPublish,
 		QueueSize:       queueSize,
+		Endpoint:        t.broker,
 		DroppedCommands: t.droppedCommands.Load(),
 	}
 }
