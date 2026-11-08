@@ -305,7 +305,7 @@ config validation failed: driver demo-plc: unknown type "modbus-tcp1" (registere
 
 ### 设备连接失败但程序未退出
 
-这是**预期行为**。CoreC 采用后台重连策略——初始连接失败不会导致启动失败，而是进入 `connecting` 状态并按指数退避重试。设备恢复后会自动重连并恢复采集。通过 `/drivers/{name}` API 可查看 `state` 字段确认连接状态。
+初始连接失败不会导致启动失败，而是进入 `connecting` 状态并按指数退避重试。设备恢复后会自动重连并恢复采集。通过 `/drivers/{name}` API 可查看 `state` 字段确认连接状态。
 
 ### MQTT 收不到消息
 

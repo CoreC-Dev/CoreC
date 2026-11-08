@@ -1,4 +1,3 @@
-// Package engine implements the core.Engine interface and orchestration pipeline.
 package engine
 
 import (
@@ -165,7 +164,7 @@ func (p *processingCore) processPoint(point core.DataPoint) {
 	// and including the first terminal match (Continue() == false).
 	// All rules are matched against the ORIGINAL point; transforms in the
 	// action loop below mutate the point for publishing but do not affect
-	// which rules matched (see ADR-010 § Limitations).
+	// which rules matched.
 	results := p.eng.ruleSet.ruleEngine.Match(point)
 	if len(results) == 0 {
 		return

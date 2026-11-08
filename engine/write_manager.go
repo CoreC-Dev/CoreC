@@ -1,4 +1,3 @@
-// Package engine implements the core.Engine interface and orchestration pipeline.
 package engine
 
 import (

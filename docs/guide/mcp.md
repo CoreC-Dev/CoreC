@@ -9,14 +9,6 @@ outline: [2, 3]
 
 `corec-mcp` 是**独立可执行文件**，把运行中的 CoreC 实例按 [Model Context Protocol](https://modelcontextprotocol.io) 暴露给 AI 智能体（Claude Desktop、各类 IDE 编程助手、自建 agent）。智能体据此能"看懂现场"：列设备、查状态、读点位值、看告警；显式开启后可下发写入。
 
-## 为什么是独立程序
-
-MCP 带来一个客户端 SDK、一层 stdio 帧、一个常驻协议栈。把它编进 `corec` 会：
-
-- 增加第二个协议的攻击面（**违背** fail-closed 的最小暴露面原则）；
-- 打破单二进制的交叉编译矩阵与 `CGO_ENABLED=0` 静态产物（**R6**）；
-- 让一个"工业采集控制内核"兼职"AI 工具服务器"，职责不清。
-
 `corec-mcp` **无状态、只做转发**：它不连接任何设备、不缓存任何点位、不持有调度状态， 每个工具调用就是一次带 API secret 的 HTTP 请求，语义与 REST 完全一致，因此**引擎侧已经生效的所有约束在这里一句不落地同样生效**：
 
 - 点位写保护（`protect: read-only` 被拒，错误原样返回）；

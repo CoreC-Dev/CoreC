@@ -68,10 +68,8 @@
 
 ### G8: 覆盖率门禁（T10）
 - **失败含义**：整体覆盖率低于 75%，或任一登记包低于其按包下限（`scripts/check-coverage.sh`：core 95 / hub 90 / hub/route 85 / config 80 / rule 80 / engine 75 / **cmd/corec 85 / cmd/corec-mcp 65** …——完整表以脚本的 `threshold_for` 为准，这里只是摘录）
-- **为什么 cmd 也要下限**：命令入口此前落在阈值表之外，实测 `cmd/corec` 87.9%、`cmd/corec-mcp` 67.9%，都不低；但“没被登记”意味着**以后掉下来也没人说话**。`cmd/corec-mcp` 的门禁值取 65，只比现值低不到 3 个点，而不是凑个整数 60：贴着走才有信号；宽 8 个点则在下一次大改之前都不会响。
 - **修复指引**：`go test -cover -coverprofile=cover.out ./... && go tool cover -func=cover.out` 找出低覆盖包，补充测试
 - **本地命令**：`make cover-gate`（判定，与 CI 同一脚本）；`make cover` 仅生成报告不做判定
-- **当前基线**：81.9% 整体（阈值 75%；复现：`make cover-gate`，包级下限全部通过）
 - **豁免**：无
 
 ### G9: 版本一致性（D3）
@@ -89,7 +87,7 @@
 
 ### golangci-lint 豁免
 ```go
-//nolint:gocyclo // CPLX-XXX: <reason>, split planned in <tracker>
+//nolint:gocyclo // CPLX-XXX: <reason>
 func (b *Batcher) runTask(...) {
 ```
 
@@ -101,25 +99,18 @@ func (b *Batcher) runTask(...) {
 ### 文件大小豁免
 在 `tastetest/taste_test.go` 的 `exemptedFiles` map 中登记（同时在 `exemptedFileCaps` 钉上限）：
 ```go
-"path/to/file.go": "CPLX-XXX: N lines over the cap, <reason>, split planned in <tracker>",
+"path/to/file.go": "CPLX-XXX: N lines over the cap, <reason>",
 ```
-**规则**：每条豁免含 tracker ID + 修复计划；`exemptedFileCaps` 中的行数上限一旦被超过即失败（豁免不允许无声增长）。拆分落地后删除条目。
+**规则**：`exemptedFileCaps` 中的行数上限一旦被超过即失败（豁免不允许无声增长）。
 
 ### 测试跳过豁免
 ```go
 func TestSomething(t *testing.T) {
-    t.Skip("TEST-XXX: requires OPC UA simulation server, mock planned in <tracker>")
+    t.Skip("TEST-XXX: requires OPC UA simulation server")
 ```
 **规则**：每个 `t.Skip` 须附 tracker ID 或具体原因。
 
-## 合并理念
-
-- **短生命周期 PR**：PR 应小到可在一次审查中完成
-- **最小阻塞式门禁**：门禁只拦截明确错误，不追求完美
-- **偶发失败**：flaky 测试用重跑解决，不无限阻塞；连续 3 次失败则开 issue
-- **先护栏后动手**：改动受保护不足的模块时，先补测试/门禁再重构（R3）
-
-### G11: 工具面一致性（tools parity）
+## G11: 工具面一致性（tools parity）
 - **失败含义**：`cmd/corec-mcp` 与 Dashboard AI 助手的工具清单出现差异——一边新增/改名/删除了工具，另一边没跟；或同一个工具在两边读写分类不同。后者最危险：意味着 UI 侧可能在不打开写开关时调用到能改变设备的动词。
 - **修复指引**：先在本仓改 `tools.go`，跑 `go test ./cmd/corec-mcp -run TestToolsManifest -update` 重新生成 `cmd/corec-mcp/tools_manifest.json`；再到 `CoreC-Dashboard` 同步 `src/features/assistant/tools.ts`。**两边一起提交**，不要只改一侧让 CI 红着过夜——下次别人会以为那条红是环境噪声。
 - **检查方式**：`scripts/check-tools-parity.mjs` 读本仓生成的清单（`tools_manifest.json`）与 Dashboard 的 `tools.ts` 做集合比对。Dashboard 的工具名不硬编码在脚本里，所以任何一侧的改动都会被看到。

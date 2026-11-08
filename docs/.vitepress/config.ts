@@ -25,7 +25,6 @@ export default defineConfig({
         items: [
           { text: '质量门禁', link: '/gates' },
           { text: 'CI 与发布', link: '/CI' },
-          { text: '设计文档', link: '/design-docs/' },
         ],
       },
       { text: '许可证', link: '/license' },
@@ -62,7 +61,6 @@ export default defineConfig({
             { text: '数据流图', link: '/architecture/dataflow' },
             { text: '高性能设计', link: '/architecture/performance' },
             { text: '核心输入输出', link: '/architecture/io' },
-            { text: '架构决策记录', link: '/architecture/decisions' },
           ],
         },
       ],
@@ -100,7 +98,6 @@ export default defineConfig({
           items: [
             { text: '质量门禁', link: '/gates' },
             { text: 'CI 与发布', link: '/CI' },
-            { text: '核心信念', link: '/design-docs/core-beliefs' },
           ],
         },
       ],
@@ -108,18 +105,6 @@ export default defineConfig({
         {
           text: '工程参考',
           items: [
-            { text: '质量门禁', link: '/gates' },
-            { text: 'CI 与发布', link: '/CI' },
-            { text: '核心信念', link: '/design-docs/core-beliefs' },
-          ],
-        },
-      ],
-      '/design-docs/': [
-        {
-          text: '工程参考',
-          items: [
-            { text: '设计文档索引', link: '/design-docs/' },
-            { text: '核心信念', link: '/design-docs/core-beliefs' },
             { text: '质量门禁', link: '/gates' },
             { text: 'CI 与发布', link: '/CI' },
           ],

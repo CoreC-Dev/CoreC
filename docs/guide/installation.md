@@ -200,14 +200,12 @@ CoreC 管理 API 默认对浏览器开放 CORS：未配置 `global.api.allowed-o
 
 | 形态 | 说明 | CORS 建议 |
 |:---|:---|:---|
-| **同源反向代理**（生产首选） | Dashboard 部署形态的 `server.mjs` 将 `/corec-api/*` 反代到 CoreC，浏览器只访问同源（见 [ADR-011](../architecture/decisions.md)） | 无需 CORS，也无需配置 |
+| **同源反向代理**（生产首选） | Dashboard 部署形态的 `server.mjs` 将 `/corec-api/*` 反代到 CoreC，浏览器只访问同源 | 无需 CORS，也无需配置 |
 | **直连** | 浏览器直接访问 CoreC API 地址 | **公网部署务必**配置 `global.api.allowed-origins` 为 Dashboard 域名 allowlist |
 
 ::: warning 公网直连务必收紧
 默认 `*` 的残余风险是：一旦 API secret 泄露，**任意网页**都能跨域读写该 API——带 `Authorization` 头的请求在 CORS 语义里不算 credentialed request，`*` 下响应体可被读取，比"只能写不能读"更宽。生产环境公网直连部署，请显式配置 [`global.api.allowed-origins`](../config/global.md) 收紧来源；同时配合 TLS 与高熵 secret。
 :::
-
-完整决策依据与备选方案评估见[架构决策 ADR-011](../architecture/decisions.md)。
 
 ## 命令行参数
 

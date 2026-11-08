@@ -4,13 +4,6 @@
 // Command corec-mcp exposes a running CoreC instance to AI agents over the
 // Model Context Protocol.
 //
-// It is a SEPARATE executable, deliberately: MCP brings a client SDK, stdio
-// framing and a second long-lived protocol stack, none of which belong in the
-// single-binary industrial core (core-beliefs: no non-internalisable
-// dependencies; keep the cross-compile matrix intact). This binary is a thin,
-// stateless adapter: it holds no device state of its own and performs no
-// writes unless explicitly started with -allow-write.
-//
 // Every tool delegates to CoreC's control-plane REST API, so the existing
 // guarantees apply unchanged: the API secret authenticates each call,
 // per-tag write protection rejects read-only points, write pacing refuses

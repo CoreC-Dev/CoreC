@@ -78,7 +78,7 @@ global:
     ## with the permissive default, a leaked API secret lets any web page
     ## read AND write the API cross-origin. Same-origin reverse-proxy
     ## deployments (Dashboard proxies /corec-api/* to CoreC) need no CORS
-    ## at all. Rationale: docs/architecture/decisions.md ADR-011.
+    ## at all.
     # allowed-origins:
     #   - http://localhost:3000
     #   - https://dashboard.example.com

@@ -1,5 +1,4 @@
-// Package tastetest contains taste invariant tests (T1–T10) that mechanically enforce
-// the style and architecture conventions defined in docs/design-docs/core-beliefs.md.
+// Package tastetest contains taste invariant tests (T1–T10).
 //
 // T1: File size上限 — no .go file exceeds maxLines without a documented exemption.
 // T6: Structured logging — no fmt.Println/fmt.Printf in production code.

@@ -139,7 +139,7 @@ api:
 配置后仅对列表内来源返回 CORS 头（限制模式）；WebSocket upgrade 的 Origin 校验共用同一 allowlist，同步收紧。
 
 ::: warning 生产建议
-默认 `*` 下，API secret 一旦泄露，任意网页都可跨域**读写**该 API（带 `Authorization` 头的请求在 CORS 语义里不算 credentialed request，响应可被读取）。生产环境公网直连部署务必配置本项为 Dashboard 域名 allowlist；同源反向代理部署（Dashboard 将 `/corec-api/*` 反代到 CoreC）无需 CORS，为生产首选形态。完整决策依据见[架构决策 ADR-011](/architecture/decisions)，部署姿势见[安装指南](/guide/installation)。
+默认 `*` 下，API secret 一旦泄露，任意网页都可跨域**读写**该 API（带 `Authorization` 头的请求在 CORS 语义里不算 credentialed request，响应可被读取）。生产环境公网直连部署务必配置本项为 Dashboard 域名 allowlist；同源反向代理部署（Dashboard 将 `/corec-api/*` 反代到 CoreC）无需 CORS，为生产首选形态。部署姿势见[安装指南](/guide/installation)。
 :::
 
 ### rate-limit-per-sec
@@ -202,10 +202,6 @@ wscat -c "ws://localhost:9090/tags/stream?token=corec-secret-token"
 
 `engine.*` 里的 **duration** 字段一律用 Go 时长语法（`500ms`、`30s`、`15m`、`1h`；单位必写，`200` 裸数字不合法）。
 **留空 = 使用默认值；写错 = 启动失败**（`error` 指明字段与期望语法，同时经 `POST /configs/validate` 返回同样的错误）。
-
-写错会失败而不是"悄悄回落到默认值"，是因为回落会把一次拼写错误变成一次被遗忘的变更：
-`write-min-interval: 200 ms`（多了空格）在旧行为下不会限速、也不会报错，
-运维要等到某次批量写把设备打挂才会发现限速从没生效。
 
 ```yaml
 global:

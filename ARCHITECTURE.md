@@ -54,14 +54,6 @@ Layer 4 (入口层):    cmd/corec（wiring 点，装配一切）
 
 **跨域禁止**：`driver/modbus` 不可依赖 `driver/opcua` 或 `driver/s7`；`transport/mqtt` 不可依赖 `transport/httppush`。
 
-### 当前状态（由 `archtest/` 持续强制）
-
-- ✅ 0 环依赖
-- ✅ 0 跨层违规
-- ✅ 0 跨域依赖
-- ✅ ARCH-001：结构测试已建立（archtest/ 机械强制依赖方向）
-- ✅ ARCH-002：config.validate 已消除全局单例耦合
-
 ## 插件注册机制
 
 ```
@@ -106,6 +98,4 @@ signal.Notify(SIGINT, SIGTERM) → hub.Stop() → engine.Stop()
 - **第二个 SIGINT/SIGTERM 强制退出**：优雅关停进行中再次收到信号时进程立即 `os.Exit(1)`，卡住的关停无需 `kill -9`。
 - **关停数据语义**：已进入 Batcher 的数据保证被 flush（发布或落盘）；仍滞留在 DataBus 通道、未被处理管线消费的点位在关停时被丢弃（有 Warn 日志与 error 计数，不落盘）。详见 `docs/architecture/dataflow.md` 的交付语义一节。
 
-## 已知架构债务
 
-当前无登记在册的架构级技术债。历史债务台账已随记录清理移除；新发现的架构级债务按团队惯例登记在 issue 或专项文档中，修复后即清理。
