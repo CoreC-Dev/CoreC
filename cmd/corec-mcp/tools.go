@@ -40,7 +40,7 @@ func (s *server) toolDefs() []map[string]any {
 		},
 		{
 			name:        "driver_status",
-			description: "Report one driver's status, including whether collection is paused and its scheduler health.",
+			description: "Report one driver's status: connection state, last read/error, tag count and error/reconnect counters.",
 			schema:      obj(map[string]any{"name": strProp("driver name")}, []string{"name"}),
 		},
 		{
