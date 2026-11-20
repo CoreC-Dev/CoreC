@@ -11,10 +11,9 @@ import (
 )
 
 // This file implements arithmetic expression evaluation for the `transform`
-// rule action using expr-lang/expr. It replaces the former hand-written
-// tokenizer/parser (~220 lines) with a thin wrapper (~30 lines).
+// rule action using expr-lang/expr.
 //
-// Supported syntax (identical to before, now powered by expr-lang/expr):
+// Supported syntax:
 //   value              the original numeric value
 //   42, 1.8, -3.14     numeric literals
 //   + - * /            arithmetic operators

@@ -1,17 +1,8 @@
 package config
 
-// A misspelled duration in global.engine used to be accepted and then discarded
-// at runtime. Every reader in engine/ takes the shape
-//
-//	if d, err := time.ParseDuration(cfg.X); err == nil && d > 0 { use(d) }
-//
-// so "30s" parsed, "200 ms" or "30秒" did not, and in the second case the built-in
-// default was used without a word. A config that is spelled wrong is a forgotten
-// change, not a request for the default: the operator needs to hear about it at
-// load (and therefore at POST /configs/validate, which runs the same function),
-// not discover months later that write pacing never applied.
-//
-// These cases pin the fix at the layer that answers both callers.
+// These cases verify that malformed global.engine duration values are
+// rejected at validation time (the layer behind both config load and
+// POST /configs/validate), while empty values keep the default.
 
 import (
 	"strings"

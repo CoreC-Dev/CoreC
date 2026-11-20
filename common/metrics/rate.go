@@ -6,25 +6,19 @@ import (
 )
 
 // rateWindowSeconds is the sliding window over which RateWindow reports
-// throughput. One minute matches the shortest window a Prometheus
-// operator would scrape at and keeps per-second resolution meaningful
-// for "is collection live right now" alerting.
+// throughput.
 const rateWindowSeconds = 60
 
 // rateCountBits is the width of the per-second count packed into each
-// bucket word (low bits). 24 bits saturates a single second's count at
-// 16.7M points — far above any realistic per-second ingest — so the
-// saturation cannot distort a real rate.
+// bucket word (low bits); 24 bits saturates a single second's count at
+// 16.7M points.
 const rateCountBits = 24
 
 const rateCountMax = uint64(1)<<rateCountBits - 1
 
-// RateWindow is a lock-free fixed-window rate counter: 60 one-second
-// buckets, each stamped with the unix second it belongs to. It reports
-// the total number of observations over the last complete window so
-// EngineStats.PointsPerSec can be a true "current rate" instead of a
-// lifetime average, which after a stall keeps decaying for hours
-// instead of dropping to zero.
+// RateWindow is a lock-free rolling-window rate counter (60 one-second
+// buckets, sum over (now-60, now]), each bucket stamped with the unix
+// second it belongs to. It feeds EngineStats.PointsPerSec.
 //
 // Each bucket is a single atomic uint64 packing (unixSecond << 24 |
 // count), so Add and Sum are wait-free and safe for concurrent use:

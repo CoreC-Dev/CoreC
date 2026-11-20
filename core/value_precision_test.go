@@ -68,8 +68,7 @@ func TestDataPointValuePrecisionRoundTrip(t *testing.T) {
 
 // TestDataPointUntypedAndMismatchedFallbacks pins the fallback rule:
 // when the value token does not fit the declared type's JSON form — or
-// the type is absent entirely — the default `any` decode applies, which
-// is exactly the pre-fix behavior for those payloads.
+// the type is absent entirely — the default `any` decode applies.
 func TestDataPointUntypedAndMismatchedFallbacks(t *testing.T) {
 	t.Run("absent type keeps default number decode", func(t *testing.T) {
 		var dp DataPoint
@@ -111,8 +110,7 @@ func TestDataPointUntypedAndMismatchedFallbacks(t *testing.T) {
 
 // TestWriteCommandValuePrecisionRoundTrip: a cloud-issued int64 write
 // above ±2^53 must reach the driver bit-exactly through MQTT command
-// decoding and the API — previously the float64 coercion made the PLC
-// receive a rounded register payload.
+// decoding and the API.
 func TestWriteCommandValuePrecisionRoundTrip(t *testing.T) {
 	cases := []struct {
 		name string
@@ -141,8 +139,8 @@ func TestWriteCommandValuePrecisionRoundTrip(t *testing.T) {
 // TestDecodeValueByTypeBranches covers the token-decoder helpers'
 // fallback branches directly: these paths guard malformed or untyped
 // payloads whose outer JSON is valid, so the public round-trip cannot
-// always reach them. All assertions pin the pre-fix behavior: the
-// default `any` decode (numbers → float64), never a silent error.
+// always reach them. Assertions pin the default `any` decode
+// (numbers → float64), never a silent error.
 func TestDecodeValueByTypeBranches(t *testing.T) {
 	t.Parallel()
 

@@ -24,8 +24,7 @@ func onBadQuality(t *testing.T, value string) error {
 	return Validate(cfg)
 }
 
-// The four documented values plus the unset default. A regression here breaks
-// every config that sets the field.
+// The four documented values plus the unset default.
 func TestOnBadQualityAcceptsDocumentedValues(t *testing.T) {
 	for _, v := range []string{"", "publish", "drop", "mark-and-publish", "alert"} {
 		if err := onBadQuality(t, v); err != nil {
@@ -34,9 +33,7 @@ func TestOnBadQualityAcceptsDocumentedValues(t *testing.T) {
 	}
 }
 
-// The engine lowercases before comparing(-), so these must not be refused here.
-// If this ever starts failing, the two copies diverged and a config that starts
-// fine would stop being savable.
+// The engine lowercases before comparing, so these must not be refused here.
 func TestOnBadQualityAcceptsMixedCase(t *testing.T) {
 	for _, v := range []string{"PUBLISH", "Drop", "Mark-And-Publish", "Alert"} {
 		if err := onBadQuality(t, v); err != nil {
@@ -45,8 +42,6 @@ func TestOnBadQualityAcceptsMixedCase(t *testing.T) {
 	}
 }
 
-// The gap this closed: these used to save fine and then stop the engine on the
-// following restart.
 func TestOnBadQualityRejectsUnknownValues(t *testing.T) {
 	for _, v := range []string{"nonsense", "publsh", "mark", "markandpublish", "alert ", " drop"} {
 		err := onBadQuality(t, v)

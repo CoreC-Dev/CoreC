@@ -65,20 +65,8 @@ func parseWithBase(data []byte, baseDir string) (*core.Config, error) {
 	return cfg, nil
 }
 
-// ParseNoValidate parses YAML bytes into a Config WITHOUT running validation.
-//
-// Unknown keys are refused, not ignored. A YAML field the struct does not have is
-// a typo -- `lstin` for `listen`, `workerz` for `workers`, `protct` for `protect` --
-// and silently dropping it is the worst of the available answers: the load
-// succeeds, the operator believes the value is in force, and the engine runs on
-// whatever the default was. The failure then appears far away, as an API that
-// never bound a port or a write that was never paced, with nothing left on the
-// machine pointing back at the misspelling.
-//
-// The other answers are worse still. Warning is not noticed on a 200. Continuing
-// but recording the key adds a second source of truth beside the struct. So the
-// load fails, and the message names the key that has no field -- the same rule
-// this package already applies to values, now applied to names.
+// ParseNoValidate parses YAML without validation; unknown keys are
+// rejected (DisallowUnknownField) and named in the error.
 func ParseNoValidate(data []byte) (*core.Config, error) {
 	return parseNoValidateWithBase(data, "")
 }

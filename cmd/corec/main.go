@@ -21,7 +21,7 @@ import (
 )
 
 var (
-	version     = "dev" // injected via ldflags: -X main.version=1.0.0
+	version     = "dev" // injected via ldflags: -X main.version=<version>
 	configPath  string
 	logLevel    string
 	versionOnly bool
@@ -63,14 +63,12 @@ func run() int {
 
 `, verStr)
 
-	// Load configuration
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		slog.Error("failed to load config", "path", configPath, "error", err)
 		return 1
 	}
 
-	// Setup logging
 	setupLogging(cfg, logLevel)
 
 	// Surface non-blocking idle-mode warnings (no data source / no transport).
@@ -86,7 +84,6 @@ func run() int {
 	slog.Info("registered drivers", "types", core.RegisteredDrivers())
 	slog.Info("registered transports", "types", core.RegisteredTransports())
 
-	// Create and start engine
 	eng := engine.New()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -97,7 +94,6 @@ func run() int {
 		return 1
 	}
 
-	// Register alert handler
 	eng.OnAlert(func(point core.DataPoint, rule core.Rule) {
 		slog.Warn("ALERT",
 			"rule", rule.Name(),
@@ -107,17 +103,13 @@ func run() int {
 		)
 	})
 
-	// Start Control Plane REST API Hub
 	hub.Start(eng, cfg, configPath)
 
 	slog.Info("CoreC is running", "config", configPath)
 
 	// Wait for shutdown signal. The channel is buffered for two signals:
 	// the first triggers the graceful shutdown below; a second one while
-	// the graceful stop is still running force-exits the process so a
-	// stuck shutdown can always be interrupted interactively (otherwise
-	// the second Ctrl-C would be silently swallowed and a hung stop
-	// could only be ended with kill -9).
+	// the graceful stop is still running force-exits the process.
 	sigCh := make(chan os.Signal, 2)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 

@@ -1,4 +1,5 @@
-// the dependency direction rules defined in ARCHITECTURE.md.
+// Package archtest mechanically enforces the layering rules defined in
+// ARCHITECTURE.md via the allowed-edge table below.
 //
 // These tests run `go list -json ./...` to obtain the actual import graph,
 // then verify every package's imports comply with the allowed-edge table.
@@ -99,13 +100,10 @@ func allowedDeps(pkg string) []string {
 		return []string{"core", "common/", "config", "log", "hub/"}
 
 	default:
-		// DEFAULT-DENY: a
-		// package missing from the table above must not import anything —
-		// otherwise new packages silently bypass the dependency rules
-		// until someone remembers to extend the table (exactly how drift
-		// enters). A new package fails with this message until it
-		// is deliberately classified here; wiring points (cmd/corec,
-		// driver/all, transport/all, demo/*) stay unrestricted above.
+		// DEFAULT-DENY: a package missing from the table above must not
+		// import anything. A new package fails with this message until it
+		// is classified here; wiring points (cmd/corec, driver/all,
+		// transport/all, demo/*) stay unrestricted above.
 		return []string{} // empty non-nil = no internal dependencies allowed
 	}
 }

@@ -4,8 +4,6 @@ import (
 	"testing"
 )
 
-// --- Registry tests ---
-
 func TestRegisterAndCreateDriver(t *testing.T) {
 	t.Parallel()
 	// Use a unique type name to avoid interfering with real registrations.
@@ -16,7 +14,6 @@ func TestRegisterAndCreateDriver(t *testing.T) {
 	}
 	RegisterDriver(typeName, factory)
 
-	// Should be in the registered list
 	found := false
 	for _, name := range RegisteredDrivers() {
 		if name == typeName {
@@ -28,7 +25,6 @@ func TestRegisterAndCreateDriver(t *testing.T) {
 		t.Fatalf("driver type %q not found in RegisteredDrivers()", typeName)
 	}
 
-	// CreateDriver should succeed
 	_, err := CreateDriver(DriverConfig{Type: typeName})
 	if err != nil {
 		t.Fatalf("CreateDriver failed: %v", err)

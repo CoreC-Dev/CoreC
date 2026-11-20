@@ -93,11 +93,7 @@ func (e *Engine) SetRules(configs []core.RuleConfig) error {
 
 	// Sort by priority (lower = higher priority). Stable so rules that
 	// share a priority keep their configuration order — the documented
-	// tie-break. A non-stable sort (or a driver-index merge that
-	// implicitly evaluates
-	// universal rules before driver rules on equal priority) would let a
-	// universal rule systematically shadow same-priority driver
-	// rules with no way for configuration order to intervene.
+	// tie-break.
 	sort.SliceStable(rules, func(i, j int) bool {
 		return rules[i].Priority() < rules[j].Priority()
 	})
@@ -245,14 +241,11 @@ func actionToString(a core.Action) string {
 	}
 }
 
-// ─── Rule Implementations ────────────────────────────────────────────
-
 // newRule dispatches to the correct rule type based on the match expression.
 func newRule(cfg core.RuleConfig, providers map[string]core.RuleProvider, subEngines map[string]*Engine) (core.Rule, error) {
 	match := strings.TrimSpace(cfg.Match)
 	upper := strings.ToUpper(match)
 
-	// RULE-SET:name
 	if strings.HasPrefix(upper, "RULE-SET:") {
 		name := match[len("RULE-SET:"):]
 		p, ok := providers[name]
@@ -262,7 +255,6 @@ func newRule(cfg core.RuleConfig, providers map[string]core.RuleProvider, subEng
 		return newRuleSetRule(cfg, p)
 	}
 
-	// SUB-RULE:name
 	if strings.HasPrefix(upper, "SUB-RULE:") {
 		name := match[len("SUB-RULE:"):]
 		sub, ok := subEngines[name]
@@ -356,7 +348,6 @@ func (r *simpleRule) DriverFilter() string { return r.driverFilter }
 func (r *simpleRule) Match(point core.DataPoint) bool {
 	expr := r.matchExpr
 
-	// Special: match all
 	if strings.EqualFold(expr, "ALL") {
 		return true
 	}
@@ -490,8 +481,6 @@ func (r *subRuleRef) Continue() bool                   { return r.continue_ }
 func (r *subRuleRef) String() string {
 	return fmt.Sprintf("SubRule{name=%s, action=%d, target=%s}", r.name, r.action, r.target)
 }
-
-// ─── Helpers ────────────────────────────────────────────────────────
 
 func parseAction(s string) (core.Action, error) {
 	switch strings.ToLower(s) {

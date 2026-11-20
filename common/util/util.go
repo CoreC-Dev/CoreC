@@ -13,14 +13,9 @@ import (
 	"time"
 )
 
-// Fallback values used by ReconnectLoopWithBreakerCounted when the caller
-// passes non-positive backoff values. The circuit-breaker fallback is
-// single-sourced HERE rather than exported from core: nothing outside
-// this package reads it, and an unread exported twin only invites
-// "keep in sync" drift. The reconnect-backoff defaults remain mirrored
-// with core.DefaultReconnectBackoff/DefaultMaxReconnectBackoff (both
-// read in production) to keep common/util a leaf package with no
-// CoreC-internal dependencies.
+// Fallbacks for non-positive backoff args; mirrored with
+// core.DefaultReconnectBackoff/DefaultMaxReconnectBackoff (util stays a
+// leaf package).
 const (
 	defaultBackoffFallback       = 2 * time.Second
 	defaultMaxBackoffFallback    = 30 * time.Second
@@ -81,12 +76,7 @@ func GetStringSetting(settings map[string]any, key, defaultVal string) string {
 var connectionErrorKeywords = []string{
 	"connection", "broken pipe", "EOF", "reset", "refused", "timeout", "closed", "aborted",
 	// "deadline exceeded" is Go's context.DeadlineExceeded message — the
-	// read-deadline timeout a wedged TCP produces when the peer silently
-	// drops packets (device power-cycle with NAT remap, host suspend,
-	// black-holed route). Without this keyword such a connection never
-	// matches: every read times out forever, the driver stays wedged
-	// with zero self-healing, while an instance whose TCP got an RST
-	// ("refused" matched) reconnects fine.
+	// read-deadline timeout of a wedged TCP connection.
 	"deadline exceeded",
 }
 
@@ -245,12 +235,7 @@ func ToUint16(v any) uint16 {
 // If scale and offset are both 0, the value is returned unchanged.
 //
 // All integer widths and both float widths are covered (int8…int64,
-// uint8…uint64, float32/float64): the docs promise
-// "输出值 = 原始值 × scale + offset" with no per-type exceptions —
-// skipping any width would let that tag type bypass the configured
-// transform on reads (pinned by TestApplyTransformAllNumericTypes).
-// Scaled integers become float64, matching the documented transform
-// output.
+// uint8…uint64, float32/float64); scaled integers become float64.
 func ApplyTransform(value any, scale, offset float64) any {
 	if scale == 0 && offset == 0 {
 		return value
@@ -338,45 +323,15 @@ func InvertTransform(value any, scale, offset float64) any {
 }
 
 // jitteredBackoff applies ±20% random jitter to a backoff duration.
-//
-// When the network recovers after an outage, every driver that lost its
-// connection around the same time would otherwise reconnect
-// simultaneously (the "thundering herd" problem), overwhelming the
-// recovered broker/PLC with a burst of connection attempts. Jitter
-// spreads these attempts over a wider window so they reconnect in a
-// staggered fashion.
-//
-// The returned duration is in the range [0.8*d, 1.2*d]. A non-positive
-// input is returned unchanged so the helper is safe to apply to
-// defaulted/zero backoffs without surprising behaviour.
+// The returned duration is in the range [0.8*d, 1.2*d]; a non-positive
+// input is returned unchanged.
 func jitteredBackoff(d time.Duration) time.Duration {
 	if d <= 0 {
 		return d
 	}
-	// d * (0.8 + rand(0.4)) gives ±20% randomness in [0.8, 1.2].
 	return time.Duration(float64(d) * (0.8 + rand.Float64()*0.4))
 }
 
-// ReconnectLoopWithBreaker repeatedly calls connect with exponential
-// backoff until it succeeds or ctx is cancelled. The backoff starts at
-// initialBackoff and doubles on each failure, capped at maxBackoff.
-// <=0 values fall back to 2s initial and 30s max.
-//
-// A ±20% random jitter is applied to every wait so that when the network
-// recovers, drivers that disconnected simultaneously do not all reconnect
-// at once (thundering herd). The base backoff progression (exponential
-// doubling and the circuit-breaker interval) is preserved; only the
-// actual sleep duration is jittered.
-//
-// After maxFailures consecutive failures (maxFailures > 0), a circuit
-// breaker trips and the backoff is increased to circuitBreakerBackoff
-// (5 minutes) to avoid hammering a permanently offline device. The
-// breaker resets on the next successful connection. maxFailures <= 0
-// disables the breaker (pure exponential backoff).
-//
-// It is a thin wrapper around ReconnectLoopWithBreakerCounted that does
-// not track reconnect attempts. Use the counted variant when a driver
-// wants to expose a reconnect Prometheus metric.
 // ReconnectOpts bundles the parameters for reconnect loop configuration.
 type ReconnectOpts struct {
 	InitialBackoff time.Duration
@@ -385,8 +340,6 @@ type ReconnectOpts struct {
 }
 
 // ReconnectLoopOpts is the opts-struct variant of ReconnectLoopWithBreakerCounted.
-// It collapses the 7 positional parameters into a context, name, connect func,
-// opts struct, and optional counter — keeping the call site readable.
 func ReconnectLoopOpts(ctx context.Context, name string, connect func() error, opts ReconnectOpts, counter *atomic.Uint64) {
 	ReconnectLoopWithBreakerCounted(ctx, name, connect, opts.InitialBackoff, opts.MaxBackoff, opts.MaxFailures, counter)
 }
@@ -429,9 +382,8 @@ func ReconnectLoopWithBreakerCounted(ctx context.Context, name string, connect f
 	breakerTripped := false
 
 	for {
-		// Apply ±20% jitter to the base backoff for this iteration.
-		// The base value is kept unjittered so the exponential
-		// progression and circuit-breaker interval remain stable.
+		// Only the wait is jittered; the base backoff progression stays
+		// unjittered.
 		wait := jitteredBackoff(backoff)
 
 		select {
@@ -440,10 +392,6 @@ func ReconnectLoopWithBreakerCounted(ctx context.Context, name string, connect f
 		case <-time.After(wait):
 		}
 
-		// Count this reconnect attempt (success or failure) so drivers
-		// can expose a reconnect Prometheus metric. Incrementing before
-		// connect() runs guarantees every started attempt is counted,
-		// even if the context is cancelled mid-connect.
 		if counter != nil {
 			counter.Add(1)
 		}
@@ -455,8 +403,7 @@ func ReconnectLoopWithBreakerCounted(ctx context.Context, name string, connect f
 				"backoff", backoff, "waited", wait)
 
 			// Circuit breaker: after maxFailures consecutive failures,
-			// switch to a long fixed interval to stop hammering the
-			// device and reduce resource consumption.
+			// switch to a long fixed interval.
 			if maxFailures > 0 && failures >= maxFailures && !breakerTripped {
 				breakerTripped = true
 				backoff = circuitBreakerBackoff
@@ -477,13 +424,10 @@ func ReconnectLoopWithBreakerCounted(ctx context.Context, name string, connect f
 	}
 }
 
-// RejectUnknownSettings fails with an actionable error listing the valid
-// keys when a settings map contains keys outside the known set:
-// settings maps are map[string]any, so a typo like `slve-id` would
-// otherwise sail through validation and be silently ignored at Init —
-// the component would run against defaults, often the wrong
-// device/endpoint. known must list every key the component's Init
-// parses; the per-package drift tests enforce that.
+// RejectUnknownSettings fails with an error listing the valid keys when
+// a settings map contains keys outside the known set. known must list
+// every key the component's Init parses; the per-package drift tests
+// enforce that.
 func RejectUnknownSettings(settings map[string]any, known map[string]bool, kind string) error {
 	if len(settings) == 0 {
 		return nil

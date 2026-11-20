@@ -5,10 +5,7 @@ import (
 )
 
 // Alert is the first-class record of a rule (or policy) firing on a
-// data point: alerting must carry state, history, and an API of its
-// own — a WARN log line alone would force the Dashboard to reconstruct
-// an "alert" view by filtering log levels, mixing rule alerts with
-// routine connection warnings.
+// data point, carrying state and history.
 //
 // Identity is the (rule, driver, tag) triple: the same rule firing on
 // the same tag updates the existing alert (bumping Count and

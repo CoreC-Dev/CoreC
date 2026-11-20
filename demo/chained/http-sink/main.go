@@ -1,5 +1,5 @@
 // http-sink: a tiny HTTP server that logs every POST body to stdout.
-// Used as the receiving endpoint in scenarios 3, 4, and 6.
+// Used as the receiving endpoint in chained-core demo scenarios.
 package main
 
 import (

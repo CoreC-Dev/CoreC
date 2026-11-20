@@ -1,26 +1,8 @@
 package config
 
 // The config loader refuses YAML keys that have no field in the struct.
-//
-// This is a deliberate change of failure mode for configs that used to load: a
-// misspelled key is now a startup error instead of a silently ignored line. The
-// tradeoff cuts both ways, so it is worth stating --
-//
-//   - a personal config carrying a stray key (an old field name from a previous
-//     release, a generator's leftover) now fails where it used to start. That is
-//     a real cost, paid once, by whoever holds that file. Go disallows unknown
-//     fields by default (yaml.UnmarshalStrict in yaml.v2, KnownFields(true) in
-//     v3), so producing such a file has always meant working around the default,
-//     and the workaround outlives the field it was written for;
-//   - what it buys is the failure this package keeps finding otherwise. An
-//     operator writes `api.lstin`, or `engine.workerz`, or `protect: readonly`,
-//     and gets HTTP 200. The engine runs on defaults, nothing is logged, and the
-//     symptom arrives much later as a device that got hammered. The cost of that
-//     is not one config file; it is doubt about all the others.
-//
-// The tests below are the contract: what is refused, what still loads, and that
-// the refusal really happens through ParseNoValidate (a decoder that rejects
-// nothing would pass every "valid" case).
+// The tests below pin the contract: what is refused, what still loads,
+// and that the refusal happens through ParseNoValidate.
 
 import (
 	"strings"

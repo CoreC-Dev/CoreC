@@ -50,9 +50,7 @@ type ScheduleTask struct {
 //     counter is a separate field).
 //
 // This is the Prometheus-facing twin of the states the scheduler logs
-// (auto-degrade, overrun warnings, consecutive read errors): log-only
-// visibility means "why did this driver go quiet" cannot be answered
-// by alerting.
+// (auto-degrade, overrun warnings, consecutive read errors).
 type TaskHealth struct {
 	Driver            string `json:"driver"`
 	Degraded          bool   `json:"degraded"`
@@ -84,15 +82,11 @@ type SchedulerHealthProvider interface {
 }
 
 // IntervalLimiter is the optional role a Driver implements to declare the
-// fastest collection cadence its protocol/device can sustain (e.g. a Modbus
-// RTU device at 9600 baud cannot answer 10 ms polls). The engine clamps a
-// task's interval up to this floor at scheduling time and logs one warning
-// naming the tag, the requested interval and the floor — a configuration that
-// would silently overload the device fails loudly instead.
-//
-// It is a separate optional interface, not a DriverCapabilities field, so
-// existing drivers and third-party drivers are unaffected: a driver that does
-// not implement it keeps whatever interval the operator configured.
+// fastest collection cadence its protocol/device can sustain. The engine
+// clamps a task's interval up to this floor at scheduling time and logs
+// one warning naming the tag, the requested interval and the floor.
+// A driver that does not implement it keeps whatever interval the
+// operator configured.
 type IntervalLimiter interface {
 	// MinInterval returns the driver's minimum sustainable collection
 	// interval. <= 0 means "no floor declared" and is treated as absent.

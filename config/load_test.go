@@ -99,7 +99,6 @@ func TestLoadNonexistentFile(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for nonexistent file, got nil")
 	}
-	// The error should mention the path.
 	if !contains(err.Error(), "failed to read config file") {
 		t.Errorf("expected error about reading file, got: %v", err)
 	}
@@ -293,8 +292,7 @@ transports:
 `,
 			wantErr: `driver d1: tag "t1": interval must be positive`,
 		},
-		// Note: "no transports" is no longer a hard error — a driver-only
-		// config is a valid idle state in the dashboard-driven workflow.
+		// "No transports" is valid: a driver-only config is an idle state.
 		{
 			name: "unknown driver type",
 			yaml: `
@@ -470,9 +468,9 @@ func TestLoadExampleConfig(t *testing.T) {
 	}
 }
 
-// TestLoadDeprecatedBuffer verifies that the deprecated buffer section
-// produces a warning but doesn't fail.
-func TestLoadDeprecatedBuffer(t *testing.T) {
+// TestLoadBufferConfig verifies a valid global.buffer section loads
+// without error.
+func TestLoadBufferConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "buffer.yaml")
 	content := `
@@ -498,7 +496,7 @@ transports:
 
 	_, err := Load(path)
 	if err != nil {
-		t.Fatalf("expected warning but no error for deprecated buffer, got: %v", err)
+		t.Fatalf("expected valid buffer config to load without error, got: %v", err)
 	}
 }
 
@@ -663,7 +661,6 @@ rules:
 	}
 }
 
-// contains is a helper to check substring containment.
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || indexOf(s, substr) >= 0)
 }

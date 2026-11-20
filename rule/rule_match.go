@@ -6,10 +6,9 @@ import (
 
 // sequencer is an optional interface rule wrappers implement to expose
 // their build-order position, used as the tie-break when two rules share
-// a priority: same-priority rules evaluate in
-// configuration order, with universal and driver rules interleaved. Rules
-// that do not implement it fall back to the previous behaviour (listA
-// first on equal priority).
+// a priority: same-priority rules evaluate in configuration order, with
+// universal and driver rules interleaved. Rules that do not implement it
+// sort with sequence 0 (listA first on equal priority).
 type sequencer interface {
 	Seq() int
 }
@@ -27,14 +26,12 @@ func ruleSeq(r core.Rule) int {
 // order and collects all matching rules until a terminal match (a rule
 // with Continue() == false). It uses a two-pointer merge so the evaluation
 // order is identical to a single sorted list. On equal priority the
-// build-order sequence breaks the tie: the rule that appeared first
-// in the configuration evaluates first, regardless of which list it came
-// from — a universal rule no longer implicitly shadows a same-priority
-// driver rule.
+// build-order sequence breaks the tie: the rule that appeared first in
+// the configuration evaluates first, regardless of which list it came
+// from.
 //
 // When every rule is terminal (Continue() == false, the default), the
-// first match is returned and the slice contains exactly one element —
-// the former first-match-wins behavior.
+// first match is returned and the slice contains exactly one element.
 func (e *Engine) matchMerged(point core.DataPoint, listA, listB []core.Rule) []*MatchResult {
 	var results []*MatchResult
 	i, j := 0, 0

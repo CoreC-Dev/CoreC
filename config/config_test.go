@@ -7,7 +7,7 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 
 	// Import all drivers and transports so the registry is populated
-	// and ValidateWithRegistries() can perform fail-fast type checking (M10).
+	// and ValidateWithRegistries() can perform fail-fast type checking.
 	_ "github.com/CoreC-Dev/CoreC/driver/all"
 	_ "github.com/CoreC-Dev/CoreC/transport/all"
 )
@@ -57,10 +57,8 @@ func TestValidateConfigErrors(t *testing.T) {
 		cfg     *core.Config
 		wantErr string
 	}{
-		// Note: "no data source" and "no transport" are no longer hard
-		// validation errors — an empty/API-only config is a valid startup
-		// state for the dashboard-driven workflow. See TestValidateEmptyAllowed
-		// and TestIdleWarnings below.
+		// An empty/API-only config is a valid startup state. See
+		// TestValidateEmptyAllowed and TestIdleWarnings below.
 		{
 			name: "duplicate driver",
 			cfg: &core.Config{
@@ -227,10 +225,9 @@ func TestValidateRelayMode(t *testing.T) {
 	})
 
 	t.Run("zero drivers with node.id but no subscribe is valid (idle mode)", func(t *testing.T) {
-		// Presence of a data source is no longer a hard error (dashboard-driven
-		// workflow). A node with an ID but no subscribe, no drivers, and no
-		// inbound transport is a valid idle state — it broadcasts heartbeats
-		// but produces no data until configured via the Dashboard.
+		// A node with an ID but no subscribe, no drivers, and no inbound
+		// transport is a valid idle state — it broadcasts heartbeats but
+		// produces no data until configured via the Dashboard.
 		cfg := &core.Config{
 			Node: core.NodeConfig{ID: "relay-B", Role: "relay"},
 			Transports: []core.TransportConfig{
@@ -244,8 +241,7 @@ func TestValidateRelayMode(t *testing.T) {
 }
 
 // TestValidateEmptyAllowed asserts that empty / API-only / partial configs
-// pass validation. These were hard errors before the dashboard-driven
-// workflow relaxed the data-source/transport presence requirement.
+// pass validation.
 func TestValidateEmptyAllowed(t *testing.T) {
 	validTag := core.TagConfig{Name: "t1", Address: "40001", Type: "float32"}
 
@@ -427,14 +423,13 @@ func TestIdleWarningsBatchTailRetention(t *testing.T) {
 	})
 }
 
-// TestValidateTagProtectAndEnforceInterval covers the two collection-side
-// point fields added together with the write-protection guard:
+// TestValidateTagProtectAndEnforceInterval covers the collection-side
+// point fields:
 //
 //   - protect accepts exactly "", read-write, read-only and write-only; any
-//     other spelling is rejected at load so a typo can never silently grant
-//     write access;
+//     other spelling is rejected at load;
 //   - enforce-interval is a heartbeat on top of the deadband, so it requires
-//     a non-zero deadband US.
+//     a non-zero deadband and must be >= the collection interval.
 func TestValidateTagProtectAndEnforceInterval(t *testing.T) {
 	base := func(tag core.TagConfig) *core.Config {
 		return &core.Config{

@@ -1,6 +1,5 @@
-// Package tlsutil provides shared TLS configuration helpers used by
-// transports (mqtt, httppush) and drivers (modbus-tls) to avoid
-// duplicating certificate-loading boilerplate.
+// Package tlsutil provides shared TLS certificate-loading helpers (used
+// by transport/mqtt and the modbus-tls driver).
 package tlsutil
 
 import (

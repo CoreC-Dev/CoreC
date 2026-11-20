@@ -49,15 +49,9 @@ func keyFor(name string, labels map[string]string) labelKey {
 }
 
 // Registry is a tiny thread-safe store for driver-emitted metrics. It
-// satisfies core.Metrics structurally (IncCounter/SetGauge signatures)
-// so the engine can inject it into drivers via the existing SetMetrics
-// port without either package importing the other — without it the
-// port only ever reaches NoopMetrics and driver-emitted metrics never
-// land in /metrics.
-//
-// Concurrency: one mutex for the whole registry is deliberate — the
-// emission rate is per driver error, not per data point, so contention
-// is negligible and the snapshot stays trivially consistent.
+// satisfies core.Metrics structurally (IncCounter/SetGauge signatures);
+// the engine injects it into drivers via the SetMetrics port. One mutex
+// protects the whole registry.
 type Registry struct {
 	mu       sync.Mutex
 	counters map[labelKey]Metric

@@ -1,6 +1,5 @@
 // Package trace provides lightweight distributed tracing via context-propagated
-// trace IDs and span tracking. It is dependency-free and designed to be
-// upgradeable to OpenTelemetry if full OTLP export is needed later.
+// trace IDs and span tracking. It is dependency-free.
 //
 // Usage:
 //

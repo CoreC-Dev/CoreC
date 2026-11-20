@@ -27,12 +27,8 @@ import (
 	mb "github.com/simonvetter/modbus"
 )
 
-// waitFor polls check until it returns true or timeout expires.
-// ============================================================
 // Real Modbus TCP mock server (self-contained, no import from
 // driver/modbus test files).
-// ============================================================
-
 type modbusHandler struct {
 	mu       sync.Mutex
 	coils    map[uint16]bool
@@ -119,11 +115,9 @@ func startModbusServer(t *testing.T, handler *modbusHandler) (server *mb.ModbusS
 	if err := server.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	// server.Start() is synchronous — ready immediately.
 	return server, port
 }
 
-// ============================================================
 // E2E Test 1: Modbus PLC → Engine → Forward Rule → HTTP Push
 //
 // This is the core industrial data collection scenario:
@@ -132,12 +126,9 @@ func startModbusServer(t *testing.T, handler *modbusHandler) (server *mb.ModbusS
 // 3. A "forward" rule sends all data points to an HTTP push transport.
 // 4. The HTTP push transport POSTs data to a real HTTP server.
 // 5. We verify the HTTP server received the correct data.
-// ============================================================
-
 func TestE2E_ModbusToHTTPPush(t *testing.T) {
 	log.Init(0, "text") // silence logs
 
-	// --- Start mock Modbus PLC ---
 	handler := &modbusHandler{
 		coils:    map[uint16]bool{0: true, 1: false},
 		holding:  map[uint16]uint16{0: 1234, 1: 5678, 2: 90},
@@ -146,7 +137,6 @@ func TestE2E_ModbusToHTTPPush(t *testing.T) {
 	modbusServer, port := startModbusServer(t, handler)
 	defer modbusServer.Stop()
 
-	// --- Start mock HTTP receiver ---
 	var receivedMu sync.Mutex
 	var receivedBodies [][]byte
 	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -159,7 +149,6 @@ func TestE2E_ModbusToHTTPPush(t *testing.T) {
 	}))
 	defer httpServer.Close()
 
-	// --- Create and start engine ---
 	eng := engine.New()
 
 	cfg := &core.Config{
@@ -209,7 +198,7 @@ func TestE2E_ModbusToHTTPPush(t *testing.T) {
 	}
 	defer eng.Stop()
 
-	// --- Wait for both temperature and pressure tag data to flow through ---
+	// Wait for both temperature and pressure tag data to flow through
 	// The driver polls 3 tags at 100ms intervals with batch-size=1, so
 	// individual data points arrive separately. We must wait until BOTH
 	// tags have been received, not just the first one.
@@ -230,7 +219,6 @@ func TestE2E_ModbusToHTTPPush(t *testing.T) {
 		return foundTemp && foundPressure
 	})
 
-	// --- Verify HTTP server received data ---
 	receivedMu.Lock()
 	defer receivedMu.Unlock()
 
@@ -261,12 +249,9 @@ func TestE2E_ModbusToHTTPPush(t *testing.T) {
 	}
 }
 
-// ============================================================
 // E2E Test 2: Modbus PLC → Engine → Transform Rule → HTTP Push
 //
 // Verifies that transform rules modify data before publishing.
-// ============================================================
-
 func TestE2E_ModbusWithTransform(t *testing.T) {
 	log.Init(0, "text")
 
@@ -389,12 +374,9 @@ func TestE2E_ModbusWithTransform(t *testing.T) {
 	}
 }
 
-// ============================================================
 // E2E Test 3: Modbus PLC → Engine → Alert Rule
 //
 // Verifies that alert rules trigger the OnAlert handler.
-// ============================================================
-
 func TestE2E_ModbusWithAlert(t *testing.T) {
 	log.Init(0, "text")
 
@@ -455,12 +437,9 @@ func TestE2E_ModbusWithAlert(t *testing.T) {
 	}
 }
 
-// ============================================================
 // E2E Test 4: Modbus PLC → Engine → Drop Rule → No Output
 //
 // Verifies that drop rules prevent data from reaching transports.
-// ============================================================
-
 func TestE2E_ModbusWithDropRule(t *testing.T) {
 	log.Init(0, "text")
 
@@ -535,13 +514,10 @@ func TestE2E_ModbusWithDropRule(t *testing.T) {
 	}
 }
 
-// ============================================================
 // E2E Test 5: Write command flow (HTTP → Engine → Modbus PLC)
 //
 // Verifies that write commands sent through the engine actually
 // modify values in the PLC.
-// ============================================================
-
 func TestE2E_WriteCommandToModbus(t *testing.T) {
 	log.Init(0, "text")
 
@@ -581,7 +557,6 @@ func TestE2E_WriteCommandToModbus(t *testing.T) {
 	}
 	defer eng.Stop()
 
-	// Write a value to the PLC through the engine.
 	result, err := eng.WriteTag(ctx, core.WriteCommand{
 		Driver: "plc1",
 		Tag:    "register",
@@ -595,7 +570,6 @@ func TestE2E_WriteCommandToModbus(t *testing.T) {
 		t.Error("expected write to succeed")
 	}
 
-	// Read back the value to verify it was written.
 	val, err := eng.ReadTag(ctx, "plc1", "register")
 	if err != nil {
 		t.Fatalf("ReadTag: %v", err)
@@ -604,7 +578,6 @@ func TestE2E_WriteCommandToModbus(t *testing.T) {
 		t.Errorf("expected 4242 after write, got %v", val.Value)
 	}
 
-	// Also verify directly from the mock PLC.
 	handler.mu.Lock()
 	plcVal := handler.holding[0]
 	handler.mu.Unlock()
@@ -613,13 +586,10 @@ func TestE2E_WriteCommandToModbus(t *testing.T) {
 	}
 }
 
-// ============================================================
 // E2E Test 6: Engine reload preserves data flow
 //
 // Verifies that reloading the engine config doesn't break
 // the data collection pipeline.
-// ============================================================
-
 func TestE2E_EngineReload(t *testing.T) {
 	log.Init(0, "text")
 
@@ -731,7 +701,6 @@ func TestE2E_EngineReload(t *testing.T) {
 	}
 }
 
-// contains is a simple substring check.
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
 }

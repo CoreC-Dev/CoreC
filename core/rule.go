@@ -89,9 +89,7 @@ type RuleStat struct {
 	MissCount uint64    `json:"miss_count"`
 	MissAt    time.Time `json:"miss_at"`
 	// EvalErrors counts match-expression evaluation failures (e.g. a
-	// type mismatch: `value > 90` against a string). Without this
-	// counter such a rule silently never matches — invisible in logs,
-	// stats, and the preview endpoint. Zero = healthy.
+	// type mismatch: `value > 90` against a string). Zero = healthy.
 	EvalErrors uint64    `json:"eval_errors"`
 	EvalAt     time.Time `json:"eval_at"`
 }

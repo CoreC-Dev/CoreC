@@ -89,8 +89,6 @@ func newRuleWrapper(r core.Rule) *ruleWrapper {
 }
 
 // atomicTime stores time as an atomic.Int64 of UnixNano.
-// This avoids the GC pressure of boxing time.Time on every write
-// (unlike a mutex-based approach).
 type atomicTime struct {
 	i atomic.Int64
 }

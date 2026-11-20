@@ -1,10 +1,7 @@
 // Tie-break tests for same-priority rule evaluation.
-// Same-priority rules evaluate in configuration order —
-// the stable sort keeps the config order within equal priorities and the
-// driver-index merge uses the build position as the tie-break — so a
-// universal rule no longer implicitly shadows a same-priority driver
-// rule, and the relative order of same-priority rules is a documented
-// contract instead of an accident of sort.Slice.
+// Same-priority rules evaluate in configuration order: the stable sort
+// keeps the config order within equal priorities and the driver-index
+// merge uses the build position as the tie-break.
 package rule
 
 import (
@@ -27,9 +24,7 @@ func ruleStatsByName(eng *Engine) map[string]core.RuleStat {
 
 // TestMatchSamePriorityConfigOrderDriverFirst verifies that a driver rule
 // listed before a same-priority universal rule is evaluated first and the
-// universal rule is never reached when the driver rule terminates. Under
-// the previous behaviour the universal rule always evaluated first on
-// equal priority, systematically shadowing the driver rule.
+// universal rule is never reached when the driver rule terminates.
 func TestMatchSamePriorityConfigOrderDriverFirst(t *testing.T) {
 	eng := NewEngine()
 	configs := []core.RuleConfig{
@@ -86,7 +81,7 @@ func TestMatchSamePriorityConfigOrderUniversalFirst(t *testing.T) {
 
 // TestMatchSamePriorityWithinBucketConfigOrder verifies that two
 // same-priority rules scoped to the same driver keep their configuration
-// order — previously guaranteed only by accident of the sort algorithm.
+// order.
 func TestMatchSamePriorityWithinBucketConfigOrder(t *testing.T) {
 	eng := NewEngine()
 	configs := []core.RuleConfig{

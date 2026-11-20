@@ -9,7 +9,7 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// ─── P1-1: Regex / Contains / Suffix / Prefix ───────────────────────
+// Regex / contains / suffix / prefix.
 
 func TestRegexMatch(t *testing.T) {
 	p := core.DataPoint{Tag: "reactor_temp_01", Driver: "modbus1"}
@@ -96,7 +96,7 @@ func TestRegexInEngine(t *testing.T) {
 	}
 }
 
-// ─── P1-2: Range ─────────────────────────────────────────────────────
+// Range.
 
 func TestRangeMatch(t *testing.T) {
 	p := core.DataPoint{Tag: "temp", Value: 75.0}
@@ -151,10 +151,9 @@ func TestRangeInEngine(t *testing.T) {
 	}
 }
 
-// ─── P2-1: Rule Provider ─────────────────────────────────────────────
+// Rule provider.
 
 func TestFileProvider(t *testing.T) {
-	// Create a temp rule file
 	dir := t.TempDir()
 	ruleFile := filepath.Join(dir, "safety-rules.yaml")
 	ruleContent := `
@@ -202,7 +201,6 @@ rules:
 }
 
 func TestRuleSetInEngine(t *testing.T) {
-	// Create a temp rule file
 	dir := t.TempDir()
 	ruleFile := filepath.Join(dir, "alert-rules.yaml")
 	ruleContent := `
@@ -276,7 +274,7 @@ func TestFileProviderHotReload(t *testing.T) {
 	// Update file: change threshold to value > 20
 	os.WriteFile(ruleFile, []byte("rules:\n  - name: r1\n    match: \"value > 20\"\n"), 0o644)
 
-	// Poll until reload takes effect (replaces fixed sleep).
+	// Poll until reload takes effect.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if provider.Match(core.DataPoint{Value: 30.0}) {
@@ -291,7 +289,7 @@ func TestFileProviderHotReload(t *testing.T) {
 	}
 }
 
-// ─── P2-2: SUB-RULE ─────────────────────────────────────────────────
+// SUB-RULE.
 
 func TestSubRule(t *testing.T) {
 	eng := NewEngine()
@@ -359,7 +357,7 @@ func TestSubRuleMissingRef(t *testing.T) {
 	}
 }
 
-// ─── P0-2: Wrapper stats verification ────────────────────────────────
+// Wrapper stats verification.
 
 func TestWrapperStats(t *testing.T) {
 	eng := NewEngine()

@@ -112,8 +112,6 @@ func TestReconnectLoopWithBreaker(t *testing.T) {
 }
 
 func TestReconnectLoopDelegatesToBreaker(t *testing.T) {
-	// ReconnectLoop should delegate to ReconnectLoopWithBreaker with maxFailures=0
-	// (which disables the circuit breaker)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

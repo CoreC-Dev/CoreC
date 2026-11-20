@@ -370,9 +370,9 @@ transports:
 rules:
   - { name: r1, match: ALL, action: forward, target: mqtt1 }
 `)
-	// The placeholder ${COREC_TEST_MISSING_SECRET} is 31 chars (>8),
-	// so validation passes the length check. The literal placeholder
-	// remains, making the misconfiguration visible to operators.
+	// The literal placeholder is longer than the 8-char minimum, so
+	// validation passes. It remains in the config, making the
+	// misconfiguration visible to operators.
 	cfg, err := Parse(data)
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
@@ -455,12 +455,10 @@ rules:
 
 // TestExpandEnvVars_InjectionPrevention verifies that env var values
 // containing YAML-structural characters (newlines, colons-space) cannot
-// inject arbitrary YAML configuration. This is the P0 security fix:
-// the previous byte-level replacement was vulnerable to YAML injection
-// via env var values like "safe\nmalicious: injected".
+// inject arbitrary YAML configuration.
 func TestExpandEnvVars_InjectionPrevention(t *testing.T) {
-	// An env var value containing a newline and colon-space — the exact
-	// payload that would inject a new YAML key under byte-level replacement.
+	// An env var value containing a newline and colon-space — a payload
+	// that would inject a new YAML key under byte-level replacement.
 	t.Setenv("COREC_TEST_INJECT", "safe-value\nmalicious: injected")
 
 	data := []byte(`

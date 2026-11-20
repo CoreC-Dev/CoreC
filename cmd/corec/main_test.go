@@ -25,28 +25,24 @@ func resetFlags() {
 }
 
 func TestSetupLogging(t *testing.T) {
-	// Test with config log level.
 	cfg := &core.Config{Global: core.GlobalConfig{LogLevel: "debug"}}
 	setupLogging(cfg, "")
 	if log.Level() != slog.LevelDebug {
 		t.Errorf("expected debug level, got %v", log.Level())
 	}
 
-	// Test with override.
 	cfg = &core.Config{Global: core.GlobalConfig{LogLevel: "info"}}
 	setupLogging(cfg, "error")
 	if log.Level() != slog.LevelError {
 		t.Errorf("expected error level, got %v", log.Level())
 	}
 
-	// Test with invalid level (should default to info).
 	cfg = &core.Config{Global: core.GlobalConfig{LogLevel: "invalid"}}
 	setupLogging(cfg, "")
 	if log.Level() != slog.LevelInfo {
 		t.Errorf("expected info level for invalid input, got %v", log.Level())
 	}
 
-	// Test with empty level (should default to info).
 	cfg = &core.Config{Global: core.GlobalConfig{LogLevel: ""}}
 	setupLogging(cfg, "")
 	if log.Level() != slog.LevelInfo {
@@ -116,7 +112,6 @@ transports:
 		t.Fatalf("failed to write config: %v", err)
 	}
 
-	// Build the binary.
 	binPath := filepath.Join(dir, "corec.test")
 	if err := buildTestBinary(t, binPath); err != nil {
 		t.Fatalf("failed to build binary: %v", err)
@@ -133,8 +128,7 @@ transports:
 	}
 
 	// Wait for the process to produce its first output (the banner),
-	// proving it has started executing, then send SIGTERM.  This replaces
-	// a fixed sleep and is more reliable than guessing startup latency.
+	// proving it has started executing, then send SIGTERM.
 	scanner := bufio.NewScanner(stdout)
 	ready := make(chan struct{})
 	go func() {
@@ -155,8 +149,6 @@ transports:
 		// Check if it's a signal:terminated error (expected if the process
 		// didn't catch the signal in time).
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			// Exit code 0 means clean shutdown, which is what we want.
-			// Non-zero could mean the signal wasn't caught properly.
 			_ = exitErr
 		}
 	}
@@ -169,10 +161,8 @@ func buildTestBinary(t *testing.T, path string) error {
 	return cmd.Run()
 }
 
-// TestArmForcedExit verifies the fix: after the first shutdown
-// signal starts the graceful stop, a second signal must force-exit the
-// process instead of being silently swallowed (previously a hung
-// graceful shutdown could only be ended with kill -9).
+// TestArmForcedExit verifies that after the first shutdown signal starts
+// the graceful stop, a second signal force-exits the process.
 func TestArmForcedExit(t *testing.T) {
 	exitCalls := make(chan int, 1)
 	sigCh := make(chan os.Signal, 2)
@@ -219,7 +209,7 @@ func runWithTimeout(t *testing.T, timeout time.Duration) int {
 	}
 }
 
-// --- In-process mocks for the success-path test ---
+// In-process mocks for the success-path test.
 //
 // These satisfy core.Driver and core.Transport with no-op lifecycle
 // methods and nil command/data channels, so the engine starts them

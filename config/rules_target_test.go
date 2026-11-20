@@ -7,10 +7,9 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// TestValidateForwardRequiresTarget pins the P1-2 half that config.Validate
-// can enforce without importing the rule engine: forward/mirror with no
-// destination is accepted by the old validator but silently drops every
-// matching point at runtime.
+// TestValidateForwardRequiresTarget verifies that config.Validate rejects
+// forward/mirror rules with no destination, without importing the rule
+// engine.
 func TestValidateForwardRequiresTarget(t *testing.T) {
 	cfg := &core.Config{
 		Rules: []core.RuleConfig{{Name: "r", Match: "ALL", Action: "forward"}},

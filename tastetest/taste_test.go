@@ -1,3 +1,6 @@
+// Package tastetest contains taste invariant tests: file size limits and
+// structured logging.
+//
 // File size上限 — no .go file exceeds maxLines without a documented exemption.
 // Structured logging — no fmt.Println/fmt.Printf in production code.
 package tastetest
@@ -26,13 +29,8 @@ func findModuleRoot() string {
 	}
 }
 
-// exemptedFiles lists files that exceed maxLines with a documented reason.
-// Each entry: file path → reason. Exemptions are conscious technical debt:
-// every entry must also carry a SIZE PIN in exemptedFileCaps — growth
-// beyond the pinned size fails the gate, shrinking lets you lower the
-// pin, and a split that lands lets you delete the exemption entirely.
-// The list is currently empty; keep it that way unless a file genuinely
-// cannot be split yet.
+// exemptedFiles maps over-limit files to a reason; exemptedFileCaps pins
+// each exemption's max line count (growth fails the gate).
 var exemptedFiles = map[string]string{}
 
 // exemptedFileCaps pins the maximum line count per exemption: growth
@@ -77,7 +75,7 @@ func TestFileSizeLimit(t *testing.T) {
 			if cap, pinned := exemptedFileCaps[relPath]; pinned && lines > cap {
 				t.Errorf(
 					"VIOLATION: exempted file %s grew to %d lines (exemption pinned at %d)\n"+
-						"  Fix: split the file and lower/remove the exemption, or raise the pin CONSCIOUSLY with a tracker update .\n"+
+						"  Fix: split the file and lower/remove the exemption, or raise the pin with a specific reason.\n"+
 						"  Reason on file: %s",
 					relPath, lines, cap, reason)
 				violations++
@@ -87,7 +85,7 @@ func TestFileSizeLimit(t *testing.T) {
 
 		t.Errorf(
 			"VIOLATION: %s has %d lines (max %d)\n"+
-				"  Fix: Split this file into smaller files by responsibility. If splitting is not yet possible, add an entry to exemptedFiles in tastetest/taste_test.go with a reason and a tracker ID.\n"+
+				"  Fix: Split this file into smaller files by responsibility. If splitting is not yet possible, add an entry to exemptedFiles in tastetest/taste_test.go with a reason and a size pin.\n"+
 				"  Note: If this is a new file, it should be born under %d lines.",
 			relPath, lines, maxLines, maxLines)
 		violations++

@@ -5,24 +5,9 @@ import (
 	"time"
 )
 
-// Engine is the core orchestrator of the CoreC core.
-//
-// It is a composite interface assembled from single-role interfaces so
-// that consumers can depend on exactly the capabilities they need
-// (Interface Segregation Principle) instead of the full 25-method
-// surface. Any type that implements every method below implements
-// Engine, so this decomposition is fully backward compatible: existing
-// implementations and mocks that embed Engine continue to satisfy the
-// interface unchanged.
-//
-// The role interfaces are:
-//   - Lifecycler        — Start, Stop, Reload, Suspend, Resume, Status
-//   - DriverManager     — AddDriver, RemoveDriver, GetDriver, ListDrivers
-//   - TransportManager  — AddTransport, RemoveTransport, GetTransport, ListTransports
-//   - RuleManager       — SetRules, GetRuleStats, SetRuleDisabled
-//   - DataAccessor      — ReadTag, WriteTag, LatestValues
-//   - EventSubscriber   — Subscribe, OnAlert
-//   - StatsProvider     — Stats, StaleThreshold, DeadLetterEntries
+// Engine is the core orchestrator of the CoreC core, composed of the
+// single-role interfaces below; implementers may depend on just the
+// roles they need.
 type Engine interface {
 	Lifecycler
 	DriverManager
@@ -65,23 +50,18 @@ type RuleManager interface {
 	GetRuleStats() []RuleStat
 	SetRuleDisabled(index int, disabled bool) error
 	// SetRuleDisabledByName enables or disables a rule by its configured
-	// name. Names are unique (enforced by config validation), so a name is
-	// a stable identifier across config reloads — unlike an index, which
-	// shifts when rules are reordered or removed.
+	// name, a stable identifier across config reloads (names are unique,
+	// enforced by config validation).
 	SetRuleDisabledByName(name string, disabled bool) error
 }
 
-// RulePreviewer evaluates a match expression against a sample data point
-// without touching the active rule set — the backing for
-// POST /rules/preview (offline rule trial). Like the other optional role
-// interfaces, it is deliberately NOT embedded in Engine: the route layer
-// type-asserts it so alternative Engine implementations and test mocks
-// are free to omit preview support. *CoreCEngine satisfies it.
+// RulePreviewer backs POST /rules/preview (offline rule trial). Optional
+// role, type-asserted by the route layer; not part of Engine.
+// *CoreCEngine satisfies it.
 type RulePreviewer interface {
 	// PreviewRule compiles match, evaluates it against point, and reports
 	// whether a rule with that expression would fire on it. Compile
-	// errors are returned verbatim so the API can show the rule author
-	// what is wrong with the expression.
+	// errors are returned verbatim.
 	PreviewRule(match string, point DataPoint) (bool, error)
 }
 
@@ -93,13 +73,10 @@ type DataAccessor interface {
 	LatestValues(driver string) map[string]DataPoint
 }
 
-// WriteAuditor exposes the bounded write audit history: the most recent
-// write attempts, successes and failures alike, newest first. It backs
-// GET /write/history. Like the other optional role interfaces below, it
-// is deliberately NOT embedded in Engine: the route layer type-asserts
-// it so alternative Engine implementations (and test mocks) are free to
-// omit write auditing without breaking the composite contract.
-// *CoreCEngine satisfies this interface.
+// WriteAuditor exposes the bounded write audit history (successes and
+// failures alike, newest first), backing GET /write/history. Optional
+// role, type-asserted by the route layer; not part of Engine.
+// *CoreCEngine satisfies it.
 type WriteAuditor interface {
 	// WriteHistory returns a newest-first copy of the audit history
 	// (index 0 = most recent write attempt). The returned slice is a
@@ -123,23 +100,18 @@ type StatsProvider interface {
 	DeadLetterEntries() []DeadLetterEntry
 }
 
-// LatencyProvider exposes latency histograms for Prometheus histogram
-// exposure. It is a separate role interface (not embedded in Engine) so
-// that the route layer can type-assert optionally without coupling to the
-// concrete engine type. *CoreCEngine satisfies this interface; test mocks
-// are free to omit it.
+// LatencyProvider exposes read/publish latency histograms for Prometheus
+// exposure. Optional role, type-asserted by the route layer; not part of
+// Engine. *CoreCEngine satisfies it.
 type LatencyProvider interface {
 	ReadLatencyHistogram() LatencySnapshot
 	PublishLatencyHistogram() LatencySnapshot
 }
 
 // LabeledLatencyProvider exposes the per-driver / per-transport latency
-// histograms for Prometheus exposure — a single global histogram would
-// aggregate every driver and transport into one distribution, leaving a
-// single slow driver invisible behind healthy siblings. It is a separate
-// role interface the route layer
-// type-asserts optionally; engines that do not implement it keep the
-// unlabeled families. *CoreCEngine satisfies this interface.
+// histograms for Prometheus exposure. Optional role, type-asserted by
+// the route layer; engines that do not implement it keep the unlabeled
+// families. *CoreCEngine satisfies it.
 type LabeledLatencyProvider interface {
 	// ReadLatencyByDriver returns one read-latency snapshot per driver
 	// that has completed at least one read.
@@ -164,36 +136,30 @@ type LatencySnapshot struct {
 }
 
 // OfflineBufferStatsProvider exposes offline-buffer observability counters
-// for Prometheus exposure. It is a separate role interface so the route
-// layer can type-assert optionally. *CoreCEngine satisfies this interface.
+// for Prometheus exposure. Optional role, type-asserted by the route layer;
+// not part of Engine. *CoreCEngine satisfies it.
 type OfflineBufferStatsProvider interface {
 	OfflineBufferStats() (pending int, drained uint64, pushed uint64)
 }
 
 // DataAgeProvider exposes the data-age (freshness) histogram for
-// Prometheus exposure: the elapsed time between a data point's collection
-// timestamp (DataPoint.Timestamp) and the moment the engine attempts to
-// publish it. It is a separate role interface (mirroring
-// OfflineBufferStatsProvider) so the route layer type-asserts optionally
-// without coupling to the concrete engine type. *CoreCEngine satisfies
-// this interface; test mocks are free to omit it.
+// Prometheus exposure: elapsed time between a data point's collection
+// timestamp (DataPoint.Timestamp) and the engine's publish attempt.
+// Optional role, type-asserted by the route layer; not part of Engine.
+// *CoreCEngine satisfies it.
 type DataAgeProvider interface {
 	DataAgeHistogram() LatencySnapshot
 }
 
 // FlushBatchesDroppedProvider exposes the total number of full batches
-// evicted or dropped from batcher flush queues due to sustained
-// backpressure of the async batcher. It is a separate role
-// interface so the route layer type-asserts optionally. *CoreCEngine
-// satisfies this interface.
+// evicted or dropped from batcher flush queues under sustained
+// backpressure. Optional role, type-asserted by the route layer; not
+// part of Engine. *CoreCEngine satisfies it.
 type FlushBatchesDroppedProvider interface {
 	FlushBatchesDropped() uint64
 }
 
-// DroppedBreakdown decomposes the dropped-point counters by cause so
-// operators can attribute loss instead of diffing the umbrella total
-// (corec_dropped_total alone sums unrelated kinds of loss with no
-// labels).
+// DroppedBreakdown decomposes the dropped-point counters by cause.
 type DroppedBreakdown struct {
 	// DataBusMain is the number of points dropped from the main data
 	// bus channel when it was full (oldest evicted).
@@ -205,60 +171,50 @@ type DroppedBreakdown struct {
 	// /tags/stream subscriber fell behind.
 	SlowSubscriber uint64 `json:"slow_subscriber"`
 	// BadQuality is the number of points discarded by the
-	// on-bad-quality: drop policy (previously counted inside
-	// total_errors, conflating config policy with processing errors).
+	// on-bad-quality: drop policy.
 	BadQuality uint64 `json:"bad_quality"`
 	// LogEvents is the number of log events dropped by a full log
-	// buffer or slow log subscribers (exposed separately as
-	// corec_log_dropped_total; included here because it summed into the
-	// umbrella total historically).
+	// buffer or slow log subscribers (also exposed as
+	// corec_log_dropped_total).
 	LogEvents uint64 `json:"log_events"`
 }
 
 // DroppedBreakdownProvider exposes the per-cause drop counters for
-// Prometheus exposure. A separate role interface the route layer
-// type-asserts optionally; *CoreCEngine satisfies it.
+// Prometheus exposure. Optional role, type-asserted by the route layer;
+// not part of Engine. *CoreCEngine satisfies it.
 type DroppedBreakdownProvider interface {
 	DroppedBreakdown() DroppedBreakdown
 }
 
 // DeadLetterStatsProvider exposes the dead-letter queue depth (gauge)
 // and the lifetime number of commands pushed into it (counter) for
-// Prometheus exposure. Without these series the queue is reachable only
-// through GET /write/failed, so "commands are piling up in the dead
-// letter queue" could not be alerted on.
-// *CoreCEngine satisfies this interface; test mocks are free to omit it.
+// Prometheus exposure. Optional role, type-asserted by the route layer;
+// not part of Engine. *CoreCEngine satisfies it.
 type DeadLetterStatsProvider interface {
 	DeadLetterStats() (size int, pushed uint64)
 }
 
 // IngressDeadLetterProvider exposes commands dropped at transport
-// ingress — e.g. an MQTT command that arrived while the command channel
-// was full and was diverted to the transport-local dead-letter store.
-// The drop counter (corec_transport_dropped_commands_total) alone gives
-// no queryable detail — what was dropped and why stays invisible — so
-// this role exposes the entries. Backs
-// GET /write/failed?source=ingress. *CoreCEngine satisfies this
-// interface; test mocks are free to omit it.
+// ingress (e.g. an MQTT command arriving while the command channel was
+// full), diverted to the transport-local dead-letter store. Backs
+// GET /write/failed?source=ingress. Optional role, type-asserted by the
+// route layer; not part of Engine. *CoreCEngine satisfies it.
 type IngressDeadLetterProvider interface {
 	IngressDeadLetters() []DeadLetterEntry
 }
 
-// StaleThresholdPatcher is the optional role PATCH /configs uses to
-// apply global.engine.stale-threshold at runtime: the threshold gates
-// /tags is_stale annotation, and toggling it while debugging freshness
-// beats a full restart. Engines that do not
+// StaleThresholdPatcher applies global.engine.stale-threshold at runtime
+// via PATCH /configs; the threshold gates /tags is_stale annotation.
+// Optional role, type-asserted by the route layer; engines that do not
 // implement it reject the patch key.
 type StaleThresholdPatcher interface {
 	SetStaleThreshold(d time.Duration)
 }
 
-// DerivedTagApplier exposes hot-reload of the derived tag set so a
-// derived-tags change takes effect on reload instead of being silently
-// ignored (a successful PUT must not be a no-op). The
-// executor type-asserts this role during config reload; engines that
-// do not implement it keep the restart-required warning.
-// *CoreCEngine satisfies this interface; test mocks are free to omit it.
+// DerivedTagApplier hot-reloads the derived tag set. The executor
+// type-asserts this optional role during config reload; engines that do
+// not implement it keep the restart-required warning. *CoreCEngine
+// satisfies it.
 type DerivedTagApplier interface {
 	ApplyDerivedTags(configs []DerivedTagConfig) error
 }
@@ -279,8 +235,8 @@ type Config struct {
 // When ID is non-empty, the engine enables auto-discovery: topic-template,
 // command-topic, and parser are auto-generated where not explicitly set,
 // and the node broadcasts heartbeats so other instances can find it.
-// When ID is empty (the default), all auto-discovery features are disabled
-// and the engine behaves exactly as before — full backward compatibility.
+// When ID is empty (the default), all auto-discovery features are
+// disabled.
 type NodeConfig struct {
 	// ID is the unique identifier for this node in the topology.
 	// Must be set to enable auto-discovery.
@@ -316,8 +272,7 @@ type GlobalConfig struct {
 // All fields are optional; zero values fall back to sensible defaults.
 type EngineConfig struct {
 	// DataBusSize is the buffer capacity of the internal data channel
-	// connecting drivers to the processing pipeline. Larger values
-	// reduce drops under burst load at the cost of memory.
+	// connecting drivers to the processing pipeline.
 	// Default: 8192.
 	DataBusSize int `yaml:"data-bus-size,omitempty"`
 
@@ -342,12 +297,12 @@ type EngineConfig struct {
 
 	// OnBadQuality controls how DataPoints with QualityBad are handled
 	// in the processing pipeline. Valid values:
-	//   "publish"         — forward normally (default, backward-compatible).
+	//   "publish"         — forward normally (default).
 	//   "drop"            — discard bad-quality points before rule matching.
 	//   "mark-and-publish" — publish but set Value to nil, keeping quality=bad.
 	//   "alert"           — forward and trigger alert callback.
 	// An empty value defaults to "publish". An unrecognized value returns
-	// a startup error (fail-fast to catch typos).
+	// a startup error.
 	OnBadQuality string `yaml:"on-bad-quality,omitempty"`
 
 	// StaleThreshold is the duration after which a cached data point is
@@ -367,10 +322,8 @@ type EngineConfig struct {
 	// CommandConcurrency is the maximum number of write commands the
 	// engine executes in parallel. Commands in excess of this limit
 	// apply backpressure (the transport's command channel fills, and
-	// overflow is diverted to the dead-letter store). This prevents a
-	// single slow write from serializing all subsequent control commands.
-	// Unset or 0 uses the default (16). Set to 1 to restore the original
-	// fully-serial behavior.
+	// overflow is diverted to the dead-letter store).
+	// Unset or 0 uses the default (16); 1 executes writes serially.
 	CommandConcurrency int `yaml:"command-concurrency,omitempty"`
 
 	// HighPriorityWorkers is the number of dedicated processing workers
@@ -388,22 +341,19 @@ type EngineConfig struct {
 	DeadLetterPath string `yaml:"dead-letter-path,omitempty"`
 
 	// WriteMinInterval is the minimum spacing between two write commands
-	// that reach the same device. Old PLCs that service their
-	// communication interface from a single CPU loop drop or misapply
-	// back-to-back writes. A write arriving inside the window is REFUSED,
-	// never queued: the API answers 429 (the client backs off) and the
-	// command channel dead-letters the command with the reason intact.
-	// Only accepted writes advance the window. Empty = disabled (writes
-	// proceed immediately). Parse as a duration string, e.g. "200ms".
+	// that reach the same device. A write arriving inside the window is
+	// REFUSED, never queued: the API answers 429 and the command channel
+	// dead-letters the command with the reason intact. Only accepted
+	// writes advance the window. Empty = disabled (writes proceed
+	// immediately). Parse as a duration string, e.g. "200ms".
 	WriteMinInterval string `yaml:"write-min-interval,omitempty"`
 
 	// WriteAuditPath enables on-disk persistence of the write audit trail
-	// (GET /write/history): an append-only JSONL file that survives process
-	// restarts, so an operator can still answer "who wrote what, and when"
-	// after an outage. Empty = disabled (in-memory only, the historical
-	// behaviour). Records are fsynced before the write returns; the file
-	// rotates to <path>.old past 5 MiB (bounding disk at ~2x5 MiB) and the
-	// newest entries replay into the in-memory ring at startup.
+	// (GET /write/history): an append-only JSONL file that survives
+	// process restarts. Empty = disabled (in-memory only). Records are
+	// fsynced before the write returns; the file rotates to <path>.old
+	// past 5 MiB (bounding disk at ~2x5 MiB) and the newest entries
+	// replay into the in-memory ring at startup.
 	WriteAuditPath string `yaml:"write-audit-path,omitempty"`
 
 	// AlertActiveWindow is how long an alert stays active after its
@@ -440,26 +390,22 @@ type APIConfig struct {
 	IdleTimeout string `yaml:"idle-timeout,omitempty"`
 
 	// PprofDisabled controls whether pprof profiling endpoints are
-	// disabled. Defaults to false (pprof enabled) for backward
-	// compatibility. Set to true to completely disable pprof.
+	// disabled. Defaults to false (pprof enabled).
 	PprofDisabled bool `yaml:"pprof-disabled,omitempty"`
 
-	// MetricsAddr, when non-empty, starts a separate HTTP server that
-	// serves ONLY GET /metrics without authentication: Prometheus
-	// scrapes a dedicated, credential-free interface instead of sharing
-	// the API secret — a secret that can PUT /configs must not be handed
-	// to every scraper. Must be
-	// bound to a loopback or private interface (enforced fail-closed
-	// like PprofAddr); while set, /metrics is removed from the main
-	// authenticated API. Empty = metrics stay behind the main API's
-	// bearer auth.
+	// MetricsAddr, when non-empty, serves GET /metrics unauthenticated on
+	// a separate HTTP server; only loopback addresses (127.0.0.1/::1/
+	// localhost) are accepted — any other address refuses startup
+	// (fail-closed, like PprofAddr). While set, /metrics is removed from
+	// the main authenticated API. Empty = metrics stay behind the main
+	// API's bearer auth.
 	MetricsAddr string `yaml:"metrics-addr,omitempty"`
 
-	// PprofAddr, when non-empty, starts a separate HTTP server for pprof
-	// on this address (e.g. "127.0.0.1:6060"). The separate server does
-	// NOT require authentication, so it should be bound to a loopback or
-	// private interface only. When empty, pprof runs on the main API
-	// port (unless PprofDisabled is true).
+	// PprofAddr, when non-empty, starts a separate unauthenticated HTTP
+	// server for pprof on this address (e.g. "127.0.0.1:6060"); only
+	// loopback addresses (127.0.0.1/::1/localhost) are accepted — any
+	// other address refuses startup (fail-closed). When empty, pprof runs
+	// on the main API port (unless PprofDisabled is true).
 	PprofAddr string `yaml:"pprof-addr,omitempty"`
 }
 

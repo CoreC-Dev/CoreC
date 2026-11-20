@@ -83,8 +83,6 @@ func SetLevel(l slog.Level) {
 
 // Init initializes the global slog logger with an observable handler
 // that writes to stdout and publishes events to all subscribers.
-// This ensures ALL slog.Info/slog.Error calls throughout the codebase
-// are captured by the log bus — no code changes needed.
 //
 // format selects the console output format: "json" produces structured
 // JSON lines via slog.NewJSONHandler; any other value (including the
@@ -124,10 +122,7 @@ func NewObservableHandler(w io.Writer, l slog.Level, format string) *ObservableH
 // Enabled implements slog.Handler.
 func (h *ObservableHandler) Enabled(_ context.Context, lvl slog.Level) bool {
 	// Check the dynamic level (updated by SetLevel via PATCH /configs),
-	// NOT the inner handler's fixed level set at Init time. Otherwise
-	// DEBUG logs are filtered by the inner handler before reaching
-	// Handle/publishRecord, so PATCH log-level:debug has no effect on
-	// the event bus (though stdout also misses them).
+	// not the inner handler's fixed level set at Init time.
 	mu.RLock()
 	currentLevel := level
 	mu.RUnlock()
@@ -137,10 +132,7 @@ func (h *ObservableHandler) Enabled(_ context.Context, lvl slog.Level) bool {
 // Handle implements slog.Handler. It writes to the inner handler and
 // publishes an Event to the log bus.
 func (h *ObservableHandler) Handle(ctx context.Context, r slog.Record) error {
-	// Publish to subscribers
 	publishRecord(r)
-
-	// Write to stdout via inner handler
 	return h.inner.Handle(ctx, r)
 }
 
@@ -198,12 +190,9 @@ func publishRecord(r slog.Record) {
 	select {
 	case logCh <- ev:
 	default:
-		// channel full, drop message
 		sourceDropped.Add(1)
 	}
 }
-
-// --- Convenience functions (printf-style wrappers around slog) ---
 
 func pushLog(l slog.Level, format string, v ...any) {
 	mu.RLock()

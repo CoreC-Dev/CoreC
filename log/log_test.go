@@ -41,7 +41,7 @@ func TestLevelFiltering(t *testing.T) {
 	slog.Info("should be filtered out")
 	slog.Warn("should pass through")
 
-	// Blocking wait with timeout (replaces sleep + non-blocking select).
+	// Blocking wait with timeout.
 	select {
 	case ev := <-ch:
 		if ev.Type != "warning" {
@@ -135,9 +135,8 @@ func TestConvenienceFunctions(t *testing.T) {
 	defer unsub()
 
 	Infoln("info test %d", 1)
-	// The convenience family has no Warn variant (never had a caller);
-	// warnings go through slog directly — the ObservableHandler captures
-	// all slog calls, which is the package's core mechanism.
+	// The convenience family has no Warn variant; warnings go through
+	// slog directly — the ObservableHandler captures all slog calls.
 	slog.Warn("warn test 2")
 	Errorln("error test %d", 3)
 
@@ -256,7 +255,7 @@ func TestNewObservableHandlerTextFormat(t *testing.T) {
 }
 
 // TestNewObservableHandlerDefaultFormat verifies that an empty or unknown
-// format falls back to the text handler (backward-compatible default).
+// format falls back to the text handler.
 func TestNewObservableHandlerDefaultFormat(t *testing.T) {
 	for _, format := range []string{"", "text", "TEXT", "bogus"} {
 		var buf bytes.Buffer

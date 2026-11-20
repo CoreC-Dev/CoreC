@@ -33,9 +33,9 @@ type Transport interface {
 	Status() TransportStatus
 }
 
-// BatchPublishError reports which points in a batch failed. A transport that
-// can distinguish partial success returns it so the retry loop resends only
-// the failed subset instead of duplicating the points that were delivered.
+// BatchPublishError reports which points in a batch failed; transports
+// that distinguish partial success return it and the retry loop resends
+// only the failed subset.
 type BatchPublishError struct {
 	// Failed indexes into the points slice passed to PublishBatch.
 	Failed []int
@@ -68,8 +68,7 @@ type CommandForwarder interface {
 // divert commands dropped at ingress (e.g. the command channel was full)
 // into a transport-local dead-letter store. The MQTT transport
 // implements it; the engine type-asserts for this interface to serve
-// GET /write/failed?source=ingress (a drop counter alone gives no
-// queryable detail).
+// GET /write/failed?source=ingress.
 type IngressDeadLetterSource interface {
 	CommandDeadLetterEntries() []DeadLetterEntry
 }

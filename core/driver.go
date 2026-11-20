@@ -12,10 +12,8 @@ var ErrSubscribeNotSupported = errors.New("subscribe not supported by this drive
 
 // ErrWritePaced marks a write refused by the driver-level pacing floor
 // (settings.write-min-interval): the device accepted a write too recently.
-// The command itself is sound, so control planes answer it with a
-// client-retryable status (HTTP 429) and dead-letter it with the reason
-// intact rather than reporting consequence-less success or an internal
-// failure.
+// Control planes answer it with a client-retryable status (HTTP 429) and
+// dead-letter it with the reason intact.
 var ErrWritePaced = errors.New("write paced")
 
 // Driver defines the southbound driver interface for industrial protocol communication.

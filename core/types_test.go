@@ -7,8 +7,6 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
-// --- DataType tests ---
-
 func TestParseDataType(t *testing.T) {
 	t.Parallel()
 	valid := map[string]DataType{
@@ -36,7 +34,6 @@ func TestParseDataType(t *testing.T) {
 		}
 	}
 
-	// Invalid type
 	_, ok := ParseDataType("invalid")
 	if ok {
 		t.Error("ParseDataType(\"invalid\") returned ok=true, want false")
@@ -90,8 +87,7 @@ func TestDataTypeMarshalJSON(t *testing.T) {
 }
 
 // TestDataTypeUnmarshalJSON verifies that both the string form ("float32")
-// and the legacy integer form (9) are accepted, covering backward
-// compatibility with existing clients and persisted payloads.
+// and the integer form (9) are accepted.
 func TestDataTypeUnmarshalJSON(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -162,9 +158,8 @@ func TestDataTypeJSONRoundTripViaStruct(t *testing.T) {
 	}
 }
 
-// TestDataTypeUnmarshalLegacyIntegerViaStruct verifies that a legacy
-// JSON payload using the integer form (type: 9) still decodes correctly,
-// preserving backward compatibility with existing persisted data.
+// TestDataTypeUnmarshalLegacyIntegerViaStruct verifies that a JSON
+// payload using the integer form (type: 9) decodes correctly.
 func TestDataTypeUnmarshalLegacyIntegerViaStruct(t *testing.T) {
 	t.Parallel()
 	legacyJSON := `{"driver":"plc","tag":"temp","value":99.9,"type":9}`
@@ -175,15 +170,13 @@ func TestDataTypeUnmarshalLegacyIntegerViaStruct(t *testing.T) {
 	if cmd.Type != TypeFloat32 {
 		t.Errorf("legacy type 9 decoded as %d, want %d (TypeFloat32)", cmd.Type, TypeFloat32)
 	}
-	// The declared type now also governs the value decode: a float32
-	// command decodes its value as float32 (the exact Go type the PLC
-	// write path expects), not the historical float64 default.
+	// The declared type governs the value decode: a float32 command
+	// decodes its value as float32, the exact Go type the PLC write path
+	// expects.
 	if v, ok := cmd.Value.(float32); !ok || v != float32(99.9) {
 		t.Errorf("value = %T (%v), want float32(99.9)", cmd.Value, cmd.Value)
 	}
 }
-
-// --- Quality tests ---
 
 func TestQualityString(t *testing.T) {
 	t.Parallel()
@@ -202,8 +195,6 @@ func TestQualityString(t *testing.T) {
 		}
 	}
 }
-
-// --- ConnState tests ---
 
 func TestConnStateString(t *testing.T) {
 	t.Parallel()
@@ -224,8 +215,6 @@ func TestConnStateString(t *testing.T) {
 	}
 }
 
-// --- WriteResult tests (M24: Error is now a string) ---
-
 func TestWriteResultJSON(t *testing.T) {
 	t.Parallel()
 	// WriteResult.Error should be a string, not an error interface.
@@ -242,10 +231,7 @@ func TestWriteResultJSON(t *testing.T) {
 	}
 }
 
-// TestDataTypeUnmarshalYAMLCases covers every UnmarshalYAML branch (the
-// config-level regression test covers only the documented string form;
-// the coverage gate caught the uncovered int/uint64/float64/invalid
-// arms when they landed).
+// TestDataTypeUnmarshalYAMLCases covers every UnmarshalYAML branch.
 func TestDataTypeUnmarshalYAMLCases(t *testing.T) {
 	type wrapper struct {
 		Type DataType `yaml:"type"`

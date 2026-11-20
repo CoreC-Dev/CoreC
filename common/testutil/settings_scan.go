@@ -1,11 +1,7 @@
 // Package testutil provides shared test helpers.
 //
 // This file hosts the settings-key scanning helpers for the drift tests
-// in driver and transport. They live in this test-only package rather
-// than in a production one so that no production package exists solely
-// to serve tests, and the cross-package transport→driver dependency they
-// create stays test-only, where archtest (which inspects production
-// imports only) is not misled by it.
+// in driver and transport; archtest inspects production imports only.
 package testutil
 
 import "regexp"

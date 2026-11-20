@@ -1,10 +1,7 @@
 package core
 
 // Metrics is the port for emitting observability metrics (counters and
-// gauges) from drivers and other components. Defining it as an interface
-// in the core port package keeps concrete metric backends (Prometheus,
-// statsd, no-op, …) out of the domain and lets each component depend on
-// exactly this capability.
+// gauges) from drivers and other components.
 //
 // Injection: drivers implementing SetMetrics receive the engine's
 // metrics registry from the engine's driver manager at Init time, so
@@ -22,13 +19,10 @@ type Metrics interface {
 // metrics, so they can hold a Metrics value without a real backend.
 type NoopMetrics struct{}
 
-// IncCounter satisfies Metrics; it does nothing.
 func (NoopMetrics) IncCounter(name string, labels map[string]string) {}
 
-// SetGauge satisfies Metrics; it does nothing.
 func (NoopMetrics) SetGauge(name string, value float64, labels map[string]string) {}
 
-// Compile-time assertion that NoopMetrics satisfies Metrics.
 var _ Metrics = NoopMetrics{}
 
 // DriverMetric is one driver-emitted series snapshot for Prometheus

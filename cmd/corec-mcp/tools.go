@@ -10,8 +10,6 @@ import (
 	"strings"
 )
 
-// ─── tool definitions ───────────────────────────────────────────────
-
 // toolDef is one MCP tool: a name, a description, and a JSON Schema for its
 // arguments. write marks control verbs that are hidden entirely in read-only
 // mode -- the listing itself is the authorization.
@@ -73,11 +71,8 @@ func (s *server) toolDefs() []map[string]any {
 			description: "List drivers whose collection is currently paused.",
 		},
 		{
-			// Read-only on purpose: the agent can inspect and dry-run a
-			// configuration before proposing a change, but applying one stays
-			// a human action through the dashboard / PUT /configs. Config
-			// writes need a permission model (can it touch secret? whose
-			// audit entry?) that is not this adapter's to invent.
+			// Config verbs are read-only: get_configs and validate_configs;
+			// applying changes is not exposed.
 			name:        "get_configs",
 			description: "Read the running configuration as YAML text (GET /configs/raw). Read-only: applying a change is not exposed here.",
 		},
@@ -180,8 +175,6 @@ func (s *server) handleToolCall(req rpcRequest) any {
 	return s.ok(req.ID, result)
 }
 
-// ─── tool execution ──────────────────────────────────────────────────
-
 func (s *server) callTool(name string, args map[string]any) (string, bool) {
 	switch name {
 	case "list_drivers":
@@ -219,8 +212,6 @@ func (s *server) callTool(name string, args map[string]any) (string, bool) {
 	case "list_paused_drivers":
 		return s.get("/drivers/paused")
 	case "get_configs", "validate_configs":
-		// The two config verbs share a dispatch case to keep callTool under
-		// the complexity ceiling; callConfig holds the branching.
 		return s.callConfig(name, args)
 	case "write_tag":
 		body := map[string]any{
@@ -244,10 +235,8 @@ func (s *server) callTool(name string, args map[string]any) (string, bool) {
 }
 
 // callConfig answers the config-inspection verbs: read the running config as
-// YAML, or dry-run a candidate through the server's validator.
-//
-// Applying is deliberately absent (no PUT /configs): a whole-file reload can
-// drop a driver, invented by a model, with no permission model behind it.
+// YAML, or dry-run a candidate through the server's validator. Applying
+// changes is not exposed.
 func (s *server) callConfig(name string, args map[string]any) (string, bool) {
 	switch name {
 	case "get_configs":
@@ -299,8 +288,6 @@ func withQuery(q url.Values) string {
 	return "?" + q.Encode()
 }
 
-// ─── HTTP ────────────────────────────────────────────────────────────
-
 func (s *server) get(path string) (string, bool) {
 	req, err := http.NewRequest(http.MethodGet, s.base+path, http.NoBody)
 	if err != nil {
@@ -309,10 +296,8 @@ func (s *server) get(path string) (string, bool) {
 	return s.do(req)
 }
 
-// getRaw is get() with an Accept header. /configs/raw content-negotiates: the
-// default is JSON-looking while the dashboard asks for application/yaml,ullo and a
-// config the caller intends to re-submit should come back in the shape it was
-// written.
+// getRaw is get() with an Accept header; /configs/raw content-negotiates,
+// so ask for application/yaml explicitly.
 func (s *server) getRaw(path, accept string) (string, bool) {
 	req, err := http.NewRequest(http.MethodGet, s.base+path, http.NoBody)
 	if err != nil {

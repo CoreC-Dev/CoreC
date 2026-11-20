@@ -10,7 +10,6 @@ import (
 )
 
 func TestLoadTagsFiles(t *testing.T) {
-	// Create a temporary tags file.
 	dir := t.TempDir()
 	tagsFile := filepath.Join(dir, "plc-tags.yaml")
 	tagsContent := `
@@ -29,7 +28,6 @@ func TestLoadTagsFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Config that references the tags file.
 	yml := `
 drivers:
   - name: plc
@@ -78,7 +76,6 @@ func TestLoadTagsFilesWithInline(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Config with both tags-file and inline tags.
 	yml := `
 drivers:
   - name: plc
@@ -140,7 +137,6 @@ transports:
 }
 
 func TestLoadTagsFilesNoFile(t *testing.T) {
-	// Driver without tags-file should work normally.
 	yml := `
 drivers:
   - name: plc

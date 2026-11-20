@@ -40,7 +40,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Also validate the main config.example.yaml
 	example := filepath.Join(root, "config.example.yaml")
 	if _, err := config.Load(example); err != nil {
 		fmt.Printf("FAIL  config.example.yaml — %v\n", err)

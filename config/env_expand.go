@@ -16,13 +16,9 @@ import (
 // naming convention.
 var envVarRe = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
-// expandEnvVars replaces ${ENV_VAR} placeholders in YAML data with
-// environment variable values safely. Unlike naive byte-level replacement,
-// which is vulnerable to YAML injection when env var values contain
-// YAML-special characters (newlines, colons, braces), this function parses
-// the YAML into a generic tree first, expands placeholders in string leaf
-// values, and re-serializes — ensuring env var values are properly typed
-// and escaped by the YAML encoder.
+// expandEnvVars replaces ${ENV_VAR} placeholders via parse → expand
+// string leaves → re-marshal, so values are typed/escaped by the YAML
+// encoder.
 //
 // Type inference is preserved: a value like ${PORT} with PORT=502 is
 // converted to the integer 502 (not the string "502") so that YAML fields
@@ -63,8 +59,7 @@ func expandEnvVars(data []byte) ([]byte, error) {
 // ${ENV_VAR} placeholders in string leaf values. After expansion, the
 // resulting string is passed through inferYamlScalar so that numeric
 // and boolean values retain their YAML scalar type (e.g. "502" → int64
-// 502), preserving the type-inference behaviour that byte-level
-// substitution provided.
+// 502).
 func expandEnvInTree(v any) any {
 	switch val := v.(type) {
 	case string:
@@ -99,15 +94,13 @@ func expandEnvInTree(v any) any {
 // after env var expansion. Strings that do not match any scalar type
 // are returned unchanged.
 func inferYamlScalar(s string) any {
-	// Try integer (base 10).
 	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
 		return n
 	}
-	// Try float.
 	if f, err := strconv.ParseFloat(s, 64); err == nil {
 		return f
 	}
-	// Try bool (YAML 1.2 core schema: true/false in any case).
+	// YAML 1.2 core schema: true/false in any case.
 	switch s {
 	case "true", "True", "TRUE":
 		return true

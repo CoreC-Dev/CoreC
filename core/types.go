@@ -54,17 +54,9 @@ func (d DataType) MarshalJSON() ([]byte, error) {
 	return json.Marshal(d.String())
 }
 
-// UnmarshalJSON accepts both the string form ("float32") and the legacy integer
-// form (9). The string form is preferred for new integrations because it is
-// self-documenting; the integer form is accepted for backward compatibility
-// with existing clients and persisted payloads.
-//
-// This dual acceptance resolves a common usability trap: tag configurations in
-// YAML use string types (type: float32), but prior to this change, the JSON API
-// and MQTT command payloads required the raw iota integer (type: 9). Now both
-// forms work in every JSON context.
+// UnmarshalJSON accepts the string form ("float32") and the integer iota
+// code (9).
 func (d *DataType) UnmarshalJSON(data []byte) error {
-	// Try string form first: "float32".
 	var s string
 	if err := json.Unmarshal(data, &s); err == nil {
 		parsed, ok := ParseDataType(s)
@@ -74,7 +66,6 @@ func (d *DataType) UnmarshalJSON(data []byte) error {
 		*d = parsed
 		return nil
 	}
-	// Fall back to legacy integer form: 9.
 	var n int
 	if err := json.Unmarshal(data, &n); err != nil {
 		return fmt.Errorf("data type must be a string (e.g. \"float32\") or integer, got %s", string(data))
@@ -98,13 +89,8 @@ func ParseDataType(s string) (DataType, bool) {
 	return d, ok
 }
 
-// UnmarshalYAML accepts the documented string form ("float32") as well as
-// raw integer codes, mirroring UnmarshalJSON's dual acceptance. Derived-tag
-// configs (derived-tags[].type) document the string form everywhere —
-// docs/config/derived-tags.md and config.example.yaml — so accepting
-// only raw codes would leave the documented contract un-loadable
-// (copying those examples fails with "cannot unmarshal string into
-// core.DataType").
+// UnmarshalYAML accepts the string form ("float32") and integer iota
+// codes, mirroring UnmarshalJSON.
 func (d *DataType) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	var raw interface{}
 	if err := unmarshal(&raw); err != nil {
@@ -229,8 +215,7 @@ type WriteResult struct {
 // in the engine's bounded write audit history, exposed via
 // GET /write/history. Unlike the dead-letter queue (which only keeps
 // failures that exhausted all retries), the audit history retains the
-// most recent writes of both outcomes: control-class deployments need a
-// complete trail of successful PLC writes for compliance.
+// most recent writes of both outcomes.
 type WriteAuditEntry struct {
 	Timestamp time.Time `json:"timestamp"`
 	Driver    string    `json:"driver"`
@@ -331,13 +316,6 @@ type TagConfig struct {
 	Triggers string `yaml:"triggers,omitempty"`
 }
 
-// ─── Shared default constants ───────────────────────────────────────
-//
-// These constants centralise tunable defaults that were previously
-// duplicated as magic numbers across drivers, transports, and the
-// engine.  Code should reference these instead of writing literal
-// values, so that a future change only needs one edit.
-
 const (
 	// DefaultTagInterval is the fallback collection interval for tags
 	// that do not specify their own interval.
@@ -370,8 +348,7 @@ const (
 	// DefaultCommandConcurrency is the default maximum number of write
 	// commands executed in parallel by the engine. Commands exceeding this
 	// limit apply backpressure to the transport's command channel (and
-	// ultimately to the dead-letter store per #4). This prevents a single
-	// slow write from serializing all subsequent control commands.
+	// ultimately to the dead-letter store).
 	DefaultCommandConcurrency = 16
 
 	// DefaultHighPriorityWorkers is the default number of dedicated
@@ -388,8 +365,7 @@ const (
 
 	// DefaultAlertActiveWindow is how long an alert stays active after
 	// its last fire before being cleared to history (overridable via
-	// global.engine.alert-active-window). Alerts need state and history,
-	// not just a log line.
+	// global.engine.alert-active-window).
 	DefaultAlertActiveWindow = 15 * time.Minute
 
 	// DefaultBatchSize is the default batch size for transport batchers
@@ -425,7 +401,7 @@ const (
 	// on batch count — not on bytes and not on points.
 	DefaultOfflineBufferMaxEntries = 10000
 
-	// DefaultDeadLetterMaxLen is the maximum number of entries in the
-	// engine's dead-letter queue for data points that could not be processed.
+	// DefaultDeadLetterMaxLen bounds the engine dead-letter queue of
+	// failed write commands.
 	DefaultDeadLetterMaxLen = 1000
 )

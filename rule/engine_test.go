@@ -7,8 +7,7 @@ import (
 )
 
 // firstMatch extracts the first result from a Match call, returning nil
-// if no rule matched. This preserves the pre-continue-flag test idiom
-// where Match returned a single *MatchResult.
+// if no rule matched.
 func firstMatch(res []*MatchResult) *MatchResult {
 	if len(res) == 0 {
 		return nil

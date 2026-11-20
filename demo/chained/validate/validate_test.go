@@ -67,8 +67,7 @@ func TestExampleConfigValid(t *testing.T) {
 }
 
 func TestNoHardcodedDemoTokenInConfigs(t *testing.T) {
-	// Secret-hygiene regression guard: no demo YAML should contain the
-	// literal "demo-token" as a secret value.
+	// Guard: no demo YAML may hardcode the secret "demo-token".
 	root := findModuleRoot(t)
 	pattern := filepath.Join(root, "demo", "chained", "scenario*", "*.yaml")
 	files, _ := filepath.Glob(pattern)

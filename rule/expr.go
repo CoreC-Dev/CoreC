@@ -13,10 +13,9 @@ import (
 	"github.com/expr-lang/expr/vm"
 )
 
-// This file implements the rule expression engine using expr-lang/expr.
-// It replaces the former hand-written tokenizer/parser/AST (~560 lines)
-// with a thin translation layer (~100 lines) that converts the CoreC DSL
-// to expr-lang/expr syntax, then compiles and evaluates via the library.
+// This file implements the rule expression engine using expr-lang/expr,
+// translating the CoreC DSL to expr-lang/expr syntax, then compiling and
+// evaluating via the library.
 //
 // Supported DSL syntax (translated to expr-lang/expr built-in operators):
 //   field == 'value'        string equality           (native)
@@ -37,15 +36,11 @@ import (
 //
 // Fields: driver, device, group, tag, quality, type, value
 
-// ─── exprNode interface (kept for backward compatibility) ──────────
-
 type exprNode interface {
 	eval(point core.DataPoint) bool
 	// evalErrors reports how many evaluation attempts failed (type
 	// mismatches, unknown fields) and when the last failure happened.
-	// Backs RuleStat.eval_errors (without it a
-	// type-mismatched rule silently never matches, with no signal
-	// anywhere).
+	// Backs RuleStat.eval_errors.
 	evalErrors() (count uint64, at time.Time)
 }
 
@@ -120,16 +115,10 @@ func pointEnv(point core.DataPoint) map[string]any {
 		"quality": point.Quality.String(),
 		"type":    point.Type.String(),
 		"value":   point.Value,
-		// Unix milliseconds: numeric so comparisons work without date
-		// functions (time-window rules —
-		// "only alert during the day shift" — need comparable
-		// timestamps). No cardinality risk: it is a per-point value,
-		// never a metric label.
+		// timestamp is Unix milliseconds, numeric for comparisons.
 		"timestamp": point.Timestamp.UnixMilli(),
 	}
 }
-
-// ─── DSL → expr-lang/expr syntax translation ────────────────────────
 
 // translateExpr converts the CoreC DSL to expr-lang/expr syntax.
 // Only the operators not native to expr-lang/expr are translated;
@@ -141,17 +130,11 @@ func pointEnv(point core.DataPoint) map[string]any {
 // In expr-lang/expr, ! has higher precedence than comparison operators,
 // so without parentheses !tag matches 'x' would parse as (!tag) matches 'x'.
 func translateExpr(s string) string {
-	// field =~ 'regex'  →  (field matches 'regex')
 	s = reRegexMatch.ReplaceAllString(s, "($1 matches '$2')")
-	// field !~ 'regex'  →  not (field matches 'regex')
 	s = reRegexNonMatch.ReplaceAllString(s, "not ($1 matches '$2')")
-	// field contains 'substr'  →  (field contains 'substr')
 	s = reContains.ReplaceAllString(s, "($1 contains '$2')")
-	// field suffix 'suffix'  →  (field endsWith 'suffix')
 	s = reSuffix.ReplaceAllString(s, "($1 endsWith '$2')")
-	// field prefix 'prefix'  →  (field startsWith 'prefix')
 	s = rePrefix.ReplaceAllString(s, "($1 startsWith '$2')")
-	// value in 50..100  →  (value >= 50 && value <= 100)
 	// reRange is applied last and only outside single-quoted string literals,
 	// to avoid corrupting regex patterns that happen to contain "word in N..M".
 	s = replaceRangeOutsideStrings(s)
@@ -206,8 +189,6 @@ var (
 	reRange         = regexp.MustCompile(`(\w+)\s+in\s+(-?\d+(?:\.\d+)?)\.\.(-?\d+(?:\.\d+)?)`)
 	reStringLit     = regexp.MustCompile(`'[^']*'`)
 )
-
-// ─── Compiler ───────────────────────────────────────────────────────
 
 // compileExpr parses a DSL expression string into an evaluable node.
 // Uses expr.AllowUndefinedVariables() so that the `value` field (which

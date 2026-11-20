@@ -1,10 +1,5 @@
-// Package metrics provides lightweight metric collection primitives.
-//
-// It contains self-contained, dependency-free metric types (currently
-// LatencyHistogram) that the engine uses to record operation latencies.
-// The values are exposed to scrapers by the route layer's Prometheus
-// text-format handler; no third-party Prometheus client library is
-// pulled in, keeping the core industrial gateway dependency-light.
+// Package metrics provides dependency-free metric primitives (histograms,
+// rate window, driver-metric registry).
 package metrics
 
 import (

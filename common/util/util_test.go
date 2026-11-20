@@ -10,8 +10,6 @@ import (
 	"time"
 )
 
-// --- GetIntSetting ---
-
 func TestGetIntSetting(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -41,8 +39,6 @@ func TestGetIntSetting(t *testing.T) {
 	}
 }
 
-// --- GetDurationSetting ---
-
 func TestGetDurationSetting(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -69,8 +65,6 @@ func TestGetDurationSetting(t *testing.T) {
 	}
 }
 
-// --- GetBoolSetting ---
-
 func TestGetBoolSetting(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -95,8 +89,6 @@ func TestGetBoolSetting(t *testing.T) {
 		})
 	}
 }
-
-// --- IsConnectionError ---
 
 func TestIsConnectionError(t *testing.T) {
 	// Each keyword should be detected.
@@ -132,8 +124,6 @@ func TestIsConnectionError(t *testing.T) {
 	})
 }
 
-// --- ToFloat64 ---
-
 func TestToFloat64(t *testing.T) {
 	tests := []struct {
 		name string
@@ -168,8 +158,6 @@ func TestToFloat64(t *testing.T) {
 	}
 }
 
-// --- ToFloat32 ---
-
 func TestToFloat32(t *testing.T) {
 	tests := []struct {
 		name string
@@ -195,8 +183,6 @@ func TestToFloat32(t *testing.T) {
 	}
 }
 
-// --- ToUint32 ---
-
 func TestToUint32(t *testing.T) {
 	tests := []struct {
 		name string
@@ -221,8 +207,6 @@ func TestToUint32(t *testing.T) {
 		})
 	}
 }
-
-// --- ToUint64 ---
 
 func TestToUint64(t *testing.T) {
 	tests := []struct {
@@ -252,8 +236,6 @@ func TestToUint64(t *testing.T) {
 	}
 }
 
-// --- ToUint16 ---
-
 func TestToUint16(t *testing.T) {
 	tests := []struct {
 		name string
@@ -279,8 +261,6 @@ func TestToUint16(t *testing.T) {
 		})
 	}
 }
-
-// --- ApplyTransform ---
 
 func TestApplyTransform(t *testing.T) {
 	// No-op when both scale and offset are 0.
@@ -404,8 +384,6 @@ func TestApplyTransformAllNumericTypes(t *testing.T) {
 		})
 	}
 }
-
-// --- InvertTransform ---
 
 func TestInvertTransform(t *testing.T) {
 	// No-op when both scale and offset are 0 (mirrors ApplyTransform).
@@ -539,8 +517,6 @@ func toFloat64(t *testing.T, v any) float64 {
 		return 0
 	}
 }
-
-// --- ReconnectLoopWithBreaker (breaker disabled: maxFailures=0) ---
 
 func TestReconnectLoop(t *testing.T) {
 	t.Run("connect succeeds on first try", func(t *testing.T) {
@@ -731,8 +707,6 @@ func TestStringContains(t *testing.T) {
 	}
 }
 
-// --- Reconnect jitter (Task 4c) ---
-
 // TestJitteredBackoffBounds verifies that jitteredBackoff always returns a
 // value within ±20% of the base backoff, i.e. in [0.8*d, 1.2*d].
 func TestJitteredBackoffBounds(t *testing.T) {
@@ -837,10 +811,7 @@ func TestReconnectJitterDoesNotBreakBreaker(t *testing.T) {
 	// and the base backoff becomes 5min (jittered to [4min, 6min]).
 	go ReconnectLoopWithBreaker(ctx, "test", connectFn, 10*time.Millisecond, 50*time.Millisecond, 3)
 
-	// Poll until the 3 pre-breaker attempts complete (worst case
-	// ~12+24+48ms ≈ 84ms of backoff) or the deadline passes. A fixed
-	// sleep here would be flaky under CPU oversubscription: goroutine
-	// scheduling delays can push the 3rd call past the window.
+	// Poll until the 3 pre-breaker attempts complete or the deadline passes.
 	deadline := time.Now().Add(5 * time.Second)
 	for atomic.LoadInt32(&calls) < 3 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
@@ -908,7 +879,7 @@ func TestReconnectLoopOptsPassesThroughOptions(t *testing.T) {
 	var calls atomic.Int32
 	var counter atomic.Uint64
 	// Fails once then succeeds; the counter is read across goroutines so
-	// it must be atomic (the -race build caught the raw int version).
+	// it must be atomic.
 	ReconnectLoopOpts(ctx, "opt-test", func() error {
 		if calls.Add(1) < 2 {
 			return fmt.Errorf("connection refused")
@@ -929,12 +900,9 @@ func TestReconnectLoopOptsPassesThroughOptions(t *testing.T) {
 	}
 }
 
-// TestIsConnectionErrorDeadlineExceeded pins the wedged-connection fix:
-// Go's context.DeadlineExceeded message ("context deadline exceeded") is
-// what a read against a silently-dropped TCP connection produces (device
-// power-cycle with NAT remap, black-holed route). Without this keyword
-// such connections never match — the driver read-timed-out forever while
-// the same device was reachable from elsewhere.
+// TestIsConnectionErrorDeadlineExceeded verifies that Go's
+// context.DeadlineExceeded message ("context deadline exceeded") — the
+// read-deadline timeout of a wedged TCP connection — is connection-class.
 func TestIsConnectionErrorDeadlineExceeded(t *testing.T) {
 	if !IsConnectionError(context.DeadlineExceeded) {
 		t.Error("context.DeadlineExceeded must be connection-class (read-deadline timeout on a wedged TCP)")

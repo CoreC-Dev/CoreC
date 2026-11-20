@@ -66,7 +66,7 @@ type closer interface {
 // CloseProviders closes and removes all registered rule providers,
 // stopping any background goroutines they started (e.g. reload loops).
 // This should be called during engine Stop/Reload to prevent goroutine
-// leaks (problem 4).
+// leaks.
 func (e *Engine) CloseProviders() {
 	e.mu.Lock()
 	for name, p := range e.providers {
@@ -97,11 +97,10 @@ type MatchResult = core.RuleMatchResult
 // Returns nil if no rule matches.
 //
 // When every rule is terminal (the default), the slice contains at most
-// one element — the former first-match-wins semantics.
+// one element.
 //
 // Rules with equal priority evaluate in configuration order (the
-// stable-sort tie-break): a universal rule must not implicitly shadow a
-// same-priority driver rule.
+// stable-sort tie-break).
 //
 // Match uses a driver index to reduce the per-data-point scan cost.
 // Rules with a detectable driver == 'X' filter are only evaluated for

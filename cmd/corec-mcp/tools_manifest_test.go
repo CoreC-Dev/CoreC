@@ -1,22 +1,16 @@
 package main
 
 // tools_manifest.json is the contract this package publishes to the other
-// clients of the same REST surface -- today the dashboard's AI assistant
+// clients of the same REST surface — the dashboard's AI assistant
 // (CoreC-Dashboard, src/features/assistant/tools.ts), which cannot read Go.
-// Without it the dashboard's "we are in step with corec-mcp" test compares
-// against a list typed into TypeScript, so renaming a tool here would break no
-// build anywhere.
 //
 // TestToolsManifest fails when the file and toolDefs() disagree in either
 // direction. Rewrite it with:
 //
 //	go test ./cmd/corec-mcp -run TestToolsManifest -update
 //
-// Only names and the read/write split travel: descriptions are worded for the
-// operator in the dashboard and the schemas are the REST shapes it already
-// knows, so freezing them here would create a copy that must be kept in step
-// for no gain. Names and split are what decide whether a verb exists and
-// whether it can change a device.
+// Only names and the read/write split travel in the manifest; descriptions
+// and schemas are not frozen here.
 import (
 	"encoding/json"
 	"flag"

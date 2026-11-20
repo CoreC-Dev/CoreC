@@ -8,9 +8,7 @@ import (
 
 // TestDerivedTagStringTypeLoads pins the documented derived-tags contract:
 // `type: float32` (the string form shown in docs/config/derived-tags.md and
-// config.example.yaml) must load. Before core.DataType gained UnmarshalYAML,
-// copying those examples failed with "cannot unmarshal string into
-// core.DataType" — the documented form was un-loadable.
+// config.example.yaml) must load.
 func TestDerivedTagStringTypeLoads(t *testing.T) {
 	yaml := []byte(`
 global:

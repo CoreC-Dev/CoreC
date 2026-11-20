@@ -9,15 +9,12 @@ import (
 )
 
 // DriverRegistry provides access to the set of registered driver types.
-// Implemented by core.Registry or test doubles — eliminates the config
-// package's direct coupling to core.RegisteredDrivers().
 type DriverRegistry interface {
 	RegisteredDrivers() []string
 }
 
 // TransportRegistry provides access to the set of registered transport
-// types. Implemented by core.Registry or test doubles — eliminates the
-// config package's direct coupling to core.RegisteredTransports().
+// types.
 type TransportRegistry interface {
 	RegisteredTransports() []string
 }
@@ -40,10 +37,6 @@ func validate(cfg *core.Config, drivers DriverRegistry, transports TransportRegi
 	registeredDrivers := toSet(drivers.RegisteredDrivers())
 	registeredTransports := toSet(transports.RegisteredTransports())
 
-	// Type/shape checks first: they produce the most actionable
-	// messages (e.g. the misplaced-batch-size hint names the exact
-	// fix), and unknown keys inside a syntactically wrong map would
-	// otherwise mask them with a generic allowlist error.
 	if err := validateDrivers(cfg, registeredDrivers, drivers.RegisteredDrivers()); err != nil {
 		return err
 	}
@@ -54,9 +47,6 @@ func validate(cfg *core.Config, drivers DriverRegistry, transports TransportRegi
 	if err != nil {
 		return err
 	}
-	// Settings-key validation runs after
-	// the shape pass so its unknown-key errors are the FIRST message
-	// only for genuinely unknown settings, not misplaced ones.
 	if err := validateDriverSettings(cfg); err != nil {
 		return err
 	}
@@ -96,21 +86,8 @@ func validateBuffer(cfg *core.Config) error {
 	return nil
 }
 
-// validateDataSources is retained as a no-op for backward compatibility.
-//
-// Historically this enforced "at least one data source (driver, inbound
-// transport, or auto-discovery) AND at least one transport" as a hard
-// startup error. That blocked the dashboard-driven workflow where an
-// operator starts CoreC with an empty/API-only config and builds the
-// full configuration entirely through the Dashboard.
-//
-// The engine handles empty drivers/transports/rules safely (idle
-// scheduler, vacuous readiness), so the presence requirement is now a
-// non-blocking warning surfaced via IdleWarnings (logged at startup and
-// on reload) rather than a validation failure. All other validations
-// (unique names, registered types, valid tags, API secret, rule target
-// refs, …) remain hard errors — only existence is relaxed, because an
-// empty pipeline is a valid transient state in the Dashboard workflow.
+// validateDataSources is a no-op: an empty pipeline is valid; presence
+// warnings come from IdleWarnings.
 func validateDataSources(cfg *core.Config) error {
 	_ = cfg
 	return nil
@@ -205,7 +182,6 @@ func validateDriver(d core.DriverConfig, driverNames, registeredDrivers map[stri
 	if d.Type == "" {
 		return fmt.Errorf("driver %s: type cannot be empty", d.Name)
 	}
-	// M10: validate driver type against registry
 	if len(registeredDrivers) > 0 && !registeredDrivers[d.Type] {
 		return fmt.Errorf("driver %s: unknown type %q (registered: %s)", d.Name, d.Type, strings.Join(allDriverTypes, ", "))
 	}
@@ -213,7 +189,6 @@ func validateDriver(d core.DriverConfig, driverNames, registeredDrivers map[stri
 		return fmt.Errorf("driver %s: at least one tag must be configured", d.Name)
 	}
 
-	// M7: validate tag fields
 	tagNames := make(map[string]bool)
 	for i := range d.Tags {
 		tag := d.Tags[i]
@@ -282,19 +257,11 @@ func validateTag(driverName string, tag core.TagConfig, tagNames map[string]bool
 		return fmt.Errorf("driver %s: tag %q: invalid trigger-group %q (no spaces or separators)",
 			driverName, tag.Name, tag.TriggerGroup)
 	}
-	// Protect's spelling is contract, not decoration: "readonly"/"r-only"
-	// silently meaning "writable" would be exactly the failure mode the
-	// field exists to prevent. Unknown values fail the load.
 	switch tag.Protect {
 	case "", "read-write", "read-only", "write-only":
 	default:
 		return fmt.Errorf("driver %s: tag %q: invalid protect %q (valid: read-write, read-only, write-only, or empty)", driverName, tag.Name, tag.Protect)
 	}
-	// enforce-interval is a heartbeat ON TOP of the deadband: it only changes
-	// anything when the deadband would otherwise suppress an unchanged value
-	// (without a deadband every sample is published already), and a heartbeat
-	// shorter than the collection interval could never fire. Both
-	// misconfigurations fail the load instead of being silently ignored.
 	if tag.EnforceInterval != "" {
 		if tag.DeadBand <= 0 {
 			return fmt.Errorf("driver %s: tag %q: enforce-interval requires a non-zero deadband (every sample is already published without one)", driverName, tag.Name)
@@ -338,8 +305,7 @@ func validateAPI(cfg *core.Config) error {
 		if cfg.Global.API.Secret == "" {
 			return fmt.Errorf("api.secret is required when api.listen is set")
 		}
-		// Enforce a minimum secret length to resist brute-force attacks,
-		// especially before rate limiting was added (and as defense-in-depth).
+		// Enforce a minimum secret length.
 		if len(cfg.Global.API.Secret) < 8 {
 			return fmt.Errorf("api.secret must be at least 8 characters, got %d", len(cfg.Global.API.Secret))
 		}
@@ -347,23 +313,8 @@ func validateAPI(cfg *core.Config) error {
 	return nil
 }
 
-// validateEngine rejects malformed global.engine durations.
-//
-// Why this exists at all: the runtime parses each of these with the shape
-//
-//	if d, err := time.ParseDuration(cfg.X); err == nil && d > 0 { use(d) }
-//
-// i.e. a value it cannot parse is skipped and the built-in default is used in
-// silence. That is defensible for a zero value ("unset -> default") and wrong
-// for a typo: "200 ms" (space), "30秒" (unit), "2m30" (missing unit) all parse to
-// an error, so the operator's intent is discarded, the engine runs on 1s/30s/
-// whatever the default is, and nothing anywhere says a word. A config that is
-// spelled wrong is a FORGOTTEN change, not a request for the default.
-//
-// Checking it at load (and therefore at POST /configs/validate<｜place▁holder▁no▁541｜>, which runs the
-// same function) turns that silent discard into a startup failure naming the
-// field. An empty value stays valid: that is how "leave the default alone" is
-// already spelled everywhere else in this file.
+// validateEngine rejects malformed global.engine durations and unknown
+// on-bad-quality values; empty keeps the default.
 func validateEngine(cfg *core.Config) error {
 	// Duration fields the engine reads with the err==nil-and-ignore pattern.
 	// Kept as a slice so the messages are uniform and a new field is one line.
@@ -389,14 +340,6 @@ func validateEngine(cfg *core.Config) error {
 		}
 	}
 
-	// on-bad-quality is an enum, not a duration, but it belongs to the same family
-	// of engine tuning knobs with the same failure shape. It used to be checked in
-	// exactly one place: parseBadQualityPolicy, called from engine.New() during
-	// Start. So POST /configs/validate answered 200 for `on-bad-quality: nonsense`,
-	// the Dashboard applied it to a running engine, and the NEXT restart refused to
-	// start -- the error surfacing one restart away from the request that caused
-	// it, in a process nobody was watching.
-	//
 	// Empty stays valid: it means "keep the default", which is publish.
 	switch strings.ToLower(cfg.Global.Engine.OnBadQuality) {
 	case "", "publish", "drop", "mark-and-publish", "alert":
@@ -424,7 +367,6 @@ func validateTransports(cfg *core.Config, registeredTransports map[string]bool, 
 		if t.Type == "" {
 			return nil, fmt.Errorf("transport %s: type cannot be empty", t.Name)
 		}
-		// M10: validate transport type against registry
 		if len(registeredTransports) > 0 && !registeredTransports[t.Type] {
 			return nil, fmt.Errorf("transport %s: unknown type %q (registered: %s)", t.Name, t.Type, strings.Join(allTransportTypes, ", "))
 		}
@@ -465,16 +407,12 @@ func validateRules(cfg *core.Config, transportNames map[string]bool) error {
 		if !validActions[action] {
 			return fmt.Errorf("rule %s: unknown action %q (valid: forward, drop, alert, transform, mirror)", r.Name, r.Action)
 		}
-		// forward/mirror without a destination is accepted by the old
-		// validator but silently drops every matching point at runtime.
 		if (action == "forward" || action == "mirror") && r.Target == "" && len(r.Targets) == 0 {
 			return fmt.Errorf("rule %s: action %q requires target or targets", r.Name, action)
 		}
 		if r.Match == "" {
 			return fmt.Errorf("rule %s: match cannot be empty", r.Name)
 		}
-		// drop + continue is contradictory: drop means "discard and stop",
-		// continue means "keep evaluating" — the combination is nonsensical.
 		if strings.EqualFold(r.Action, "drop") && r.Continue {
 			return fmt.Errorf("rule %s: drop action cannot set continue: true", r.Name)
 		}
@@ -534,20 +472,16 @@ func validateDerivedTags(cfg *core.Config) error {
 	return nil
 }
 
-// validateDriverSettings runs each driver's optional core.SettingsValidator
-// so unknown settings keys fail validation here instead of being
-// silently ignored at Init. It constructs via the factory, type-asserts
-// the role, validates, discards. Construction is pure (no connection);
-// the earlier validateDrivers pass already rejects unknown TYPES, so
-// factory misses here are type-existence bugs, not user error. A driver
-// that implements no validator gets no extra checks, so the pass
-// strictly widens validation coverage.
+// validateDriverSettings runs each driver's optional core.SettingsValidator:
+// it constructs via the factory, type-asserts the role, validates, and
+// discards the instance. Construction is pure (no connection); the earlier
+// validateDrivers pass already rejects unknown types.
 func validateDriverSettings(cfg *core.Config) error {
 	for i := range cfg.Drivers {
 		driver, err := core.CreateDriver(cfg.Drivers[i])
 		if err != nil {
-			// Unknown type: reported by validateDrivers below with the
-			// registered-type listing; skip here.
+			// Unknown type: already reported by the earlier validateDrivers
+			// pass; skip here.
 			continue
 		}
 		if v, ok := driver.(core.SettingsValidator); ok {

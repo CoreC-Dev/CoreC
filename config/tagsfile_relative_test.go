@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-// TestLoadResolvesTagsFileRelativeToConfig is the P2-4 regression: a
-// relative tags-file is resolved against the config file's directory, not
-// the process working directory.
+// TestLoadResolvesTagsFileRelativeToConfig verifies that a relative
+// tags-file is resolved against the config file's directory, not the
+// process working directory.
 func TestLoadResolvesTagsFileRelativeToConfig(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "tags.yaml"), []byte(

@@ -1,5 +1,3 @@
-// transports, and the rule engine.
-//
 // This file holds tests for ReconnectLoopWithBreakerCounted, the
 // reconnect-loop variant that increments an external counter on every
 // reconnect attempt so drivers can expose a reconnect Prometheus metric.

@@ -7,17 +7,13 @@ import (
 
 // decodeValueByType reconstructs a DataPoint/WriteCommand value from its
 // raw JSON token using the declared DataType, restoring the exact Go type
-// the driver originally produced. This exists because encoding/json
-// decodes every JSON number into float64 when the target is `any` — which
-// silently rounds any integer above ±2^53 (9007199254740993 becomes
-// 9007199254740992). That rounding corrupted 64-bit readings on every
-// round-trip through these structs: offline-buffer replay, chained-core
-// inbound parsing, MQTT commands and API writes.
+// the driver originally produced: encoding/json decodes every JSON number
+// into float64 when the target is `any`, silently rounding integers above
+// ±2^53.
 //
 // Fallback rule: when the token does not match the declared type's
-// expected JSON form, the token decodes with the default `any` rules
-// (numbers → float64), preserving the pre-existing behavior for
-// untyped or malformed payloads.
+// expected JSON form, it decodes with the default `any` rules
+// (numbers → float64).
 func decodeValueByType(raw json.RawMessage, dt DataType) any {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil
@@ -136,8 +132,8 @@ func decodeBytesToken(text string) any {
 	return decodeDefaultAny([]byte(text))
 }
 
-// decodeDefaultAny is the plain `any` decode — the pre-fix behavior for
-// token shapes that do not match the declared type.
+// decodeDefaultAny is the plain `any` decode for token shapes that do
+// not match the declared type.
 func decodeDefaultAny(raw []byte) any {
 	var v any
 	if json.Unmarshal(raw, &v) != nil {
@@ -208,9 +204,7 @@ type WriteCommand struct {
 
 // UnmarshalJSON decodes a WriteCommand and then rebuilds Value with the
 // exact Go type its Type names, so 64-bit write commands survive the
-// JSON decode bit-exactly (see decodeValueByType) — a cloud-issued
-// int64 setpoint above ±2^53 previously decoded as a rounded float64
-// and the PLC received the wrong register payload.
+// JSON decode bit-exactly (see decodeValueByType).
 func (cmd *WriteCommand) UnmarshalJSON(data []byte) error {
 	type writeCommandFields WriteCommand // alias: same fields, no inherited methods
 	var fields writeCommandFields

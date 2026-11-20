@@ -23,8 +23,6 @@ type server struct {
 	write  bool // whether write-class tools are exposed
 }
 
-// ─── JSON-RPC 2.0 wire types ─────────────────────────────────────────
-
 type rpcRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id,omitempty"`

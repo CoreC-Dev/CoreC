@@ -10,15 +10,9 @@ type RuleMatchResult struct {
 	Transform *TransformConfig
 }
 
-// RuleEngine is the port (hexagonal architecture) for the rule matching
-// and routing engine. The engine package depends on this interface rather
-// than the concrete *rule.Engine adapter, so the rule implementation can be
-// swapped or mocked without touching the engine.
-//
-// The method set is exactly the set of operations the engine calls on its
-// rule engine (plus Rules, used by Stats, and ProviderCount, used by
-// reload tests). The concrete rule.Engine satisfies this interface; see
-// the compile-time assertion in rule/engine.go.
+// RuleEngine is the port for the rule matching and routing engine; the
+// engine package depends on this interface, satisfied by the concrete
+// rule.Engine (compile-time assertion in rule/engine.go).
 type RuleEngine interface {
 	// SetRules parses rule configs and sets the active rule set.
 	SetRules(configs []RuleConfig) error
@@ -33,9 +27,8 @@ type RuleEngine interface {
 	// transform) before the terminal action. If no terminal rule matches,
 	// all matching rules are returned. Returns nil if no rule matches.
 	//
-	// When every rule has Continue() == false (the default, and the
-	// pre-existing behavior), the slice contains at most one element —
-	// exactly the former first-match-wins semantics.
+	// When every rule has Continue() == false (the default), the slice
+	// contains at most one element.
 	Match(point DataPoint) []*RuleMatchResult
 
 	// RuleStats returns runtime statistics for all rules.

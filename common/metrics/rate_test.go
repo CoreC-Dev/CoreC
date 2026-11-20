@@ -10,8 +10,7 @@ func at(sec int64) time.Time { return time.Unix(sec, 0) }
 
 // TestRateWindowSteadyTraffic verifies the window sums a full minute of
 // steady traffic and reports zero once the traffic stops for longer
-// than the window (the lifetime-average
-// points_per_second never dropped to zero when collection stalled).
+// than the window.
 func TestRateWindowSteadyTraffic(t *testing.T) {
 	rw := NewRateWindow()
 	for sec := int64(0); sec < 60; sec++ {

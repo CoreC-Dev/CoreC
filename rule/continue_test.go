@@ -57,7 +57,7 @@ func TestContinueFlag(t *testing.T) {
 }
 
 // TestContinueBackwardCompat verifies that when no rule has continue: true,
-// Match returns at most one result — identical to the former first-match-wins.
+// Match returns at most one result.
 func TestContinueBackwardCompat(t *testing.T) {
 	eng := NewEngine()
 
