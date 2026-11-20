@@ -167,7 +167,6 @@ func (d *OPCUADriver) subscriptionLoop(ctx context.Context,
 func (d *OPCUADriver) stopSubscription() {
 	d.Lock()
 	sub := d.subscription
-	notifyCh := d.subNotifyCh
 	d.subscription = nil
 	d.subNotifyCh = nil
 	d.handleToTag = nil
@@ -180,5 +179,4 @@ func (d *OPCUADriver) stopSubscription() {
 	}
 	// The library never closes notifyCh (send-only Notifs); the loop exits
 	// when Stop() cancels the driver context and waits via subWg.
-	_ = notifyCh
 }
