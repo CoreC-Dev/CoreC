@@ -15,10 +15,12 @@ user, err := optString(settings, "smtp-user")
 pass, err := optString(settings, "smtp-pass")
 from, err := reqString(settings, "from")
 to, err := optStringList(settings, "to")
+tmpl, err := optTemplate(config.Settings, "template", defaultTemplate)
+subjectTmpl, err := optTemplate(settings, "subject", "[CoreC] {{.Rule}}")
 `
 	out := make(map[string]bool)
 	CollectParsedSettingKeys(src, out)
-	want := []string{"channel", "cooldown", "webhook-url", "method", "headers", "smtp-host", "smtp-port", "smtp-user", "smtp-pass", "from", "to"}
+	want := []string{"channel", "cooldown", "webhook-url", "method", "headers", "smtp-host", "smtp-port", "smtp-user", "smtp-pass", "from", "to", "template", "subject"}
 	for _, key := range want {
 		if !out[key] {
 			t.Errorf("notify helper key %q not collected", key)
