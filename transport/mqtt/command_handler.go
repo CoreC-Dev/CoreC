@@ -188,10 +188,10 @@ func computeHMACSignature(secret string, payload []byte) string {
 
 // verifyHMACSignature reports whether provided matches the expected
 // HMAC-SHA256 signature of payload under secret, using a constant-time
-// comparison.  An empty secret disables verification (always true).
+// comparison.  An empty secret fails verification (always false).
 func verifyHMACSignature(secret string, payload []byte, provided string) bool {
 	if secret == "" {
-		return true
+		return false
 	}
 	expected := computeHMACSignature(secret, payload)
 	return hmac.Equal([]byte(provided), []byte(expected))

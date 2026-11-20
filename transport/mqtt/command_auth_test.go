@@ -37,12 +37,12 @@ func TestVerifyHMACSignature(t *testing.T) {
 	payload := []byte(`{"driver":"d","tag":"t","value":1}`)
 	correct := computeHMACSignature(secret, payload)
 
-	t.Run("empty secret disables verification", func(t *testing.T) {
-		if !verifyHMACSignature("", payload, "") {
-			t.Error("empty secret must accept (auth disabled)")
+	t.Run("empty secret rejects (fail-closed)", func(t *testing.T) {
+		if verifyHMACSignature("", payload, "") {
+			t.Error("empty secret must reject (fail-closed)")
 		}
-		if !verifyHMACSignature("", payload, "anything") {
-			t.Error("empty secret must accept regardless of provided sig")
+		if verifyHMACSignature("", payload, "anything") {
+			t.Error("empty secret must reject regardless of provided sig")
 		}
 	})
 
