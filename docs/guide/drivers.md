@@ -105,7 +105,7 @@ type DriverCapabilities struct {
 ::: info MaxBatchSize 的来源
 - Modbus 125：单次 Modbus 请求的寄存器数上限（`modbusMaxBatchSize`，FC03/FC04 协议限制）
 - S7 220：单次 `Read` 调用处理的标签数上限（`s7MaxBatchSize`）；合并段的字节上限另由 PDU 协商值约束（480/240）
-- OPC UA 1000：单次批量读取的 NodeID 数默认上限（`max-batch-size` 设置可调）
+- OPC UA 1000：能力上报的批量读取 NodeID 数（`max-batch-size` 设置可调）；当前 Read 将全部节点放入单个请求，不按此值分块
 :::
 
 ## 点位配置（TagConfig）
