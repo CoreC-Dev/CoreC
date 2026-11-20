@@ -30,9 +30,6 @@ func validate(cfg *core.Config, drivers DriverRegistry, transports TransportRegi
 	if err := validateEngine(cfg); err != nil {
 		return err
 	}
-	if err := validateDataSources(cfg); err != nil {
-		return err
-	}
 
 	registeredDrivers := toSet(drivers.RegisteredDrivers())
 	registeredTransports := toSet(transports.RegisteredTransports())
@@ -83,13 +80,6 @@ func validateBuffer(cfg *core.Config) error {
 			return fmt.Errorf("buffer.max-size must be at least 10, got %d", cfg.Global.Buffer.MaxSize)
 		}
 	}
-	return nil
-}
-
-// validateDataSources is a no-op: an empty pipeline is valid; presence
-// warnings come from IdleWarnings.
-func validateDataSources(cfg *core.Config) error {
-	_ = cfg
 	return nil
 }
 
