@@ -10,8 +10,6 @@ func (e *CoreCEngine) Status() core.EngineStatus {
 	return e.runtime.Status()
 }
 
-// --- Rule Management ---
-
 func (e *CoreCEngine) SetRules(rules []core.RuleConfig) error {
 	return e.ruleSet.SetRules(rules)
 }
@@ -36,8 +34,6 @@ func (e *CoreCEngine) PreviewRule(match string, point core.DataPoint) (bool, err
 	return e.ruleSet.PreviewRule(match, point)
 }
 
-// --- Stats ---
-
 func (e *CoreCEngine) Stats() core.EngineStats {
 	return e.stats.Stats()
 }
@@ -50,8 +46,6 @@ func (e *CoreCEngine) OfflineBufferEvictions() uint64 {
 	return e.stats.OfflineBufferEvictions()
 }
 
-// OfflineBufferBytes forwards to the stats collector for the byte-level
-// gauge corec_offline_buffer_bytes.
 func (e *CoreCEngine) OfflineBufferBytes() int64 {
 	return e.stats.OfflineBufferBytes()
 }
@@ -72,109 +66,69 @@ func (e *CoreCEngine) DataAgeHistogram() core.LatencySnapshot {
 	return e.stats.labeled.globalAgeSnapshot()
 }
 
-// ReadLatencyByDriver forwards to the stats collector for the metrics
-// route's optional core.LabeledLatencyProvider role.
 func (e *CoreCEngine) ReadLatencyByDriver() map[string]core.LatencySnapshot {
 	return e.stats.labeled.readSnapshots()
 }
 
-// PublishLatencyByTransport forwards to the stats collector for the
-// metrics route's optional core.LabeledLatencyProvider role.
 func (e *CoreCEngine) PublishLatencyByTransport() map[string]core.LatencySnapshot {
 	return e.stats.labeled.publishSnapshots()
 }
 
-// DataAgeByTransport forwards to the stats collector for the metrics
-// route's optional core.LabeledLatencyProvider role.
 func (e *CoreCEngine) DataAgeByTransport() map[string]core.LatencySnapshot {
 	return e.stats.labeled.ageSnapshots()
 }
 
-// SchedulerHealth forwards to the scheduler for the metrics route's
-// optional core.SchedulerHealthProvider role. The nil-receiver guard
-// lives inside scheduler.Health so this stays a pure forwarder even
-// before Start().
 func (e *CoreCEngine) SchedulerHealth() []core.TaskHealth {
 	return e.lifecycle.scheduler.Health()
 }
 
-// DeadLetterStats forwards to the write manager for the metrics
-// route's optional core.DeadLetterStatsProvider role (queue depth +
-// lifetime pushes).
 func (e *CoreCEngine) DeadLetterStats() (size int, pushed uint64) {
 	return e.writes.DeadLetterStats()
 }
 
-// IngressDeadLetters forwards to the transport manager for the
-// /write/failed?source=ingress view (optional
-// core.IngressDeadLetterProvider role).
 func (e *CoreCEngine) IngressDeadLetters() []core.DeadLetterEntry {
 	return e.transportMgr.ingressDeadLetters()
 }
 
-// ApplyDerivedTags forwards to the lifecycle role for hot-reloading the
-// derived tag set (optional core.DerivedTagApplier role).
 func (e *CoreCEngine) ApplyDerivedTags(configs []core.DerivedTagConfig) error {
 	return e.lifecycle.applyDerivedTags(configs)
 }
 
-// --- Alert registry ---
-
-// ActiveAlerts forwards to the alert registry for GET /alerts
-// (optional core.AlertProvider role).
 func (e *CoreCEngine) ActiveAlerts() []core.Alert {
 	return e.processing.alerts.activeAlerts()
 }
 
-// AlertHistory forwards to the alert registry for GET /alerts
-// (optional core.AlertProvider role).
 func (e *CoreCEngine) AlertHistory() []core.AlertEvent {
 	return e.processing.alerts.alertHistory()
 }
 
-// AckAlert acknowledges the active alert with the given key
-// (optional core.AlertProvider role).
 func (e *CoreCEngine) AckAlert(key string) error {
 	return e.processing.alerts.ack(key)
 }
 
-// SubscribeAlerts forwards to the alert registry for WS /alerts/stream
-// (optional core.AlertStreamer role).
 func (e *CoreCEngine) SubscribeAlerts() (ch <-chan core.AlertEvent, unsub func()) {
 	return e.processing.alerts.subscribe()
 }
 
-// AlertFireCounts forwards to the alert registry for
-// corec_alerts_total{rule} (optional core.AlertMetricsProvider role).
 func (e *CoreCEngine) AlertFireCounts() map[string]uint64 {
 	return e.processing.alerts.fireCounts()
 }
 
-// ActiveAlertCount forwards to the alert registry for
-// corec_alerts_active (optional core.AlertMetricsProvider role).
 func (e *CoreCEngine) ActiveAlertCount() int {
 	return e.processing.alerts.activeCount()
 }
 
-// DroppedBreakdown forwards to the stats collector for the per-cause
-// drop families (optional core.DroppedBreakdownProvider role).
 func (e *CoreCEngine) DroppedBreakdown() core.DroppedBreakdown {
 	return e.stats.DroppedBreakdown()
 }
 
-// DriverMetrics forwards to the stats collector for the driver-metric
-// families (optional core.DriverMetricsProvider role).
 func (e *CoreCEngine) DriverMetrics() []core.DriverMetric {
 	return e.stats.DriverMetrics()
 }
 
-// SetStaleThreshold forwards to the read accessor for PATCH /configs
-// (optional core.StaleThresholdPatcher role).
 func (e *CoreCEngine) SetStaleThreshold(d time.Duration) {
 	e.reads.SetStaleThreshold(d)
 }
-
-// --- Driver pause/resume ---
 
 // PauseDriver suspends the named driver's collection tasks without
 // removing them (the scheduler flags them; ticks skip while paused).

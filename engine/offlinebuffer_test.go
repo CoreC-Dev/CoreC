@@ -292,7 +292,6 @@ func TestOfflineBufferDrainCount(t *testing.T) {
 
 	points := []core.DataPoint{{Driver: "plc1", Tag: "temp", Value: 1.0, Timestamp: time.Now()}}
 
-	// Push 3 batches and drain them all successfully.
 	for i := 0; i < 3; i++ {
 		if err := ob.Push(points, "mqtt"); err != nil {
 			t.Fatalf("Push %d: %v", i, err)

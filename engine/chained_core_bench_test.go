@@ -11,10 +11,8 @@ import (
 	"github.com/CoreC-Dev/CoreC/transport/parser"
 )
 
-// ============================================================
-// Performance benchmarks for the chained core.
-// Measures end-to-end throughput and latency from OnData to Publish.
-// ============================================================
+// Performance benchmarks for the chained core: end-to-end throughput
+// and latency from OnData to Publish.
 
 // benchTransport is a high-throughput mock transport for benchmarking.
 // It uses atomic counters for publish tracking, eliminating channel
@@ -56,7 +54,6 @@ func (t *benchTransport) Name() string                        { return t.name }
 func (t *benchTransport) Type() string                        { return "bench" }
 func (t *benchTransport) Status() core.TransportStatus        { return t.status }
 
-// runtimeYield yields to let processing goroutines run.
 func runtimeYield() {
 	for i := 0; i < 3; i++ {
 		select {

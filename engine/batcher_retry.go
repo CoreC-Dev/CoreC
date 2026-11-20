@@ -12,11 +12,9 @@ import (
 
 // publishWithRetryAndBuffer sends a batch with exponential backoff. If all
 // retries are exhausted and an offline buffer is configured, the batch is
-// persisted to disk for later replay. It is the retry policy's own method
-// so transportBatcher stays within its field/method ceilings: the
-// attempt count comes from the policy; the transport,
-// histograms, offline buffer, and publish callback are reached through
-// the owning batcher (r.b).
+// persisted to disk for later replay. The attempt count comes from the
+// policy; the transport, histograms, offline buffer, and publish callback
+// are reached through the owning batcher (r.b).
 // Returns true if the batch was published successfully, false if it was
 // buffered to disk (or dropped if no offline buffer is configured).
 func (r *batcherRetryPolicy) publishWithRetryAndBuffer(ctx context.Context, batch []core.DataPoint) bool {
@@ -27,12 +25,8 @@ func (r *batcherRetryPolicy) publishWithRetryAndBuffer(ctx context.Context, batc
 	delivered := 0
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		// Observe data age for each point at the moment of the publish
-		// attempt. This captures the true collection-to-publish delay
-		// including batching, queuing, and retry backoff (observing at
-		// enqueue time instead would miss all of that). Each attempt
-		// observes because data age grows during retries, giving
-		// operators the real freshness distribution.
+		// Observe data age for each point at the moment of every publish
+		// attempt, including batching, queuing, and retry backoff.
 		if b.dataAge != nil {
 			now := time.Now()
 			for i := range pending {
@@ -49,19 +43,13 @@ func (r *batcherRetryPolicy) publishWithRetryAndBuffer(ctx context.Context, batc
 		}
 
 		if lastErr == nil {
-			// Count the real publish (not just the enqueue) so the engine's
-			// totalPublish reflects actual successful publishes (counting
-			// right after the near-instant enqueue would over-report
-			// batches that later fail).
 			if b.onPublish != nil {
 				b.onPublish(delivered + len(pending))
 			}
 			return true
 		}
 
-		// Partial success (MQTT): retry only the failed indexes; resending
-		// the whole batch duplicated every point that already reached the
-		// broker.
+		// Partial success (MQTT): retry only the failed indexes.
 		next, delta, partial := shrinkToFailed(pending, lastErr)
 		if partial {
 			delivered += delta

@@ -154,11 +154,10 @@ func TestDeadLetterStoreRotationBoundsDisk(t *testing.T) {
 	}
 }
 
-// TestDeadLetterStoreDisabledIsNil verifies the empty-path default
-// keeps the historical memory-only behaviour: a nil store with an
-// explicit errDeadLetterDisabled sentinel (nilnil lint rule — the
-// signature never returns nil,nil), and the nil store's methods are
-// all no-ops.
+// TestDeadLetterStoreDisabledIsNil verifies the empty-path default is
+// memory-only: a nil store with an explicit errDeadLetterDisabled
+// sentinel (nilnil lint rule — the signature never returns nil,nil),
+// and the nil store's methods are all no-ops.
 func TestDeadLetterStoreDisabledIsNil(t *testing.T) {
 	st, err := newDeadLetterStore("", 0)
 	if st != nil {

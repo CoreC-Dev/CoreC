@@ -18,10 +18,7 @@ type latencyObserver interface {
 }
 
 // transportLatencyFanout forwards each observation to the global
-// aggregate histogram AND the per-transport labeled histogram, so the
-// unlabeled series keep their meaning while per-transport series become
-// available (a single global histogram lets one
-// slow transport hide behind healthy siblings).
+// aggregate histogram AND the per-transport labeled histogram.
 type transportLatencyFanout struct {
 	global  *metrics.LatencyHistogram
 	labeled *metrics.LatencyHistogram
@@ -37,11 +34,9 @@ func (f transportLatencyFanout) Observe(d time.Duration) {
 // per-driver / per-transport histograms exposed via
 // core.LabeledLatencyProvider.
 //
-// It is a dedicated sub-role of statsCollector so the
-// collector stays under its field/method ceilings. Entries are created
-// lazily on first observation; drivers/transports removed at runtime
-// leave a frozen (monotonic) series behind — standard Prometheus-client
-// behaviour — rather than erasing history.
+// Entries are created lazily on first observation; drivers/transports
+// removed at runtime leave a frozen (monotonic) series behind — standard
+// Prometheus-client behaviour — rather than erasing history.
 type labeledLatencyStore struct {
 	globalRead    *metrics.LatencyHistogram
 	globalPublish *metrics.LatencyHistogram

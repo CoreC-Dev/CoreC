@@ -19,14 +19,11 @@ type processingCore struct {
 	dataBus *DataBus
 	cache   *LatestCache
 
-	// Alert handlers
 	alertHandlers []func(point core.DataPoint, rule core.Rule)
 
-	// alerts is the first-class alert registry (alerts must not
-	// degenerate to a log line). It is
-	// re-created by every engine Start alongside the other pipeline
-	// state; nil-safe guards keep direct processPoint calls (tests)
-	// working on unstarted engines.
+	// alerts is the first-class alert registry. It is re-created by every
+	// engine Start alongside the other pipeline state; nil-safe guards
+	// keep direct processPoint calls (tests) working on unstarted engines.
 	alerts *alertManager
 
 	// alertActiveWindow is the alert lifetime after its last fire,
@@ -40,7 +37,6 @@ type processingCore struct {
 	// GlobalConfig.Engine.OnBadQuality).
 	badQualityPolicy badQualityPolicy
 
-	// Processing parallelism
 	numWorkers int
 
 	// dataBusSize is the buffer capacity of the internal data channel
@@ -127,37 +123,24 @@ func (p *processingCore) startProcessingWorkers() {
 // the normal and high-priority processing loops.
 func (p *processingCore) processPoint(point core.DataPoint) {
 	// Apply bad-quality policy before any further processing.
-	// This prevents downstream systems from receiving
-	// misleading bad-quality values unless explicitly configured.
 	policyAlerted := false
 	if point.Quality == core.QualityBad {
 		switch p.badQualityPolicy {
 		case badQualityDrop:
-			// A configured discard policy is not a processing error:
-			// count it as a bad-quality drop so total_errors
-			// stops conflating policy with faults.
 			p.eng.stats.recordBadQualityDrop()
 			return // discard entirely
 		case badQualityMarkAndPublish:
 			point.Value = nil // keep quality=bad, clear value
 		case badQualityAlert:
-			// Forward + alert. The alert fires HERE, before rule
-			// matching, so it does not depend on any rule matching the
-			// bad point (firing it after the action loop instead — where
-			// Match()==0 returns early and a terminal drop rule skips
-			// it — would mean a zero-rule config never alerts,
-			// violating the documented "publish and trigger the alert
-			// callback" contract). policyAlerted suppresses the
-			// duplicate rule-level alert below (anti-double-alert).
+			// Forward + alert. The alert fires before rule matching;
+			// policyAlerted suppresses the duplicate rule-level alert below.
 			p.fireAlert(point, badQualityAlertRule{})
 			policyAlerted = true
 		}
 	}
 
-	// Update cache
 	p.cache.Update(point)
 
-	// Broadcast to subscribers
 	p.dataBus.Broadcast(point)
 
 	// Match rules — returns all matching rules in priority order, up to
@@ -267,7 +250,7 @@ func (p *processingCore) applyTransform(point core.DataPoint, tc *core.Transform
 
 // publishTargetEntry is a snapshot of a single transport and its optional
 // batcher, captured under the engine read lock so that Publish can be
-// called outside the lock (problem 8).
+// called outside the lock.
 type publishTargetEntry struct {
 	name      string
 	transport core.Transport
@@ -276,9 +259,7 @@ type publishTargetEntry struct {
 
 func (p *processingCore) publishToTargets(point core.DataPoint, targets []string) {
 	// Snapshot transports and batchers under RLock, then release the
-	// lock before calling Publish. This prevents slow network I/O from
-	// blocking management operations (AddDriver/RemoveDriver/etc.) that
-	// need the write lock (problem 8).
+	// lock before calling Publish.
 	p.eng.mu.RLock()
 	snapshot := make([]publishTargetEntry, 0, len(targets))
 	for _, targetName := range targets {
@@ -311,25 +292,11 @@ func (p *processingCore) publishToTargets(point core.DataPoint, targets []string
 	p.eng.mu.RUnlock()
 
 	for _, entry := range snapshot {
-		// Use batcher if configured, otherwise publish directly
 		if entry.batcher != nil {
-			// publishLatency and dataAge are observed inside the
-			// batcher's publishWithRetryAndBuffer (around the actual
-			// PublishBatch call), not here — publish() is async
-			// and returns near-instantly, so
-			// observing here would record enqueue time, not real
-			// transport latency.
-			//
-			// totalPublish is also counted
-			// inside the batcher via the onPublish callback (called when
-			// the batch is actually published, not just enqueued). This
-			// avoids inflating the publish counter for points that are
-			// later lost after retries are exhausted (counting here
-			// would report enqueues as publishes).
-			//
-			// publish() returns an error only when the flush queue is
-			// full and the batch is dropped — in that case the data is
-			// lost, so we count the error and try the fallback transport.
+			// Latency/data-age observation and publish counting happen
+			// inside the batcher's async flush path. publish() returns an
+			// error only when the flush queue is full and the batch is
+			// dropped — count the error and try the fallback transport.
 			err := entry.batcher.publish(p.eng.runtime.ctx, point)
 			if err != nil {
 				slog.Error("batch dropped from flush queue", "target", entry.name, "error", err)
@@ -356,10 +323,7 @@ func (p *processingCore) publishToTargets(point core.DataPoint, targets []string
 }
 
 func (p *processingCore) fireAlert(point core.DataPoint, r core.Rule) {
-	// Record the fire in the engine's first-class alert registry BEFORE
-	// fan-out: the alert must exist even if an
-	// embedding host registered no OnAlert handler at all (a
-	// fire-and-forget-only path makes alerts invisible in that case).
+	// Record the fire in the alert registry BEFORE fan-out.
 	if p.alerts != nil {
 		p.alerts.record(r, point)
 	}
@@ -373,8 +337,6 @@ func (p *processingCore) fireAlert(point core.DataPoint, r core.Rule) {
 		h(point, r)
 	}
 }
-
-// --- Event Subscription ---
 
 func (p *processingCore) Subscribe(filter string) (ch <-chan core.DataPoint, unsub func()) {
 	// dataBus is only created in Start(); before Start it is nil.
@@ -402,8 +364,6 @@ func (p *processingCore) OnAlert(handler func(point core.DataPoint, rule core.Ru
 	p.eng.mu.Unlock()
 }
 
-// --- CoreCEngine forwarders (core.EventSubscriber) ---
-
 func (e *CoreCEngine) Subscribe(filter string) (ch <-chan core.DataPoint, unsub func()) {
 	return e.processing.Subscribe(filter)
 }
@@ -417,9 +377,7 @@ func (e *CoreCEngine) OnAlert(handler func(point core.DataPoint, rule core.Rule)
 }
 
 // applyConfig covers the processing pipeline's tuning knobs. Zero/unset
-// values keep the New() defaults (explicit-overrides-auto). Kept as
-// its own method so the engineRuntime dispatcher stays under the CI
-// complexity cap (gocyclo 20).
+// values keep the New() defaults.
 func (p *processingCore) applyConfig(cfg *core.EngineConfig) {
 	if cfg.DataBusSize > 0 {
 		p.dataBusSize = cfg.DataBusSize

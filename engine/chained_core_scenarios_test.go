@@ -13,12 +13,6 @@ import (
 	"github.com/CoreC-Dev/CoreC/transport/parser"
 )
 
-// ============================================================
-// Enhanced mock transport for scenario testing.
-// Supports parser integration (simulating MQTT/HTTP inbound parsing),
-// larger publish buffers, and write-command recording.
-// ============================================================
-
 // scenarioTransport simulates a full chained-core transport:
 //   - inbound: raw payloads arrive via FeedRaw(), are parsed through
 //     the configured parser, and pushed to the OnData channel
@@ -50,7 +44,6 @@ func newScenarioTransport(name string, bufSize int) *scenarioTransport {
 func (t *scenarioTransport) Init(ctx context.Context, config core.TransportConfig) error {
 	t.name = config.Name
 	t.status = core.TransportStatus{Name: config.Name, Type: config.Type, State: core.StateConnected}
-	// Create parser from settings if configured.
 	if p, err := parser.New(config.Settings); err == nil {
 		t.p = p
 	}
@@ -120,10 +113,6 @@ func (t *scenarioTransport) DrainPublished(timeout time.Duration) []core.DataPoi
 	}
 }
 
-// ============================================================
-// Helper: create and start an engine with given config.
-// ============================================================
-
 func startTestEngine(t *testing.T, cfg *core.Config) (core.Engine, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
 	eng := New()
@@ -144,11 +133,8 @@ func dummyDriverConfig(typeName string) core.DriverConfig {
 	}
 }
 
-// ============================================================
-// Scenario ①: 纯订阅转发（协议网关）
-// CoreC 不连任何设备，只订阅第三方设备的 MQTT，解析后转发到云端。
-// 关键：parser: jsonpath 将第三方 JSON 转换为 DataPoint。
-// ============================================================
+// TestScenario1_PureSubscribeForward：纯订阅转发（协议网关）——CoreC 不连设备，
+// 只订阅第三方 MQTT，jsonpath parser 解析后转发。
 
 func TestScenario1_PureSubscribeForward(t *testing.T) {
 	const transportType = "scenario-1"
@@ -212,11 +198,8 @@ func TestScenario1_PureSubscribeForward(t *testing.T) {
 	}
 }
 
-// ============================================================
-// Scenario ②: 两个 CoreC 级联（边缘 → 云端）
-// A 在边缘采集，B 在云端收数据做告警/转发。
-// 关键：parser: default (json.Unmarshal)，规则匹配 alert + forward。
-// ============================================================
+// TestScenario2_TwoCoreCCascade：两个 CoreC 级联（边缘 → 云端）——A 采集，
+// B 用 default parser 收数据做 alert + forward。
 
 func TestScenario2_TwoCoreCCascade(t *testing.T) {
 	const transportType = "scenario-2"
@@ -321,11 +304,8 @@ func TestScenario2_TwoCoreCCascade(t *testing.T) {
 	}
 }
 
-// ============================================================
-// Scenario ③: 多级级联（边缘 → 网关 → 云端）
-// 三跳：A → B → C，每一跳都可以做规则处理。
-// 关键：多个 engine 级联，每跳处理后再转发。
-// ============================================================
+// TestScenario3_MultiHopCascade：多级级联（边缘 → 网关 → 云端）——
+// A → B → C 三跳，每一跳都可做规则处理后再转发。
 
 func TestScenario3_MultiHopCascade(t *testing.T) {
 	const transportType = "scenario-3"
@@ -395,7 +375,6 @@ func TestScenario3_MultiHopCascade(t *testing.T) {
 	}
 
 	// Now simulate hop C receiving the data from B.
-	// Create engine C.
 	transports = nil // reset for engine C
 	cfgC := &core.Config{
 		Drivers: []core.DriverConfig{dummyDriverConfig("mock-d-s3")},
@@ -440,11 +419,8 @@ func TestScenario3_MultiHopCascade(t *testing.T) {
 	}
 }
 
-// ============================================================
-// Scenario ④: 协议转换（MQTT → HTTP）
-// CoreC 从 MQTT 收数据，转发到 HTTP endpoint。
-// 关键：一个 transport 收（OnData），另一个 transport 发（Publish）。
-// ============================================================
+// TestScenario4_ProtocolConversion：协议转换（MQTT → HTTP）——
+// 一个 transport 经 OnData 收数据，另一个经 Publish 转发到 HTTP endpoint。
 
 func TestScenario4_ProtocolConversion(t *testing.T) {
 	const inType = "scenario-4-in"   // simulates MQTT inbound
@@ -521,11 +497,8 @@ func TestScenario4_ProtocolConversion(t *testing.T) {
 	}
 }
 
-// ============================================================
-// Scenario ⑤: 多对一汇聚
-// 多个边缘节点 → 一个汇聚节点。
-// 关键：多个 transport 的 OnData 汇入同一条 DataBus。
-// ============================================================
+// TestScenario5_ManyToOneAggregation：多对一汇聚——多个边缘节点的
+// transport OnData 汇入同一汇聚节点的 DataBus。
 
 func TestScenario5_ManyToOneAggregation(t *testing.T) {
 	const transportType = "scenario-5"
@@ -597,11 +570,8 @@ func TestScenario5_ManyToOneAggregation(t *testing.T) {
 	}
 }
 
-// ============================================================
-// Scenario ⑥: 一对多分发
-// 一个数据源 → 多个目标 transport。
-// 关键：action: mirror + targets 列表。
-// ============================================================
+// TestScenario6_OneToManyFanout：一对多分发——一个数据源经
+// action: mirror + targets 列表发到多个目标 transport。
 
 func TestScenario6_OneToManyFanout(t *testing.T) {
 	const transportType = "scenario-6"
@@ -643,7 +613,6 @@ func TestScenario6_OneToManyFanout(t *testing.T) {
 	source := transports[0]
 	target1, target2, target3 := transports[1], transports[2], transports[3]
 
-	// Send one data point from source.
 	source.FeedData(core.DataPoint{
 		Driver:    "plc",
 		Tag:       "temperature",
@@ -672,11 +641,8 @@ func TestScenario6_OneToManyFanout(t *testing.T) {
 	}
 }
 
-// ============================================================
-// Scenario ⑦: 双向级联（数据上行 + 命令下行）
-// 数据从上游通过 OnData 上行，命令通过 OnCommand 下行到驱动。
-// 关键：OnData + OnCommand 同时工作，WriteTag 被正确调用。
-// ============================================================
+// TestScenario7_BidirectionalCascade：双向级联——数据经 OnData 上行，
+// 命令经 OnCommand 下行并调用驱动 WriteTag。
 
 // recordingDriver records all write commands for verification.
 type recordingDriver struct {
@@ -787,7 +753,6 @@ func TestScenario7_BidirectionalCascade(t *testing.T) {
 	}
 	st.FeedCommand(cmd)
 
-	// Wait for the write to be executed.
 	deadline := time.After(2 * time.Second)
 	for {
 		written := rd.GetWritten()

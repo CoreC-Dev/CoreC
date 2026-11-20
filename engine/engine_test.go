@@ -123,7 +123,7 @@ func TestScheduler(t *testing.T) {
 		t.Fatal("timed out waiting for scheduled task execution")
 	}
 
-	// PauseDriver is a kept interface method; verify it suppresses ticks.
+	// PauseDriver suppresses ticks.
 	if err := sched.PauseDriver("d1"); err != nil {
 		t.Fatalf("PauseDriver failed: %v", err)
 	}
@@ -274,8 +274,6 @@ func TestEngineLifecycle(t *testing.T) {
 
 // TestGroupEnrichment verifies that DataPoint.Group is populated from
 // TagConfig.Group when data flows through the scheduler -> onDriverData path.
-// Before the fix, onDriverData only set Driver and Group was always empty,
-// breaking rules like "group == 'reactor'" and MQTT topic templates.
 func TestGroupEnrichment(t *testing.T) {
 	core.RegisterDriver("mock-driver", func(config core.DriverConfig) (core.Driver, error) {
 		return &mockDriver{}, nil

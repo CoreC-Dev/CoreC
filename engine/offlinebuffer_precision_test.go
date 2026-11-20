@@ -7,13 +7,10 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// TestOfflineBuffer64BitRoundTrip guards the silent-corruption class where
-// a 64-bit reading buffered during an outage changed value on replay:
-// encoding/json decodes JSON numbers into float64 when the target is
-// `any`, which rounds every integer above ±2^53 (9007199254740993 became
-// 9007199254740992) — and a successful replay then deletes the buffered
-// batch, making the corrupted value the only surviving copy. The
-// DataPoint.UnmarshalJSON type-aware decode restores the exact value.
+// TestOfflineBuffer64BitRoundTrip verifies that 64-bit readings buffered
+// during an outage replay bit-exactly: default float64 `any` decoding
+// rounds integers beyond ±2^53; DataPoint.UnmarshalJSON's type-aware
+// decode keeps the exact value.
 func TestOfflineBuffer64BitRoundTrip(t *testing.T) {
 	ob, err := NewOfflineBuffer(t.TempDir(), 10)
 	if err != nil {
@@ -66,10 +63,10 @@ func TestOfflineBuffer64BitRoundTrip(t *testing.T) {
 	}
 }
 
-// TestOfflineBufferUnTypedValuesStayUnchanged pins the fallback: values
-// whose payload has no usable type/value pairing (absent "type" key, or
-// a token shape that does not match the declared type) keep the plain
-// `any` decode exactly as before the precision fix.
+// TestOfflineBufferUnTypedValuesStayUnchanged verifies the fallback:
+// values whose payload has no usable type/value pairing (absent "type"
+// key, or a token shape that does not match the declared type) keep the
+// plain `any` decode.
 func TestOfflineBufferUnTypedValuesStayUnchanged(t *testing.T) {
 	ob, err := NewOfflineBuffer(t.TempDir(), 10)
 	if err != nil {
@@ -78,8 +75,7 @@ func TestOfflineBufferUnTypedValuesStayUnchanged(t *testing.T) {
 	defer ob.Close()
 
 	// Type omitted → DataType zero (TypeBool); a number token with a
-	// bool-typed decode falls back to the default float64, matching the
-	// historical behavior for untyped publishers.
+	// bool-typed decode falls back to the default float64.
 	points := []core.DataPoint{
 		{Driver: "plc", Tag: "legacy", Value: 42, Timestamp: time.Now()},
 	}

@@ -23,9 +23,8 @@ type CoreCEngine struct {
 	// role can reach it through its back-pointer.
 	mu sync.RWMutex
 
-	// Roles (the God Object split: CoreCEngine is a thin shell). Every
-	// method on CoreCEngine is a <=3-line forwarder to one of these;
-	// all logic lives in the role structs.
+	// Roles: CoreCEngine is a composition shell; every method on it is a
+	// thin forwarder to one of these role structs, where the logic lives.
 	runtime      *engineRuntime
 	ruleSet      *ruleRole
 	reads        *readAccessor
@@ -122,8 +121,6 @@ func New() core.Engine {
 	e.processing.alertActiveWindow = core.DefaultAlertActiveWindow
 	return e
 }
-
-// --- CoreCEngine forwarders (core.Lifecycler) ---
 
 func (e *CoreCEngine) Start(ctx context.Context, config *core.Config) error {
 	return e.runtime.Start(ctx, config)

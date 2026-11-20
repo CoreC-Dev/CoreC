@@ -7,8 +7,6 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// ── Tag-File Watcher helpers ────────────────────────────────────────
-
 // startTagFileWatcher starts a hot-reload watcher for a driver's tags-file
 // if both TagsFile and TagsInterval are configured.
 func (r *driverRegistry) startTagFileWatcher(config core.DriverConfig) {
@@ -61,9 +59,7 @@ func (r *driverRegistry) startTagFileWatcher(config core.DriverConfig) {
 		slog.Info("reloading driver from tags-file",
 			"driver", driverName, "old_tags", len(baseCfg.Tags), "new_tags", len(merged))
 
-		// Evict tags that disappeared from the merged set: removed tags'
-		// cached values must go with them — otherwise /tags keeps
-		// serving ghosts and derived tags keep consuming them.
+		// Evict cached values of tags that disappeared from the merged set.
 		newNames := make(map[string]bool, len(merged))
 		for i := range merged {
 			t := merged[i]
@@ -159,7 +155,6 @@ func (r *driverRegistry) reloadDriverTags(config core.DriverConfig) error {
 	r.driverConfigs[config.Name] = config
 	r.eng.mu.Unlock()
 
-	// Schedule collection tasks for the new tags.
 	r.scheduleDriverTags(config)
 
 	slog.Info("driver reloaded from tags-file",

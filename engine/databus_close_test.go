@@ -10,10 +10,7 @@ import (
 
 // TestDataBus_BroadcastAfterClose verifies that calling Broadcast after
 // Close (or racing with Close) does not panic on a closed subscriber
-// channel. Before the fix, Close did not clear the subscriber list or
-// reset subCount, so a post-Close Broadcast would enter the send loop
-// and hit `select { case sub.ch <- point: default: }` on a closed
-// channel, which panics.
+// channel.
 func TestDataBus_BroadcastAfterClose(t *testing.T) {
 	bus := NewDataBus(16)
 	_, unsub := bus.Subscribe("")
@@ -32,9 +29,7 @@ func TestDataBus_BroadcastAfterClose(t *testing.T) {
 
 // TestDataBus_BroadcastConcurrentWithClose verifies that Broadcast
 // racing with Close does not panic. Multiple goroutines call Broadcast
-// in a tight loop while another calls Close. Without the fix that clears
-// subscribers and resets subCount in Close, this could panic on a
-// closed-channel send.
+// in a tight loop while another calls Close.
 func TestDataBus_BroadcastConcurrentWithClose(t *testing.T) {
 	bus := NewDataBus(64)
 	for i := 0; i < 10; i++ {

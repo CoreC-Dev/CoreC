@@ -42,17 +42,15 @@ type writeManager struct {
 
 	// commandConcurrency caps the number of write commands executed in
 	// parallel. commandSem is a counting semaphore (buffered channel)
-	// created in Start() after applyEngineConfig. Each command acquires a
-	// slot before dispatch; when full, the listener applies backpressure
-	// (the transport's command channel fills, overflow → dead-letter #4).
-	// This prevents a single slow write from serializing all subsequent
-	// control commands. nil before Start() → synchronous.
+	// created in Start() after applyEngineConfig; command listeners only
+	// start after Start(). Each command acquires a slot before dispatch;
+	// when full, the listener applies backpressure (the transport's
+	// command channel fills, overflow → dead-letter).
 	commandConcurrency int
 	commandSem         chan struct{}
 
 	// deadLetters groups the dead-letter queue, its bound, the lifetime
-	// push counter, and the optional on-disk store (sub-struct grouping
-	// keeps writeManager under the field ceiling).
+	// push counter, and the optional on-disk store.
 	deadLetters deadLetterState
 
 	// writeAuditHistory records the most recent write attempts —
@@ -73,11 +71,10 @@ type writeManager struct {
 	eng *CoreCEngine
 }
 
-// writeAuditCapacity bounds the in-memory write audit history exposed
-// via GET /write/history: the most recent 1000 write attempts (successes
-// and failures) are retained, oldest first; older entries are evicted
-// when the buffer is full. In-memory only — the trail survives config
-// reloads but not process restarts.
+// writeAuditCapacity bounds the in-memory write-audit ring (GET
+// /write/history, successes and failures alike). With write-audit-path
+// configured, entries are mirrored to JSONL and replayed at startup;
+// without a path, Stop/Reload clears the trail.
 const writeAuditCapacity = 1000
 
 // Pacing is "device busy", not a permanent failure: the command retry loop
@@ -104,10 +101,9 @@ func (w *writeManager) WriteTag(ctx context.Context, cmd core.WriteCommand) (*co
 		return nil, err
 	}
 
-	// Configuration-level write protection. WriteTag is the single choke
-	// point every write path funnels through (API single write, batch
-	// write and the MQTT command channel), so enforcing the tag's `protect`
-	// here also binds third-party drivers that never implement a check.
+	// Configuration-level write protection: WriteTag is the single write
+	// choke point (API single write, batch write, MQTT command channel),
+	// so the tag's `protect` is enforced here for every driver.
 	if hasConfig {
 		if reason := tagWriteProtectionReason(dc.Tags, cmd.Tag); reason != "" {
 			w.recordWriteAudit(cmd, false, reason)
@@ -115,12 +111,11 @@ func (w *writeManager) WriteTag(ctx context.Context, cmd core.WriteCommand) (*co
 		}
 	}
 
-	// Per-driver write pacing (settings.write-min-interval): the same choke
-	// point as the protection check, so every path — API single write bag,
-	// batch and the MQTT command channel — honours the device's minimum
-	// spacing. Rejection is a client-actionable ErrWritePaced (429 on the
-	// API, immediate dead letter on the command channel), never a silent
-	// queue.
+	// Per-driver write pacing (settings.write-min-interval) at the same
+	// write choke point: API single write, batch and the MQTT command
+	// channel all honour the device's minimum spacing. Rejection is a
+	// client-actionable ErrWritePaced (429 on the API, immediate dead
+	// letter on the command channel).
 	if err := w.pacer.check(cmd.Driver); err != nil {
 		w.recordWriteAudit(cmd, false, err.Error())
 		return nil, err
@@ -138,9 +133,7 @@ func (w *writeManager) WriteTag(ctx context.Context, cmd core.WriteCommand) (*co
 	}
 	res := &results[0]
 	w.recordWriteAudit(cmd, res.Success, res.Error)
-	// Only a write the device accepted advances its clock: the docs promise
-	// 失败写入不占用下一次机会, so a refusal must leave the window open for the
-	// retry rather than make it wait out the floor to hear the same refusal.
+	// Only a write the device accepted advances its pacing clock (record).
 	if res.Success {
 		w.pacer.record(cmd.Driver)
 	}
@@ -179,11 +172,9 @@ func (w *writeManager) WriteHistory() []core.WriteAuditEntry {
 	return newestFirstLocked(w.writeAudits.items)
 }
 
-// --- Command Execution ---
 // startCommandListener launches a goroutine that listens for write commands
 // from a transport's OnCommand channel and dispatches them to the engine.
-// Commands are executed concurrently (bounded by commandSem) so a single
-// slow write does not serialize subsequent control commands.
+// Commands are executed concurrently (bounded by commandSem).
 // Failed writes are retried with exponential backoff; if all retries
 // fail, the command is placed in the dead letter queue for later inspection.
 // It is called from AddTransport for every transport (initial and runtime),
@@ -214,7 +205,7 @@ func (w *writeManager) startCommandListener(t core.Transport, tCtx context.Conte
 				// Acquire a concurrency slot before dispatching. When the
 				// pool is full this blocks, applying backpressure to the
 				// transport's command channel (which overflows to the
-				// dead-letter store per #4). The select on tCtx.Done()
+				// dead-letter store). The select on tCtx.Done()
 				// ensures the listener exits promptly on transport removal
 				// or engine shutdown even while waiting for a slot.
 				select {
@@ -297,9 +288,7 @@ func (w *writeManager) forwardCommand(ctx context.Context, cmd core.WriteCommand
 	}
 	w.eng.mu.RUnlock()
 
-	// Sort by transport name for deterministic forwarding order. Without this,
-	// map iteration randomization makes the forwarder chain order non-deterministic,
-	// which causes flaky tests and makes operational behavior unpredictable.
+	// Sort by transport name for deterministic forwarding order.
 	sort.Slice(transports, func(i, j int) bool {
 		return transports[i].Name() < transports[j].Name()
 	})
@@ -321,11 +310,9 @@ func (w *writeManager) forwardCommand(ctx context.Context, cmd core.WriteCommand
 
 // permanentWriteErrPatterns are error-message signatures that indicate a
 // write command can never succeed on retry: the command itself is
-// misconfigured (unknown tag, read-only target, type mismatch). Retrying
-// such a command just hammers the device writeRetryCount more times and
-// pollutes the dead-letter queue. Every other
-// failure keeps the retry loop — connection-class errors may succeed once
-// the driver reconnects, and unknown errors are retried fail-safe.
+// misconfigured (unknown tag, read-only target, type mismatch). Such
+// failures are dead-lettered immediately without retry; every other
+// failure keeps the retry loop.
 var permanentWriteErrPatterns = []string{
 	"tag not found",            // all drivers: command references no configured tag
 	"read-only area",           // modbus: discrete-input / input-register target
@@ -353,9 +340,9 @@ func isPermanentWriteError(errStr string) bool {
 // added to the dead letter queue.
 func (w *writeManager) executeWriteWithRetry(cmd core.WriteCommand) {
 	// If no local driver matches the command target, attempt command
-	// forwarding (chained-core command passthrough). Relay nodes have
-	// drivers: [] and receive commands via command-topic; without
-	// forwarding, commands dead-end in the dead letter queue.
+	// forwarding (chained-core command passthrough): relay nodes with
+	// drivers: [] receive commands via command-topic and forward them
+	// downstream.
 	if !w.eng.driverReg.hasDriver(cmd.Driver) {
 		if w.forwardCommand(w.eng.runtime.ctx, cmd) {
 			slog.Info("command forwarded to downstream node",
@@ -391,8 +378,7 @@ func (w *writeManager) executeWriteWithRetry(cmd core.WriteCommand) {
 
 		// Pacing is neither success nor permanent failure: the command is
 		// sound and the device is merely busy. Wait out the remaining window
-		// without consuming a retry, so a valid command is not dead-lettered
-		// just because write-min-interval exceeds the backoff schedule.
+		// without consuming a retry.
 		var pe *pacedError
 		if err != nil && errors.As(err, &pe) {
 			if pacedRetries >= maxPacingRetries {
@@ -424,8 +410,7 @@ func (w *writeManager) executeWriteWithRetry(cmd core.WriteCommand) {
 
 		// Configuration-class failures (unknown tag, read-only target,
 		// type mismatch) can never succeed on retry: dead-letter the
-		// command immediately instead of burning writeRetryCount more
-		// device round-trips.
+		// command immediately.
 		if isPermanentWriteError(lastErr) {
 			slog.Error("command write failed permanently, added to dead letter queue",
 				"driver", cmd.Driver, "tag", cmd.Tag, "error", lastErr)
@@ -449,14 +434,9 @@ func (w *writeManager) executeWriteWithRetry(cmd core.WriteCommand) {
 				"delay", delay, "error", lastErr)
 			select {
 			case <-w.eng.runtime.ctx.Done():
-				// A shutdown-cancelled retry must not return silently. The
-				// engine context only
-				// cancels at full process shutdown, where the in-memory
-				// dead-letter queue dies with the process anyway —
-				// queueing there would be theater. Instead the
-				// abandonment is logged at ERROR with the full command so
-				// the operator sees exactly what did not reach the
-				// device.
+				// A shutdown-cancelled retry does not enter the dead-letter
+				// queue; the abandonment is logged at ERROR with the full
+				// command.
 				slog.Error("command write abandoned by shutdown",
 					"driver", cmd.Driver,
 					"tag", cmd.Tag,
@@ -513,8 +493,6 @@ func (w *writeManager) DeadLetterEntries() []core.DeadLetterEntry {
 	return result
 }
 
-// --- CoreCEngine forwarders (write/command API) ---
-
 func (e *CoreCEngine) WriteTag(ctx context.Context, cmd core.WriteCommand) (*core.WriteResult, error) {
 	return e.writes.WriteTag(ctx, cmd)
 }
@@ -528,9 +506,8 @@ func (e *CoreCEngine) DeadLetterEntries() []core.DeadLetterEntry {
 }
 
 // applyConfig covers the write manager's knobs and the optional
-// dead-letter persistence: opened early so
-// the runtime start can replay. A failed open is start-blocking — the
-// operator asked for durability and must not silently get none.
+// dead-letter persistence, opened early so the runtime start can replay.
+// A failed open is start-blocking.
 func (w *writeManager) applyConfig(cfg *core.EngineConfig) error {
 	if cfg.WriteRetryCount > 0 {
 		w.writeRetryCount = cfg.WriteRetryCount
@@ -561,10 +538,7 @@ func (w *writeManager) applyConfig(cfg *core.EngineConfig) error {
 		}
 		w.deadLetters.store = store
 	} else if w.deadLetters.store != nil {
-		// The setting was removed: leave no pointer to a closed file.
-		// Otherwise addDeadLetter keeps writing to a dead descriptor
-		// (silently dropping persistence) and the next Start replays the
-		// old path.
+		// The setting was removed: close the store and clear the pointer.
 		w.deadLetters.store.close()
 		w.deadLetters.store = nil
 	}

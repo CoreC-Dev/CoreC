@@ -10,11 +10,10 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// TestBatcherFlushDeferredWhileQueueBacklogged verifies the fix at
-// the unit level: a periodic flush must not publish the newer partial
-// buffer while older full batches are still queued in flushBatches —
-// that would reorder batches across the queue. Once the backlog is
-// drained, the partial buffer publishes after the older batches.
+// TestBatcherFlushDeferredWhileQueueBacklogged verifies at the unit level
+// that a periodic flush does not publish the newer partial buffer while
+// older full batches are still queued in flushBatches. Once the backlog
+// is drained, the partial buffer publishes after the older batches.
 func TestBatcherFlushDeferredWhileQueueBacklogged(t *testing.T) {
 	tr := &flakyTransport{}
 	cfg := core.TransportConfig{Name: "test", BatchSize: 3, FlushInterval: "10s"}
@@ -67,12 +66,10 @@ func TestBatcherFlushDeferredWhileQueueBacklogged(t *testing.T) {
 	}
 }
 
-// TestBatcherCrossBatchOrderingUnderBacklog verifies the fix
-// end-to-end: with a slow transport building a flush-queue backlog
-// while the periodic flush keeps ticking, the newer partial batch must
-// never be published before the older queued batches. Before the fix
-// the flushLoop select could pseudo-randomly pick the ticker branch and
-// publish the partial buffer ahead of the backlog.
+// TestBatcherCrossBatchOrderingUnderBacklog verifies end-to-end that with
+// a slow transport building a flush-queue backlog while the periodic
+// flush keeps ticking, the newer partial batch is never published before
+// the older queued batches.
 func TestBatcherCrossBatchOrderingUnderBacklog(t *testing.T) {
 	tr := &slowTransport{publishSlow: 120 * time.Millisecond}
 	cfg := core.TransportConfig{Name: "test", BatchSize: 3, FlushInterval: "25ms"}

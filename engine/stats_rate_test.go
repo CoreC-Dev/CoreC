@@ -54,8 +54,7 @@ func TestStatsPointsPerSecWindowedRate(t *testing.T) {
 }
 
 // TestBadQualityDropCounting pins the bad-quality split: the drop policy's
-// discards increment the dedicated bad-quality counter and no longer
-// pollute total_errors (a configured policy is not a fault).
+// discards increment the dedicated bad-quality counter, not total_errors.
 func TestBadQualityDropCounting(t *testing.T) {
 	e := New().(*CoreCEngine)
 	e.processing.dataBus = NewDataBus(64)

@@ -18,11 +18,8 @@ const (
 	discoveryTopicPrefix = "corec/_discovery"
 	defaultHeartbeatSecs = 5
 
-	// MQTT/discovery operational timeouts and intervals. These are
-	// internal defaults; the discovery package does not currently
-	// expose them as configuration. They are named (rather than inline
-	// bare duration literals) so the values are discoverable in one
-	// place and easy to tune.
+	// MQTT/discovery operational timeouts and intervals (internal
+	// defaults, not exposed as configuration).
 	defaultMQTTConnectRetryInterval = 5 * time.Second
 	defaultMQTTConnectTimeout       = 10 * time.Second
 	defaultMQTTSubscribeTimeout     = 5 * time.Second
@@ -46,14 +43,12 @@ type nodeInfo struct {
 
 // endpoint describes a data channel.
 type endpoint struct {
-	// Type is the channel kind. Only "mqtt" is currently constructed:
-	// the "http" spelling is an experimental
-	// wire-format forward-compat — nothing emits it and reconcile()
-	// explicitly skips non-mqtt endpoints, so a malformed/malicious
-	// heartbeat advertising one can never inject a transport config.
+	// Type is the channel kind. Only "mqtt" is constructed; reconcile()
+	// skips non-mqtt endpoints, so a heartbeat advertising another type
+	// can never inject a transport config.
 	Type  string `json:"type"`
 	Topic string `json:"topic,omitempty"` // for mqtt: subscription pattern
-	URL   string `json:"url,omitempty"`   // for http: full URL (experimental, unused)
+	URL   string `json:"url,omitempty"`
 }
 
 // brokerEndpoint pairs a broker URL with the publish endpoint active on it.
@@ -309,11 +304,7 @@ func (d *Discovery) reconcile() {
 			continue
 		}
 		if info.Publish.Type != "mqtt" {
-			// Non-mqtt publish endpoints (the experimental "http"
-			// spelling, or garbage from a malformed heartbeat) are
-			// skipped with a visible debug line: they can never become
-			// an auto-added transport (a bare silent continue would hide
-			// the skip).
+			// Non-mqtt publish endpoints are skipped and logged at debug.
 			slog.Debug("discovery: upstream publish endpoint is not auto-subscribable",
 				"upstream", upstreamID,
 				"endpoint_type", info.Publish.Type)

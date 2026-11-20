@@ -12,8 +12,7 @@ import (
 )
 
 // mqttLikeTransport mimics the MQTT transport's behavior of NOT closing
-// its command/data channels on Stop — the exact pattern that caused the
-// goroutine leak before the per-transport context fix.
+// its command/data channels on Stop.
 type mqttLikeTransport struct {
 	name     string
 	cmdCh    chan core.WriteCommand
@@ -34,7 +33,7 @@ func (t *mqttLikeTransport) Start(_ context.Context) error                      
 func (t *mqttLikeTransport) Stop() error {
 	t.stopOnce.Do(func() {
 		// Deliberately do NOT close cmdCh or dataCh — this is what
-		// MQTTTransport.Stop does (see publisher.go comment).
+		// MQTTTransport.Stop does (see mqtt_io.go comment).
 	})
 	return nil
 }
@@ -59,8 +58,7 @@ func registerLeakTestTransport() {
 
 // TestRemoveTransportNoGoroutineLeak verifies that removing a transport
 // whose Stop() does NOT close its channels (like MQTT) does not leak
-// the command/data listener goroutines. This is a regression test for
-// the per-transport context cancellation fix.
+// the command/data listener goroutines.
 func TestRemoveTransportNoGoroutineLeak(t *testing.T) {
 	registerLeakTestTransport()
 

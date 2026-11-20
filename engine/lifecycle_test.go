@@ -12,8 +12,6 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// --- Enhanced mocks for lifecycle tests ---
-
 // mockDriverWithState tracks start/stop/restart calls.
 type mockDriverWithState struct {
 	mu         sync.Mutex
@@ -136,8 +134,6 @@ func registerMockTypes() {
 	})
 }
 
-// --- Tests ---
-
 func TestEngineSuspendResume(t *testing.T) {
 	registerMockTypes()
 
@@ -197,7 +193,6 @@ func TestEngineRemoveDriver(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 
-	// Verify both drivers exist.
 	if _, ok := eng.GetDriver("d1"); !ok {
 		t.Error("expected d1 to exist")
 	}
@@ -205,7 +200,6 @@ func TestEngineRemoveDriver(t *testing.T) {
 		t.Error("expected d2 to exist")
 	}
 
-	// Remove d1.
 	if err := eng.RemoveDriver("d1"); err != nil {
 		t.Fatalf("RemoveDriver failed: %v", err)
 	}
@@ -213,7 +207,6 @@ func TestEngineRemoveDriver(t *testing.T) {
 		t.Error("expected d1 to be removed")
 	}
 
-	// Remove non-existent driver.
 	if err := eng.RemoveDriver("nonexistent"); err == nil {
 		t.Error("expected error removing non-existent driver")
 	}
@@ -242,7 +235,6 @@ func TestEngineRemoveTransport(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 
-	// Remove t1.
 	if err := eng.RemoveTransport("t1"); err != nil {
 		t.Fatalf("RemoveTransport failed: %v", err)
 	}
@@ -250,7 +242,6 @@ func TestEngineRemoveTransport(t *testing.T) {
 		t.Error("expected t1 to be removed")
 	}
 
-	// Remove non-existent transport.
 	if err := eng.RemoveTransport("nonexistent"); err == nil {
 		t.Error("expected error removing non-existent transport")
 	}
@@ -311,11 +302,9 @@ func TestEngineSubscribe(t *testing.T) {
 	}
 	defer eng.Stop()
 
-	// Subscribe to data points.
 	ch, unsub := eng.Subscribe("")
 	defer unsub()
 
-	// Wait for some data.
 	select {
 	case p := <-ch:
 		if p.Driver != "d1" {
@@ -489,13 +478,11 @@ func TestEngineCommandFlow(t *testing.T) {
 	}
 	defer eng.Stop()
 
-	// Send a write command through the transport's command channel.
 	tr, _ := eng.GetTransport("t1")
 	mt := tr.(*mockTransportWithData)
 
 	mt.cmdCh <- core.WriteCommand{Driver: "d1", Tag: "t1", Value: 42.0}
 
-	// Wait for the command listener to process the write.
 	d, _ := eng.GetDriver("d1")
 	md := d.(*mockDriverWithState)
 	if !testutil.WaitFor(2*time.Second, func() bool {
@@ -506,7 +493,6 @@ func TestEngineCommandFlow(t *testing.T) {
 		t.Fatal("timed out waiting for write command to be processed")
 	}
 
-	// Verify the driver received the write.
 	writes := func() int {
 		md.mu.Lock()
 		defer md.mu.Unlock()
@@ -543,7 +529,6 @@ func TestEngineDataListenerFlow(t *testing.T) {
 	tr, _ := eng.GetTransport("relay")
 	mt := tr.(*mockTransportWithData)
 
-	// Send data through the transport's data channel (simulating inbound data).
 	mt.dataCh <- core.DataPoint{
 		Driver:    "upstream",
 		Tag:       "sensor1",
@@ -579,7 +564,6 @@ func TestEngineReadTagNotFound(t *testing.T) {
 	}
 	defer eng.Stop()
 
-	// Read from non-existent driver.
 	_, err := eng.ReadTag(ctx, "nonexistent", "t1")
 	if err == nil {
 		t.Error("expected error reading from non-existent driver")
@@ -603,7 +587,6 @@ func TestEngineWriteTagNotFound(t *testing.T) {
 	}
 	defer eng.Stop()
 
-	// Write to non-existent driver.
 	_, err := eng.WriteTag(ctx, core.WriteCommand{Driver: "nonexistent", Tag: "t1", Value: 1})
 	if err == nil {
 		t.Error("expected error writing to non-existent driver")
@@ -629,7 +612,6 @@ func TestEngineLatestValues(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 
-	// Wait for data to flow into the cache.
 	if !testutil.WaitFor(2*time.Second, func() bool {
 		return len(eng.LatestValues("d1")) > 0
 	}) {
@@ -666,12 +648,9 @@ func TestEngineStats(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 
-	// Wait for data to flow THROUGH the pipeline. Waiting only on reads
-	// (the old condition) left a window where TotalRead was counted but
-	// the first point hadn't reached the transport yet — the immediate
-	// TotalPublish assertion then tripped under heavy parallel load
-	// (one flake in 12 runs on go1.27.3's timing profile). Publish
-	// implies read upstream, so this condition covers both assertions.
+	// Wait for data to flow THROUGH the pipeline: publish implies read
+	// upstream, so this condition covers both the TotalRead and the
+	// immediate TotalPublish assertion.
 	if !testutil.WaitFor(2*time.Second, func() bool {
 		st := eng.Stats()
 		return st.TotalRead > 0 && st.TotalPublish > 0
@@ -752,23 +731,19 @@ func TestEngineSetRuleDisabled(t *testing.T) {
 	}
 	defer eng.Stop()
 
-	// Disable rule 0.
 	if err := eng.SetRuleDisabled(0, true); err != nil {
 		t.Fatalf("SetRuleDisabled failed: %v", err)
 	}
 
-	// Verify disabled state.
 	stats := eng.GetRuleStats()
 	if !stats[0].Disabled {
 		t.Error("expected rule to be disabled")
 	}
 
-	// Re-enable.
 	if err := eng.SetRuleDisabled(0, false); err != nil {
 		t.Fatalf("SetRuleDisabled failed: %v", err)
 	}
 
-	// Out of range.
 	if err := eng.SetRuleDisabled(99, true); err == nil {
 		t.Error("expected error for out-of-range index")
 	}
@@ -793,7 +768,6 @@ func TestEngineReload(t *testing.T) {
 	}
 	defer eng.Stop()
 
-	// Reload with a different config.
 	cfg2 := &core.Config{
 		Drivers: []core.DriverConfig{
 			{Name: "d2", Type: "mock-state", Tags: []core.TagConfig{{Name: "t2", Interval: "100ms"}}},

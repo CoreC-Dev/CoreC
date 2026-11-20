@@ -9,10 +9,7 @@ import (
 )
 
 // TestRemoveTransportCleansBatcher verifies that RemoveTransport stops
-// the associated batcher and removes it from the batchers map (problem 1+2).
-// Before the fix, RemoveTransport only deleted the transport but left the
-// batcher running, causing a goroutine leak and routing data to a stopped
-// transport.
+// the associated batcher and removes it from the batchers map.
 func TestRemoveTransportCleansBatcher(t *testing.T) {
 	registerMockTypes()
 
@@ -41,7 +38,6 @@ func TestRemoveTransportCleansBatcher(t *testing.T) {
 
 	e := eng.(*CoreCEngine)
 
-	// Verify batcher exists before removal
 	e.mu.RLock()
 	_, hasBatcher := e.transportMgr.batchers["batched-transport"]
 	e.mu.RUnlock()
@@ -49,7 +45,6 @@ func TestRemoveTransportCleansBatcher(t *testing.T) {
 		t.Fatal("expected batcher to exist before removal")
 	}
 
-	// Remove the transport
 	if err := eng.RemoveTransport("batched-transport"); err != nil {
 		t.Fatalf("RemoveTransport failed: %v", err)
 	}
@@ -64,9 +59,7 @@ func TestRemoveTransportCleansBatcher(t *testing.T) {
 }
 
 // TestRemoveDriverCleansSchedulerTasks verifies that RemoveDriver removes
-// scheduler tasks for the driver, not just pausing them (problem 3).
-// Before the fix, RemoveDriver only called PauseDriver which left task
-// goroutines running forever.
+// scheduler tasks for the driver, not just pausing them.
 func TestRemoveDriverCleansSchedulerTasks(t *testing.T) {
 	registerMockTypes()
 
@@ -88,7 +81,6 @@ func TestRemoveDriverCleansSchedulerTasks(t *testing.T) {
 
 	e := eng.(*CoreCEngine)
 
-	// Verify task exists before removal
 	taskID := "removable-driver_100ms"
 	e.lifecycle.scheduler.mu.RLock()
 	_, hasTask := e.lifecycle.scheduler.tasks[taskID]
@@ -98,7 +90,6 @@ func TestRemoveDriverCleansSchedulerTasks(t *testing.T) {
 		t.Fatal("expected task to exist before driver removal")
 	}
 
-	// Remove the driver
 	if err := eng.RemoveDriver("removable-driver"); err != nil {
 		t.Fatalf("RemoveDriver failed: %v", err)
 	}
@@ -117,7 +108,7 @@ func TestRemoveDriverCleansSchedulerTasks(t *testing.T) {
 }
 
 // TestReloadClosesRuleProviders verifies that Reload (Stop→Start) closes
-// old rule providers so their reload-loop goroutines don't leak (problem 4).
+// old rule providers so their reload-loop goroutines exit.
 func TestReloadClosesRuleProviders(t *testing.T) {
 	registerMockTypes()
 
@@ -173,8 +164,8 @@ func TestReloadClosesRuleProviders(t *testing.T) {
 }
 
 // TestDiffTransportsModifyCleansBatcher verifies that modifying a transport
-// via RemoveTransport + AddTransport properly cleans up the old batcher
-// when batch settings are removed (problem 2).
+// via RemoveTransport + AddTransport cleans up the old batcher when batch
+// settings are removed.
 func TestDiffTransportsModifyCleansBatcher(t *testing.T) {
 	registerMockTypes()
 

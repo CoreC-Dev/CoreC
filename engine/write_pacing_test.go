@@ -54,8 +54,8 @@ func TestWritePacingAllowsAfterWindow(t *testing.T) {
 	}
 }
 
-// TestWritePacingDisabledByDefault pins backward compatibility: unset
-// write-min-interval means back-to-back writes proceed as before.
+// TestWritePacingDisabledByDefault verifies that unset write-min-interval
+// leaves back-to-back writes unpaced.
 func TestWritePacingDisabledByDefault(t *testing.T) {
 	e := newTestEngine(t)
 	d := registerTaggedDriver(e, "plc", nil)
@@ -142,8 +142,6 @@ func TestWriteErrorDoesNotConsumeTheWindow(t *testing.T) {
 		t.Fatalf("a write that never reached the device consumed the window: %v", err)
 	}
 }
-
-// --- fixtures -----------------------------------------------------------
 
 var (
 	errDeviceRefused = errors.New("device refused write")

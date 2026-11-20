@@ -62,7 +62,7 @@ func (r *taskRunner) gateTriggerTags(ctx context.Context, task core.ScheduleTask
 			suppressed = append(suppressed, tag)
 		}
 	}
-	// Counted per cycle (not per suppressed tag) for the same reason as above.
+	// Counted per collection cycle, not per suppressed tag.
 	if len(suppressed) > 0 {
 		r.skipped.Add(1)
 	}

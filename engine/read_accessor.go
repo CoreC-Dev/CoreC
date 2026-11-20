@@ -83,8 +83,6 @@ func (r *readAccessor) applyConfig(cfg *core.EngineConfig) {
 	}
 }
 
-// --- CoreCEngine forwarders (core.DataAccessor / core.StatsProvider) ---
-
 func (e *CoreCEngine) ReadTag(ctx context.Context, driver, tag string) (*core.TagValue, error) {
 	return e.reads.ReadTag(ctx, driver, tag)
 }

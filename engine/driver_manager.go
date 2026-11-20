@@ -41,11 +41,8 @@ type driverRegistry struct {
 
 	// tagGroups maps driver name -> tag name -> group.
 	// Populated from TagConfig.Group in AddDriver and consulted in
-	// onDriverData to enrich DataPoint.Group. The scheduler only forwards
-	// []TagValue (which carries the tag name but not its group), so
-	// without this map the Group would always be empty — breaking rules
-	// like "group == 'reactor'" and MQTT topic templates like
-	// ".../{{.Group}}/...".
+	// onDriverData to enrich DataPoint.Group; the scheduler forwards
+	// []TagValue, which carries the tag name but not its group.
 	tagGroups map[string]map[string]string
 
 	// eng is the owning engine: AddDriver/RemoveDriver reach the shared
@@ -54,19 +51,14 @@ type driverRegistry struct {
 	eng *CoreCEngine
 }
 
-// --- Driver Management ---
-
 func (r *driverRegistry) AddDriver(config core.DriverConfig) error {
 	driver, err := core.CreateDriver(config)
 	if err != nil {
 		return fmt.Errorf("failed to create driver %s: %w", config.Name, err)
 	}
 
-	// Inject Logger and Metrics if the driver supports it. This decouples
-	// drivers from the global slog/Prometheus backends, enabling independent
-	// testing and community reuse with custom backends. Drivers that don't
-	// implement SetLogger/SetMetrics (e.g. future or third-party drivers)
-	// simply skip injection and use their internal defaults.
+	// Inject Logger and Metrics when the driver implements
+	// SetLogger/SetMetrics; otherwise the driver uses its internal defaults.
 	if li, ok := driver.(loggerInjector); ok {
 		li.SetLogger(log.DefaultLogger())
 	}
@@ -123,15 +115,12 @@ func (r *driverRegistry) AddDriver(config core.DriverConfig) error {
 	r.tagGroups[config.Name] = tagGroups
 	r.eng.mu.Unlock()
 
-	// Schedule collection tasks based on tag intervals
 	r.scheduleDriverTags(config)
 
-	// Store config for tag-file watcher rebuilds.
 	r.eng.mu.Lock()
 	r.driverConfigs[config.Name] = config
 	r.eng.mu.Unlock()
 
-	// Start tag-file watcher if configured.
 	r.startTagFileWatcher(config)
 
 	slog.Info("driver added", "name", config.Name, "type", config.Type, "tags", len(config.Tags))
@@ -156,16 +145,12 @@ func (r *driverRegistry) RemoveDriver(name string) error {
 
 	r.eng.writes.pacer.forget(name)
 
-	// Evict the driver's cached values: without this the cache keeps
-	// serving a deleted driver's last values in
-	// GET /tags forever (stale-flagged, but never gone) and derived
-	// tags keep consuming the ghosts.
+	// Evict the driver's cached values (see LatestCache.DeleteDriver).
 	r.eng.processing.cache.DeleteDriver(name)
 
 	if r.eng.lifecycle.scheduler != nil {
 		// Remove all scheduler tasks for this driver so their goroutines
-		// actually exit, instead of just pausing them and leaving the
-		// goroutines running forever (problem 3).
+		// exit (not merely pause).
 		r.eng.lifecycle.scheduler.RemoveDriverTasks(name)
 	}
 	return driver.Stop()
@@ -189,16 +174,14 @@ func (r *driverRegistry) ListDrivers() []core.DriverStatus {
 }
 
 func (r *driverRegistry) scheduleDriverTags(config core.DriverConfig) {
-	// The driver instance supplies its optional interval floor. Look it up
-	// here instead of threading it through the call sites: the tag-file
-	// watcher rebuilds tasks without ever holding the driver variable.
+	// Look the driver instance up from the registry to read its optional
+	// interval floor (tag-file watcher rebuilds have no driver variable).
 	r.eng.mu.RLock()
 	inst := r.drivers[config.Name]
 	r.eng.mu.RUnlock()
 
-	// Group tags by their parsed interval so that equivalent spellings
-	// (e.g. "1s" and "1000ms") collapse into a single task instead of
-	// creating duplicate tasks with the same cadence.
+	// Group tags by their parsed interval so equivalent spellings
+	// (e.g. "1s" and "1000ms") collapse into a single task.
 	intervalGroups := make(map[time.Duration][]string)
 	deadBands := make(map[string]float64)
 	enforceIntervals := make(map[string]time.Duration)
@@ -244,10 +227,8 @@ func (r *driverRegistry) scheduleDriverTags(config core.DriverConfig) {
 	}
 
 	// Clamp each group's interval up to the driver's declared floor (the
-	// optional core.IntervalLimiter role). A configuration that asks for a
-	// cadence the protocol cannot sustain (e.g. 10 ms over 9600-baud Modbus
-	// RTU) must not silently saturate the device: the task runs at the floor
-	// and one WARN per affected group names the tags and both numbers.
+	// optional core.IntervalLimiter role), with one WARN per affected
+	// group naming the tags and both intervals.
 	minInterval := driverMinInterval(inst)
 
 	for interval, tags := range intervalGroups {
@@ -304,8 +285,6 @@ func (r *driverRegistry) startDrivers(config *core.Config) error {
 	return nil
 }
 
-// --- CoreCEngine forwarders (core.DriverManager) ---
-
 func (e *CoreCEngine) AddDriver(config core.DriverConfig) error {
 	return e.driverReg.AddDriver(config)
 }
@@ -324,9 +303,7 @@ func (e *CoreCEngine) ListDrivers() []core.DriverStatus {
 
 // driverMinInterval returns the minimum collection interval a driver declares
 // through the optional core.IntervalLimiter role, or 0 when the driver does not
-// implement the role (or declares no meaningful floor). Keeping the probe here
-// — rather than in core.DriverCapabilities — means drivers opt in without the
-// engine contract changing.
+// implement the role (or declares no meaningful floor).
 func driverMinInterval(d core.Driver) time.Duration {
 	limiter, ok := d.(core.IntervalLimiter)
 	if !ok || limiter == nil {
@@ -340,8 +317,7 @@ func driverMinInterval(d core.Driver) time.Duration {
 
 // collectTriggerTag records a tag's role in trigger groups: a condition point
 // declares the group (GroupTrigger -> condition tag), a detail point declares
-// the condition that gates it (GroupGated -> gated tags). Kept out of
-// scheduleDriverTags to hold that function under the cyclomatic ceiling.
+// the condition that gates it (GroupGated -> gated tags).
 func collectTriggerTag(tag core.TagConfig, groupTrigger map[string]string, gatedTags map[string][]string) {
 	if tag.TriggerGroup != "" {
 		groupTrigger[tag.TriggerGroup] = tag.Name

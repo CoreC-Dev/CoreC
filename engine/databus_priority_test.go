@@ -60,7 +60,6 @@ func TestDataBusHighPriorityPushDropped(t *testing.T) {
 
 	hpCap := cap(bus.highPriCh)
 
-	// Fill the high-priority channel to capacity.
 	for i := 0; i < hpCap; i++ {
 		bus.PushHighPriority(core.DataPoint{Driver: "d", Tag: fmt.Sprintf("t%d", i), Value: float64(i)})
 	}
@@ -112,7 +111,6 @@ func TestEngineHighPriorityWorkersProcessData(t *testing.T) {
 	e.processing.cache = NewLatestCache()
 	e.ruleSet.ruleEngine = rule.NewEngine() // empty: Match returns nil → processPoint returns after cache update
 
-	// Start one normal worker and one high-priority worker.
 	e.runtime.wg.Add(2)
 	go e.processing.processingLoop()
 	go e.processing.processingLoopHighPriority()

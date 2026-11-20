@@ -33,7 +33,6 @@ type driverCache struct {
 	dirty    atomic.Bool
 }
 
-// NewLatestCache creates a new LatestCache.
 func NewLatestCache() *LatestCache {
 	c := &LatestCache{}
 	for i := range c.shards {
@@ -48,7 +47,6 @@ func cacheShardIdx(driver string) int {
 	return int(h.Sum32() % numCacheShards)
 }
 
-// Update stores or updates a DataPoint in the cache.
 func (c *LatestCache) Update(point core.DataPoint) {
 	idx := cacheShardIdx(point.Driver)
 	shard := &c.shards[idx]
@@ -108,7 +106,6 @@ func (c *LatestCache) GetByDriver(driver string) map[string]core.DataPoint {
 		return nil
 	}
 
-	// Fast path: return cached snapshot if not dirty
 	if !dc.dirty.Load() {
 		if p := dc.snapshot.Load(); p != nil {
 			return *p
@@ -134,8 +131,7 @@ func (c *LatestCache) GetByDriver(driver string) map[string]core.DataPoint {
 // GetAll retrieves the latest values for every driver, keyed by tag name.
 // When two drivers share a tag name, the last driver in sorted-name order
 // wins (the DataPoint value carries its own Driver field, so the source is
-// not lost). Sorting makes the winner deterministic across calls; ranging
-// the map directly made GET /tags flap between drivers.
+// not lost). Sorting makes the winner deterministic across calls.
 func (c *LatestCache) GetAll() map[string]core.DataPoint {
 	all := make(map[string]core.DataPoint)
 	for i := range c.shards {
@@ -160,10 +156,8 @@ func (c *LatestCache) GetAll() map[string]core.DataPoint {
 }
 
 // DeleteDriver evicts every cached value of the named driver. Called on
-// RemoveDriver so a deleted driver's last values stop haunting GET /tags
-// and derived-tag inputs forever — without it the cache is never pruned
-// (Clear() is test-only) and deleted drivers leave ghost values that
-// only ever grow stale-flags, never disappear.
+// RemoveDriver so a deleted driver's last values stop appearing in
+// GET /tags and derived-tag inputs.
 func (c *LatestCache) DeleteDriver(driver string) {
 	idx := cacheShardIdx(driver)
 	shard := &c.shards[idx]
@@ -183,9 +177,7 @@ func (c *LatestCache) DeleteDriver(driver string) {
 }
 
 // DeleteTag evicts one cached value. Called by the tags-file reload
-// path for tags that disappeared from the file — a removed tag must
-// not keep ghost values in /tags or keep feeding derived-tag
-// expressions.
+// path for tags that disappeared from the file.
 func (c *LatestCache) DeleteTag(driver, tag string) {
 	idx := cacheShardIdx(driver)
 	shard := &c.shards[idx]
@@ -205,7 +197,6 @@ func (c *LatestCache) DeleteTag(driver, tag string) {
 	dc.dirty.Store(true)
 }
 
-// Clear removes all cached data.
 func (c *LatestCache) Clear() {
 	for i := range c.shards {
 		shard := &c.shards[i]

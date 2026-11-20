@@ -15,7 +15,6 @@ func TestTagFileWatcherDetectsChange(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tags.yaml")
 
-	// Initial content: 2 tags.
 	initial := `
 - name: temperature
   address: "40001"
@@ -54,7 +53,6 @@ func TestTagFileWatcherDetectsChange(t *testing.T) {
 		t.Fatalf("expected 0 reloads before change, got %d", reloadCount.Load())
 	}
 
-	// Modify the file: add a third tag.
 	updated := `
 - name: temperature
   address: "40001"
@@ -73,7 +71,6 @@ func TestTagFileWatcherDetectsChange(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Wait for the watcher to detect the change.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if reloadCount.Load() >= 1 {

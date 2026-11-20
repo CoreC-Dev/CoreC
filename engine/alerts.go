@@ -27,18 +27,15 @@ const (
 	alertEventBufferSize = 256
 )
 
-// alertManager is the engine's first-class alert state: alerts must not
-// degenerate to a WARN log line that the Dashboard has to reconstruct
-// by filtering log levels. The manager
-// gives alerts identity (rule|driver|tag), lifecycle (fired → acked →
-// cleared), a bounded event history, and a real-time event stream for
-// the /alerts API family.
+// alertManager is the engine's first-class alert state: identity
+// (rule|driver|tag), lifecycle (fired → acked → cleared), a bounded
+// event history, and a real-time event stream for the /alerts API family.
 //
 // Model: no recovery
 // expressions — an alert is "active" while it keeps re-firing within the
 // active window, and clears (to history) after a full window of
 // silence. Acknowledgement sticks until the alert clears: a re-fire
-// does not reopen an acked alert (no ack ping-pong).
+// does not reopen an acked alert.
 type alertManager struct {
 	mu     sync.Mutex
 	active map[string]*core.Alert
@@ -148,9 +145,7 @@ func minDuration(a, b time.Duration) time.Duration {
 // channel publish is a select with default.
 //
 // A NEW alert emits a "fired" event; subsequent fires only bump
-// Count/LastFired (stream consumers get state changes, not a flood of
-// duplicates — the dedup lives in the active-window itself, and the
-// /alerts view shows the aggregated Count).
+// Count/LastFired (the /alerts view shows the aggregated Count).
 func (am *alertManager) record(rule core.Rule, point core.DataPoint) {
 	key := alertKey(rule, point.Driver, point.Tag)
 	now := time.Now()
@@ -178,11 +173,7 @@ func (am *alertManager) record(rule core.Rule, point core.DataPoint) {
 	a.LastFired = now
 	a.Count++
 
-	// Registry cap: under a pathological rule (matching every tag), the
-	// oldest-fired alerts are cleared first rather than growing the map
-	// without limit. (Inlined rather than a helper method — single
-	// caller, and the alertManager must stay within the role-method
-	// ceiling.)
+	// Registry cap: the oldest-fired alerts are cleared first.
 	// History keeps causal order: the new alert's fired event is recorded
 	// before the overflow evictions it caused.
 	if ev != nil {
@@ -207,8 +198,7 @@ func (am *alertManager) record(rule core.Rule, point core.DataPoint) {
 	}
 	am.mu.Unlock()
 
-	// Publish the new alert before the evictions it caused; publishing
-	// cleared first made a stream consumer see "cleared" before "fired".
+	// Publish the new alert before the evictions it caused.
 	if ev != nil {
 		am.publish(*ev)
 	}
@@ -239,9 +229,7 @@ func (am *alertManager) publish(ev core.AlertEvent) {
 		if r := recover(); r != nil {
 			// The only expected panic is send-on-closed-channel from
 			// the tiny race between closed.Store and this send; drop
-			// the event. Any other panic indicates a real bug — but at
-			// this point the engine is shutting down, so dropping is
-			// the safe terminal behavior either way.
+			// the event.
 			_ = r
 		}
 	}()

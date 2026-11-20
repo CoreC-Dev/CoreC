@@ -88,6 +88,6 @@ func TestBatcherFanoutObservers(t *testing.T) {
 	}
 
 	// The observers satisfy the interface the batcher consumes; a
-	// plain histogram also satisfies it (backward-compatible wiring).
+	// plain histogram also satisfies it.
 	var _ latencyObserver = metrics.NewLatencyHistogram(nil)
 }

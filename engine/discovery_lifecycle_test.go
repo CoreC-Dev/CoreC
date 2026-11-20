@@ -12,8 +12,6 @@ import (
 	pahomqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
-// ─── Mock paho types for discovery tests ───────────────────────────
-
 type discMockToken struct {
 	doneCh chan struct{}
 	err    error
@@ -98,8 +96,6 @@ func newTestDiscovery(nodeID, role string, subscribe []string, brokers []brokerE
 	return d, mc
 }
 
-// ─── onDiscoveryMessage tests ──────────────────────────────────────
-
 func TestOnDiscoveryMessageUpdatesRegistry(t *testing.T) {
 	d, _ := newTestDiscovery("node-a", "edge", nil, nil, nil)
 
@@ -142,8 +138,6 @@ func TestOnDiscoveryMessageBadJSON(t *testing.T) {
 		t.Error("expected no registry entry for bad JSON")
 	}
 }
-
-// ─── reconcile tests ───────────────────────────────────────────────
 
 func TestReconcileAutoAddsTransport(t *testing.T) {
 	var added []core.TransportConfig
@@ -250,8 +244,6 @@ func TestReconcileSkipsNonMQTTPublish(t *testing.T) {
 	}
 }
 
-// ─── GetDiscoveredNodes tests ──────────────────────────────────────
-
 func TestGetDiscoveredNodesSnapshot(t *testing.T) {
 	d, _ := newTestDiscovery("node-a", "edge", nil, nil, nil)
 
@@ -274,8 +266,6 @@ func TestGetDiscoveredNodesSnapshot(t *testing.T) {
 		}
 	}
 }
-
-// ─── sendHeartbeats tests ──────────────────────────────────────────
 
 func TestSendHeartbeatsPublishes(t *testing.T) {
 	brokers := []brokerEndpoint{
@@ -304,8 +294,6 @@ func TestSendHeartbeatsPublishes(t *testing.T) {
 		t.Errorf("unexpected heartbeat content: %+v", info)
 	}
 }
-
-// ─── Start/Stop lifecycle tests ────────────────────────────────────
 
 func TestDiscoveryStartStop(t *testing.T) {
 	brokers := []brokerEndpoint{

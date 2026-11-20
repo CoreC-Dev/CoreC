@@ -175,8 +175,8 @@ func TestTagWriteProtectionReason(t *testing.T) {
 }
 
 // TestWriteProtectAbsentConfigSnapshot: when the engine has no driverConfigs
-// entry (e.g. a driver registered without a config snapshot), the guard must
-// stay out of the way and preserve the historical behaviour.
+// entry (e.g. a driver registered without a config snapshot), the guard
+// allows the write through.
 func TestWriteProtectAbsentConfigSnapshot(t *testing.T) {
 	e := newTestEngine(t)
 	d := newRecordingDriver("bare")

@@ -13,7 +13,7 @@ import (
 
 // Internal retry/backoff and flush/drain timing defaults. The retry
 // counts themselves are configurable via TransportConfig.RetryCount
-// (batch publish) and CoreCEngine.writeRetryCount (command write).
+// (batch publish) and writeManager.writeRetryCount (command write).
 const (
 	defaultRetryBaseDelay = 100 * time.Millisecond
 	defaultRetryMaxDelay  = 5 * time.Second
@@ -28,7 +28,7 @@ const (
 	defaultFlushInterval = 5 * time.Second
 
 	// defaultCommandRetryMaxDelay caps the exponential backoff for
-	// command-write retries (CoreCEngine.executeWriteWithRetry).
+	// command-write retries (writeManager.executeWriteWithRetry).
 	defaultCommandRetryMaxDelay = 2 * time.Second
 
 	// defaultFlushBatchQueueSize bounds the number of full batches pending
@@ -47,13 +47,11 @@ type batcherRetryPolicy struct {
 	retryCount int
 
 	// shutdownBudget bounds flushFinal, the shutdown flush: the fresh
-	// context it publishes under carries this timeout, so a slow retry
-	// chain cannot outlive shutdown and abandon the batch mid-retry
-	// when the engine stops waiting (or main exits). When the budget
+	// context it publishes under carries this timeout. When the budget
 	// expires, publishWithRetryAndBuffer stops retrying and persists
-	// the remaining batch to the offline buffer instead. Threading: set
-	// from the engine's shutdownTimeout
-	// by newTransportBatcher; <= 0 defaults to core.DefaultShutdownTimeout.
+	// the remaining batch to the offline buffer. Set from the engine's
+	// shutdownTimeout by newTransportBatcher; <= 0 defaults to
+	// core.DefaultShutdownTimeout.
 	shutdownBudget time.Duration
 
 	// offlineBufferPushes counts the number of batches this batcher has
@@ -81,11 +79,9 @@ type batcherBufferState struct {
 	// flushBatches is a bounded channel carrying full batches dequeued by
 	// publish() for asynchronous flush. publish() never calls flush()
 	// synchronously: when the buffer fills it moves the batch here and
-	// signals flushLoop, so the processingLoop worker is never blocked by
-	// a slow PublishBatch (a synchronous buffer-full flush would block
-	// the caller's goroutine). Capacity is bounded;
-	// when the consumer falls behind, the oldest pending batch is
-	// evicted and counted in flushBatchesDropped to bound memory.
+	// signals flushLoop. Capacity is bounded; when the consumer falls
+	// behind, the oldest pending batch is evicted and counted in
+	// flushBatchesDropped to bound memory.
 	flushBatches        chan []core.DataPoint
 	flushBatchesDropped atomic.Uint64
 
@@ -112,10 +108,7 @@ type batcherBufferState struct {
 // periodic flush, and retry with exponential backoff. When an
 // OfflineBuffer is configured, batches that exhaust all retries are
 // persisted to disk and replayed by a background drain goroutine
-// once the transport recovers. Its state is split into the retry
-// policy (batcherRetryPolicy) and the buffering state
-// (batcherBufferState) sub-structs to keep each under the per-struct
-// field ceiling.
+// once the transport recovers.
 type transportBatcher struct {
 	transport core.Transport
 
@@ -136,10 +129,7 @@ type transportBatcher struct {
 	dataAge latencyObserver
 
 	// onPublish is called with the number of points actually published
-	// when publishWithRetryAndBuffer or drainOnce succeeds. It lets the
-	// engine count real publishes (not just enqueues) on the async flush
-	// path: counting at enqueue time would inflate the publish counter
-	// and undercount errors when batches later fail.
+	// when publishWithRetryAndBuffer or drainOnce succeeds (not on enqueue).
 	// nil = no callback (tests that don't check counters).
 	onPublish func(int)
 
@@ -167,8 +157,7 @@ type transportBatcher struct {
 // onPublish is called with the point count when a batch is actually
 // published (not just enqueued). It may be nil (tests).
 // shutdownBudget bounds the shutdown flush (flushFinal); pass the
-// engine's shutdownTimeout so the final flush cannot outlive the
-// engine's own stop timeout. <= 0 defaults to
+// engine's shutdownTimeout. <= 0 defaults to
 // core.DefaultShutdownTimeout.
 func newTransportBatcher(t core.Transport, cfg core.TransportConfig, offlineBuffer *OfflineBuffer, publishLatency, dataAge latencyObserver, onPublish func(int), shutdownBudget time.Duration) *transportBatcher {
 	if cfg.BatchSize <= 0 && cfg.FlushInterval == "" && cfg.RetryCount <= 0 && offlineBuffer == nil {
@@ -206,7 +195,6 @@ func newTransportBatcher(t core.Transport, cfg core.TransportConfig, offlineBuff
 
 	// If an offline buffer is configured but no flush interval is set,
 	// default to a periodic flush so buffered points are actually sent.
-	// Without this, points would accumulate in the buffer indefinitely.
 	if b.offlineBuffer != nil && b.buf.flushInterval <= 0 {
 		b.buf.flushInterval = defaultFlushInterval
 	}
@@ -222,7 +210,6 @@ func (b *transportBatcher) start(ctx context.Context) {
 	b.buf.flushBatches = make(chan []core.DataPoint, defaultFlushBatchQueueSize)
 	// Always start the flushLoop so buffer-full batches are flushed
 	// asynchronously, even when no periodic flush interval is configured.
-	// This keeps publish() non-blocking on the caller's goroutine.
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
@@ -262,8 +249,6 @@ func (b *transportBatcher) stop() {
 	b.wg.Wait()
 
 	// Final flush — use a fresh context because b.ctx is now cancelled.
-	// Without this, buffered data would be silently dropped on shutdown
-	// since PublishBatch would receive an already-cancelled context.
 	b.flushFinal()
 }
 
@@ -292,13 +277,10 @@ func (b *transportBatcher) flushLoop() {
 		case batch := <-b.buf.flushBatches:
 			b.retry.publishWithRetryAndBuffer(b.ctx, batch)
 		case <-tickerC:
-			// Periodic flush of any partially-filled buffer. Older full
-			// batches still queued in flushBatches are published FIRST:
-			// this select cannot prioritize the queue over the ticker,
-			// and when both are ready the pseudo-random choice could
-			// otherwise publish the NEWER partial buffer ahead of older
-			// queued batches — cross-batch reordering. flush() additionally
-			// defers itself while any
+			// Periodic flush of any partially-filled buffer. Queued full
+			// batches are published FIRST: the partial buffer is newer
+			// than every queued batch, so flushing it ahead would reorder
+			// across batches. flush() additionally defers itself while any
 			// backlog remains, closing the window where a batch is
 			// enqueued between the drain and the flush.
 			b.drainFlushBatches()
@@ -347,9 +329,7 @@ func (b *transportBatcher) drainOnce() {
 	// transport would misroute the data.
 	drained, err := b.offlineBuffer.Drain(b.transport.Name(), func(points []core.DataPoint) error {
 		// Inherit b.ctx (cancelled by stop()) so an in-flight replay can
-		// be aborted promptly during shutdown instead of running to the
-		// full per-batch timeout against a transport that may already be
-		// gone. The per-batch timeout still
+		// be aborted promptly during shutdown. The per-batch timeout
 		// bounds each attempt during normal operation.
 		baseCtx := b.ctx
 		if baseCtx == nil {
@@ -362,8 +342,6 @@ func (b *transportBatcher) drainOnce() {
 		defer cancel()
 		err := b.transport.PublishBatch(timeoutCtx, points)
 		if err == nil && b.onPublish != nil {
-			// Count replayed publishes so totalPublish reflects all
-			// successful publishes, including offline-buffer replays.
 			b.onPublish(len(points))
 		}
 		return err
@@ -379,9 +357,7 @@ func (b *transportBatcher) drainOnce() {
 // publish adds a point to the buffer and, when the batch is full, hands the
 // full batch to flushLoop asynchronously. It never blocks the caller: the
 // flush (PublishBatch + retry + offline buffering) runs on the batcher's
-// own flushLoop goroutine. This keeps the processingLoop worker responsive
-// even when a slow transport makes PublishBatch take seconds (a synchronous
-// buffer-full flush would block the caller's goroutine for that long).
+// own flushLoop goroutine.
 //
 // The append and the flush-queue enqueue happen in one b.buf.mu critical
 // section together with the stopped check: stop() sets the stopped flag
@@ -398,8 +374,7 @@ func (b *transportBatcher) drainOnce() {
 // rejected) or when the flush queue is full and the batch containing the
 // caller's point could not be enqueued even after evicting the oldest
 // pending batch — in both cases the data is lost and the caller can try
-// a fallback transport (returning nil here instead would leave the
-// error/fallback branch in the publish path dead code).
+// a fallback transport.
 func (b *transportBatcher) publish(ctx context.Context, point core.DataPoint) error {
 	b.buf.mu.Lock()
 	defer b.buf.mu.Unlock()
@@ -422,17 +397,12 @@ func (b *transportBatcher) publish(ctx context.Context, point core.DataPoint) er
 
 	// Non-blocking enqueue. If the queue is full (consumer behind a
 	// sustained burst), evict the oldest pending batch to bound memory
-	// and count the drop for observability. The evicted batch is
-	// logged; with an offline buffer configured the operator can still
-	// see pushed counts, but these in-flight evictions are distinct
-	// from retry-exhausted pushes.
+	// and count the drop for observability.
 	select {
 	case b.buf.flushBatches <- fullBatch:
-		// enqueued successfully
 		return nil
 	default:
 	}
-	// queue full; try to evict oldest to make room
 	select {
 	case evicted := <-b.buf.flushBatches:
 		b.buf.flushBatchesDropped.Add(1)
@@ -447,8 +417,6 @@ func (b *transportBatcher) publish(ctx context.Context, point core.DataPoint) er
 	// the caller can try a fallback transport.
 	select {
 	case b.buf.flushBatches <- fullBatch:
-		// enqueued after eviction; the evicted batch was lost but
-		// the caller's batch will be published by flushLoop
 		return nil
 	default:
 		b.buf.flushBatchesDropped.Add(1)
@@ -486,16 +454,10 @@ func (b *transportBatcher) flush() {
 }
 
 // flushFinal is the shutdown flush. It uses a fresh context (b.ctx has
-// been cancelled by stop()) so buffered data is actually published
-// instead of being silently dropped. The fresh context carries a
-// shutdownBudget timeout: without it, a transport with a large
-// retry-count and a slow or unreachable broker could keep the final
-// flush retrying long after the engine gave up waiting (or after main
-// called os.Exit), silently losing the batch. With the budget, when
-// the deadline fires the retry loop's
-// backoff select observes ctx.Done and falls through to persisting the
-// batch to the offline buffer (or logging the drop when no buffer is
-// configured) instead of abandoning it mid-retry.
+// been cancelled by stop()) carrying a shutdownBudget timeout. When the
+// deadline fires the retry loop's backoff select observes ctx.Done and
+// falls through to persisting the batch to the offline buffer (or logging
+// the drop when no buffer is configured).
 func (b *transportBatcher) flushFinal() {
 	b.buf.mu.Lock()
 	if len(b.buf.buffer) == 0 {

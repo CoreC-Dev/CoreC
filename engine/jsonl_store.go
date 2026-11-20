@@ -13,8 +13,7 @@ import (
 )
 
 // errPersistenceDisabled is returned when no path is configured; callers
-// treat a nil store as "persistence disabled" (the memory-only, historical
-// behaviour).
+// treat a nil store as "persistence disabled" (memory-only).
 var errPersistenceDisabled = errors.New("persistence disabled")
 
 // jsonlStore is an append-only JSON Lines file holding one bounded generation
@@ -23,13 +22,10 @@ var errPersistenceDisabled = errors.New("persistence disabled")
 //   - the write dead-letter queue (global.engine.dead-letter-path)
 //   - the write audit trail       (global.engine.write-audit-path)
 //
-// Sharing one engine instead of two near-identical copies means the
-// crash-safety and size-bound discipline is written once and holds for both:
-// every record is written+flushed (fsync) before append returns, so a crash
+// Every record is written+flushed (fsync) before append returns, so a crash
 // leaves at most a torn FINAL line, which load skips; and when the file passes
 // maxBytes it rotates to <path>.old (replacing any previous rotation), bounding
-// the disk footprint at ~2x maxBytes -- newest wins, the same discipline as the
-// offline buffer.
+// the disk footprint at ~2x maxBytes.
 type jsonlStore[T any] struct {
 	mu       sync.Mutex
 	path     string
@@ -59,11 +55,8 @@ func newJSONLStore[T any](path string, maxBytes int64) (*jsonlStore[T], error) {
 	if err != nil {
 		return nil, err
 	}
-	// Deliberately NO rotation check here: the constructor may run at
-	// startup purely to REPLAY an oversized file -- rotating now would
-	// destroy the exact history the operator enabled persistence to keep.
-	// Rotation only happens on append, when there is fresh content to
-	// protect (the caught-in-testing bug of the dead-letter store).
+	// No rotation check in the constructor: startup may open an oversized
+	// file purely to replay it. Rotation happens only on append.
 	return &jsonlStore[T]{path: path, maxBytes: maxBytes, file: f, writer: bufio.NewWriter(f)}, nil
 }
 
@@ -178,8 +171,7 @@ type deadLetterStore = jsonlStore[core.DeadLetterEntry]
 var errDeadLetterDisabled = errPersistenceDisabled
 
 // newDeadLetterStore opens (creating if needed) the dead-letter JSONL file.
-// An empty path returns nil, errDeadLetterDisabled -- persistence disabled,
-// the historical memory-only behaviour.
+// An empty path returns nil, errDeadLetterDisabled -- persistence disabled.
 func newDeadLetterStore(path string, maxBytes int64) (*deadLetterStore, error) {
 	return newJSONLStore[core.DeadLetterEntry](path, maxBytes)
 }

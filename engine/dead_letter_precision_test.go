@@ -1,24 +1,10 @@
 package engine
 
-// docs/config/global.md, global.engine.dead-letter-path:
-//
-//   追加式 JSONL 文件，重启时回放进内存队列（... 命令值含 64 位整数逐位保留，
-//   回放不失真）
-//
-// "The command value's 64-bit integers are preserved bit for bit; the replay does
-// not distort them."
-//
-// That sentence is either a guarantee about every integer above 2^53 or it is
-// decoration. It fails silently when it fails: encoding/json decodes a number into
-// `any` as float64, float64 has 53 bits of mantissa, and 9007199254740992 round-trips
-// perfectly -- the corrupted value is simply its neighbours, an integer that looks
-// like an integer, compares unequal one step over, and quietly rounds every 64-bit
-// tag reading to its nearest representable neighbour. Nothing appears in the log sense.
-//
-// So the test walks both directions an audit entry travels:
-//   in   JSON (a command-channel payload) -> WriteCommand -> DeadLetterEntry
-//   out  DeadLetterEntry -> JSON (the JSONL line, and the GET /write/failed body)
-// and holds the value to the same integer at every step.
+// These tests verify that 64-bit integer command values survive the full
+// dead-letter round-trip bit-exactly: JSON → WriteCommand →
+// DeadLetterEntry → JSONL line → replay. Default float64 `any` decoding
+// distorts values beyond ±2^53; the type-aware decode lives in
+// core/json_decode.go.
 
 import (
 	"bytes"
@@ -31,7 +17,7 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// Idioms a float64 cannot carry: 2^53+1 is the first casualty, and MaxInt64
+// Values float64 cannot carry: 2^53+1 is the first casualty, and MaxInt64
 // exercises the sign bit as well as magnitude.
 var wideInt64 = []int64{
 	9007199254740993, // 2^53 + 1
@@ -89,9 +75,8 @@ func TestDeadLetterPreservesInt64ThroughJSONL(t *testing.T) {
 	}
 }
 
-// uint64 has the same 53-bit problem on the other side of the sign: its values run
-// to ~1.8e19, far past MaxInt64, and the sentence says "64-bit integers" without
-// qualifying to signed. A driver reading a uint64 counter must survive the queue too.
+// uint64 values run to ~1.8e19, past MaxInt64, and share the same 53-bit
+// float64 limitation.
 var wideUint64 = []uint64{
 	9007199254740993,     // 2^53 + 1
 	18446744073709551615, // math.MaxUint64 -- one past MaxInt64
@@ -142,13 +127,10 @@ func TestDeadLetterPreservesUint64ThroughJSONL(t *testing.T) {
 	}
 }
 
-// TestDeadLetterStore64BitRoundTrip guards the persisted dead-letter
-// replay: a failed 64-bit write command must survive the on-disk JSONL
-// round-trip bit-exactly. The default `any` decode coerces numbers to
-// float64 (9007199254740993 → 9007199254740992), which corrupted
-// commands on every crash-restart replay — same class as the offline
-// buffer. The WriteCommand.UnmarshalJSON type-aware decode restores
-// the exact value.
+// TestDeadLetterStore64BitRoundTrip verifies a failed 64-bit write command
+// survives the on-disk JSONL round-trip bit-exactly: default float64 `any`
+// decoding would coerce 9007199254740993 → 9007199254740992; the
+// WriteCommand.UnmarshalJSON type-aware decode keeps the exact value.
 func TestDeadLetterStore64BitRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "deadletter.jsonl")

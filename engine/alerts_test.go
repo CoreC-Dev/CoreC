@@ -171,7 +171,7 @@ func TestAlertRegistryCap(t *testing.T) {
 	}
 }
 
-// TestAlertRegistryOverflowOrderIsFiredFirst pins the P3-5 event ordering:
+// TestAlertRegistryOverflowOrderIsFiredFirst pins the event ordering:
 // when the registry overflows, a stream consumer sees the new alert's
 // fired event before the cleared events of the alerts it evicted.
 func TestAlertRegistryOverflowOrderIsFiredFirst(t *testing.T) {
@@ -202,7 +202,7 @@ func TestAlertRegistryOverflowOrderIsFiredFirst(t *testing.T) {
 	for {
 		ev := readOne()
 		if lastType == string(core.AlertFired) && ev.Type == core.AlertCleared {
-			return // fired came before cleared: ordering fixed
+			return // fired came before cleared
 		}
 		lastType = string(ev.Type)
 	}

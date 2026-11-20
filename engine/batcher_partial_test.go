@@ -42,9 +42,9 @@ func (t *partialBatchTransport) Name() string                        { return "p
 func (t *partialBatchTransport) Type() string                        { return "partial" }
 func (t *partialBatchTransport) Status() core.TransportStatus        { return core.TransportStatus{} }
 
-// TestBatchRetryResendsOnlyFailedPoints is the P1-4 regression: a partial
-// failure must retry only the failed indexes; resending the whole batch
-// duplicates the points that already reached the broker.
+// TestBatchRetryResendsOnlyFailedPoints verifies that a partial failure
+// retries only the failed indexes; resending the whole batch duplicates
+// the points that already reached the broker.
 func TestBatchRetryResendsOnlyFailedPoints(t *testing.T) {
 	tr := &partialBatchTransport{failFirst: true}
 	published := 0

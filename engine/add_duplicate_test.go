@@ -10,9 +10,9 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// TestAddDriverDuplicateName exposes a bug where AddDriver silently
-// overwrites an existing driver with the same name, leaking the old
-// driver's goroutines and scheduler tasks.
+// TestAddDriverDuplicateName verifies that AddDriver with an existing
+// name either errors or stops the old driver first, leaving no leaked
+// goroutines or scheduler tasks.
 func TestAddDriverDuplicateName(t *testing.T) {
 	registerMockTypes()
 
@@ -32,12 +32,9 @@ func TestAddDriverDuplicateName(t *testing.T) {
 	}
 	defer eng.Stop()
 
-	// Get the original driver instance.
 	origDriver, _ := eng.GetDriver("dup")
 	origMD := origDriver.(*mockDriverWithState)
 
-	// Add a driver with the same name — should either error or
-	// properly stop the old driver first.
 	err := eng.AddDriver(core.DriverConfig{
 		Name: "dup",
 		Type: "mock-state",
@@ -63,7 +60,7 @@ func TestAddDriverDuplicateName(t *testing.T) {
 	// If AddDriver returned an error, that's also acceptable (reject duplicate).
 }
 
-// TestAddTransportDuplicateName exposes the same bug for transports.
+// TestAddTransportDuplicateName verifies the same for transports.
 func TestAddTransportDuplicateName(t *testing.T) {
 	registerMockTypes()
 
@@ -89,7 +86,6 @@ func TestAddTransportDuplicateName(t *testing.T) {
 	}
 	origMT := orig.(*mockTransportWithData)
 
-	// Add a transport with the same name.
 	err := eng.AddTransport(core.TransportConfig{
 		Name: "dup",
 		Type: "mock-data",

@@ -68,8 +68,6 @@ func (t *flakyTransport) getPublished() []core.DataPoint {
 	return cp
 }
 
-// --- Tests ---
-
 // TestBatcherPublishFlush verifies that publish() buffers points and
 // flushes when the buffer reaches batchSize, delivering them via
 // PublishBatch.
@@ -97,7 +95,6 @@ func TestBatcherPublishFlush(t *testing.T) {
 		})
 	}
 
-	// Wait for the published points to appear.
 	if !testutil.WaitFor(time.Second, func() bool { return tr.pubCount.Load() == 3 }) {
 		t.Fatalf("expected 3 published, got %d", tr.pubCount.Load())
 	}
@@ -136,7 +133,6 @@ func TestBatcherFlushInterval(t *testing.T) {
 		Driver: "plc", Tag: "t", Value: 42.0, Timestamp: time.Now(),
 	})
 
-	// Wait for periodic flush.
 	if !testutil.WaitFor(2*time.Second, func() bool { return tr.pubCount.Load() >= 1 }) {
 		t.Fatalf("expected >=1 published via interval flush, got %d", tr.pubCount.Load())
 	}
@@ -201,14 +197,12 @@ func TestBatcherRetryExhaustedBuffersToOffline(t *testing.T) {
 	b.start(ctx)
 	defer b.stop()
 
-	// Send 2 points to fill the batch and trigger flush.
 	for i := 0; i < 2; i++ {
 		_ = b.publish(ctx, core.DataPoint{
 			Driver: "plc", Tag: "t", Value: float64(i), Timestamp: time.Now(),
 		})
 	}
 
-	// Wait for the batch to be buffered to offline storage.
 	// RetryCount=1 means 2 attempts with 100ms backoff between them.
 	// Total time ≈ 100ms + publish attempts. Allow generous timeout.
 	if !testutil.WaitFor(10*time.Second, func() bool { return ob.Len() >= 1 }) {
@@ -547,9 +541,8 @@ func (t *slowTransport) getPublished() []core.DataPoint {
 
 // TestBatcherPublishAsyncNonBlocking verifies that publish() does NOT block
 // the caller even when PublishBatch is slow. With BatchSize=1 every publish
-// fills the batch and triggers a flush; if the flush were synchronous (the
-// pre-#1 behavior), two publishes would take ~2x publishSlow. Instead both
-// return promptly and the slow PublishBatch runs on flushLoop.
+// fills the batch and triggers a flush on flushLoop; both publishes return
+// promptly while the slow PublishBatch runs asynchronously.
 func TestBatcherPublishAsyncNonBlocking(t *testing.T) {
 	tr := &slowTransport{publishSlow: 150 * time.Millisecond}
 	cfg := core.TransportConfig{

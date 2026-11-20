@@ -74,13 +74,11 @@ func (l *lifecycleSupport) startDerivedTags(config *core.Config) error {
 	return nil
 }
 
-// applyDerivedTags hot-swaps the derived tag set on a config reload
-// (a derived-tags change must actually apply, not return success while
-// nothing happens). The new set is
-// validated and compiled BEFORE the old evaluator is stopped, so a
-// broken expression keeps the previous tags running (fail-safe swap);
-// the old goroutines are joined before the new ones start, so exactly
-// one evaluator is live at any moment.
+// applyDerivedTags hot-swaps the derived tag set on a config reload.
+// The new set is validated and compiled BEFORE the old evaluator is
+// stopped, so a broken expression keeps the previous tags running
+// (fail-safe swap); the old goroutines are joined before the new ones
+// start, so exactly one evaluator is live at any moment.
 func (l *lifecycleSupport) applyDerivedTags(configs []core.DerivedTagConfig) error {
 	if l.eng.runtime.ctx == nil {
 		return fmt.Errorf("engine not started: derived tags can only be applied to a running engine")
@@ -146,11 +144,6 @@ func (l *lifecycleSupport) startDiscovery(config *core.Config) {
 				Topic: topicTemplateToSubscriptionPattern(topicTpl),
 			}
 		}
-
-		// HTTP receive endpoint discovery (webhook-addr) is deferred to a
-		// future iteration. When implemented, it will be collected from
-		// HTTP transports in a separate loop and paired with the broker
-		// used for discovery heartbeats.
 	}
 
 	if len(brokerMap) == 0 {
@@ -188,8 +181,7 @@ func (l *lifecycleSupport) readFromDriver(ctx context.Context, driver string, ta
 	start := time.Now()
 	values, err := d.Read(ctx, tags)
 	// Observe read latency in both the global aggregate histogram and
-	// the per-driver labeled histogram (a single slow
-	// driver must be distinguishable from healthy siblings).
+	// the per-driver labeled histogram.
 	l.eng.stats.labeled.observeRead(driver, time.Since(start))
 	return values, err
 }
@@ -203,11 +195,8 @@ func (l *lifecycleSupport) onDriverData(driver string, values []core.TagValue, p
 	// (driver, tag). We read the per-driver map once under RLock to avoid
 	// per-point lock churn.
 	//
-	// NOTE on Device: there is currently no Device source in config
-	// (DriverConfig has no Device field and TagConfig has no Device field),
-	// so DataPoint.Device is left empty here. To populate it, add a Device
-	// field to DriverConfig (driver-wide) or TagConfig (per-tag) and store
-	// it alongside tagGroups, then set point.Device below.
+	// DriverConfig and TagConfig have no Device field, so DataPoint.Device
+	// is left empty here.
 	l.eng.mu.RLock()
 	groups := l.eng.driverReg.tagGroups[driver]
 	l.eng.mu.RUnlock()
@@ -219,10 +208,9 @@ func (l *lifecycleSupport) onDriverData(driver string, values []core.TagValue, p
 	highPriority := priority > 0
 
 	// Suppressed detail points (trigger gating): republish the cached
-	// last-known-good value as quality-uncertain, so a consumer sees
-	// "value is stale, not current" rather than silence. A point that was
+	// last-known-good value as quality-uncertain. A point that was
 	// suppressed but never collected has nothing to republish and stays
-	// absent -- inventing a zero would be worse than the gap.
+	// absent.
 	if plan != nil {
 		for _, tag := range plan.suppressed {
 			last, ok := l.eng.processing.cache.Get(driver, tag)

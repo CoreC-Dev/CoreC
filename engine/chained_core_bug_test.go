@@ -10,9 +10,8 @@ import (
 )
 
 // TestChainedCore_NoDuplicateListeners verifies that each transport's
-// OnData listener is started exactly once.  Before the fix, AddTransport
-// and commandLoop both called startDataListener, causing every data point
-// to be pushed to DataBus twice — duplicate processing, duplicate publishes.
+// OnData listener is started exactly once, so every data point is pushed
+// to the DataBus exactly once.
 func TestChainedCore_NoDuplicateListeners(t *testing.T) {
 	transportType := "chained-dedup"
 	var ct *chainedTransport
@@ -55,7 +54,6 @@ func TestChainedCore_NoDuplicateListeners(t *testing.T) {
 	}
 	defer eng.Stop()
 
-	// Send exactly one data point via OnData.
 	upstreamPoint := core.DataPoint{
 		Driver:    "upstream",
 		Tag:       "temp",
@@ -66,8 +64,7 @@ func TestChainedCore_NoDuplicateListeners(t *testing.T) {
 	}
 	ct.dataCh <- upstreamPoint
 
-	// Count how many points are published within a short window.
-	// With the bug, two copies would arrive; after the fix, exactly one.
+	// Count how many points are published within a short window: exactly one.
 	var count int32
 	timeout := time.After(500 * time.Millisecond)
 	for {
@@ -86,18 +83,14 @@ done:
 
 // TestDataBus_PushNeverBlocks verifies that DataBus.Push never blocks,
 // even when the bus is full and multiple goroutines are pushing
-// concurrently.  Before the fix, the blocking send after drain could
-// hang forever if another goroutine filled the slot between drain and send.
+// concurrently.
 func TestDataBus_PushNeverBlocks(t *testing.T) {
-	// Create a tiny bus so it fills immediately.
 	bus := NewDataBus(1)
 	defer bus.Close()
 
-	// Fill the bus to capacity.
 	bus.Push(core.DataPoint{Driver: "d", Tag: "t1", Value: 1.0, Timestamp: time.Now()})
 	bus.Push(core.DataPoint{Driver: "d", Tag: "t2", Value: 2.0, Timestamp: time.Now()})
 
-	// Now launch many goroutines all pushing simultaneously.
 	// If Push could block, this would deadlock or time out.
 	done := make(chan struct{})
 	go func() {
@@ -114,7 +107,6 @@ func TestDataBus_PushNeverBlocks(t *testing.T) {
 
 	select {
 	case <-done:
-		// Success — all pushes completed without blocking.
 	case <-time.After(2 * time.Second):
 		t.Fatal("DataBus.Push blocked on full bus — goroutines did not complete")
 	}

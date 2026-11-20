@@ -59,9 +59,6 @@ func drainDerived(ch <-chan core.DataPoint) {
 }
 
 // TestApplyDerivedTagsHotSwap pins the derived-tags hot-reload semantics:
-// PUT /configs with changed derived-tags must actually apply them, not
-// return success while nothing happens.
-//
 //   - the new set compiles and starts ticking within one interval
 //   - the old set stops exactly at the swap (no zombie goroutines)
 //   - a broken expression keeps the previous set running (fail-safe)

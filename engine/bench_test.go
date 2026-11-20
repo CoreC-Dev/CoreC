@@ -12,9 +12,7 @@ import (
 	"github.com/CoreC-Dev/CoreC/rule"
 )
 
-// ============================================================
 // 全链路规模负载测试：N 设备 × M 采集点
-// ============================================================
 
 // scaleMockDriver 是面向规模测试的高性能 mock 驱动。
 // Read 直接返回预分配的 TagValue 切片，零 I/O 延迟，
@@ -56,7 +54,6 @@ func (d *scaleMockDriver) Restart(ctx context.Context, config core.DriverConfig)
 	return nil
 }
 func (d *scaleMockDriver) Read(ctx context.Context, tags []string) ([]core.TagValue, error) {
-	// 返回预分配的值，更新时间戳
 	now := time.Now()
 	for i := range d.values {
 		d.values[i].Timestamp = now
@@ -126,7 +123,6 @@ func runScaleTest(numDrivers, tagsPerDriver int, interval, duration time.Duratio
 		return tr, nil
 	})
 
-	// 构建配置：N 个驱动，每个 M 个采集点
 	drivers := make([]core.DriverConfig, numDrivers)
 	for i := 0; i < numDrivers; i++ {
 		tags := make([]core.TagConfig, tagsPerDriver)
@@ -164,7 +160,6 @@ func runScaleTest(numDrivers, tagsPerDriver int, interval, duration time.Duratio
 		panic(fmt.Sprintf("engine start failed: %v", err))
 	}
 
-	// 运行指定时长
 	time.Sleep(duration)
 
 	stats := eng.Stats()
@@ -248,12 +243,9 @@ func (r scaleResult) String() string {
 	)
 }
 
-// BenchmarkScaleEngine is the full-pipeline scale load test entry point.
+// BenchmarkScaleEngine is the full-pipeline scale load benchmark; it runs
+// only via -bench=BenchmarkScaleEngine and is skipped in -short mode.
 // Run: go test -run=BenchmarkScaleEngine -bench=BenchmarkScaleEngine -v -timeout 120s
-//
-// Converted to a benchmark so it does NOT run during `go test ./...`
-// (benchmarks are opt-in). 6 scenarios (max 500dev×200tag=100k data points),
-// each running 3s, total 18s+ of pure sleep.
 func BenchmarkScaleEngine(b *testing.B) {
 	if testing.Short() {
 		b.Skip("skipping scale test in short mode")
@@ -280,7 +272,6 @@ func BenchmarkScaleEngine(b *testing.B) {
 			r := runScaleTest(sc.drivers, sc.tags, interval, duration)
 			b.Logf("\n┌─────────────────────────────────────────────────\n│ %s\n└─────────────────────────────────────────────────", r.String())
 
-			// 基本断言：应该有数据流转
 			if r.totalRead == 0 {
 				b.Error("no data was read")
 			}
@@ -291,16 +282,13 @@ func BenchmarkScaleEngine(b *testing.B) {
 	}
 }
 
-// ============================================================
 // DataBus 微基准
-// ============================================================
 
 func BenchmarkDataBusPush(b *testing.B) {
 	bus := NewDataBus(8192)
 	defer bus.Close()
 	dp := core.DataPoint{Driver: "d", Tag: "t", Value: 1.0, Timestamp: time.Now()}
 
-	// 消费者排空 channel
 	go func() {
 		for range bus.Channel() {
 		}
@@ -318,7 +306,6 @@ func BenchmarkDataBusBroadcast(b *testing.B) {
 	bus := NewDataBus(8192)
 	defer bus.Close()
 
-	// 创建多个订阅者
 	numSubs := 10
 	unsubs := make([]func(), numSubs)
 	for i := 0; i < numSubs; i++ {
@@ -372,9 +359,7 @@ func BenchmarkDataBusBroadcastManySubs(b *testing.B) {
 	}
 }
 
-// ============================================================
 // LatestCache 微基准
-// ============================================================
 
 func BenchmarkCacheUpdate(b *testing.B) {
 	cache := NewLatestCache()
@@ -407,7 +392,6 @@ func BenchmarkCacheUpdateConcurrent(b *testing.B) {
 
 func BenchmarkCacheGetByDriver(b *testing.B) {
 	cache := NewLatestCache()
-	// 预填充：1 个驱动 500 个采集点
 	for i := 0; i < 500; i++ {
 		cache.Update(core.DataPoint{
 			Driver:    "dev_0000",
@@ -423,9 +407,7 @@ func BenchmarkCacheGetByDriver(b *testing.B) {
 	}
 }
 
-// ============================================================
 // 规则匹配微基准
-// ============================================================
 
 func BenchmarkRuleMatchAll(b *testing.B) {
 	eng := rule.NewEngine()
@@ -454,7 +436,6 @@ func BenchmarkRuleMatchMany(b *testing.B) {
 					Priority: i,
 				}
 			}
-			// 最后一条是 catch-all
 			rules[numRules-1] = core.RuleConfig{
 				Name: "catch-all", Match: "ALL", Action: "forward", Target: "sink", Priority: 999,
 			}
@@ -469,16 +450,13 @@ func BenchmarkRuleMatchMany(b *testing.B) {
 	}
 }
 
-// ============================================================
 // 处理流水线微基准（cache + broadcast + rule + publish）
-// ============================================================
 
 func BenchmarkProcessingPipeline(b *testing.B) {
 	for _, numDrivers := range []int{10, 100, 500} {
 		for _, tagsPerDriver := range []int{100, 500} {
 			label := fmt.Sprintf("dev=%d/tags=%d", numDrivers, tagsPerDriver)
 			b.Run(label, func(b *testing.B) {
-				// 构建引擎内部组件
 				bus := NewDataBus(8192)
 				defer bus.Close()
 				cache := NewLatestCache()
@@ -487,13 +465,11 @@ func BenchmarkProcessingPipeline(b *testing.B) {
 					{Name: "all", Match: "ALL", Action: "forward", Target: "sink"},
 				})
 
-				// mock transport 计数
 				var published atomic.Int64
 				publish := func(point core.DataPoint) {
 					published.Add(1)
 				}
 
-				// 预生成数据点
 				points := make([]core.DataPoint, numDrivers*tagsPerDriver)
 				idx := 0
 				for d := 0; d < numDrivers; d++ {
@@ -524,9 +500,7 @@ func BenchmarkProcessingPipeline(b *testing.B) {
 	}
 }
 
-// ============================================================
 // Scheduler 调度吞吐微基准
-// ============================================================
 
 func BenchmarkSchedulerManyTasks(b *testing.B) {
 	for _, numTasks := range []int{10, 100, 500, 1000} {
@@ -552,7 +526,6 @@ func BenchmarkSchedulerManyTasks(b *testing.B) {
 			sched.Start(ctx)
 			defer sched.Stop()
 
-			// 添加任务
 			for i := 0; i < numTasks; i++ {
 				tags := make([]string, 10)
 				for j := range tags {
@@ -566,7 +539,6 @@ func BenchmarkSchedulerManyTasks(b *testing.B) {
 				})
 			}
 
-			// 运行 200ms 测量吞吐
 			b.ResetTimer()
 			start := totalRead.Load()
 			time.Sleep(200 * time.Millisecond)

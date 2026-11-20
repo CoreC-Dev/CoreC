@@ -35,8 +35,7 @@ type DataBus struct {
 	pushDropped atomic.Int64
 
 	// highPriPushDropped counts messages dropped from the high-priority
-	// channel because its buffer was full. Tracked separately so operators
-	// can distinguish backpressure on the priority path.
+	// channel because its buffer was full.
 	highPriPushDropped atomic.Int64
 }
 
@@ -47,7 +46,7 @@ type subscriber struct {
 
 // NewDataBus creates a new DataBus with the given buffer size.
 // The high-priority channel uses a smaller buffer (1/4 of the main, capped
-// at 1024) because high-frequency data is less voluminous per tick.
+// at 1024).
 func NewDataBus(bufferSize int) *DataBus {
 	if bufferSize <= 0 {
 		bufferSize = 4096
@@ -109,15 +108,15 @@ func (b *DataBus) Push(point core.DataPoint) {
 	}
 }
 
-// Channel returns the main data channel for consumption.
 func (b *DataBus) Channel() <-chan core.DataPoint {
 	return b.ch
 }
 
-// PushHighPriority sends a DataPoint into the high-priority channel.
-// It uses the same drop-oldest semantics as Push so the newest
-// high-frequency data is always retained. Safe to call concurrently with
-// Close (the channels are priority-tiered).
+// PushHighPriority sends a DataPoint into the high-priority channel with
+// the same drop-oldest semantics as Push; if the second enqueue attempt
+// still fails under extreme concurrency, the new point is dropped and
+// counted in highPriPushDropped. Safe to call concurrently with Close
+// (closed check + recover).
 func (b *DataBus) PushHighPriority(point core.DataPoint) {
 	b.mu.RLock()
 	if b.closed {
@@ -152,8 +151,6 @@ func (b *DataBus) PushHighPriority(point core.DataPoint) {
 	}
 }
 
-// HighPriorityChannel returns the high-priority data channel for consumption
-// by dedicated high-priority workers.
 func (b *DataBus) HighPriorityChannel() <-chan core.DataPoint {
 	return b.highPriCh
 }
@@ -161,7 +158,6 @@ func (b *DataBus) HighPriorityChannel() <-chan core.DataPoint {
 // DefaultSubscriberBuffer is the default buffer size for DataBus subscriber channels.
 const DefaultSubscriberBuffer = 256
 
-// Subscribe creates a new subscriber channel.
 func (b *DataBus) Subscribe(filter string) (events <-chan core.DataPoint, unsub func()) {
 	return b.SubscribeWithBuffer(filter, DefaultSubscriberBuffer)
 }
@@ -199,17 +195,14 @@ func (b *DataBus) SubscribeWithBuffer(filter string, size int) (events <-chan co
 // Subscribers with a non-empty filter only receive points whose Driver
 // matches the filter; an empty filter receives all points.
 func (b *DataBus) Broadcast(point core.DataPoint) {
-	// Fast path: no subscribers, skip the lock entirely. This runs on
-	// every DataPoint, so avoiding the RLock when nobody is listening is
-	// a meaningful win. subCount is maintained atomically alongside the
-	// subscribers slice under b.mu.
+	// Fast path: no subscribers, skip the lock entirely. subCount is
+	// maintained atomically alongside the subscribers slice under b.mu.
 	if b.subCount.Load() == 0 {
 		return
 	}
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	for _, sub := range b.subscribers {
-		// Apply filter: empty filter = all data, non-empty = matching driver only.
 		if sub.filter != "" && point.Driver != sub.filter {
 			continue
 		}
@@ -239,7 +232,6 @@ func (b *DataBus) HighPriorityPushDropped() int64 {
 	return b.highPriPushDropped.Load()
 }
 
-// Close closes the data bus.
 func (b *DataBus) Close() {
 	b.mu.Lock()
 	defer b.mu.Unlock()

@@ -137,11 +137,11 @@ func TestIsPermanentWriteErrorClassifier(t *testing.T) {
 	}
 }
 
-// TestCommandListenerDeadLettersStrandedOnExit is the regression test
-// for stranded-command handling: commands must not vanish when a command
-// listener exits (transport removal / engine shutdown). The listener
-// holding a command while blocked on the concurrency semaphore must
-// dead-letter that command, and everything still buffered behind it.
+// TestCommandListenerDeadLettersStrandedOnExit verifies stranded-command
+// handling: commands must not vanish when a command listener exits
+// (transport removal / engine shutdown). The listener holding a command
+// while blocked on the concurrency semaphore must dead-letter that
+// command, and everything still buffered behind it.
 func TestCommandListenerDeadLettersStrandedOnExit(t *testing.T) {
 	e := New().(*CoreCEngine)
 	e.runtime.ctx, e.runtime.cancel = context.WithCancel(context.Background())

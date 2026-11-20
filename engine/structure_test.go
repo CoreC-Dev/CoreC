@@ -10,11 +10,9 @@ import (
 	"testing"
 )
 
-// Anti-regression guards for the God Object split. The acceptance
-// criteria are: every struct in the split keeps fields <= 10 and its own
-// logic methods <= 12. These tests mechanically pin those limits, so a
-// field or method creeping back onto CoreCEngine or transportBatcher
-// fails the suite instead of quietly recreating the God Object.
+// Structural limits enforced by this test: every engine struct keeps
+// fields <= 10 and its own logic methods <= 12; a field or method added
+// onto CoreCEngine or a role struct beyond the limits fails the suite.
 //
 // Counting conventions:
 //   - Field counts come from reflection (exact, includes unexported
@@ -32,8 +30,7 @@ const (
 	maxRoleMethods     = 12
 )
 
-// godObjectStructs lists every struct created or reshaped by the God
-// Object split, with the field ceiling they must respect.
+// godObjectStructs lists every engine struct subject to the field limit.
 func godObjectStructs() []struct {
 	name string
 	typ  reflect.Type
@@ -61,8 +58,8 @@ func godObjectStructs() []struct {
 	}
 }
 
-// TestGodObjectFieldLimit asserts every split struct stays at or
-// below the 10-field acceptance ceiling.
+// TestGodObjectFieldLimit asserts every listed struct stays at or
+// below the field limit enforced by this test.
 func TestGodObjectFieldLimit(t *testing.T) {
 	for _, s := range godObjectStructs() {
 		if got := s.typ.NumField(); got > maxGodObjectFields {
@@ -117,7 +114,7 @@ func roleMethodCounts(t *testing.T) map[string]int {
 }
 
 // TestRoleMethodLimit asserts every role struct (and the batcher
-// sub-structs) stays at or below the 12-method acceptance ceiling.
+// sub-structs) stays at or below the method limit enforced by this test.
 // CoreCEngine is exempt from the count but pinned to forwarder shape
 // by TestCoreCEngineMethodsAreForwarders below.
 func TestRoleMethodLimit(t *testing.T) {
@@ -127,10 +124,6 @@ func TestRoleMethodLimit(t *testing.T) {
 		"driverRegistry", "transportManager", "writeManager",
 		"processingCore", "lifecycleSupport", "transportBatcher",
 		"batcherRetryPolicy", "batcherBufferState",
-		// Each of these also shed one method to stay within the limit
-		// (scheduler.handleReadError is a free function mirroring
-		// handleRecovery; alertManager.evictOldestLocked is inlined
-		// into its single caller).
 		"alertManager", "scheduler",
 	}
 	for _, name := range limited {
@@ -142,12 +135,10 @@ func TestRoleMethodLimit(t *testing.T) {
 	}
 }
 
-// TestCoreCEngineMethodsAreForwarders pins the shell discipline of the
-// God Object split: every method declared on CoreCEngine must be a
-// <=3-line forwarder delegating to exactly one role — a single
-// return/expr statement, with no control flow, local state, or direct
-// field arithmetic. Interface forwarding is not counted as logic by
-// the acceptance; this is the mechanical enforcement of that rule.
+// TestCoreCEngineMethodsAreForwarders pins the composition-shell shape:
+// every method declared on CoreCEngine must be a forwarder delegating to
+// exactly one role — a single return/expr statement, with no control
+// flow, local state, or direct field arithmetic.
 func TestCoreCEngineMethodsAreForwarders(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	if err != nil {

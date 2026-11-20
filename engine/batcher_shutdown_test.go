@@ -84,12 +84,10 @@ func (t *ctxRecordingTransport) sawCancelled() bool {
 	return t.cancelled
 }
 
-// TestBatcherFlushFinalBudgetPersistsToOffline verifies the fix:
-// flushFinal publishes on a context bounded by the batcher's shutdown
-// budget, so a shutdown flush against a hanging transport stops when
-// the budget expires and persists the batch to the offline buffer
-// instead of being abandoned mid-retry (or worse, killed by os.Exit
-// after the engine already gave up waiting).
+// TestBatcherFlushFinalBudgetPersistsToOffline verifies that flushFinal
+// publishes on a context bounded by the batcher's shutdown budget: a
+// shutdown flush against a hanging transport stops when the budget
+// expires and persists the batch to the offline buffer.
 func TestBatcherFlushFinalBudgetPersistsToOffline(t *testing.T) {
 	dir := t.TempDir()
 	ob, err := NewOfflineBuffer(dir, 100)
@@ -137,11 +135,9 @@ func TestBatcherFlushFinalBudgetPersistsToOffline(t *testing.T) {
 	}
 }
 
-// TestBatcherDrainOnceInheritsBatcherContext verifies the fix: the
-// drainOnce replay callback derives its per-batch context from b.ctx,
-// so an in-flight replay is aborted promptly once the batcher stops.
-// Before the fix the callback used context.Background(), so shutdown
-// could not cancel an in-flight replay at all.
+// TestBatcherDrainOnceInheritsBatcherContext verifies that the drainOnce
+// replay callback derives its per-batch context from b.ctx, so an
+// in-flight replay is aborted promptly once the batcher stops.
 func TestBatcherDrainOnceInheritsBatcherContext(t *testing.T) {
 	dir := t.TempDir()
 	ob, err := NewOfflineBuffer(dir, 100)
@@ -181,10 +177,9 @@ func TestBatcherDrainOnceInheritsBatcherContext(t *testing.T) {
 	}
 }
 
-// TestRemoveTransportBoundsBatcherStop verifies the fix: the
-// batcher stop on the RemoveTransport path is bounded by the engine's
-// shutdown timeout instead of blocking the management API for the whole
-// flush retry chain.
+// TestRemoveTransportBoundsBatcherStop verifies that the batcher stop on
+// the RemoveTransport path is bounded by the engine's shutdown timeout
+// instead of blocking the management API for the whole flush retry chain.
 func TestRemoveTransportBoundsBatcherStop(t *testing.T) {
 	eng := New().(*CoreCEngine)
 	eng.runtime.shutdownTimeout = 50 * time.Millisecond
@@ -223,10 +218,9 @@ func TestRemoveTransportBoundsBatcherStop(t *testing.T) {
 	}
 }
 
-// TestBatcherPublishRejectedAfterStop verifies the fix: after
-// stop(), publish() rejects new points (counted + logged) instead of
-// letting them strand silently in the buffer or the flush queue after
-// the final flush has already run.
+// TestBatcherPublishRejectedAfterStop verifies that after stop(),
+// publish() rejects new points (counted + logged) rather than stranding
+// them in the buffer or the flush queue after the final flush has run.
 func TestBatcherPublishRejectedAfterStop(t *testing.T) {
 	tr := &flakyTransport{}
 	cfg := core.TransportConfig{Name: "test", BatchSize: 100, FlushInterval: "10s"}
@@ -305,10 +299,9 @@ func TestBatcherPublishRejectedWhileStopping(t *testing.T) {
 	}
 }
 
-// TestStopComponentsDropsAndCountsQueuedPoints verifies the
-// visibility fix: points still queued in the data bus when the batchers
-// are about to be stopped are drained, counted as errors and logged,
-// instead of being silently abandoned when the bus is closed.
+// TestStopComponentsDropsAndCountsQueuedPoints verifies that points still
+// queued in the data bus when the batchers are about to be stopped are
+// drained, counted as errors and logged before the bus is closed.
 func TestStopComponentsDropsAndCountsQueuedPoints(t *testing.T) {
 	eng := New().(*CoreCEngine)
 	eng.processing.dataBus = NewDataBus(64)

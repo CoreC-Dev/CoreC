@@ -40,8 +40,7 @@ type engineRuntime struct {
 func (r *engineRuntime) Start(ctx context.Context, config *core.Config) error {
 	// The parent/ctx/cancel/status writes are inside the same critical
 	// section as the stale-state clears: concurrent Stats()/management
-	// readers must never observe a half-transitioned runtime (this lock
-	// scope is inherited verbatim from the pre-split CoreCEngine.Start).
+	// readers must never observe a half-transitioned runtime.
 	r.eng.mu.Lock()
 	r.parentCtx = ctx
 	r.ctx, r.cancel = context.WithCancel(ctx)
@@ -126,8 +125,7 @@ func (r *engineRuntime) Start(ctx context.Context, config *core.Config) error {
 		replayed := store.load(r.eng.writes.deadLetters.maxLen)
 		r.eng.writes.deadLetters.mu.Lock()
 		// Replace, do not append: the queue is in-memory state that dies
-		// with Stop(); appending a replay of the same JSONL on every
-		// Start/Reload would duplicate entries (n, n+k, n+2k...).
+		// with Stop().
 		r.eng.writes.deadLetters.queue = replayed
 		r.eng.writes.deadLetters.mu.Unlock()
 	}
@@ -176,7 +174,6 @@ func (r *engineRuntime) Stop() error {
 		ev.stop()
 	}
 
-	// Stop scheduler
 	if r.eng.lifecycle.scheduler != nil {
 		if err := r.eng.lifecycle.scheduler.Stop(); err != nil {
 			slog.Error("failed to stop scheduler", "error", err)
@@ -242,14 +239,10 @@ func (r *engineRuntime) Status() core.EngineStatus {
 }
 
 // rollbackStart cleans up any partially-started components when Start
-// fails mid-way. This prevents leaking goroutines and leaving the engine
-// in a half-started state (M14). Extracted from Start's defer to keep
-// Start focused on orchestration.
-//
-// Mirrors stopComponents' approach: snapshot under RLock, release before
-// calling Stop() (avoids holding the lock during blocking I/O — BE-2),
-// and close rule providers + tag-file watchers (BE-1: without these, a
-// partial start leaks reload-loop and watcher goroutines).
+// fails mid-way, leaving no leaked goroutines or half-started components.
+// It mirrors stopComponents' approach: snapshot under RLock, release
+// before calling Stop() (no lock held during blocking I/O), and close
+// rule providers + tag-file watchers.
 func (r *engineRuntime) rollbackStart() {
 	slog.Error("engine start failed, rolling back partially started components")
 	if r.cancel != nil {
@@ -288,8 +281,6 @@ func (r *engineRuntime) rollbackStart() {
 		stopWithErrorTimeout("rollback", "transport", stopTimeout, t.Stop)
 	}
 
-	// Close rule providers and tag-file watchers — without these, a partial
-	// start leaks reload-loop and watcher goroutines (BE-1).
 	if r.eng.ruleSet.ruleEngine != nil {
 		r.eng.ruleSet.ruleEngine.CloseProviders()
 	}
@@ -307,20 +298,19 @@ func (r *engineRuntime) rollbackStart() {
 	r.eng.mu.Unlock()
 
 	// Wait for processing/listener goroutines to exit so the engine is
-	// fully quiesced before a potential retry (BE-3).
+	// fully quiesced before a potential retry.
 	r.wg.Wait()
 }
 
 // stopComponents stops all runtime components (drivers, batchers,
 // transports, data bus, rule providers, tag-file watchers) with
-// per-component timeouts. Extracted from Stop to keep Stop focused
-// on orchestration order. The caller is responsible for cancelling
+// per-component timeouts. The caller is responsible for cancelling
 // the engine context and stopping the scheduler/discovery before
 // calling this, and for waiting on the wait group after.
 func (r *engineRuntime) stopComponents() {
 	// Snapshot drivers, batchers, and transports under RLock, then release
-	// the lock before calling Stop() on each. This prevents blocking I/O
-	// from holding the lock and stalling all management API calls (M13).
+	// the lock before calling Stop() on each, so blocking I/O never holds
+	// the engine lock.
 	r.eng.mu.RLock()
 	drivers := make([]core.Driver, 0, len(r.eng.driverReg.drivers))
 	driverNames := make([]string, 0, len(r.eng.driverReg.drivers))
@@ -344,20 +334,16 @@ func (r *engineRuntime) stopComponents() {
 
 	stopTimeout := r.shutdownTimeout
 
-	// Stop all drivers with timeout
 	for i, d := range drivers {
 		stopWithErrorTimeout(driverNames[i], "driver", stopTimeout, d.Stop)
 	}
 
 	// Empty the data bus before stopping the batchers: once the bus is
-	// drained the processing
-	// workers have nothing left to consume and exit promptly on the
-	// cancelled context, so no worker can still be appending to a
-	// batcher's buffer (or enqueueing into its flush queue) while that
+	// drained the processing workers have nothing left to consume and exit
+	// promptly on the cancelled context, so no worker can still be appending
+	// to a batcher's buffer (or enqueueing into its flush queue) while that
 	// batcher's final flush runs. Points still queued at this moment are
-	// dropped and counted — shutdown abandons not-yet-processed queued
-	// data by design (documented in docs/architecture/dataflow.md);
-	// until now this drop was completely silent: no log, no counter.
+	// dropped and counted (documented in docs/architecture/dataflow.md).
 	if dropped := r.drainDataBusOnShutdown(); dropped > 0 {
 		r.eng.stats.totalErrors.Add(dropped)
 		slog.Warn("shutdown: dropped data points still queued in data bus",
@@ -366,20 +352,14 @@ func (r *engineRuntime) stopComponents() {
 	}
 
 	// Stop all batchers with timeout (flush remaining buffered data).
-	// Without a timeout, a batcher whose transport ignores context
-	// cancellation or has an oversized retry config could hang Stop
-	// indefinitely. The shared helper also caps the batcher's
-	// own flushFinal budget at the same shutdownTimeout.
 	for i, b := range batchers {
 		r.eng.transportMgr.stopBatcherWithTimeout(b, batcherNames[i], "engine shutdown")
 	}
 
-	// Stop all transports with timeout
 	for i, t := range transports {
 		stopWithErrorTimeout(transportNames[i], "transport", stopTimeout, t.Stop)
 	}
 
-	// Close data bus
 	if r.eng.processing.dataBus != nil {
 		r.eng.processing.dataBus.Close()
 	}
@@ -474,8 +454,7 @@ func (r *engineRuntime) applyEngineConfig(cfg *core.EngineConfig) error {
 }
 
 // openDeadLetterStore opens the configured persistence file. A failed
-// open is a start-blocking error — the operator asked for durability
-// and got none; failing fast beats discovering the loss after a crash.
+// open is a start-blocking error.
 func openDeadLetterStore(path string) (*deadLetterStore, error) {
 	store, err := newDeadLetterStore(path, 0)
 	if err != nil {

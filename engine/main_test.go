@@ -16,7 +16,7 @@ func TestMain(m *testing.M) {
 		// initialization and runs for the process lifetime.
 		goleak.IgnoreAnyFunction("github.com/CoreC-Dev/CoreC/common/observable.(*Observable[...]).start"),
 		// The paho MQTT client leaves background goroutines after
-		// Disconnect (known behavior of paho.mqtt.golang v1.5.1).
+		// Disconnect (known paho.mqtt.golang behavior).
 		goleak.IgnoreAnyFunction("github.com/eclipse/paho.mqtt.golang.(*client).Disconnect.func1"),
 		goleak.IgnoreAnyFunction("github.com/eclipse/paho.mqtt.golang.(*connectionStatus).Disconnecting"),
 		goleak.IgnoreAnyFunction("github.com/eclipse/paho.mqtt.golang.(*client).Connect.func1"),

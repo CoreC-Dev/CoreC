@@ -10,11 +10,7 @@ import (
 
 // writeAuditTrail is the bounded in-memory history of write attempts
 // (GET /write/history), optionally mirrored to disk
-// (global.engine.write-audit-path publishing to ERROR).
-//
-// Keeping this state in its own sub-struct (like deadLetterState) is what
-// keeps writeManager's method count under the role limit pinned by
-// structure_test.go.
+// (global.engine.write-audit-path, append-only JSONL).
 type writeAuditTrail struct {
 	mu    sync.Mutex
 	items []core.WriteAuditEntry // oldest first
@@ -50,9 +46,7 @@ func newestFirstLocked(items []core.WriteAuditEntry) []core.WriteAuditEntry {
 }
 
 // configure opens the optional on-disk trail and replays the newest persisted
-// entries into the in-memory ring, so GET /write/history is warm after a
-// restart. A failed open is start-blocking: the operator asked for a durable
-// trail and must not silently get an in-memory one.
+// entries into the in-memory ring. A failed open is start-blocking.
 func (t *writeAuditTrail) configure(path string) error {
 	t.mu.Lock()
 	t.store = nil

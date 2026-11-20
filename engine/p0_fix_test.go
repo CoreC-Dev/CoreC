@@ -49,10 +49,10 @@ func TestValidateRulesCompilesExpressions(t *testing.T) {
 	}
 }
 
-// TestPacedCommandWaitsAndSucceeds is the P1-1 regression: pacing is a
-// "device busy" outcome, not a permanent failure. With a window longer than
-// the normal backoff schedule the command must still reach the device and
-// must not be dead-lettered.
+// TestPacedCommandWaitsAndSucceeds verifies pacing is a "device busy"
+// outcome, not a permanent failure: with a window longer than the normal
+// backoff schedule the command still reaches the device and is not
+// dead-lettered.
 func TestPacedCommandWaitsAndSucceeds(t *testing.T) {
 	e := newTestEngine(t)
 	e.writes.writeRetryCount = 1
@@ -73,9 +73,9 @@ func TestPacedCommandWaitsAndSucceeds(t *testing.T) {
 	}
 }
 
-// TestStartReplaysDeadLettersWithoutDuplication is the P1-3 regression:
-// Start replaces the queue with the JSONL replay instead of appending the
-// same entries again on every Stop/Start cycle.
+// TestStartReplaysDeadLettersWithoutDuplication verifies Start replaces
+// the queue with the JSONL replay instead of appending the same entries
+// again on every Stop/Start cycle.
 func TestStartReplaysDeadLettersWithoutDuplication(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "dlq.jsonl")
 	e := New().(*CoreCEngine)
@@ -104,9 +104,8 @@ func TestStartReplaysDeadLettersWithoutDuplication(t *testing.T) {
 	}
 }
 
-// TestRemovingDeadLetterPathClearsStore is the P2-5 regression: removing
-// dead-letter-path must close and nil the store, not leave a pointer to a
-// closed descriptor.
+// TestRemovingDeadLetterPathClearsStore verifies removing dead-letter-path
+// closes and nils the store, leaving no pointer to a closed descriptor.
 func TestRemovingDeadLetterPathClearsStore(t *testing.T) {
 	e := newTestEngine(t)
 	path := filepath.Join(t.TempDir(), "dlq.jsonl")

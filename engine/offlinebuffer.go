@@ -23,18 +23,16 @@ import (
 // and easy to inspect or purge manually.
 //
 // The buffer is bounded by maxEntries; when full, the oldest entries
-// are evicted to make room for newer ones (newer data is more
-// valuable in real-time industrial monitoring).
+// are evicted to make room for newer ones.
 type OfflineBuffer struct {
 	dir        string
 	maxEntries int
 
 	mu sync.Mutex
-	// drainMu serializes Drain calls. The buffer instance is shared by
+	// drainMu serializes Drain calls, preventing concurrent drains from
+	// double-publishing the same entry. The buffer instance is shared by
 	// all transport batchers (transport_manager.go), so several
-	// background drain loops can run concurrently; without this lock two
-	// of them could read the same entry before either removes it and
-	// double-publish the batch.
+	// background drain loops can run concurrently.
 	drainMu sync.Mutex
 	// nextSeq is the next sequence number to assign. It is persisted
 	// by scanning the directory on startup so that sequence numbers
@@ -42,7 +40,7 @@ type OfflineBuffer struct {
 	nextSeq uint64
 	// seqs is the in-memory, sorted index of buffered sequence numbers.
 	// Push/evict/drain maintain it so the hot path never scans the
-	// directory (which was O(files) on every failed publish).
+	// directory.
 	seqs []uint64
 
 	// drainCount tracks the total number of batches successfully
@@ -52,12 +50,9 @@ type OfflineBuffer struct {
 	drainCount atomic.Uint64
 
 	// evictCount tracks the total number of batches evicted because the
-	// buffer was full (oldest dropped to make room for newer ones —
-	// newest data wins by design). It is incremented inside evictIfNeeded
-	// on every successful eviction and read lock-free by EvictedCount().
-	// Evictions must not be silent: with no log and no counter,
-	// operators could only infer sustained eviction from the pending
-	// gauge pinned at max-size.
+	// buffer was full (oldest dropped to make room for newer ones).
+	// Incremented inside evictIfNeeded on every successful eviction
+	// (logged there too) and read lock-free by EvictedCount().
 	evictCount atomic.Uint64
 }
 
@@ -151,7 +146,6 @@ func (ob *OfflineBuffer) Push(points []core.DataPoint, source string) error {
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
 
-	// Evict oldest entries if at capacity.
 	ob.evictIfNeeded()
 
 	seq := ob.nextSeq
@@ -198,12 +192,7 @@ func (ob *OfflineBuffer) Push(points []core.DataPoint, source string) error {
 	ob.seqs = append(ob.seqs, seq)
 
 	// Fsync the directory to persist the rename metadata (directory entry
-	// update). Without this, a power loss could leave the file content
-	// durable (we fsync'd the data above) but the rename invisible — the
-	// file would appear as the .tmp name or not at all after recovery.
-	// On journaling filesystems (ext4 data=ordered, xfs) this is typically
-	// safe even without the dir fsync, but for strict crash consistency
-	// we include it.
+	// update), so recovery sees the renamed file rather than the .tmp name.
 	dir, err := os.Open(ob.dir)
 	if err != nil {
 		slog.Warn("offline buffer: cannot open dir for fsync", "dir", ob.dir, "error", err)
@@ -220,7 +209,6 @@ func (ob *OfflineBuffer) Push(points []core.DataPoint, source string) error {
 // evictIfNeeded removes the oldest entries until the count is below
 // maxEntries. Caller must hold ob.mu and ob.seqs is sorted ascending.
 func (ob *OfflineBuffer) evictIfNeeded() {
-	// Evict oldest (lowest seq) until we have room for one more.
 	for len(ob.seqs) >= ob.maxEntries {
 		oldest := ob.seqs[0]
 		path := filepath.Join(ob.dir, seqFileName(oldest))
@@ -235,11 +223,7 @@ func (ob *OfflineBuffer) evictIfNeeded() {
 			// phantom eviction.
 			continue
 		}
-		// The eviction dropped real data: surface it. Capacity-based
-		// eviction is a designed trade-off (newest data wins), but it
-		// must not be silent — every other drop path in the pipeline
-		// (DataBus pushDropped, batcher flushBatchesDropped) is counted
-		// and logged.
+		// The eviction dropped real data: count it and log.
 		ob.evictCount.Add(1)
 		slog.Warn("offline buffer full: evicted oldest batch",
 			"file", path,
@@ -255,11 +239,8 @@ func (ob *OfflineBuffer) evictIfNeeded() {
 //
 // Only batches whose recorded Source equals the source argument are
 // replayed; batches buffered by other transports are left on disk for
-// their own drain loops. The buffer is shared across all batchers, and
-// each batch must be republished only through the transport that
-// originally accepted it — replaying it through a different transport
-// would misroute the data (e.g. deliver a data-lake batch to MES) and
-// delete the file before the owning transport ever replays it.
+// their own drain loops. Each batch is republished only through the
+// transport that originally accepted it.
 //
 // Concurrent Drain calls are serialized by drainMu so two transports
 // cannot read the same entry before either removes it.
@@ -268,8 +249,6 @@ func (ob *OfflineBuffer) Drain(source string, tryPublish func([]core.DataPoint) 
 	ob.drainMu.Lock()
 	defer ob.drainMu.Unlock()
 
-	// Snapshot the in-memory index (sorted oldest-first) instead of
-	// rescanning the directory on every drain round.
 	ob.mu.Lock()
 	seqs := append([]uint64(nil), ob.seqs...)
 	ob.mu.Unlock()
@@ -314,18 +293,14 @@ func (ob *OfflineBuffer) Drain(source string, tryPublish func([]core.DataPoint) 
 			continue
 		}
 
-		// Ownership filter: only replay batches this transport
-		// originally accepted. Foreign batches stay on disk untouched
-		// for their owning transport's drain loop.
 		if entry.Source != source {
 			foreignSkipped++
 			continue
 		}
 
 		if err := tryPublish(entry.Points); err != nil {
-			// Transport still down — stop draining. The publish error is not
-			// propagated because a down transport is a signal to pause the
-			// background drain, not a fatal failure of the drain operation.
+			// Transport still down — stop draining; the publish error is
+			// a pause signal, not a fatal failure of the drain operation.
 			slog.Debug("offline buffer: draining paused, transport unavailable", "error", err)
 			return drained, nil //nolint:nilerr // intentional: pause drain on transport-down, not a fatal error
 		}
@@ -369,14 +344,10 @@ func (ob *OfflineBuffer) PendingCount() int {
 	return ob.Len()
 }
 
-// PendingBytes returns the total on-disk size, in bytes, of the
-// buffered batch files awaiting replay. The batch-count gauge alone
-// cannot answer "how
-// much disk is the outage consuming?" — with large batches a handful
-// of pending files can mean gigabytes). Summing entry sizes needs the
-// same directory read Len() performs; callers scrape both gauges in
-// one /metrics pull, so the extra stat pass is scrape-rate, not
-// push-rate. It is safe for concurrent use.
+// PendingBytes returns the total on-disk size, in bytes, of the buffered
+// batch files awaiting replay, complementary to the batch-count gauge.
+// Each call scans the directory and sums .json file sizes. It is safe for
+// concurrent use.
 func (ob *OfflineBuffer) PendingBytes() int64 {
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
@@ -407,11 +378,10 @@ func (ob *OfflineBuffer) DrainCount() uint64 {
 }
 
 // EvictedCount returns the total number of batches evicted from the
-// buffer because it was full (the oldest batch is dropped to make room
-// for newer ones — newest data wins by design). It is a monotonically
-// increasing counter, read atomically and lock-free, suitable for
-// observability exposure (e.g. a corec_offline_buffer_evicted_total
-// Prometheus counter) — evictions must stay observable, not silent.
+// buffer because it was full (oldest dropped to make room for newer
+// ones). It is a monotonically increasing counter, read atomically and
+// lock-free, suitable for observability exposure (e.g. a
+// corec_offline_buffer_evicted_total Prometheus counter).
 func (ob *OfflineBuffer) EvictedCount() uint64 {
 	return ob.evictCount.Load()
 }

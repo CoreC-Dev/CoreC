@@ -76,12 +76,10 @@ func TestDeadLetterQueue(t *testing.T) {
 	}
 }
 
-// TestBadQualityAlertPolicyFiresWithoutRuleMatch is the regression test
-// for the on-bad-quality policy: on-bad-quality: alert must trigger the
-// alert callback even when NO configured rule matches the bad point —
-// the policy must not sit behind rule matching, or a zero-rule config
-// would silently never alert, violating the documented contract in
-// docs/config/global.md.
+// TestBadQualityAlertPolicyFiresWithoutRuleMatch verifies that
+// on-bad-quality: alert triggers the alert callback even when NO
+// configured rule matches the bad point (the policy fires before rule
+// matching).
 func TestBadQualityAlertPolicyFiresWithoutRuleMatch(t *testing.T) {
 	e := New().(*CoreCEngine)
 	e.runtime.ctx, e.runtime.cancel = context.WithCancel(context.Background())

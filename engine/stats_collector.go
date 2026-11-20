@@ -23,29 +23,20 @@ type statsCollector struct {
 	startTime    time.Time
 
 	// driverMetrics is the registry drivers emit protocol-level
-	// metrics into via the core.Metrics port — without a real
-	// registry behind it, driver emission only ever reaches
-	// NoopMetrics and never lands in /metrics.
+	// metrics into via the core.Metrics port.
 	driverMetrics *metrics.Registry
 
 	// badQualityDropped counts points discarded by the
-	// on-bad-quality: drop policy. Counting these inside totalErrors
-	// would conflate a configured discard policy with processing
-	// errors.
+	// on-bad-quality: drop policy, separately from totalErrors.
 	badQualityDropped atomic.Uint64
 
 	// readRate tracks points-per-second over the last minute so
-	// EngineStats.PointsPerSec reports a true current rate. A
-	// lifetime average (totalRead / uptime) decays
-	// slowly on a stalled pipeline and is useless for "collection
-	// stopped" alerting.
+	// EngineStats.PointsPerSec reports a current windowed rate.
 	readRate *metrics.RateWindow
 
 	// labeled owns every latency histogram in the engine: the global
 	// read/publish/data-age aggregates AND the per-driver /
-	// per-transport labeled histograms (in a single aggregate one slow
-	// driver is invisible behind healthy siblings). A dedicated
-	// sub-role keeps this collector under its field/method ceilings.
+	// per-transport labeled histograms.
 	labeled *labeledLatencyStore
 
 	// eng is the owning engine: Stats reads the component maps and
@@ -71,11 +62,9 @@ func (s *statsCollector) Stats() core.EngineStats {
 	uptime := time.Since(s.startTime)
 	totalRead := s.totalRead.Load()
 
-	// Current rate over the last minute (a true windowed rate, not the
-	// lifetime average). For an engine younger than the window, fall
-	// back to the uptime as the divisor so the first seconds are not
-	// diluted by a window the engine was not alive for (a lifetime
-	// average never shows a stall).
+	// Current rate over the last-minute window. For an engine younger
+	// than the window, fall back to the uptime as the divisor, floored
+	// at one second.
 	pointsPerSec := float64(0)
 	windowSecs := s.readRate.WindowSeconds()
 	elapsedSecs := int64(uptime.Seconds())
@@ -83,9 +72,6 @@ func (s *statsCollector) Stats() core.EngineStats {
 	if elapsedSecs < divisor {
 		divisor = elapsedSecs
 	}
-	// A brand-new engine (sub-second uptime) still reports its first
-	// second's traffic at face value instead of 0; the floor disappears
-	// once uptime exceeds one second.
 	if divisor < 1 {
 		divisor = 1
 	}
@@ -121,17 +107,13 @@ func (s *statsCollector) Stats() core.EngineStats {
 //   - pushed:  total batches persisted to the offline buffer since startup (counter).
 //
 // The offline buffer is a single shared instance handed to every batcher
-// in newTransportBatcher, so pending and drained are read once from it
-// rather than summed per batcher — summing the per-batcher
-// OfflineBufferPending/OfflineBufferDrained values would multiply the real
-// count by the number of batchers, since they all delegate to the same
-// buffer. pushed, by contrast, is a genuine per-batcher counter
-// (offlineBufferPushes, incremented in publishWithRetryAndBuffer) and must
-// be summed across batchers.
+// in newTransportBatcher, so pending and drained are read once from it;
+// pushed is a genuine per-batcher counter (offlineBufferPushes,
+// incremented in publishWithRetryAndBuffer) and is summed across batchers.
 //
 // The batchers map is snapshotted under RLock and then released before
-// reading the counters, mirroring the Stop() pattern, so a slow Len() (disk
-// readdir) can never block management API calls that take the write lock.
+// reading the counters, mirroring the Stop() pattern, so counter reads
+// never block management API calls that take the write lock.
 func (s *statsCollector) OfflineBufferStats() (pending int, drained, pushed uint64) {
 	s.eng.mu.RLock()
 	batchers := make([]*transportBatcher, 0, len(s.eng.transportMgr.batchers))
@@ -155,13 +137,6 @@ func (s *statsCollector) OfflineBufferStats() (pending int, drained, pushed uint
 	return pending, drained, pushed
 }
 
-// OfflineBufferEvictions returns the total number of batches evicted
-// from the offline buffer because it was full (oldest dropped, newest
-// data wins). The buffer is a single shared instance (see
-// OfflineBufferStats), so the count is read once. Backs the
-// corec_offline_buffer_evicted_total Prometheus counter via the
-// hub/route optional-role assertion (capacity-based evictions drop
-// real data and must be observable, not just logged).
 // OfflineBufferBytes returns the total on-disk bytes held by the shared
 // offline buffer (gauge corec_offline_buffer_bytes).
 func (s *statsCollector) OfflineBufferBytes() int64 {
@@ -174,6 +149,11 @@ func (s *statsCollector) OfflineBufferBytes() int64 {
 	return buf.PendingBytes()
 }
 
+// OfflineBufferEvictions returns the total number of batches evicted
+// from the offline buffer because it was full (oldest dropped). The
+// buffer is a single shared instance (see OfflineBufferStats), so the
+// count is read once. Backs the corec_offline_buffer_evicted_total
+// Prometheus counter via the hub/route optional-role assertion.
 func (s *statsCollector) OfflineBufferEvictions() uint64 {
 	s.eng.mu.RLock()
 	buf := s.eng.transportMgr.offlineBuffer
@@ -218,7 +198,6 @@ func (s *statsCollector) DriverMetrics() []core.DriverMetric {
 	return out
 }
 
-// recordBadQualityDrop counts one point discarded by the drop policy.
 func (s *statsCollector) recordBadQualityDrop() {
 	s.badQualityDropped.Add(1)
 }
@@ -251,13 +230,10 @@ func (s *statsCollector) recordRead(n int) {
 
 // onBatchPublish is the callback handed to each transportBatcher via
 // newTransportBatcher. It is called with the number of points actually
-// published when publishWithRetryAndBuffer or drainOnce succeeds — not when
-// points are merely enqueued for async flush. This keeps totalPublish and
-// the statistic manager's publish counter accurate for batched transports,
-// where the real PublishBatch happens asynchronously after publish()
-// returns (enqueue-time counting instead — immediately after the
-// near-instant enqueue — would inflate the publish counter and
-// undercount errors when batches later fail after retries).
+// published when publishWithRetryAndBuffer or drainOnce succeeds — not
+// when points are merely enqueued for async flush. This keeps totalPublish
+// accurate for batched transports, where the real PublishBatch happens
+// asynchronously after publish() returns.
 func (s *statsCollector) onBatchPublish(n int) {
 	s.totalPublish.Add(uint64(n))
 }

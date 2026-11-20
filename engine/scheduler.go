@@ -13,8 +13,7 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// scheduler manages timed data collection tasks.
-// It manages periodic data collection tasks using goroutines and tickers.
+// scheduler manages periodic data collection tasks using goroutines and tickers.
 type scheduler struct {
 	mu           sync.RWMutex
 	tasks        map[string]*taskRunner
@@ -61,10 +60,9 @@ type taskRunner struct {
 	gated        map[string][]string
 
 	// skipped counts suppressions per group, exposed as
-	// corec_trigger_group_skipped_total{driver,group}.
+	// corec_trigger_group_skipped_total{driver}.
 	skipped atomic.Uint64
 
-	// Error throttling state
 	lastErrLog time.Time
 	lastErrMsg string
 	errCount   uint64
@@ -72,8 +70,7 @@ type taskRunner struct {
 	// Overrun throttling state. overrunCount is the windowed counter
 	// printed by the throttled log (reset each time the log fires);
 	// overrunsTotal is the cumulative lifetime count exposed via
-	// Health() for Prometheus — never reset (a windowed counter alone
-	// would silently lose history after each log).
+	// Health() for Prometheus — never reset.
 	lastOverrunLog time.Time
 	overrunCount   uint64
 	overrunsTotal  uint64
@@ -84,7 +81,6 @@ type taskRunner struct {
 }
 
 // NewScheduler creates a new scheduler.
-// readFunc is called to read tags from a driver.
 // onData is called when data is received, with the task's priority so the
 // engine can route fast-interval data to a dedicated high-priority channel.
 // errorThrottleWindow is the time window for suppressing repeated error
@@ -123,9 +119,6 @@ func (s *scheduler) Stop() error {
 	s.tasks = make(map[string]*taskRunner)
 	s.mu.Unlock()
 
-	// Wait for all runTask goroutines to exit so that no goroutine
-	// is still calling onData (→ DataBus.Push) when the caller
-	// subsequently closes the DataBus.
 	s.wg.Wait()
 
 	slog.Info("scheduler stopped")
@@ -136,7 +129,6 @@ func (s *scheduler) AddTask(task core.ScheduleTask) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// If task already exists, remove it first
 	if existing, ok := s.tasks[task.ID]; ok {
 		existing.cancel()
 	}
@@ -169,9 +161,8 @@ func (s *scheduler) AddTask(task core.ScheduleTask) error {
 // the metrics route simply omits the families.
 //
 // Aggregation per driver across all of its tasks: Degraded is true if
-// ANY task is auto-degraded; ConsecutiveErrors is the worst streak
-// (max) so a single sick task cannot hide behind healthy siblings;
-// OverrunsTotal is the sum of the drivers' lifetime overrun counts.
+// ANY task is auto-degraded; ConsecutiveErrors is the worst streak (max);
+// OverrunsTotal/HeartbeatsTotal/TriggerSkipsTotal are sums across tasks.
 // Drivers are emitted in sorted name order for deterministic output.
 func (s *scheduler) Health() []core.TaskHealth {
 	if s == nil {
@@ -226,11 +217,9 @@ func (s *scheduler) Resume() error {
 }
 
 // RemoveDriverTasks cancels and removes all scheduler tasks belonging to
-// the named driver. Unlike PauseDriver, which only sets a flag and leaves
-// the task goroutines running, this actually cancels their contexts and
-// removes them from the tasks map so the goroutines exit. This should be
-// called by RemoveDriver to prevent goroutine leaks when a driver is
-// permanently removed (problem 3).
+// the named driver: their contexts are cancelled and the entries removed
+// from the tasks map so the task goroutines exit (PauseDriver only sets a
+// flag and leaves the goroutines running).
 func (s *scheduler) RemoveDriverTasks(driverName string) {
 	s.mu.Lock()
 	for id, t := range s.tasks {
@@ -252,10 +241,7 @@ func (s *scheduler) PauseDriver(name string) error {
 }
 
 // ResumeDriver clears the driver's paused flag so its tasks resume at
-// their next tick. Pause/resume must be API-reachable, not
-// engine-internal only — maintenance scenarios otherwise have to
-// rewrite the whole config to stop collecting from a device under
-// repair.
+// their next tick.
 func (s *scheduler) ResumeDriver(name string) error {
 	s.mu.Lock()
 	delete(s.paused, name)
@@ -305,12 +291,10 @@ func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) {
 		case <-ticker.C:
 		}
 
-		// Check if scheduler is globally paused (e.g. during config reload)
 		if s.globalPaused.Load() {
 			continue
 		}
 
-		// Check if paused
 		s.mu.RLock()
 		paused := s.paused[task.Driver]
 		s.mu.RUnlock()
@@ -330,7 +314,7 @@ func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) {
 
 		// Condition-gated reads: poll the group conditions first, then read
 		// only the groups whose condition evaluated true. Ordinary tasks (no
-		// gated tags) read task.Tags once, exactly as before. The conditions
+		// gated tags) read task.Tags in one call. The conditions
 		// themselves are always published -- a consumer watching the flag
 		// must see it change even in the cycle where the details are skipped.
 		readTags := task.Tags
@@ -361,7 +345,6 @@ func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) {
 			continue
 		}
 
-		// If recovered from error
 		if runner.inError {
 			handleRecovery(runner, task, interval, ticker)
 		}
@@ -420,8 +403,6 @@ func handleReadError(runner *taskRunner, task core.ScheduleTask, err error, inte
 	runner.inError = true
 	runner.consecutiveErrors++
 
-	// Auto-degrade: if we've had enough consecutive errors and
-	// haven't already degraded, stretch the tick interval.
 	if runner.consecutiveErrors >= degradeAfterErrors && !runner.degraded {
 		runner.degraded = true
 		ticker.Reset(degradedInterval)
@@ -462,19 +443,9 @@ func handleRecovery(runner *taskRunner, task core.ScheduleTask, interval time.Du
 // aliases the driver's returned slice.
 //
 // Bad or uncertain quality always passes through and never updates the
-// baseline: swallowing the point would hide
-// the quality degradation from the engine's bad-quality policies, and
-// recording its value (bad values decode as 0 via util.ToFloat64) would
-// poison the baseline so that subsequent GOOD values within the old→0
-// delta could be swallowed as well — silently freezing the data stream.
-// This matches the industrial convention that quality degradation
-// penetrates the deadband: the operator must see the tag went bad.
-//
-// Non-numeric values (bool, string, bytes) also bypass the deadband and
-// never update the baseline: the documented
-// behaviour says deadband only applies to numeric types, and coercing
-// non-numeric values through ToFloat64 (bool→0/1, string→0) would compare
-// fabricated zeros — freezing the tag at its first sample forever.
+// baseline. Non-numeric values (bool, string, bytes) also bypass the
+// deadband and never update the baseline: deadband only applies to
+// numeric types.
 func applyDeadbandFilter(runner *taskRunner, values []core.TagValue) []core.TagValue {
 	if len(runner.task.DeadBands) == 0 {
 		return values
@@ -492,16 +463,11 @@ func applyDeadbandFilter(runner *taskRunner, values []core.TagValue) []core.TagV
 			continue
 		}
 		if v.Quality != core.QualityGood {
-			// Quality degradation always passes through; the baseline
-			// is left untouched.
 			filtered = append(filtered, v)
 			continue
 		}
 		numVal, numeric := util.ToFloat64OK(v.Value)
 		if !numeric {
-			// Deadband is a numeric-only filter: non-numeric values
-			// pass through on every sample without touching the
-			// baseline.
 			filtered = append(filtered, v)
 			continue
 		}
@@ -514,9 +480,7 @@ func applyDeadbandFilter(runner *taskRunner, values []core.TagValue) []core.TagV
 		}
 		// The value stayed inside the deadband. If the tag declares a
 		// heartbeat period (enforce-interval), release one sample once
-		// that period has elapsed since the last published one, so the
-		// consumer can refresh its last-known-value and timestamp
-		// instead of reading "no messages" as "link dead".
+		// that period has elapsed since the last published one.
 		if heartbeat, ok := runner.task.EnforceIntervals[v.Tag]; ok && heartbeat > 0 {
 			if last, sent := runner.lastSent[v.Tag]; !sent || time.Since(last) >= heartbeat {
 				filtered = append(filtered, v)

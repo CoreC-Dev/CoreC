@@ -10,9 +10,9 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// TestEngineReloadClearsOldDrivers exposes a bug where Reload() leaves
-// old (stopped) drivers in the drivers map. After reload, ListDrivers()
-// should only show the new config's drivers, not stale entries.
+// TestEngineReloadClearsOldDrivers verifies that Reload() clears old
+// drivers from the drivers map: ListDrivers() only shows the new config's
+// drivers, not stale entries.
 func TestEngineReloadClearsOldDrivers(t *testing.T) {
 	registerMockTypes()
 
@@ -44,24 +44,21 @@ func TestEngineReloadClearsOldDrivers(t *testing.T) {
 		t.Fatalf("Reload failed: %v", err)
 	}
 
-	// BUG: old-driver should NOT exist after reload.
 	if _, ok := eng.GetDriver("old-driver"); ok {
 		t.Error("BUG: old-driver still exists after Reload — stale entries not cleaned")
 	}
 
-	// new-driver should exist.
 	if _, ok := eng.GetDriver("new-driver"); !ok {
 		t.Error("new-driver should exist after Reload")
 	}
 
-	// ListDrivers should only show 1 driver, not 2.
 	drivers := eng.ListDrivers()
 	if len(drivers) != 1 {
 		t.Errorf("expected 1 driver after reload, got %d: %+v", len(drivers), drivers)
 	}
 }
 
-// TestEngineReloadClearsOldTransports exposes the same bug for transports.
+// TestEngineReloadClearsOldTransports verifies the same for transports.
 func TestEngineReloadClearsOldTransports(t *testing.T) {
 	registerMockTypes()
 
@@ -96,12 +93,10 @@ func TestEngineReloadClearsOldTransports(t *testing.T) {
 		t.Fatalf("Reload failed: %v", err)
 	}
 
-	// BUG: old-transport should NOT exist after reload.
 	if _, ok := eng.GetTransport("old-transport"); ok {
 		t.Error("BUG: old-transport still exists after Reload — stale entries not cleaned")
 	}
 
-	// new-transport should exist.
 	if _, ok := eng.GetTransport("new-transport"); !ok {
 		t.Error("new-transport should exist after Reload")
 	}

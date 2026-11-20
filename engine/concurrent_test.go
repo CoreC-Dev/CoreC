@@ -10,8 +10,8 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// TestAddDriverConcurrentReplacement stress-tests the AddDriver fix
-// under concurrent access. Multiple goroutines repeatedly add drivers
+// TestAddDriverConcurrentReplacement stress-tests AddDriver under
+// concurrent access. Multiple goroutines repeatedly add drivers
 // with the same name while other goroutines call GetDriver/ListDrivers.
 // This should not deadlock, panic, or leak goroutines.
 func TestAddDriverConcurrentReplacement(t *testing.T) {

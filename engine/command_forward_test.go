@@ -21,8 +21,6 @@ import (
 // letter queue. They use in-package mocks and require no external broker,
 // so they must never be skipped.
 
-// ─── Mocks ──────────────────────────────────────────────────────────
-
 // failingDriver is a core.Driver whose Write always fails with a fixed
 // error, used to exercise the retry + dead-letter path when a local driver
 // exists but cannot fulfil the command. It records every attempt so tests
@@ -140,8 +138,6 @@ func (t *plainTransport) Name() string                        { return t.name }
 func (t *plainTransport) Type() string                        { return "plain" }
 func (t *plainTransport) Status() core.TransportStatus        { return t.status }
 
-// ─── Helpers ────────────────────────────────────────────────────────
-
 // newTestEngine builds a bare CoreCEngine with the maps and lifecycle
 // context initialised, ready for direct executeWriteWithRetry calls
 // without a full Start(). Tests add drivers/transports to
@@ -161,7 +157,7 @@ func newTestEngine(t *testing.T) *CoreCEngine {
 
 // newRecordingDriver builds the package-shared recordingDriver (defined in
 // chained_core_scenarios_test.go) with the given name and a connected
-// status, ready to drop into e.drivers. It is reused here rather than
+// status, ready to drop into e.driverReg.drivers. It is reused here rather than
 // redefining a recording driver to avoid a duplicate type in the package.
 func newRecordingDriver(name string) *recordingDriver {
 	d := &recordingDriver{}
@@ -178,8 +174,6 @@ var (
 	_ core.Driver           = (*recordingDriver)(nil)
 	_ core.Driver           = (*failingDriver)(nil)
 )
-
-// ─── hasDriver / forwardCommand unit tests ──────────────────────────
 
 // TestHasDriver reports whether a driver is registered under the given name.
 func TestHasDriver(t *testing.T) {
@@ -250,8 +244,6 @@ func TestForwardCommandAllFailReturnsFalse(t *testing.T) {
 		t.Fatal("forwardCommand returned true, want false (all forwarders failed)")
 	}
 }
-
-// ─── executeWriteWithRetry integration tests ────────────────────────
 
 // TestExecuteWriteForwardsWhenNoLocalDriver verifies the core
 // chained-core passthrough: a relay node with no local driver for the
@@ -389,10 +381,8 @@ func TestExecuteWriteLocalDriverFailureRetriesAndDeadLetters(t *testing.T) {
 	}
 }
 
-// ─── Type-assertion contract ────────────────────────────────────────
-
 // TestForwarderTransportSatisfiesCommandForwarder is a compile-time guard
-// that the mock used here satisfies the new optional capability interface,
+// that the mock used here satisfies core.CommandForwarder,
 // mirroring how the engine type-asserts real transports.
 func TestForwarderTransportSatisfiesCommandForwarder(t *testing.T) {
 	var tIf core.Transport = &forwarderTransport{name: "x"}
@@ -404,8 +394,6 @@ func TestForwarderTransportSatisfiesCommandForwarder(t *testing.T) {
 		t.Fatal("plainTransport must NOT satisfy core.CommandForwarder")
 	}
 }
-
-// ─── Command concurrency ──────────────────────────────────────────
 
 // slowDriver is a core.Driver whose Write sleeps for a fixed duration to
 // simulate a slow device (e.g. Modbus write timeout). It records the
@@ -480,7 +468,6 @@ func TestCommandListenerDispatchesConcurrently(t *testing.T) {
 	tr.cmdCh = make(chan core.WriteCommand, 10)
 	tr.status = core.TransportStatus{Name: "cmd-tr", State: core.StateConnected}
 
-	// Start the command listener bound to the engine context.
 	e.writes.startCommandListener(tr, e.runtime.ctx)
 	// Ensure the listener + any in-flight command goroutines exit on cleanup.
 	t.Cleanup(func() {
@@ -493,7 +480,6 @@ func TestCommandListenerDispatchesConcurrently(t *testing.T) {
 		tr.cmdCh <- core.WriteCommand{Driver: "plc", Tag: "setpoint", Value: float64(i)}
 	}
 
-	// Wait for all 4 writes to complete.
 	if !testutil.WaitFor(2*time.Second, func() bool { return d.writes() == 4 }) {
 		t.Fatalf("expected 4 writes, got %d", d.writes())
 	}
@@ -511,9 +497,8 @@ func TestCommandListenerDispatchesConcurrently(t *testing.T) {
 	}
 }
 
-// TestCommandListenerSerialWhenConcurrencyOne verifies that setting
-// command-concurrency to 1 restores the original fully-serial behavior,
-// which is important for drivers that are not safe for concurrent writes.
+// TestCommandListenerSerialWhenConcurrencyOne verifies that
+// command-concurrency=1 executes commands fully serially.
 func TestCommandListenerSerialWhenConcurrencyOne(t *testing.T) {
 	e := newTestEngine(t)
 	e.writes.writeRetryCount = 0

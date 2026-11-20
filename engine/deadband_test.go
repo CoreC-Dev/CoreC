@@ -7,11 +7,9 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// TestApplyDeadbandFilterBadQualityPasses is the regression test for
-// bad-quality handling: a bad-quality point must penetrate the deadband
-// (never swallowed) and must NOT update the baseline — otherwise the
-// bad value (decoded as 0) poisons the baseline and subsequent GOOD
-// values within the old→0 delta would be silently swallowed too.
+// TestApplyDeadbandFilterBadQualityPasses verifies that a bad-quality
+// point penetrates the deadband (never swallowed) and does NOT update
+// the baseline.
 func TestApplyDeadbandFilterBadQualityPasses(t *testing.T) {
 	runner := &taskRunner{
 		task: core.ScheduleTask{
@@ -82,11 +80,9 @@ func TestApplyDeadbandFilterUncertainQualityPasses(t *testing.T) {
 	}
 }
 
-// TestApplyDeadbandFilterNonNumericPasses is the regression test for
-// non-numeric tags: the documented behaviour says deadband only applies to
-// numeric types, so bool/string/bytes tags must publish every sample —
-// coercing them through ToFloat64 (bool→0/1, string→0) and comparing the
-// fabricated zeros would freeze a string tag at its first sample forever.
+// TestApplyDeadbandFilterNonNumericPasses verifies that deadband only
+// applies to numeric types: bool/string/bytes tags publish every sample
+// without touching the baseline.
 func TestApplyDeadbandFilterNonNumericPasses(t *testing.T) {
 	runner := &taskRunner{
 		task: core.ScheduleTask{
@@ -113,8 +109,7 @@ func TestApplyDeadbandFilterNonNumericPasses(t *testing.T) {
 		t.Fatalf("first samples: got %d values, want 4 (first value always passes)", len(got))
 	}
 
-	// A CHANGED string value must pass too: the old implementation
-	// compared ToFloat64("mixB")==0 against baseline 0 and swallowed it.
+	// A CHANGED string value must pass too.
 	values = []core.TagValue{
 		{Tag: "recipe", Value: "mixB", Quality: core.QualityGood},
 	}
@@ -215,9 +210,8 @@ func TestApplyDeadbandFilterHeartbeatRelease(t *testing.T) {
 	}
 }
 
-// TestApplyDeadbandFilterNoHeartbeat pins the historical behaviour: without
-// enforce-interval, unchanged samples stay suppressed indefinitely
-// (no release, no clock traffic).
+// TestApplyDeadbandFilterNoHeartbeat verifies that without enforce-interval,
+// unchanged samples stay suppressed indefinitely (no release, no clock traffic).
 func TestApplyDeadbandFilterNoHeartbeat(t *testing.T) {
 	runner := &taskRunner{
 		task: core.ScheduleTask{

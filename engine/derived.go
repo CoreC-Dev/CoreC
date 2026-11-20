@@ -22,10 +22,7 @@ const derivedDriverName = "derived"
 var identRe = regexp.MustCompile(`[a-zA-Z_]\w*`)
 
 // qualifiedRefRe matches driver-qualified tag references in an
-// expression, e.g. plc1.temp in "plc1.temp * 2". Qualified refs are how
-// expressions dodge the flattened tag view, which collapses same-named
-// tags across drivers — an unqualified name would silently read
-// whichever driver won the map race.
+// expression, e.g. plc1.temp in "plc1.temp * 2"; they resolve per driver.
 var qualifiedRefRe = regexp.MustCompile(`([a-zA-Z_]\w*)\.([a-zA-Z_]\w*)`)
 
 // qualifiedRef is one driver.tag reference extracted from an expression.
@@ -109,9 +106,8 @@ const (
 // the latest cache and pushes the results into the data bus.
 //
 // The evaluator owns its goroutines (per-evaluator wait group and a
-// cancelable child context) instead of borrowing the engine's runtime
-// wait group: reload must be able to stop and join JUST the evaluator's
-// goroutines while the engine keeps running.
+// cancelable child context) so reload can stop and join just the
+// evaluator's goroutines while the engine keeps running.
 type derivedTagEvaluator struct {
 	tags    []*compiledDerivedTag
 	cache   *LatestCache
@@ -135,11 +131,7 @@ func newDerivedTagEvaluator(configs []core.DerivedTagConfig, cache *LatestCache,
 		}
 		tags = append(tags, ct)
 	}
-	// Cycle detection: two derived tags referencing each other would
-	// evaluate silently against stale/missing cache values forever —
-	// every tick computing garbage from ghosts with no signal anywhere.
-	// Compile-time detection
-	// fails fast with the cycle path spelled out.
+	// Cycle detection runs at compile time; the error names the cycle path.
 	if err := detectDerivedCycles(tags); err != nil {
 		return nil, err
 	}
@@ -252,7 +244,7 @@ func compileDerivedTag(cfg core.DerivedTagConfig) (*compiledDerivedTag, error) {
 // start launches a goroutine per derived tag under a cancelable child
 // of the parent (engine) context. The goroutines join the evaluator's
 // own wait group so stop() can wait for exactly this evaluator's
-// goroutines — the engine-wide group no longer tracks them.
+// goroutines.
 func (d *derivedTagEvaluator) start(parent context.Context) {
 	d.ctx, d.cancel = context.WithCancel(parent)
 	for _, tag := range d.tags {
@@ -356,8 +348,7 @@ func buildEnv(
 	// policy: the missing list drives the on-missing policy (skip /
 	// zero / bad-quality), and the env still contains an explicit 0 so
 	// the expression compiles+runs identically under the any-typed env
-	// hint that qualified expressions require (the legacy float64
-	// typed hint let undefined variables evaluate to zero implicitly).
+	// hint that qualified expressions require.
 	injectMissing := func(name string, driver, tag string) {
 		missing = append(missing, name)
 		if driver == "" {
@@ -372,9 +363,8 @@ func buildEnv(
 		driverEnv[tag] = 0
 	}
 
-	// Unqualified refs: legacy semantics against the flattened
-	// snapshot (last driver with the tag name wins — the documented
-	// legacy behavior; qualified refs are the fix for collisions).
+	// Unqualified refs resolve against the flattened snapshot: the last
+	// driver (sorted-name order) with the tag name wins.
 	for _, v := range vars {
 		dp, ok := snapshot[v]
 		if !ok {

@@ -9,7 +9,7 @@ import (
 )
 
 // These tests exercise engine.rollbackStart, which cleans up partially
-// started components when Start fails mid-way (M14). They construct a
+// started components when Start fails mid-way. They construct a
 // CoreCEngine directly (there is no public constructor for partial state)
 // and call rollbackStart, then assert the engine is left in a clean,
 // stopped state with no leaked maps or live context.

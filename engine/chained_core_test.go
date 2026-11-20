@@ -177,11 +177,11 @@ func TestChainedCore_MultipleTransports(t *testing.T) {
 		t.Fatalf("expected 2 transports, got %d", len(transports))
 	}
 
-	// Push from both
 	transports[0].dataCh <- core.DataPoint{Driver: "src-a", Tag: "tag-a", Value: 1.0, Type: core.TypeFloat64, Timestamp: time.Now()}
 	transports[1].dataCh <- core.DataPoint{Driver: "src-b", Tag: "tag-b", Value: 2.0, Type: core.TypeFloat64, Timestamp: time.Now()}
 
-	// Both should be published (to both transports, since there's no rule filtering)
+	// Both inbound sources are published to chain-a via the forward-all
+	// rule; collect from both publish channels to confirm both tags arrive.
 	receivedTags := make(map[string]bool)
 	timeout := time.After(2 * time.Second)
 	for len(receivedTags) < 2 {

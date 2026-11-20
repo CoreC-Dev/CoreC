@@ -23,12 +23,9 @@ type transportManager struct {
 
 	// transportCancels holds the per-transport context cancel func for each
 	// transport's startCommandListener/startDataListener goroutines. Each
-	// listener selects on a child context derived from the engine context
-	// instead of the engine context directly, so RemoveTransport can stop
-	// just that transport's listeners without cancelling the whole engine.
-	// This fixes the goroutine leak where MQTT transports' listener
-	// goroutines blocked forever after RemoveTransport (MQTTTransport.Stop
-	// deliberately does not close its command/data channels).
+	// listener selects on a child context derived from the engine context,
+	// so RemoveTransport cancels only that transport's listeners (MQTT
+	// Stop does not close its command/data channels).
 	transportCancels map[string]context.CancelFunc
 
 	// offlineBuffer persists failed publish batches to disk for replay
@@ -40,8 +37,6 @@ type transportManager struct {
 	// timeout through it.
 	eng *CoreCEngine
 }
-
-// --- Transport Management ---
 
 func (m *transportManager) AddTransport(config core.TransportConfig) error {
 	transport, err := core.CreateTransport(config)
@@ -83,10 +78,8 @@ func (m *transportManager) AddTransport(config core.TransportConfig) error {
 	if oldCancel != nil {
 		oldCancel()
 	}
-	// Stop the old transport and batcher outside the lock. The batcher
-	// stop is bounded by the engine's shutdown timeout (stopBatcherWithTimeout):
-	// a batcher stuck in a long flush retry chain must not block the
-	// management API indefinitely (an unbounded b.stop() would).
+	// Stop the old transport and batcher outside the lock; the batcher
+	// stop is bounded by the engine's shutdown timeout.
 	if oldBatcher != nil {
 		m.stopBatcherWithTimeout(oldBatcher, config.Name, "transport replacement")
 	}
@@ -102,15 +95,11 @@ func (m *transportManager) AddTransport(config core.TransportConfig) error {
 
 	// Create batcher if batch/flush/retry config is set, or if offline
 	// buffering is enabled (so failed publishes are persisted).
-	// The engine's publishLatency and dataAge histograms are injected so
-	// the batcher's async flush path can observe real transport publish
-	// latency and data age (the batcher's async flush path is the
-	// only place real transport latency is observable). The
-	// onBatchPublish callback is injected so the batcher counts real
-	// publishes (not just enqueues) on the async flush path (counting
-	// at enqueue time would over-report). The engine's
-	// shutdownTimeout is threaded through as the batcher's flushFinal
-	// budget so the shutdown flush cannot outlive shutdown.
+	// The engine's publishLatency and dataAge histograms and the
+	// onBatchPublish callback are injected so the async flush path
+	// observes real publish latency/data age and counts real publishes.
+	// The engine's shutdownTimeout is threaded through as the batcher's
+	// flushFinal budget.
 	if b := newTransportBatcher(transport, config, m.offlineBuffer,
 		m.eng.stats.labeled.publishObserver(transport.Name()),
 		m.eng.stats.labeled.ageObserver(transport.Name()),
@@ -127,15 +116,9 @@ func (m *transportManager) AddTransport(config core.TransportConfig) error {
 
 	m.eng.mu.Unlock()
 
-	// Start command and data listeners for this transport if the engine is
-	// already running.  This fixes M29: transports added after Start() now
-	// receive write commands and ingest data.
-	//
-	// Each transport gets its own child context derived from the engine
-	// context so that RemoveTransport can cancel just this transport's
-	// listeners without tearing down the whole engine. This fixes the
-	// goroutine leak where MQTT listener goroutines blocked forever after
-	// RemoveTransport.
+	// Start command and data listeners for this transport if the engine
+	// is already running: transports added after Start() also receive
+	// write commands and ingest data.
 	if m.eng.runtime.ctx != nil && m.eng.runtime.ctx.Err() == nil {
 		tCtx, tCancel := context.WithCancel(m.eng.runtime.ctx)
 		m.eng.mu.Lock()
@@ -160,22 +143,14 @@ func (m *transportManager) RemoveTransport(name string) error {
 	delete(m.transportCfg, name)
 
 	// Also remove and stop the associated batcher so its flushLoop
-	// goroutine doesn't keep running and try to publish to the
-	// stopped transport. Without this, RemoveTransport leaks the
-	// batcher goroutine and publishToTargets may still route data
-	// through the stale batcher (problem 1+2).
+	// goroutine exits and publishToTargets cannot route data through it.
 	var batcher *transportBatcher
 	if b, hasBatcher := m.batchers[name]; hasBatcher {
 		batcher = b
 		delete(m.batchers, name)
 	}
 
-	// Cancel this transport's listener goroutines so they exit instead of
-	// blocking forever on the (unclosed) MQTT command/data channels. This
-	// fixes the goroutine leak: the engine ctx stays alive (only full Stop
-	// cancels it) and MQTTTransport.Stop deliberately does not close its
-	// channels, so without per-transport cancellation the
-	// startCommandListener/startDataListener goroutines would block forever.
+	// Cancel this transport's listener goroutines (see transportCancels).
 	var tCancel context.CancelFunc
 	if c, hasCancel := m.transportCancels[name]; hasCancel {
 		tCancel = c
@@ -188,27 +163,18 @@ func (m *transportManager) RemoveTransport(name string) error {
 	}
 
 	if batcher != nil {
-		// Bounded by the engine's shutdown timeout: RemoveTransport is
-		// a management API call
-		// and must not hang behind a batcher stuck in a long flush retry
-		// chain. On timeout the stop goroutine is abandoned; the
-		// batcher's flushFinal runs on its own shutdown budget and
-		// terminates by publishing or persisting to the offline buffer.
 		m.stopBatcherWithTimeout(batcher, name, "transport removal")
 	}
 	return transport.Stop()
 }
 
 // stopBatcherWithTimeout stops a batcher, waiting at most the engine's
-// shutdown timeout. batcher.stop() flushes remaining data and can
-// legitimately take seconds (retry chains, offline-buffer persistence),
-// but it must never block the caller indefinitely: the transport
-// removal/replacement paths run on management API goroutines, and an
-// unbounded stop behind a transport with an oversized retry-count could
-// hang them. On timeout the stop
-// goroutine is abandoned; flushFinal's own budget (shutdownBudget)
-// ensures the in-flight flush terminates by publishing the batch or
-// persisting it to the offline buffer.
+// shutdown timeout. batcher.stop() flushes remaining data and can take
+// seconds (retry chains, offline-buffer persistence), but never blocks
+// the caller indefinitely. On timeout the stop goroutine is abandoned;
+// flushFinal's own budget (shutdownBudget) ensures the in-flight flush
+// terminates by publishing the batch or persisting it to the offline
+// buffer.
 func (m *transportManager) stopBatcherWithTimeout(b *transportBatcher, name, reason string) {
 	done := make(chan struct{}, 1)
 	go func() {
@@ -257,10 +223,8 @@ func (m *transportManager) startTransports(config *core.Config) error {
 
 // startDataListener launches a goroutine that listens for data points from
 // a transport's OnData channel and feeds them into the DataBus — the
-// chained-core inbound path.  DataPoints are piped back to the
-// processing loop via a channel so chained transports feed the same
+// chained-core inbound path, so chained transports feed the same
 // pipeline as driver-sourced data.
-//
 // It is called from AddTransport for every transport (initial and runtime).
 func (m *transportManager) startDataListener(t core.Transport, tCtx context.Context) {
 	dataCh := t.OnData()
@@ -297,10 +261,6 @@ func (m *transportManager) tryFallback(point core.DataPoint, primaryName string,
 	slog.Warn("transport failover to fallback", "primary", primaryName, "fallback", fb.name)
 
 	if fb.batcher != nil {
-		// Observations and publish counting happen inside the
-		// batcher's async flush path (see comment in publishToTargets
-		// above). publish() returns an error only when the batch is
-		// dropped from the flush queue.
 		err := fb.batcher.publish(m.eng.runtime.ctx, point)
 		if err != nil {
 			slog.Error("fallback batch dropped from flush queue", "fallback", fb.name, "error", err)
@@ -354,8 +314,6 @@ func (m *transportManager) ingressDeadLetters() []core.DeadLetterEntry {
 	}
 	return out
 }
-
-// --- CoreCEngine forwarders (core.TransportManager) ---
 
 func (e *CoreCEngine) AddTransport(config core.TransportConfig) error {
 	return e.transportMgr.AddTransport(config)

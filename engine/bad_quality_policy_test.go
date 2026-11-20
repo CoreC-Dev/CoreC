@@ -1,25 +1,10 @@
 package engine
 
-// docs/config/global.md documents global.engine.on-bad-quality as four policies
-// for one QualityBad point, in a table precise enough to be wrong:
-//
-//   publish          正常发布（默认）        downstream handles the bad value
-//   drop             丢弃，不进入规则匹配和发布
-//   mark-and-publish 发布但清空 value（置 nil），保留 quality=bad
-//   alert            正常发布并触发告警回调
-//
-// The subtle one is mark-and-publish: "clear the value, keep quality=bad" only
-// means anything if the clearing happens BEFORE the fan-out and the point is
-// still forwarded afterwards. Clearing after the broadcast would hand
-// subscribers the device's last good number under a bad label; forwarding
-// nothing would leave them no signal at all that the device had dropped. Both
-// look fine in a diff, and neither shows up on a chart.
-//
-// Round 28 held write-min-interval (also from this page) to its sentence and
-// found it false. This file does the same for the policy table.
-//
-// The engine is started for real here: dataBus and cache are created in Start(),
-// and a test that calls processPoint on a shell is testing a nil map.
+// These tests verify global.engine.on-bad-quality's four policies
+// (publish / drop / mark-and-publish / alert) on a single QualityBad
+// point; mark-and-publish clears Value to nil and keeps quality=bad
+// before fan-out. The engine is started for real: dataBus and cache are
+// created in Start().
 
 import (
 	"context"
@@ -29,10 +14,8 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// badPoint is what a driver publishes when its read fails: a number that must
-// NOT be believed, plus the label that says so. 999 is the device's last good
-// reading carried forward, which is exactly the value a downstream chart would
-// draw.
+// badPoint is a QualityBad point carrying a stale numeric value that
+// must not be believed.
 func badPoint(driver, tag string) core.DataPoint {
 	return core.DataPoint{
 		Driver:    driver,
