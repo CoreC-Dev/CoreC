@@ -46,7 +46,7 @@ go build -o corec-mcp ./cmd/corec-mcp
 | 工具 | 映射 | 说明 |
 |:---|:---|:---|
 | `list_drivers` | `GET /drivers` | 驱动清单：类型、状态、点位数 |
-| `driver_status` | `GET /drivers/{name}` | 单个驱动状态（含暂停/调度健康） |
+| `driver_status` | `GET /drivers/{name}` | 单个驱动状态（连接态、读取/错误/重连计数、点位数） |
 | `list_tags` | `GET /tags?driver=&tag=` | 点位最新值，可按驱动、标签名子串过滤 |
 | `read_tag` | `GET /tags?driver=<d>&tag=<t>`（REST 侧 `tag` 为子串过滤，工具内再精确匹配） | 精确读一个点的最新缓存值 |
 | `list_alerts` | `GET /alerts` | 活动告警及确认状态 |
@@ -59,7 +59,7 @@ go build -o corec-mcp ./cmd/corec-mcp
 | 工具 | 映射 | 说明 |
 |:---|:---|:---|
 | `write_tag` | `POST /write` | 写点位；写保护与限速在引擎侧强制，智能体绕不过 |
-| `pause_driver` | `POST /drivers/{name}/pause` | 暂停采集（连接保续持） |
+| `pause_driver` | `POST /drivers/{name}/pause` | 暂停采集（保持连接） |
 | `resume_driver` | `POST /drivers/{name}/resume` | 恢复采集 |
 | `ack_alert` | `POST /alerts/ack` | 确认告警（不立即清除，静默满窗口才清除） |
 
@@ -87,13 +87,9 @@ go build -o corec-mcp ./cmd/corec-mcp
 
 哪一个错，代价完全不同。
 
-**本仓的取舍**：`validate_configs` 拿到 `400` 时为 `false`——校验这个动词的**正常结论**
-就是"不合法"，把它报成故障等于说"我不知道"，而它其实知道。其余状态码一律 `true`：
-`401`（secret 不对）、`429`（撞到节奏窗口）、`5xx`（服务端故障）都意味着**判定没有作出**，
-和"判定为否"是两回事。
+`validate_configs` 的 `400` 降级为 `isError=false`（校验结论"不合法"以文本返回）；其余非 2xx 一律 `true`。
 
-写类工具也一样：只有引擎明确给出了"拒绝理由"（如 `is read-only (protect: read-only)`、
-`HTTP 429` 限速）时才算**调用已发生**；连接失败、超时、鉴权失败都算**未发生**，`isError=true`。
+写类工具：任何非 2xx（含 read-only `400`、限速 `429`、鉴权 `401`、`5xx`）都 `isError=true`，文本原样携带状态码与拒绝理由供智能体区分；仅 `validate_configs` 的 `400` 降级为 `false`。
 
 ## 客户端配置示例
 
@@ -118,7 +114,7 @@ go build -o corec-mcp ./cmd/corec-mcp
 1. **默认只读**。不开 `-allow-write`，写入工具既不可见、也不可调。
 2. **凭证即权限**。`corec-mcp` 用你给的 API secret 说话，权限与 secret 完全相同。给智能体的 secret 若没有写保护兜底，就能改任何可写点——所以**至少用一个分配了 `protect: read-only` 点位的驱动做试点**，再谈放开写。
 3. **不引入额外权限模型**。没有 MCP 侧的 ACL、审批流或白名单；需要这些，做法是给智能体一个**只授予部分驱动的 CoreC 实例**（独立部署、独立 secret），而不是在适配器里加一层谁都说不清的过滤。
-4. **审计在引擎侧**。智能体写了什么点、什么值、什么时候，都在 `GET /write/history`（`source: api`），与人工 API 调用混在同一条流里——这正是要的：审计不该因为"入口是谁"而有盲区。
+4. **审计在引擎侧**。智能体写了什么点、什么值、什么时候，都在 `GET /write/history`（`source: api`），与人工 API 调用在同一条流里，不区分入口。
 5. **别把它暴露到公网**。stdio 是本地传输；若要用 HTTP 传输，请把 `corec-mcp` 与 CoreC 一起放在同一个可信网络边界内，并对接入反向代理做认证。
 
 ## 与 Dashboard AI 助手的关系
@@ -129,10 +125,10 @@ go build -o corec-mcp ./cmd/corec-mcp
 |---|---|---|
 | 运行位置 | 本地进程，stdio 给桌面 MCP 客户端 | 浏览器，`fetch` 直连你配置的 OpenAI 兼容端点 |
 | 谁持 secret | 启动参数 / 环境变量 | 浏览器 localStorage（UI 明示披露） |
-| 工具面 | 12 个（8 读 + 4 控制） | 11 个：与 MCP 同名 11 个；无 `read_tag`（由 `list_tags(exact)` 覆盖） |
+| 工具面 | 读类 + 写类（写类需 `-allow-write`），数量以两侧工具清单为准 | 与 MCP 同名工具；无 `read_tag`（由 `list_tags(exact)` 覆盖） |
 | 写操作 | `-allow-write` 默认关 | "允许写操作"默认关、刷新即回落，且每次写需人工确认 |
 
-**对后端的影响：没有。** 助手不新增端点、不改鉴权、不改写保护；它产生的写入与人工 API、`corec-mcp` 的写入在引擎侧不可区分，审计同样落在 `GET /write/history`（`source: api`）。
+**对后端的影响：没有。** 助手不新增端点、不改鉴权、不改写保护；它产生的写入与人工 API、`corec-mcp` 的写入在引擎侧不可区分。
 
 由此，以下约束属于 Dashboard 那一侧的实现，**不在 CoreC 里做**：
 
@@ -145,15 +141,15 @@ CoreC 侧对任何 AI 客户端的立场不变：**它只是 `source: api` 的�
 ## 验证
 
 ```bash
-# 只读握手：应看到 8 个工具，其中没有任何写类工具
+# 只读握手：返回的工具清单中没有任何写类工具
 printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | ./corec-mcp -url http://127.0.0.1:8080
 ```
 
-开 `-allow-write` 后同一命令应答中出现 `write_tag` / `pause_driver` / `resume_driver` / `ack_alert`。只读模式下调用写入工具会得到 `unknown tool`（工具根本不在清单里，而不是"调用被拒"）——这是刻意的失败更早。
+开 `-allow-write` 后同一命令应答中出现 `write_tag` / `pause_driver` / `resume_driver` / `ack_alert`。只读模式下调用写入工具会得到 `unknown tool`（工具根本不在清单里，而不是"调用被拒"）。
 
 ## 它不做什么
 
-- **不缓存**：每次工具调用都是一次实时 HTTP 往返，绝无本地影子副本；
-- **不做软写入/自动重试**：写入被拒就是被拒，退避决策交给智能体（它看得到 429 与原因）；
+- **不缓存**：每次工具调用都是一次实时 HTTP 往返，无本地缓存；
+- **不做软写入/自动重试**：非 2xx 响应原样返回，不自动重试；
 - **不改变引擎语义**：不转义质量、不连点、不补心跳；
-- **不是控制面的替代**：运维脚本、Dashboard、监控采集继续走 REST/WS，MCP 只是又一个客户端。
+- 运维脚本、Dashboard、监控采集走 REST/WS；MCP 是同一控制面的另一个客户端。

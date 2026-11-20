@@ -108,8 +108,6 @@ transports:
 - MQTT 命令：转入传输本地的死信存储（有界；`GET /write/failed?source=ingress` **只能查询**原因，没有重放端点），并累加 `dropped_commands` 计数；
 - MQTT 数据点 / HTTP webhook 数据点：直接丢弃并记录 `warn` 日志（webhook 场景计入响应体的 `queue_dropped`）。
 
-默认 `100`。
-
 ---
 
 ## MQTT (`mqtt`)
@@ -275,7 +273,7 @@ settings:
 通过 HTTP/REST 将数据点批量推送到上游 API，适用于 MES、数据湖、Webhook 等场景。HTTP 传输也可通过 webhook 接收入站数据（链式核心入站）。
 
 ::: warning
-HTTP Push 的反向控制指令通道（`OnCommand()`）存在但当前不投递。反向下发请使用 MQTT `command-topic`。
+HTTP Push 为单向推送：`OnCommand()` 返回的通道无写入方，不投递指令。反向下发用 MQTT `command-topic`。
 :::
 
 ```yaml
@@ -343,17 +341,11 @@ headers:
 
 ### timeout
 
-单次 HTTP 请求（含重试中的每次尝试）的超时时间，默认 `5s`。超时后视为本次发送失败，进入重试流程。HTTP 传输内置的发布重试仅针对**网络错误与 5xx 响应**（500ms 起指数退避）；4xx 等其他非 2xx 响应立即失败不重试——重试无法改变客户端错误的结果。
+单次 HTTP 请求（含重试中的每次尝试）的超时时间，默认 `5s`。超时后视为本次发送失败，进入重试流程。HTTP 传输内置的发布重试仅针对**网络错误与 5xx 响应**（500ms 起指数退避）；4xx 等其他非 2xx 响应立即失败不重试。
 
 ### 连接池
 
-以下字段控制底层 HTTP 客户端的连接池行为，均为可选：
-
-| 字段 | 默认值 | 说明 |
-| --- | --- | --- |
-| `max-idle-conns` | `100` | 连接池最大空闲连接数 |
-| `max-idle-conns-per-host` | `20` | 每主机最大空闲连接数 |
-| `idle-conn-timeout` | `90s` | 空闲连接超时时间 |
+连接池字段（`max-idle-conns` / `max-idle-conns-per-host` / `idle-conn-timeout`）见上方 `settings` 字段表。
 
 ### webhook-addr / webhook-path（链式核心入站）
 
@@ -421,7 +413,7 @@ parser:
 
 ### raw 解析器
 
-将整个 payload 视为标量值，tag 可从 MQTT topic 的指定层级提取。
+将整个 payload 视为标量值，tag 可从 MQTT topic 的指定层级提取。raw 的 `timestamp` 恒为本机接收时刻（`time.Now()`）。
 
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -431,7 +423,6 @@ parser:
 | `parser.data-type` | string | 否 | `float64` | 数据类型名 |
 | `parser.group` | string | 否 | — | 静态 group 字段值 |
 | `parser.device` | string | 否 | — | 静态 device 字段值 |
-| `parser.timestamp-format` | string | 否 | `rfc3339` | 时间戳格式 |
 
 ```yaml
 parser:

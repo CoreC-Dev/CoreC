@@ -127,7 +127,7 @@ api:
 
 ### allowed-origins（CORS）
 
-配置 CORS 允许的来源列表，用于浏览器端仪表板跨域访问。**留空时默认放行所有来源**（`Access-Control-Allow-Origin: *`），服务于 Dashboard 直连部署形态（静态 SPA 直接访问远程 CoreC）；认证不受 CORS 影响，业务端点仍需 Bearer token。如需限制跨域访问，显式列出允许的来源：
+配置 CORS 允许的来源列表，用于浏览器端仪表板跨域访问。**留空时默认放行所有来源**（`Access-Control-Allow-Origin: *`）；认证不受 CORS 影响，业务端点仍需 Bearer token。如需限制跨域访问，显式列出允许的来源：
 
 ```yaml
 api:
@@ -153,14 +153,7 @@ api:
 
 ### HTTP 超时
 
-以下字段控制底层 HTTP Server 的超时行为，均为可选，未设置时使用默认值：
-
-| 字段 | 默认值 | 说明 |
-| --- | --- | --- |
-| `read-header-timeout` | `10s` | 读取请求头超时 |
-| `read-timeout` | `0`（禁用） | 读取整个请求超时 |
-| `write-timeout` | `0`（禁用） | 写响应超时 |
-| `idle-timeout` | `120s` | keep-alive 空闲超时 |
+底层 HTTP Server 超时字段（`read-header-timeout` / `read-timeout` / `write-timeout` / `idle-timeout`）见上方 `api` 设置总表。
 
 ### 鉴权示例
 
@@ -281,7 +274,7 @@ global:
 
 ### command-concurrency
 
-写入指令（`POST /write`、MQTT command topic）的最大并行执行数。超出此限额的指令施加背压（传输的 command channel 填满后溢入死信队列），防止单个慢写入串行化所有后续控制指令。未设置或设为 `0` 时使用默认值 16。设为 `1` 可恢复完全串行行为。
+写入指令（`POST /write`、MQTT command topic）的最大并行执行数。超出此限额的指令施加背压（传输的 command channel 填满后溢入死信队列）。未设置或设为 `0` 时使用默认值 16。设为 `1` 可恢复完全串行行为。
 
 ```yaml
 global:
@@ -291,7 +284,7 @@ global:
 
 ### high-priority-workers
 
-快间隔标签（`interval` ≤ 1s）的专用处理协程数。这些协程仅从 DataBus 高优先级通道读取，与批量读取协程隔离，避免低频批量读取突发时饿死高频采集。未设置或设为 `0` 时使用默认值 2。
+快间隔标签（`interval` ≤ 1s）的专用处理协程数。这些协程仅从 DataBus 高优先级通道读取，与批量读取协程隔离。未设置或设为 `0` 时使用默认值 2。
 
 ```yaml
 global:
@@ -301,12 +294,12 @@ global:
 
 ### write-min-interval
 
-同一设备两次写入指令的最小间隔。老旧 PLC 由单个 CPU 循环服务通信接口，指令背靠背到达时会被丢弃或错误应用；即使按点位配置了采集间隔，一次批量写入仍可能把同一设备的多个点位挤在一起。设置该值后，落在窗口内的写入**被拒绝，不排队**：
+同一设备两次写入指令的最小间隔。设置该值后，落在窗口内的写入**被拒绝，不排队**：
 
 - API 写入（`POST /write`、`POST /write/batch`）返回 `429` 并带 `Retry-After`，调用方应退避后重试；
-- MQTT 命令通道的写入立即进入死信队列（`GET /write/failed` 可见原因）。该端点**只读**：`POST /write/failed` 返回 `405 Method Not Allowed`，CoreC 不提供死信重放接口。要重放一条被限速拒绝的控制指令，由调用方读取条目后重新 `POST /write`——重启时死信队列会从磁盘回放（`dead-letter-path`），但那是**恢复队列内容**，不是**重新执行写入**。限速把突发挪到下一个时间窗而没有上限，因此重放是刻意的调用方决策，不由服务端代做。
+- MQTT 命令通道的写入立即进入死信队列（`GET /write/failed` 可见原因）。该端点**只读**：`POST /write/failed` 返回 `405 Method Not Allowed`，CoreC 不提供死信重放接口。要重放一条被限速拒绝的控制指令，由调用方读取条目后重新 `POST /write`——重启时死信队列会从磁盘回放（`dead-letter-path`），但那是**恢复队列内容**，不是**重新执行写入**。
 
-不排队是刻意选择：排队只会把突发挪到下一个时间窗，并让控制指令的调用方付出无上限的延迟。未设置或设为 `0` 时不限速，行为与此前一致；时间窗按**驱动名**（即设备）独立计算——只有被接受的写入才推进该设备的时间窗，失败写入不占用下一次机会。
+未设置或设为 `0` 时不限速；时间窗按**驱动名**（即设备）独立计算——只有被接受的写入才推进该设备的时间窗，失败写入不占用下一次机会。
 
 ```yaml
 global:
@@ -316,7 +309,7 @@ global:
 
 ### write-audit-path
 
-写审计轨迹（`GET /write/history`）的**落盘持久化**。默认审计轨迹仅在内存中保留最近 1000 条，进程重启即丢失——合规场景需要重启后仍能回答"谁在何时写了什么"。设置后每条记录在写入返回前 fsync 到追加式 JSONL 文件；启动时把最近 1000 条回放进内存环形，`GET /write/history` 立即有历史。文件超过 5MiB 轮转为 `<path>.old`（替换上一世代），磁盘占用上限约 2×5MiB。与死信队列落盘（`dead-letter-path`）同一套机制：文件打开失败时拒绝启动，不静默降级为内存。
+写审计轨迹（`GET /write/history`）的**落盘持久化**。默认审计轨迹仅在内存中保留最近 1000 条，进程重启即丢失。设置后每条记录在写入返回前 fsync 到追加式 JSONL 文件；启动时把最近 1000 条回放进内存环形，`GET /write/history` 立即有历史。文件超过 5MiB 轮转为 `<path>.old`（替换上一世代），磁盘占用上限约 2×5MiB。与死信队列落盘（`dead-letter-path`）同一套机制：文件打开失败时拒绝启动，不静默降级为内存。
 
 ```yaml
 global:

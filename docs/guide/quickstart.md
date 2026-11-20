@@ -130,7 +130,7 @@ corec/demo/temperature {"driver":"demo-plc","device":"","group":"sensors","tag":
 这就是 CoreC 的标准数据点 `DataPoint` 结构——从设备读出的原始 `TagValue` 经引擎富化后，补充了 `driver`、`group` 等路由元信息。
 
 > `type` 字段序列化为可读字符串（如 `"float32"`），与 YAML 配置中的 `type: float32` 一致。
-> 写命令（`/write` API、MQTT command topic）的 `type` 字段同时接受字符串 `"float32"` 和历史整数形式 `9`。
+> 写命令（`/write` API、MQTT command topic）的 `type` 字段同时接受字符串名（`"float32"`）或对应整数编码（`9` = float32，见 `core.DataType` 枚举）。
 
 ### 方式 B：验证 API
 
@@ -269,7 +269,7 @@ curl -s -X POST -H "Authorization: Bearer corec-secret-token" \
 ::: warning 写入语义
 `POST /write` 会直接调用驱动的 `Write` 方法将值写入设备寄存器，**绕过规则引擎**。这是即时控制指令，不会进入数据总线。写入后的新值会在下一次调度读取时回流到缓存与北向传输。
 
-`type` 字段接受可读字符串（`"float32"`、`"int16"`、`"bool"` …，与 YAML 配置一致）或历史整数形式（`9` = float32）。
+`type` 字段接受可读字符串（`"float32"`、`"int16"`、`"bool"` …，与 YAML 配置一致）或对应整数编码（`9` = float32，见 `core.DataType` 枚举）。
 :::
 
 ## 使用模拟设备验证

@@ -42,7 +42,7 @@ type Driver interface {
 | `Restart` | 配置热更新时 | 等价于 `Stop → Init → Start` |
 
 ::: tip 连接失败的容错策略
-`Start` 阶段如果设备不可达，CoreC **不会**返回错误导致启动失败，而是将状态置为 `connecting` 并启动后台 `reconnectLoop` 按指数退避重试（上限 30s）。这使得 CoreC 可以在设备离线时先启动，设备恢复后自动接入。连续重连失败达到 `max-reconnect-failures`（默认 20）次后触发**断路器**，将重连间隔提升至 5 分钟低频重试（注意：重连不会停止，设备恢复后仍可自动接入），避免设备长期不可达时无效重连消耗资源。
+`Start` 阶段如果设备不可达，CoreC **不会**返回错误导致启动失败，而是将状态置为 `connecting` 并启动后台 `reconnectLoop` 按指数退避重试（上限 30s）。连续重连失败达到 `max-reconnect-failures`（默认 20）次后触发**断路器**，将重连间隔提升至 5 分钟低频重试（注意：重连不会停止，设备恢复后仍可自动接入）。
 :::
 
 ### 数据操作方法
@@ -104,7 +104,7 @@ type DriverCapabilities struct {
 
 ::: info MaxBatchSize 的来源
 - Modbus 125：单次 Modbus 请求的寄存器数上限（`modbusMaxBatchSize`，FC03/FC04 协议限制）
-- S7 220：S7 请求的 PDU 尺寸上限（`s7MaxBatchSize`）
+- S7 220：单次 `Read` 调用处理的标签数上限（`s7MaxBatchSize`）；合并段的字节上限另由 PDU 协商值约束（480/240）
 - OPC UA 1000：单次批量读取的 NodeID 数默认上限（`max-batch-size` 设置可调）
 :::
 
@@ -288,7 +288,7 @@ tags:
 
 #### 地址格式
 
-S7 地址支持四种数据区，格式丰富。每个区都支持位（X）、字节（B）、字（W）、双字（D）四种宽度：
+S7 地址支持四种数据区，每区支持位（X）、字节（B）、字（W）、双字（D）四种宽度：
 
 | 格式 | 数据区 | 示例 | 说明 |
 |:---|:---|:---|:---|
@@ -483,7 +483,7 @@ import _ "github.com/yourorg/corec-driver-myprotocol"
 ```
 
 ::: tip 工厂注册模式
-CoreC 使用全局 `Registry`（`core/registry.go`）管理驱动与传输工厂。`RegisterDriver` 在 `init()` 中调用，`CreateDriver` 在引擎启动时按 `type` 字段查找工厂并实例化。这与全局 Registry 注册机制一致。
+CoreC 使用全局 `Registry`（`core/registry.go`）管理驱动与传输工厂。`RegisterDriver` 在 `init()` 中调用，`CreateDriver` 在引擎启动时按 `type` 字段查找工厂并实例化。
 :::
 
 ## 下一步

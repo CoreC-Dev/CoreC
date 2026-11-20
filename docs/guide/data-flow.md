@@ -69,12 +69,13 @@ type DataPoint struct {
 
 ### 富化过程（TagValue → DataPoint）
 
-富化发生在引擎的 `onDriverData` 回调中。调度器每次读取完成后，将 `[]TagValue` 交给引擎，引擎逐个补充路由元信息（驱动名与分组）：
+富化发生在引擎的 `onDriverData` 回调中。调度器每次读取完成后，将 `[]TagValue` 交给引擎，引擎按 (driver, tag) 查 `tagGroups` 补 `DataPoint.Driver`/`Group`，再 `DataBus.Push`：
 
 ```go
-func (e *CoreCEngine) onDriverData(driver string, values []core.TagValue) {
-    // 按 driver 取出 tag → group 映射，一次读取避免逐点加锁
-    groups := e.tagGroups[driver]
+// 简化伪代码：省略了触发门控（triggerPlan）与高优通道路由细节
+func onDriverData(driver string, values []core.TagValue, plan *triggerPlan, priority int) {
+    // 按 driver 取出 tag → group 映射（读锁内一次读取，避免逐点加锁）
+    groups := eng.driverReg.tagGroups[driver]
 
     for _, v := range values {
         point := core.DataPoint{
@@ -88,14 +89,14 @@ func (e *CoreCEngine) onDriverData(driver string, values []core.TagValue) {
         if groups != nil {
             point.Group = groups[v.Tag]  // ← 富化：按测点名查表补充分组
         }
-        e.dataBus.Push(point)     // 推入数据总线
+        if priority > 0 {
+            dataBus.PushHighPriority(point)  // 快周期任务走高优先级通道
+        } else {
+            dataBus.Push(point)              // 推入数据总线
+        }
     }
 }
 ```
-
-::: info 为什么需要富化？
-规则引擎需要依据 `driver`、`group`、`tag` 等字段做路由决策，北向传输的主题模板（如 `factory/&lbrace;&lbrace;.Driver&rbrace;&rbrace;/&lbrace;&lbrace;.Group&rbrace;&rbrace;/&lbrace;&lbrace;.Tag&rbrace;&rbrace;`）也需要这些字段。富化将设备层的原始读值升级为携带完整路由上下文的标准数据点。
-:::
 
 ## 管道各阶段详解
 
@@ -170,14 +171,7 @@ func (b *DataBus) Push(point core.DataPoint) {
 }
 ```
 
-::: warning 为什么丢弃而非阻塞？
-工业场景中过时数据的价值快速衰减。如果选择阻塞采集协程，会导致：
-1. 调度周期被拖长，引发 overrun 雪崩
-2. 设备连接因超时断开
-3. 所有点位采集集体停滞
-
-丢弃最旧数据保证采集协程始终以设备节奏运行，过载通过 `PushDropped()` 计数器暴露给运维。
-:::
+总线满时 `Push` 丢弃最旧点（drop-oldest）而非阻塞，逐出计入 `PushDropped()`。
 
 总线满时丢弃的最旧数据通过 `DataBus.PushDropped()`（主通道）与 `HighPriorityPushDropped()`（高优先级通道）计数；下游慢订阅者被跳过的数据通过 `DataBus.Dropped()` 计数。三者再加上日志丢弃，聚合到引擎统计的 `TotalDropped` 字段，可通过 `/stats` API 查询。
 
@@ -186,42 +180,39 @@ func (b *DataBus) Push(point core.DataPoint) {
 引擎启动多个 worker goroutine（默认 `runtime.NumCPU()` 个，`global.engine.workers` 可调）并行消费 `DataBus` 主通道；另有默认 2 个高优先级 worker（`global.engine.high-priority-workers` 可调）只消费高优先级通道。每个 worker 对每个 `DataPoint` 依次执行：
 
 ```go
-func (e *CoreCEngine) processingLoop() {
-    for {
-        select {
-        case <-e.ctx.Done():
+// 简化展示：worker 从 DataBus 取出点后逐点执行以下流程（processPoint）
+func processPoint(point core.DataPoint) {
+    // ① 更新最新值缓存
+    e.cache.Update(point)
+
+    // ② 广播给订阅者（WebSocket / API 流）
+    e.dataBus.Broadcast(point)
+
+    // ③ 规则匹配（按优先级返回全部命中，直到首个终止性匹配）
+    results := e.ruleEngine.Match(point)
+    if len(results) == 0 {
+        return  // 无规则匹配，数据止于此
+    }
+
+    // ④ 逐条执行命中规则的动作（continue 链）
+    for _, result := range results {
+        switch result.Rule.Action() {
+        case core.ActionDrop:
             return
-        case point, ok := <-e.dataBus.Channel():
-            // ① 更新最新值缓存
-            e.cache.Update(point)
-
-            // ② 广播给订阅者（WebSocket / API 流）
-            e.dataBus.Broadcast(point)
-
-            // ③ 规则匹配
-            result := e.ruleEngine.Match(point)
-            if result == nil {
-                continue  // 无规则匹配，数据止于此
-            }
-
-            // ④ 执行动作
-            switch result.Rule.Action() {
-            case core.ActionDrop:
-                continue
-            case core.ActionAlert:
-                e.fireAlert(point, result.Rule)
-                e.publishToTargets(point, result.Targets)
-            case core.ActionTransform:
-                e.publishToTargets(e.applyTransform(point, result.Transform), result.Targets)
-            case core.ActionForward, core.ActionMirror:
-                e.publishToTargets(point, result.Targets)
-            }
+        case core.ActionAlert:
+            e.fireAlert(point, result.Rule)
+            e.publishToTargets(point, result.Targets)
+        case core.ActionTransform:
+            point = e.applyTransform(point, result.Transform)
+            e.publishToTargets(point, result.Targets)
+        case core.ActionForward, core.ActionMirror:
+            e.publishToTargets(point, result.Targets)
         }
     }
 }
 ```
 
-> 注：实际 `processingLoop` 在读取 `DataPoint` 后会**最先应用坏质量策略**（`global.engine.on-bad-quality`：`publish`（默认）/ `drop` / `mark-and-publish` / `alert`），再依次更新缓存、广播、规则匹配与执行动作。上方代码片段为简化展示，省略了坏质量策略步骤。
+> 注：实际 `processingLoop` 在读取 `DataPoint` 后会**最先应用坏质量策略**（`global.engine.on-bad-quality`：`publish`（默认）/ `drop` / `mark-and-publish` / `alert`），再依次更新缓存、广播、规则匹配与执行动作。上方代码片段为简化展示（接收者与实际方法名省略），省略了坏质量策略与触发门控/高优路由细节；全部规则对**原始点**匹配，transform 只影响后续发布、不重新触发匹配。
 
 ### 阶段 6：最新值缓存（LatestCache）
 
@@ -300,10 +291,6 @@ func (e *CoreCEngine) publishToTargets(point core.DataPoint, targets []string) {
 }
 ```
 
-::: info 锁分离设计
-`publishToTargets` 采用**锁内快照 + 锁外 I/O** 模式：在 `e.mu.RLock()` 下仅做 map 查找并快照到切片，释放读锁后再调用 `Publish`/`batcher.publish`。这避免了慢速网络发布阻塞 `AddDriver`/`RemoveDriver`/`AddTransport`/`RemoveTransport` 等需要写锁的管理操作。
-:::
-
 ### 阶段 9：北向发布（Transport.Publish）
 
 传输将 `DataPoint` 序列化后发往外部系统。以 MQTT 为例，使用主题模板渲染目标主题，JSON 序列化后发布并等待完成令牌（`publish-timeout`，默认 5s）：
@@ -346,7 +333,7 @@ CoreC 借鉴 OPC UA 的质量戳概念，每个数据点都携带 `Quality` 字�
 |:---|:---:|:---|
 | `good` | 0 | 读取成功，值可信 |
 | `bad` | 1 | 读取失败（连接断开、地址错误等） |
-| `uncertain` | 2 | 不确定（预留扩展） |
+| `uncertain` | 2 | 值陈旧/不确定（如触发门控抑制明细时重发布的上一好值） |
 
 质量为 `bad` 的数据点在默认策略（`on-bad-quality: publish`）下仍会进入总线与缓存（便于感知设备状态），规则可以据此过滤：
 

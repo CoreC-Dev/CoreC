@@ -35,15 +35,11 @@ Transport.OnData() ──▶ startDataListener() ──▶ DataBus.Push() ─┘
 | `jsonpath` | 第三方 JSON | 双花括号字段路径（`&lbrace;&lbrace; .payload.X &rbrace;&rbrace;` 映射到 gjson 路径），支持静态字符串与 `&lbrace;&lbrace; .topic &rbrace;&rbrace;` |
 | `raw` | 裸数值 | payload 即 value，tag 从 topic 路径提取 |
 
----
-
 ::: tip 可运行 Demo
 各场景均有对应的 **Docker Compose 实现**，位于 `demo/chained/scenario1/` ~ `scenario8/`，进入对应目录执行 `docker compose up` 即可看到数据在链上真实流动，详见 [demo/chained/README.md](https://github.com/CoreC-Dev/CoreC/tree/main/demo/chained/README.md)。
 
-scenario 3 / 7 / 8 涉及入站或命令通道，demo 配置已包含 fail-closed 必填的 `webhook-secret` / `command-secret`（密钥经 compose 环境变量注入，见各场景 `docker-compose.yml`）。scenario 7 的命令下发需要 HMAC-SHA256 签名，其 `docker-compose.yml` 头部附有签名发布命令的完整示例。
+scenario 3 / 7 的 demo 配置已包含 fail-closed 必填的 `webhook-secret` / `command-secret`（密钥经 compose 环境变量注入，见各场景 `docker-compose.yml`）。scenario 7 的命令下发需要 HMAC-SHA256 签名，其 `docker-compose.yml` 头部附有签名发布命令的完整示例。scenario 8 的 relay 节点 `corec-b.yaml` 尚缺 `command-secret`（见文末示例节说明）。
 :::
-
----
 
 ## 场景一：纯订阅转发（协议网关）
 
@@ -76,8 +72,6 @@ rules:
 ```
 
 **特点**：`drivers: []`，数据全从 `data-topic` 进来。CoreC 只做格式转换。
-
----
 
 ## 场景二：两个 CoreC 级联（边缘 → 云端）
 
@@ -131,8 +125,6 @@ rules:
 ```
 
 **特点**：A 的 `topic-template` 和 B 的 `data-topic` 必须匹配。A 发 `edgeA/plc/temperature`，B 订阅 `edgeA/#` 就能收到。
-
----
 
 ## 场景三：多级级联（边缘 → 网关 → 云端）
 
@@ -195,8 +187,6 @@ rules:
 
 **特点**：中间每一跳都可以做过滤、告警、变换。比如 B 过滤掉车间不关心的数据，C 做区域级告警。
 
----
-
 ## 场景四：协议转换（MQTT → HTTP）
 
 CoreC 收 MQTT 数据，通过 HTTP 推到 REST API。解决**云端只接受 HTTP，设备只发 MQTT** 的情况。
@@ -230,8 +220,6 @@ rules:
 
 反过来也行（HTTP → MQTT）：配 `webhook-addr`（连同 `webhook-secret`）收，`topic-template` 发。
 
----
-
 ## 场景五：多对一汇聚
 
 多个边缘节点往同一个中继汇聚，中继统一处理后转发。
@@ -262,8 +250,6 @@ rules:
 A 发 `edge/A/...`，B 发 `edge/B/...`，C 发 `edge/C/...`，G 订阅 `edge/#` 全收。
 
 > MQTT 单层通配符 `+` 必须独占一整个层级（如 `edge/+/up`），不能写成 `edge+/#`。若只需匹配一层节点名，可用 `edge/+/...` 形式并让各节点发布到 `edge/A/...`、`edge/B/...`。
-
----
 
 ## 场景六：一对多分发
 
@@ -300,8 +286,6 @@ rules:
 ```
 
 **特点**：用 `action: mirror` 同时推多个 target。这不是链式核心的新功能，但可以跟链式组合。
-
----
 
 ## 场景七：双向级联（数据上行 + 命令下行）
 
@@ -362,8 +346,6 @@ CoreC-B（中继节点）通过 `command-topic` 收到云端命令后，如果**
 - `command-forward-secret`：签名密钥，使用环境变量 `${COREC_COMMAND_SECRET}`，取值与下游节点 A 的 `command-secret` 一致
 - 如果所有 forwarder 都失败（或未配置），命令进入死信队列（`GET /write/failed` 可查）
 :::
-
----
 
 ## 场景总览
 
@@ -520,4 +502,4 @@ transports:
 
 ### 示例
 
-参见 `demo/chained/scenario8/`：与 scenario2 相同的拓扑，但使用自动发现替代手动 topic 配置。注意该 demo 的两份配置当前未设置 `command-secret`，而自动生成的 `command-topic` 与 `command-secret` 必须成对出现——复跑该 demo 需先为两个节点的 MQTT transport 补上 `command-secret`，或显式写入空的 `command-topic: ""` 以跳过命令通道。
+参见 `demo/chained/scenario8/`：与 scenario2 相同的拓扑，但使用自动发现替代手动 topic 配置。注意该 demo 的 relay 节点 `corec-b.yaml` 未设 `command-secret`，而自动生成的 `command-topic` 需配套密钥——复跑前为 B 补 `command-secret`，或显式写入空的 `command-topic: ""` 以跳过命令通道（A 已配置）。

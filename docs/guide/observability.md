@@ -14,10 +14,6 @@ CoreC 内置四套可观测性机制，无需任何外部依赖或第三方库�
 | 分布式追踪 | 中间件注入，无独立端点 | — | `common/trace/` |
 | pprof 性能分析 | `GET /debug/pprof/*` | 是 | `hub/route/server.go` |
 
-::: tip 设计原则
-指标数据完全由引擎现有的 `Stats()` 方法生成，不引入 Prometheus 客户端库，零额外依赖。追踪系统无外部依赖，可平滑升级至 OpenTelemetry。
-:::
-
 ## Prometheus 指标
 
 `GET /metrics` 端点以 Prometheus 文本格式（version 0.0.4）暴露指标族。该端点位于认证路由组内，抓取方需携带 API secret。
@@ -99,6 +95,8 @@ corec_driver_last_read_seconds{driver="plc2"} 748.9
 | `corec_scheduler_degraded` | gauge | `driver` | `1`=该驱动任一采集任务处于自动降级（连续读失败后拉长间隔），`0`=正常 |
 | `corec_scheduler_consecutive_errors` | gauge | `driver` | 该驱动采集任务的最差连续读失败次数（首次成功即归零） |
 | `corec_scheduler_overruns_total` | counter | `driver` | 该驱动"读取耗时超过采集周期"的累计次数（进程生命周期内单调递增，不清零） |
+| `corec_deadband_heartbeats_total` | counter | `driver` | 死区内由 enforce-interval 心跳放行的累计样本数 |
+| `corec_trigger_group_skipped_total` | counter | `driver` | 触发组条件为假而抑制明细读取的累计采集轮数（按轮计数，非按点） |
 
 ### 驱动自报指标
 
@@ -484,7 +482,7 @@ go tool pprof http://127.0.0.1:6060/debug/pprof/profile?seconds=30
 |:---|:---|:---|
 | 格式 | JSON | Prometheus 文本 0.0.4 |
 | 认证 | 是 | 是 |
-| 指标数量 | 引擎 + 驱动 + 传输统计 | 53 个指标族名（含 32 个 Go 运行时/引擎常驻族）；`# HELP` 行数随“每驱动/每传输”实例增长，配置 1 个驱动为 53 行、2 个为 54 行。另有驱动自报的协议级指标族 |
+| 指标数量 | 引擎 + 驱动 + 传输统计 | 指标族名以 `/metrics` 实际输出为准（含 Go 运行时/引擎常驻族与按驱动/传输实例增长的族）；另有驱动自报的协议级指标族 |
 | 用途 | 一次性查询、Dashboard 展示 | 持续抓取、告警、长期存储 |
 | 运行时指标 | 无 | 有（goroutine、内存、GC、CPU） |
 

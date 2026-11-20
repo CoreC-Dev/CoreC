@@ -15,8 +15,6 @@ description: CoreC 配置文件完整带注释示例，涵盖全局、驱动、�
 完整文件见仓库根目录 [`config.example.yaml`](https://github.com/CoreC-Dev/CoreC/blob/main/config.example.yaml)。本页在其基础上补充了逐段讲解。
 :::
 
----
-
 ## 配置总览
 
 CoreC 配置采用 YAML，顶层段如下：
@@ -37,7 +35,7 @@ CoreC 配置采用 YAML，顶层段如下：
 :::
 
 ::: warning 未知字段是启动错误，不是被忽略的行
-配置里出现 CoreC 不认识的键（拼错的字段名、上一版本遗留的旧字段、手工编辑时打错的 `lstin` / `workerz` / `protect` 之类），**会让加载失败**，不会被静默忽略：
+配置里出现 CoreC 不认识的键（拼错的字段名、上一版本遗留的旧字段、手工编辑时打错的 `lstin` / `workerz` / `protct` 之类），**会让加载失败**，不会被静默忽略：
 
 ```
 failed to parse config: unknown key "lstin" -- [3:5] unknown field "lstin"
@@ -47,28 +45,18 @@ failed to parse config: unknown key "lstin" -- [3:5] unknown field "lstin"
          ^
 check the field name against config.example.yaml)
 ```
-
-这是刻意的取舍，两面都要说清：
-
-- **代价**：一份以前能加载的配置，若夹带走私的键，现在会启动失败。这些键此前是**不生效的**——看着像配置了，引擎实际用的是默认值。失败会逼着人去核对它到底该叫什么、该放在哪一层（`broker` 在 `transports[].settings` 下合法，直接放在 `transports[]` 下不合法）；
-- **换来的**：`api.lstin` 这类拼写错误不会再有 200 的"成功"回应。静默忽略的代价不是一行配置，是其余所有配置的可信度——写了的不知道有没有生效，没写的不知道是不是被当成了默认。
 :::
 
 ::: info
 `node` 段是可选的。省略时所有自动发现功能关闭。设置 `node.id` 后，MQTT 传输省略的 `topic-template`、`command-topic` 会自动生成；显式设置 `data-topic` 时省略的 `parser` 自动补全。
 :::
 
----
-
 ## 完整配置文件
 
 ```yaml
-# ============================================================
 # CoreC 配置示例
-# 工业数据采集核心
-# ============================================================
 
-# ---------- 全局设置 ----------
+# 全局设置
 global:
   log-level: info                    # 日志级别：debug/info/warn/warning/error/silent
   api:
@@ -88,13 +76,11 @@ global:
     path: /var/lib/corec/buffer      # 缓冲文件目录（enabled=true 时必填）
     max-size: 10000                  # 缓冲批次最大数量（超出驱逐最旧）
 
-# ============================================================
 # 南向驱动
 # 支持: modbus-tcp, modbus-rtu, modbus-rtuovertcp, modbus-udp,
 #       modbus-rtuoverudp, modbus-tls, s7, opcua
-# ============================================================
 drivers:
-  # ---------- 1. Modbus TCP 驱动 (PLC / 传感器网关) ----------
+  # Modbus TCP 驱动 (PLC / 传感器网关)
   - name: plc-modbus                 # 驱动实例名，全局唯一
     type: modbus-tcp                 # 协议类型
     settings:
@@ -121,7 +107,7 @@ drivers:
         group: actuators
         interval: 2s
 
-  # ---------- 2. Siemens S7 驱动 (S7-200 / S7-300 / S7-400 / S7-1200 / S7-1500) ----------
+  # Siemens S7 驱动 (S7-200 / S7-300 / S7-400 / S7-1200 / S7-1500)
   - name: siemens-s7-300
     type: s7
     settings:
@@ -147,7 +133,7 @@ drivers:
         group: safety
         interval: 200ms
 
-  # ---------- 3. OPC UA 客户端驱动 (SCADA / MES / OPC 服务器) ----------
+  # OPC UA 客户端驱动 (SCADA / MES / OPC 服务器)
   - name: opc-server
     type: opcua
     settings:
@@ -166,12 +152,10 @@ drivers:
         group: production
         interval: 2s
 
-# ============================================================
 # 北向传输
 # 支持: mqtt, http, notify
-# ============================================================
 transports:
-  # ---------- 1. MQTT 云端传输 (发布 + 可选命令回写) ----------
+  # MQTT 云端传输 (发布 + 可选命令回写)
   - name: cloud-mqtt
     type: mqtt
     settings:
@@ -185,7 +169,7 @@ transports:
     batch-size: 50                             # 单批最大点数
     flush-interval: 1s                         # 定时刷新间隔
 
-  # ---------- 2. HTTP Webhook / REST 推送 (MES / 数据湖 API) ----------
+  # HTTP Webhook / REST 推送 (MES / 数据湖 API)
   - name: mes-http-push
     type: http
     settings:
@@ -197,13 +181,11 @@ transports:
     batch-size: 100
     flush-interval: 5s
 
-# ============================================================
 # 规则
 # 按 priority 升序求值 (数值越小 = 优先级越高)
 # 动作: forward, drop, alert, transform, mirror
-# ============================================================
 rules:
-  # ---------- 1. 高温告警 -> 告警到云 MQTT，然后继续正常转发 ----------
+  # 高温告警 -> 告警到云 MQTT，然后继续正常转发
   - name: high-temp-alert
     match: "tag == 'temperature' && value > 95"
     action: alert
@@ -211,14 +193,14 @@ rules:
     priority: 1
     continue: true              # 告警后继续评估，数据仍会流入下方兜底规则
 
-  # ---------- 2. 急停 -> 高优先级告警 ----------
+  # 急停 -> 高优先级告警
   - name: emergency-stop-alert
     match: "tag == 'emergency_stop' && value == true"
     action: alert
     target: cloud-mqtt
     priority: 2
 
-  # ---------- 3. 安全与反应器数据 -> 镜像到 MQTT 与 MES 双通道 ----------
+  # 安全与反应器数据 -> 镜像到 MQTT 与 MES 双通道
   - name: reactor-mirror
     match: "group == 'reactor'"
     action: mirror
@@ -227,15 +209,13 @@ rules:
       - mes-http-push
     priority: 10
 
-  # ---------- 4. 兜底：其余全部转发到 MES HTTP ----------
+  # 兜底：其余全部转发到 MES HTTP
   - name: default-catch-all
     match: "ALL"
     action: forward
     target: mes-http-push
     priority: 999
 ```
-
----
 
 ## 分段讲解
 
@@ -318,8 +298,6 @@ topic-template: "factory/{{.Driver}}/{{.Group}}/{{.Tag}}"
 
 详见 [规则配置](/config/rules)。
 
----
-
 ## 启动与验证
 
 将上述配置保存为 `config.yaml`，启动核心：
@@ -345,8 +323,6 @@ curl -H "Authorization: Bearer corec-secret-token" \
 ::: info
 若日志出现驱动 `error` 状态，请依次检查：设备网络可达性、`slave-id` / `slot` / `endpoint` 正确性、防火墙端口放行。
 :::
-
----
 
 ## 空配置 / Idle 模式
 
@@ -388,7 +364,7 @@ WARN no transport configured — running in idle mode; add a northbound transpor
 启动后打开 Dashboard 并连接到该实例的 API（`http://<host>:9090`，使用 `api.secret` 认证）。随后可通过：
 
 - **配置中心**：编辑完整 YAML 并 `PUT /configs` 热重载；
-- **驱动 / 传输 / 规则向导**：逐个添加实体，向导会在合并到工作配置后做本地校验（存在性校验已降级为非阻塞告警，不再阻止"先加第一个驱动"等鸡生蛋场景）。
+- **驱动 / 传输 / 规则向导**：逐个添加实体，向导合并后本地校验；无数据源/无传输仅产生非阻塞告警（idle），名称/类型/target 引用仍硬校验。
 
 每次 `PUT /configs` 应用一个仍无数据源 / 无传输的配置时，服务端会再次输出 idle 告警；一旦配置了数据源与传输，告警消失，核心进入正常采集状态。
 

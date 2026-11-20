@@ -194,7 +194,7 @@ sudo systemctl enable --now corec
 
 ## 生产部署的 CORS 姿势
 
-CoreC 管理 API 默认对浏览器开放 CORS：未配置 `global.api.allowed-origins` 时输出 `Access-Control-Allow-Origin: *`。这是刻意设计，服务于 Dashboard 的**直连部署形态**（静态 SPA——如 GitHub Pages——直接访问远程 CoreC），否则浏览器无法跨域直连后端。CORS 不影响认证：所有业务端点仍需 `Authorization: Bearer <secret>`，无 token 的跨域页面只能拿到 401。
+CoreC 管理 API 默认对浏览器开放 CORS：未配置 `global.api.allowed-origins` 时输出 `Access-Control-Allow-Origin: *`；公网直连部署须配置 allowlist。CORS 不影响认证：所有业务端点仍需 `Authorization: Bearer <secret>`，无 token 的跨域页面只能拿到 401。
 
 两种部署形态：
 
@@ -234,7 +234,7 @@ cp config.example.yaml config.yaml
 COREC_API_SECRET=change-me-please ./corec -c config.yaml
 ```
 
-`config.example.yaml` 当前是一份**最小引导配置**：不配置任何驱动、传输与规则，CoreC 以空闲模式启动，操作者随后通过 Dashboard 或 `PUT /configs` 补全配置；文件内还附有注释掉的全量示例（1 个 Modbus 驱动、2 个传输、2 条规则），取消注释即可启用。
+`config.example.yaml` 当前是一份**最小引导配置**：不配置任何驱动、传输与规则，CoreC 以空闲模式启动，操作者随后通过 Dashboard 或 `PUT /configs` 补全配置；文件内还附有注释掉的完整示例（驱动、传输、规则及各变体），取消注释即可启用。
 
 空闲启动时看到如下日志即说明核心与所有插件已成功加载：
 

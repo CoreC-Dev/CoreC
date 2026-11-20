@@ -79,8 +79,8 @@ type WriteCommand struct {
 }
 ```
 
-::: info 双向通道的意义
-`OnCommand` 让北向传输不仅是数据出口，也可以是控制入口。这使得云端可以通过同一个 MQTT 连接既接收数据又下发控制指令，形成边缘闭环。**MQTT 传输**通过 `command-topic` 实现反向指令，且配置 `command-topic` 时必须同时配置 `command-secret`（不设置则传输拒绝启动，fail-closed），命令消息需携带 HMAC-SHA256 签名；**HTTP Push 传输**是单向推送，`OnCommand()` 暴露的通道当前无消息来源、不会投递任何指令（如需 HTTP 反向下发，需自行扩展 webhook 监听）。
+::: info 双向通道
+**MQTT 传输**通过 `command-topic` 实现反向指令，且配置 `command-topic` 时必须同时配置 `command-secret`（不设置则传输拒绝启动，fail-closed），命令消息需携带 HMAC-SHA256 签名；**HTTP Push 传输**为单向推送：`OnCommand()` 返回的通道无写入方，不投递指令。反向下发用 MQTT Command Topic。
 :::
 
 ## 传输配置（TransportConfig）
@@ -221,7 +221,7 @@ MQTT 传输充分利用 Paho 客户端的内置容错能力：
 将数据点以 JSON POST 推送到 RESTful 端点，适合对接 MES、数据湖 API 或自建接收服务。
 
 ::: warning 单向推送
-HTTP Push 是**单向推送传输**，不支持反向控制指令。`OnCommand()` 通道存在但永不投递消息。若需云端反向下发控制指令，请使用 **MQTT Command Topic**。
+HTTP Push 为单向推送：`OnCommand()` 返回的通道无写入方，不投递指令。反向下发用 **MQTT Command Topic**。
 :::
 
 #### 配置
@@ -257,10 +257,6 @@ t.client = &http.Client{
     },
 }
 ```
-
-::: tip 连接池的意义
-没有连接池时，每次 POST 都要建立 TCP 连接 + TLS 握手，延迟显著。连接池复用使后续请求直接走已建立的连接。
-:::
 
 #### 批量发布
 
@@ -345,7 +341,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 |:---|:---|:---|:---|
 | 客户端模型 | Paho 异步 | net/http 同步连接池 | net/http 按通道发送 |
 | 发布方式 | 逐条发布（QoS 保证） | 批量 JSON 数组 POST | 按规则触发、冷却去重 |
-| 反向指令 | ✅ Command Topic 订阅 | ❌ 单向推送（`OnCommand()` 通道存在但无消息来源） | ❌ 单向通知 |
+| 反向指令 | ✅ Command Topic 订阅 | ❌ 单向推送（`OnCommand()` 返回的通道无写入方，不投递指令） | ❌ 单向通知 |
 | 重连 | Paho 内置自动重连 | 无状态，每次请求独立 | 无状态，每次请求独立 |
 | 通道/路由 | 动态主题模板 | 固定 URL | `channel` 选择 Slack/Teams/Email/Webhook |
 | 典型用途 | IoT 上云、双向控制 | MES 推送、数据湖入库 | 越限/异常的人到位通知 |

@@ -192,7 +192,7 @@ match: "ALL"
 将同一数据点复制并分别发送到 `targets` 列表中的每个传输，实现多目的地冗余分发。
 
 ::: info mirror 与 forward 的实现关系
-`forward` 与 `mirror` 在引擎内部走**完全相同**的执行路径，且**两者都接受** `target`（单目标）或 `targets`（多目标列表）——区别只在语义意图：`mirror` 表达"冗余分发到多个目的地"，`forward` 表达"常规转发"。写 `action: forward` + `targets: [...]` 与写 `action: mirror` 效果一致；`mirror` 保留为意图标记（以及与多目标语义的兼容别名）。需要"命中后继续评估后续规则"时给两者配 `continue: true`。
+`forward` 与 `mirror` 在引擎内部走**完全相同**的执行路径，且**两者都接受** `target`（单目标）或 `targets`（多目标列表）。写 `action: forward` + `targets: [...]` 与写 `action: mirror` 效果一致。需要"命中后继续评估后续规则"时给两者配 `continue: true`。
 :::
 
 ```yaml
@@ -268,7 +268,7 @@ rules:
 ```
 
 ::: warning
-**未匹配任何规则的数据点会被丢弃。** CoreC 默认不转发（不同于代理工具的默认直连行为），强制显式声明路由意图。务必保留一条低优先级 `ALL` 兜底规则。
+**未匹配任何规则的数据点会被丢弃。** 务必保留一条低优先级 `ALL` 兜底规则。
 :::
 
 ---
@@ -397,7 +397,7 @@ transform:
 
 ```yaml
 rules:
-  # 1. 高温告警：转发到云 MQTT 并触发告警，然后继续正常转发
+  # 高温告警：转发到云 MQTT 并触发告警，然后继续正常转发
   - name: high-temp-alert
     match: "tag == 'temperature' && value > 95"
     action: alert
@@ -405,20 +405,20 @@ rules:
     priority: 1
     continue: true            # 告警后继续评估后续规则
 
-  # 2. 急停告警：高优先级
+  # 急停告警：高优先级
   - name: emergency-stop-alert
     match: "tag == 'emergency_stop' && value == true"
     action: alert
     target: cloud-mqtt
     priority: 2
 
-  # 3. 丢弃坏质量数据
+  # 丢弃坏质量数据
   - name: drop-bad-quality
     match: "quality == 'bad'"
     action: drop
     priority: 3
 
-  # 4. 温度单位换算后转发
+  # 温度单位换算后转发
   - name: celsius-to-fahrenheit
     match: "tag == 'temperature'"
     action: transform
@@ -428,7 +428,7 @@ rules:
       expression: "value * 1.8 + 32"
       tag-rename: "temperature_f"
 
-  # 5. 反应器数据镜像到 MQTT 与 MES 双通道
+  # 反应器数据镜像到 MQTT 与 MES 双通道
   - name: reactor-mirror
     match: "group == 'reactor'"
     action: mirror
@@ -437,7 +437,7 @@ rules:
       - mes-http-push
     priority: 10
 
-  # 6. 兜底：其余全部转发到 MES HTTP
+  # 兜底：其余全部转发到 MES HTTP
   - name: default-catch-all
     match: "ALL"
     action: forward

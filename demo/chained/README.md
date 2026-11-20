@@ -7,7 +7,7 @@
 
 - Docker + Docker Compose v2+
 - 首次运行会自动构建镜像（corec、mock-plc、http-sink、lora-sim），约 1-2 分钟
-- API 密钥通过 `COREC_API_SECRET` 环境变量注入（compose 已为 demo 预置 `demo-token`）；**生产部署请务必设置自己的强密钥，切勿沿用 demo 值**。配置模板中不再硬编码密钥，直接拷贝到生产若未设置该变量将以空密钥启动（fail-closed）。
+- API 密钥通过 `COREC_API_SECRET` 环境变量注入（compose 已为 demo 预置 `demo-token`）；**生产部署请务必设置自己的强密钥，切勿沿用 demo 值**。配置模板中不硬编码密钥；未设该变量时 secret 保留字面占位符 `${COREC_API_SECRET}`（会通过长度校验，等于用公开串当密钥），生产务必显式设置强密钥。
 
 ## 快速开始
 
@@ -49,6 +49,5 @@ docker compose down
 
 ## 场景⑦说明
 
-场景⑦的**数据上行**（A→B→云端）完全可用。
-**命令下行经中继透传**（云端→B→A）需配置 `command-forward-topic`（引擎已支持，见 `engine/command_manager.go:forwardCommand`）。
-如需测试命令下行，直接向 A 的 `command-topic` 发布命令即可（见 scenario7/README.md）。
+场景⑦的**数据上行**（A→B→云端）与**命令下行**（云端→B→A）均可用：B 已配置 `command-forward-topic`，收到云端命令后用 `command-forward-secret` 重签名并透传到 A（引擎的 `ForwardCommand` 路径）。
+测试命令下行见 scenario7/README.md（命令需携带 HMAC-SHA256 签名，签名发布配方在 scenario7/docker-compose.yml 头部注释）。

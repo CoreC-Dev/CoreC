@@ -1,30 +1,7 @@
-# ============================================================
 # CoreC Configuration Example
-# IIoT Data Collection and Distribution Core
-# ============================================================
-#
-# This file serves a dual purpose:
-#
-# 1. Minimal / Bootstrap config (ACTIVE, uncommented below):
-#    The smallest config that starts CoreC and exposes the Dashboard API.
-#    No drivers, transports, or rules are defined — CoreC starts in idle
-#    mode and the operator builds the full configuration entirely through
-#    the Dashboard (Config Center → PUT /configs, or the driver/transport/
-#    rule wizards).
-#
-#      COREC_API_SECRET=change-me-please ./corec -c config.example.yaml
-#
-#    At startup CoreC logs non-blocking warnings:
-#      - "no data source configured — running in idle mode ..."
-#      - "no transport configured — running in idle mode ..."
-#    These are expected: the engine runs with an empty pipeline until the
-#    first configuration is applied via the Dashboard.
-#
-# 2. Full working example (COMMENTED OUT below):
-#    A complete demo config (1 Modbus driver, 2 transports, 2 rules) plus
-#    all driver/transport/rule variants, derived tags, and notify transport.
-#    Uncomment any block to enable it. An empty or API-only config is a
-#    valid startup state.
+# Active content: minimal bootstrap config (global.api only; CoreC starts in idle mode).
+# Commented blocks: full example config — drivers/transports/rules and variants, derived tags, notify. Uncomment any block to enable it.
+# Start: COREC_API_SECRET=change-me-please ./corec -c config.example.yaml
 
 # --- Environment Variable Substitution ---
 # Any ${ENV_VAR} placeholder in the YAML (including tags-file contents)
@@ -51,13 +28,13 @@
 #   - topic-template, command-topic, parser auto-generated where omitted
 #   - node broadcasts heartbeats so other instances can find it
 #   - subscribe lists upstream nodes to auto-connect when they come online
-# When omitted entirely, all auto-discovery is disabled (backward compatible).
+# When omitted entirely, all auto-discovery is disabled.
 # See docs/guide/chained-core.md → "拓扑自动发现" for details.
 # node:
 #   id: edge-A                    # unique node identifier
 #   role: collector               # informational only: collector | relay | aggregator | sink
 #                                 # included in heartbeat/discovery metadata; not enforced by the engine
-#   # subscribe: [upstream-1]     # upstream node IDs to receive from (relay/sink only)
+#   # subscribe: [upstream-1]     # upstream node IDs to receive from
 #   # topic-prefix: topo          # default "topo"; auto topics use {prefix}/{node-id}/data/...
 
 global:
@@ -125,23 +102,22 @@ global:
 #     # alert-active-window: 15m           # how long an alert stays active after its last fire; silence clears it to history (default 15m)
 #     # write-audit-path: write-audit.jsonl # persist GET /write/history to an append-only JSONL file; replays the newest at startup (default: memory-only)
 #     # dead-letter-path: deadletters.jsonl # persist the write dead-letter queue to an append-only JSONL file;
-#     ##                                   replays into the queue at startup so crashed-out entries stay queryable/replayable.
+#     ##                                   replays into the in-memory queue at startup (query-only; no server-side re-execution).
 #     ##                                   Rotates to <path>.old past 5MiB (disk bounded at ~2x5MiB). Empty = disabled.
 
   ## Offline buffer (optional): persists failed publish batches to disk
-  ## for replay after transport recovery. Enabled per-engine, applies to all
-  ## transports with batch-size or flush-interval configured.
+  ## for replay after transport recovery. Enabled per-engine; applies to ALL
+  ## transports once enabled (a batcher with a default 5s flush is created
+  ## even without batch-size/flush-interval).
   # buffer:
     # enabled: true
     # path: /var/lib/corec/buffer  # buffer file directory (required when enabled=true)
     # max-size: 10000              # max buffered batches, evicts oldest when exceeded
 
-# ============================================================
 # Southbound Drivers
 # Supports: modbus-tcp, modbus-rtu, modbus-rtuovertcp, modbus-udp, modbus-rtuoverudp, modbus-tls, s7, opcua
-# ============================================================
 # drivers:
-#   ## 1. Modbus TCP Driver (PLC / Sensor Gateway)
+#   ## Modbus TCP Driver (PLC / Sensor Gateway)
 #   - name: plc-modbus
 #     type: modbus-tcp
 #     settings:
@@ -170,7 +146,7 @@ global:
 #         read-timeout: 500ms   # per-tag read timeout (optional, default = interval)
 #         scale: 0.1            # linear scaling: published = raw * scale + offset
 #         offset: -50.0         # e.g. raw=1000 → published=50.0 (optional, default 0)
-#         # ── trigger-gated collection ───────────────────────────────────────────────
+#         # trigger-gated collection
 #         # One condition point gates a group of detail points: the details are read only
 #         # in the cycles where the condition is true, and are republished as quality
 #         # uncertain (last-known-good) while suppressed.
@@ -188,7 +164,7 @@ global:
 #         group: actuators
 #         interval: 2s
 
-#   ## 1b. Modbus RTU Driver (Serial line, e.g. RS-485 sensor)
+#   ## Modbus RTU Driver (Serial line, e.g. RS-485 sensor)
 #   # - name: sensor-rtu
 #     # type: modbus-rtu
 #     # settings:
@@ -215,7 +191,7 @@ global:
 #         # group: actuators
 #         # interval: 2s
 
-#   ## 1c. Modbus RTU over TCP (serial-to-Ethernet gateway, RTU framing in TCP)
+#   ## Modbus RTU over TCP (serial-to-Ethernet gateway, RTU framing in TCP)
 #   # - name: rtu-gateway
 #     # type: modbus-rtuovertcp
 #     # settings:
@@ -234,7 +210,7 @@ global:
 #         # group: sensors
 #         # interval: 1s
 
-#   ## 1d. Modbus UDP (Modbus TCP over UDP)
+#   ## Modbus UDP (Modbus TCP over UDP)
 #   # - name: modbus-udp
 #     # type: modbus-udp
 #     # settings:
@@ -253,7 +229,7 @@ global:
 #         # group: sensors
 #         # interval: 1s
 
-#   ## 1e. Modbus RTU over UDP
+#   ## Modbus RTU over UDP
 #   # - name: rtu-udp
 #     # type: modbus-rtuoverudp
 #     # settings:
@@ -272,7 +248,7 @@ global:
 #         # group: sensors
 #         # interval: 1s
 
-#   ## 1f. Modbus TCP over TLS (encrypted, requires mutual-TLS certificates)
+#   ## Modbus TCP over TLS (encrypted, requires mutual-TLS certificates)
 #   # - name: modbus-tls
 #     # type: modbus-tls
 #     # settings:
@@ -294,7 +270,7 @@ global:
 #         # group: sensors
 #         # interval: 1s
 
-#   ## 2. Siemens S7 Driver (S7-300 / S7-1200 / S7-1500)
+#   ## Siemens S7 Driver (S7-300 / S7-1200 / S7-1500)
 #   # - name: siemens-s7-300
 #     # type: s7
 #     # settings:
@@ -324,7 +300,7 @@ global:
 #         # group: safety
 #         # interval: 200ms
 
-#   ## 3. OPC UA Client Driver (SCADA / MES / OPC Servers)
+#   ## OPC UA Client Driver (SCADA / MES / OPC Servers)
 #   # - name: opc-server
 #     # type: opcua
 #     # settings:
@@ -355,17 +331,14 @@ global:
 #         # group: production
 #         # interval: 2s
 
-# ============================================================
 # Northbound Transports
 # Supports: mqtt, http, notify
 #
 # IMPORTANT — field placement: batch-size, flush-interval, retry-count,
 # buffer-size, and fallback are TOP-LEVEL transport fields (siblings of
 # `settings`), NOT entries inside the `settings` map. Writing them inside
-# `settings` is a silent misconfiguration: they are ignored and the transport
-# falls back to synchronous single-point publishing with no error. Config
-# validation now fails fast on this mistake — see the correct indentation
-# in the examples below.
+# settings fails config validation with a move-it-up-one-level error —
+# see the correct indentation in the examples below.
 #
 # Chained Core: transports can also act as data *consumers* (inbound).
 # Set "data-topic" (MQTT) or "webhook-addr" (HTTP) to receive data from
@@ -373,9 +346,8 @@ global:
 # parsed and fed back into the engine's DataBus, flowing through rules
 # and being re-published to downstream transports — enabling multi-hop
 # relay topologies (edge → gateway → cloud).
-# ============================================================
 # transports:
-#   ## 1. MQTT Cloud Transport (Publish + Command Writeback + Chained Inbound)
+#   ## MQTT Cloud Transport (Publish + Command Writeback + Chained Inbound)
 #   - name: cloud-mqtt
 #     type: mqtt
 #     settings:
@@ -392,7 +364,7 @@ global:
 #       ##   tls-cert-file: client certificate PEM (enables mutual TLS / mTLS).
 #       ##   tls-key-file:  client private key PEM (must be set together with tls-cert-file).
 #       ## When no TLS scheme is used and no tls-* file is set, the connection
-#       ## stays plaintext (backward compatible).
+#       ## stays plaintext.
 #       ## If TLS files are set but the broker scheme is plaintext (tcp://), Init
 #       ## returns an ERROR rather than silently sending credentials in plaintext.
 #       ## Use a TLS scheme (mqtts://, ssl://, ...) to actually enable TLS.
@@ -402,10 +374,9 @@ global:
 #       qos: 1
 #       topic-template: "factory/{{.Driver}}/{{.Group}}/{{.Tag}}"
 #       # command-topic: "factory/commands/#"
-#       ## Command authentication (recommended for production): when set, command
-#       ## messages must carry hex(HMAC-SHA256(secret, payload)) in the
-#       ## "X-Signature" header or a "signature" JSON field. Empty = accept all
-#       ## commands (insecure, backward-compatible).
+#       ## Command authentication: Required with command-topic (startup fails
+#       ## without it). Signed commands carry hex(HMAC-SHA256(secret, canonical
+#       ## payload)) in the "X-Signature" or "signature" JSON field.
 #       # command-secret: "your-hmac-secret-here"
 #       ## --- Replay protection (optional, requires command-secret) ---
 #       ## When a command message includes a "timestamp" field (Unix milliseconds),
@@ -418,8 +389,7 @@ global:
 #       ##   command-max-skew:     allowed timestamp drift (default 5m).
 #       ##   command-strict-replay: when true, authenticated commands WITHOUT a
 #       ##     timestamp are rejected outright. When false (default), they are
-#       ##     accepted with a warning for backward compatibility with senders
-#       ##     that predate timestamp enforcement.
+#       ##     accepted with a warning.
 #       # command-max-skew: 5m
 #       # command-strict-replay: false
 #       ## Last Will and Testament: the broker publishes the
@@ -494,7 +464,7 @@ global:
 #     # retry-count: 3             # TOP-LEVEL field — publish retry count before offline-buffer/drop (default 0 = no retry)
 #     # fallback: mes-http-push     # fallback transport name (optional, used when this transport fails)
 
-#   ## 2. HTTP Webhook / REST Push (MES / Data Lake API + Chained Inbound)
+#   ## HTTP Webhook / REST Push (MES / Data Lake API + Chained Inbound)
 #   - name: mes-http-push
 #     type: http
 #     settings:
@@ -509,14 +479,14 @@ global:
 #       ## DataPoint(s) and fed into the engine's DataBus.
 #       # webhook-addr: "0.0.0.0:9091"
 #       # webhook-path: "/ingest"                        # URL path for webhook (default "/data")
-#       ## Webhook authentication (recommended for production): when set, requests
-#       ## must carry "Authorization: Bearer <secret>" or "X-Webhook-Secret: <secret>".
-#       ## Empty = accept all requests (insecure, backward-compatible).
+#       ## Webhook authentication: Required with webhook-addr (startup fails
+#       ## without it). Requests must carry "Authorization: Bearer <secret>"
+#       ## or "X-Webhook-Secret: <secret>".
 #       # webhook-secret: "your-webhook-secret-here"
 #       ## --- Webhook TLS (optional) ---
 #       ## When both tls-cert-file and tls-key-file are set, the webhook server
 #       ## listens over HTTPS (ListenAndServeTLS) instead of plaintext HTTP.
-#       ## When either is empty the webhook stays plaintext (backward-compatible).
+#       ## When either is empty the webhook stays plaintext.
 #       ## A partial config (only one of the two set) logs a warning and falls
 #       ## back to plaintext rather than failing to start.
 #       # tls-cert-file: /etc/corec/certs/webhook.crt   # server certificate PEM
@@ -534,7 +504,7 @@ global:
 #       #   group: "production"
 #       #   timestamp: "{{ .payload.ts }}"
 #       #   timestamp-format: "unix"
-#       ## Parser type 3: "raw" — payload is the scalar value, tag from header/path
+#       ## Parser type 3: "raw" — payload is the scalar value; use a static tag (topic-derived tags are MQTT-only)
 #       # parser:
 #       #   type: raw
 #       #   driver: "factory"
@@ -549,7 +519,6 @@ global:
 #     # flush-interval: 5s         # TOP-LEVEL field
 #     # retry-count: 3             # TOP-LEVEL field — publish retry count before offline-buffer/drop (default 0 = no retry)
 
-# ============================================================
 # Rules
 # Evaluated in priority order (lowest number = highest priority)
 # Actions: forward, drop, alert, transform, mirror
@@ -574,16 +543,15 @@ global:
 #   SUB-RULE:name           delegate to named sub-rule group
 #
 # Fields: driver, device, group, tag, quality, type, value
-# ============================================================
 
-# ── External Rule Providers (hot-reloadable) ──────────────────────
+# External Rule Providers (hot-reloadable)
 # rule-providers:
 #   # - name: safety-rules
 #     # type: file
 #     # path: ./rules/safety.yaml
 #     # interval: 30s          # auto-reload every 30s
 
-# ── Sub-Rule Groups (named, reusable) ─────────────────────────────
+# Sub-Rule Groups (named, reusable)
 # rule-groups:
 #   # high-priority-alert:
 #     # - name: bad-quality
@@ -661,9 +629,7 @@ global:
 #     target: mes-http-push
 #     priority: 999
 
-# ============================================================
 # Derived Tags (computed KPIs)
-# ============================================================
 # Derived tags are computed from other tags' latest cached values via
 # arithmetic expressions. They are evaluated on their own interval and
 # flow through the pipeline like any other data point (rules, transports).
@@ -691,9 +657,7 @@ global:
 #     interval: 10s
 #     unit: "°C"
 
-# ============================================================
 # Notify Transport (alert notifications)
-# ============================================================
 # The notify transport forwards data points to external alerting channels.
 # Use with a rule `action: forward, target: notify-xxx` to send alerts.
 # Channels: slack, teams, email, webhook.
