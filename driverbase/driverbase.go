@@ -202,7 +202,7 @@ func connectionEndpoint(driverType string, cfg core.DriverConfig) string {
 	}
 
 	switch driverType {
-	case "modbus-tcp", "modbus-tls", "modbus-net":
+	case "modbus-tcp", "modbus-tls":
 		host := get("host")
 		if host == "" {
 			return ""
@@ -214,16 +214,16 @@ func connectionEndpoint(driverType string, cfg core.DriverConfig) string {
 	case "modbus-rtu":
 		return get("serial-device")
 	case "s7":
-		ip := get("ip")
-		if ip == "" {
+		host := get("host")
+		if host == "" {
 			return ""
 		}
 		rack, _ := getInt("rack")
 		slot, _ := getInt("slot")
 		if rack != 0 || slot != 0 {
-			return fmt.Sprintf("%s (rack %d, slot %d)", ip, rack, slot)
+			return fmt.Sprintf("%s (rack %d, slot %d)", host, rack, slot)
 		}
-		return ip
+		return host
 	case "opcua":
 		return get("endpoint")
 	}
