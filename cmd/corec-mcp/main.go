@@ -30,6 +30,8 @@ import (
 // tight; the engine's own deadlines do the fine-grained enforcement.
 const defaultTimeout = 30 * time.Second
 
+var version = "dev" // injected via ldflags: -X main.version=<version>
+
 func main() {
 	var (
 		baseURL    = flag.String("url", "", "CoreC API base URL, e.g. http://127.0.0.1:8080 (required)")
@@ -38,6 +40,8 @@ func main() {
 		timeout    = flag.Duration("timeout", defaultTimeout, "per-request HTTP timeout")
 	)
 	flag.Parse()
+
+	serverVersion = version
 
 	if *baseURL == "" {
 		fmt.Fprintln(os.Stderr, "corec-mcp: -url is required (e.g. http://127.0.0.1:8080)")

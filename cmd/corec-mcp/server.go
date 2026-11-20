@@ -9,10 +9,11 @@ import (
 )
 
 const (
-	protoVersion  = "2025-06-18"
-	serverName    = "corec"
-	serverVersion = "1.0.0"
+	protoVersion = "2025-06-18"
+	serverName   = "corec"
 )
+
+var serverVersion = "dev"
 
 // server is a stateless MCP adapter over the CoreC control-plane REST API.
 // It owns no device state: every tool call is one authenticated HTTP request.

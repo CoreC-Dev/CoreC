@@ -55,6 +55,51 @@ func TestInitializeAndToolsListReadOnly(t *testing.T) {
 	}
 }
 
+// TestServerVersionReflectsInjectedVersion: serverVersion defaults to "dev"
+// and main assigns the ldflags-injected version to it before serving, so the
+// initialize response must report that value.
+func TestServerVersionReflectsInjectedVersion(t *testing.T) {
+	srv, _ := fakeCoreC(t, 200, `{}`)
+	s := &server{base: srv.URL, secret: "sekrit", client: srv.Client()}
+
+	orig := serverVersion
+	t.Cleanup(func() { serverVersion = orig })
+
+	serverVersion = "dev"
+	info := serverInfoOf(t, s)
+	if info["version"] != "dev" {
+		t.Errorf("default serverVersion = %v, want dev", info["version"])
+	}
+
+	serverVersion = "9.9.9-test"
+	info = serverInfoOf(t, s)
+	if info["version"] != "9.9.9-test" {
+		t.Errorf("initialize serverInfo.version = %v, want the assigned version", info["version"])
+	}
+}
+
+func serverInfoOf(t *testing.T, s *server) map[string]any {
+	t.Helper()
+	resp := s.handleLine([]byte(`{"jsonrpc":"2.0","id":1,"method":"initialize"}`))
+	b, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal initialize response: %v", err)
+	}
+	var out struct {
+		Result struct {
+			ServerInfo map[string]any `json:"serverInfo"`
+		} `json:"result"`
+		Error *rpcError `json:"error"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("unmarshal initialize response: %v", err)
+	}
+	if out.Error != nil {
+		t.Fatalf("initialize failed: %+v", out.Error)
+	}
+	return out.Result.ServerInfo
+}
+
 func TestWriteToolsExposedWithAllowWrite(t *testing.T) {
 	srv, _ := fakeCoreC(t, 200, `{}`)
 	s := &server{base: srv.URL, secret: "sekrit", client: srv.Client(), write: true}
