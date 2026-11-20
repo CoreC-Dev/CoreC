@@ -1,8 +1,6 @@
 // Package parser provides pluggable parsing of incoming transport payloads
 // (MQTT messages, HTTP webhook bodies) into core.DataPoint values.
 //
-// Different transport sources speak different wire formats, so different
-// parsers are needed.
 // The "default" parser handles CoreC→CoreC chaining (both sides share the
 // same DataPoint JSON schema); "jsonpath" maps arbitrary JSON fields onto
 // DataPoint via configurable paths; "raw" treats the entire payload as
@@ -33,7 +31,8 @@ type Parser interface {
 //	parser.driver      static string for driver field
 //	parser.tag         path or static string
 //	parser.value       path (jsonpath) — for "raw" ignored
-//	parser.type-field  path or static for DataType
+//	parser.data-type   Go type name (optional for jsonpath; raw defaults to float64)
+//	parser.tag-from-topic  raw: use Nth topic segment as tag (0 = static tag)
 //	parser.group       static string
 //	parser.device      static string
 //	parser.timestamp   path
@@ -42,7 +41,7 @@ type Parser interface {
 // When parser.type is absent or "default", the parser is a straight
 // json.Unmarshal into DataPoint — the zero-cost path for CoreC→CoreC.
 //
-// For "jsonpath", field values use Go template syntax (backward-compatible):
+// For "jsonpath", field values use Go template syntax:
 //
 //	"{{ .payload.dev_id }}"  →  gjson path "dev_id"
 //	"{{ .topic }}"           →  the MQTT topic string
@@ -127,8 +126,7 @@ func (f jsonPathField) resolve(payload []byte, topic string) string {
 // (number, bool, string) instead of always returning a string. When a
 // data-type is configured and it is an integer type, number tokens are
 // parsed exactly from their digits — gjson's .Value() coerces every
-// number to float64, which rounds integers above ±2^53 (the same
-// corruption class the core DataPoint.UnmarshalJSON fix addresses).
+// number to float64, which rounds integers above ±2^53.
 func (f jsonPathField) resolveValue(payload []byte, topic string, dt core.DataType, typed bool) any {
 	if f.isStatic {
 		return parseTplValueString(f.static)
@@ -186,7 +184,6 @@ func newJSONPathParser(s map[string]any) (*jsonPathParser, error) {
 }
 
 func (p *jsonPathParser) Parse(payload []byte, topic string) (core.DataPoint, error) {
-	// Validate JSON (gjson handles parsing lazily, but we check validity)
 	if !gjson.ValidBytes(payload) {
 		return core.DataPoint{}, fmt.Errorf("jsonpath parser: invalid JSON")
 	}
@@ -201,7 +198,7 @@ func (p *jsonPathParser) Parse(payload []byte, topic string) (core.DataPoint, er
 
 	// The configured data-type drives exact number decoding for integer
 	// types (see resolveValue); when absent the value keeps gjson's
-	// native typing, matching the historical behavior.
+	// native typing.
 	var dt core.DataType
 	typed := p.typeStr != ""
 	if typed {
@@ -213,7 +210,6 @@ func (p *jsonPathParser) Parse(payload []byte, topic string) (core.DataPoint, er
 		dp.Type = dt
 	}
 
-	// Timestamp
 	tsStr := p.timestampField.resolve(payload, topic)
 	if tsStr != "" {
 		dp.Timestamp = parseTimestamp(tsStr, p.timestampFmt)
@@ -259,7 +255,6 @@ func (p *rawParser) Parse(payload []byte, topic string) (core.DataPoint, error) 
 		Timestamp: time.Now(),
 	}
 
-	// Determine tag
 	if p.tagFromTopic > 0 {
 		segs := strings.Split(topic, "/")
 		if p.tagFromTopic <= len(segs) {
@@ -269,7 +264,6 @@ func (p *rawParser) Parse(payload []byte, topic string) (core.DataPoint, error) 
 		dp.Tag = p.tag
 	}
 
-	// Parse value based on type
 	valStr := strings.TrimSpace(string(payload))
 	dt, _ := core.ParseDataType(p.typeStr)
 	dp.Type = dt
@@ -277,9 +271,6 @@ func (p *rawParser) Parse(payload []byte, topic string) (core.DataPoint, error) 
 
 	return dp, nil
 }
-
-// ============================================================
-// ============================================================
 
 func getMapSetting(settings map[string]any, key string) map[string]any {
 	if v, ok := settings[key].(map[string]any); ok {
@@ -289,7 +280,7 @@ func getMapSetting(settings map[string]any, key string) map[string]any {
 }
 
 // parseTplValueString tries to preserve the original JSON type from a
-// static string value (for backward compatibility with non-template configs).
+// static string value.
 func parseTplValueString(s string) any {
 	s = strings.TrimSpace(s)
 	if s == "true" {

@@ -9,7 +9,7 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// ─── Replay-protection config parsing ───────────────────────────────
+// Replay-protection config parsing
 
 func TestReplayConfigParsing(t *testing.T) {
 	t.Run("defaults when unset", func(t *testing.T) {
@@ -43,7 +43,7 @@ func TestReplayConfigParsing(t *testing.T) {
 	})
 }
 
-// ─── Canonical signing bytes ────────────────────────────────────────
+// Canonical signing bytes
 
 func TestCommandSigningBytes(t *testing.T) {
 	t.Run("removes signature fields", func(t *testing.T) {
@@ -154,7 +154,7 @@ func TestCommandSigningBytesRoundTrip(t *testing.T) {
 	}
 }
 
-// ─── Timestamp extraction & freshness ───────────────────────────────
+// Timestamp extraction & freshness
 
 func TestExtractCommandTimestamp(t *testing.T) {
 	cases := []struct {
@@ -211,7 +211,7 @@ func TestIsCommandTimestampFresh(t *testing.T) {
 	}
 }
 
-// ─── Signed command construction helper ────────────────────────────
+// Signed command construction helper
 
 // buildSignedCommand constructs a command payload with a valid HMAC
 // signature over the canonical signing bytes, optionally including a
@@ -234,7 +234,7 @@ func buildSignedCommand(secret string, ts int64, includeTS bool) []byte {
 	return payload
 }
 
-// ─── handleCommandMessage replay-protection integration ─────────────
+// handleCommandMessage replay-protection integration
 
 func TestReplayValidFreshTimestampAccepted(t *testing.T) {
 	// A signed command with a fresh timestamp is accepted and forwarded.
@@ -302,10 +302,8 @@ func TestReplayTimestampedWrongSignatureRejected(t *testing.T) {
 }
 
 func TestReplayNoTimestampBackwardCompatAccepted(t *testing.T) {
-	// Backward compatibility: a signed command WITHOUT a timestamp is
-	// accepted (with a warning logged) when command-strict-replay is
-	// false (the default).  This preserves existing signed-command
-	// senders that predate replay protection.
+	// A signed command WITHOUT a timestamp is accepted (with a warning
+	// logged) when command-strict-replay is false (the default).
 	mtr := newCommandTransport(t, "replay-nots-backcompat", "secret")
 	payload := buildSignedCommand("secret", 0, false)
 
@@ -430,8 +428,7 @@ func TestReplayDifferentCommandsBothAccepted(t *testing.T) {
 }
 
 // signedNoTSCommand builds a validly-signed command payload WITHOUT a
-// timestamp and with the given value, mirroring a legacy signed-command
-// sender.
+// timestamp and with the given value.
 func signedNoTSCommand(secret string, value float64) []byte {
 	fields := map[string]any{
 		"driver": "opc",
@@ -448,15 +445,13 @@ func signedNoTSCommand(secret string, value float64) []byte {
 
 // TestReplayNoTimestampDuplicateRejected is the non-strict replay
 // regression test: in non-strict mode a timestamp-less signed command
-// is accepted once (documented backward compatibility), but the replay
-// window must drop an exact re-send within the window — without it the
-// same signed payload could be replayed indefinitely and executed every
-// time.
+// is accepted once, but the replay window must drop an exact re-send
+// within the window.
 func TestReplayNoTimestampDuplicateRejected(t *testing.T) {
 	mtr := newCommandTransport(t, "replay-nots-dup", "secret")
 	payload := buildSignedCommand("secret", 0, false)
 
-	// First send: accepted (legacy senders keep working).
+	// First send: accepted.
 	mtr.handleCommandMessage("commands/opc/set", payload)
 	if got := drainCommand(mtr); got == nil {
 		t.Fatal("first send of a timestamp-less command must be accepted in non-strict mode")
@@ -491,9 +486,9 @@ func TestReplayNoTimestampDistinctCommandsAccepted(t *testing.T) {
 
 // TestReplayNoTimestampNoWindowNoGuard pins the explicit operator opt-out:
 // command-max-skew <= 0 disables the replay window entirely (for both
-// timestamped and timestamp-less commands), so duplicates of legacy
-// commands are accepted. This documents that the new no-timestamp replay
-// guard is tied to the replay window being active, not to the strict flag.
+// timestamped and timestamp-less commands), so duplicates are accepted.
+// The no-timestamp replay guard is tied to the replay window being
+// active, not to the strict flag.
 func TestReplayNoTimestampNoWindowNoGuard(t *testing.T) {
 	mtr := newInitdTransport(t, "replay-nots-noguard", map[string]any{
 		"broker":           "tcp://127.0.0.1:1883",

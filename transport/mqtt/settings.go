@@ -6,8 +6,7 @@ import (
 )
 
 // ValidateSettings implements core.SettingsValidator: rejects unknown
-// keys so typos like `brokr` fail at
-// config-validate time instead of silently connecting nowhere. The
+// keys so typos like `brokr` fail at config-validate time. The
 // drift test (transport/settings_drift_test.go) fails when a key parsed
 // by publisher.go is missing here.
 func (t *MQTTTransport) ValidateSettings(settings map[string]any) error {

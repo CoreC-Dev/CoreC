@@ -20,9 +20,8 @@ import (
 	"github.com/CoreC-Dev/CoreC/transport/parser"
 )
 
-// TypeName identifies this transport's protocol. It is returned by Type()
-// and embedded in Status() so the transport kind is reported consistently
-// from a single source of truth rather than a scattered string literal.
+// TypeName identifies this transport's protocol, returned by Type() and
+// embedded in Status().
 const TypeName = "http"
 
 // HTTPTransport implements core.Transport for pushing collected data to HTTP endpoints.
@@ -32,7 +31,6 @@ type HTTPTransport struct {
 	name   string
 	config core.TransportConfig
 
-	// HTTP client settings
 	url     string
 	method  string
 	headers map[string]string
@@ -40,25 +38,24 @@ type HTTPTransport struct {
 	timeout time.Duration
 
 	// Webhook server (chained-core inbound — receives data via HTTP POST)
-	webhookAddr    string // listen address, e.g. ":9090"
-	webhookPath    string // URL path, e.g. "/data"
-	webhookSecret  string // shared secret for authenticating webhook requests; empty = no auth
-	webhookTLSCert string // PEM cert file path for the webhook server (enables HTTPS); empty = plaintext
-	webhookTLSKey  string // PEM key file path for the webhook server (enables HTTPS); empty = plaintext
+	webhookAddr   string // listen address, e.g. ":9090"
+	webhookPath   string // URL path, e.g. "/data"
+	webhookSecret string // shared secret for authenticating webhook requests; empty = not configured, Start refuses to start when webhook-addr is set and this is empty
+	// Webhook TLS: HTTPS requires both tls-cert-file and tls-key-file;
+	// configuring only one logs a warning and falls back to plaintext (see Start).
+	webhookTLSCert string // PEM cert file path for the webhook server
+	webhookTLSKey  string // PEM key file path for the webhook server
 	webhookSrv     *http.Server
 	dataParser     parser.Parser
 	dataCh         chan core.DataPoint
 	received       atomic.Uint64
 
-	// State
 	state core.ConnState
 
-	// Counters
 	published   atomic.Uint64
 	failed      atomic.Uint64
 	lastPublish time.Time
 
-	// Command channel (HTTP is typically unidirectional push, but can receive commands via webhook if extended)
 	commandCh chan core.WriteCommand
 
 	// stopOnce ensures Stop() is idempotent — double close of commandCh would panic.
@@ -89,9 +86,7 @@ func (t *HTTPTransport) Init(ctx context.Context, config core.TransportConfig) e
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	// Keep the full config so PublishBatch can read RetryCount.  This is
-	// set here (under the lock) rather than only at construction so that
-	// a re-Init with a different config is honoured.
+	// Keep the full config so PublishBatch can read RetryCount.
 	t.config = config
 	settings := config.Settings
 
@@ -102,7 +97,6 @@ func (t *HTTPTransport) Init(ctx context.Context, config core.TransportConfig) e
 		return err
 	}
 
-	// Must have at least an outbound URL or an inbound webhook
 	if t.url == "" && t.webhookAddr == "" {
 		return fmt.Errorf("http transport: either url or webhook-addr is required")
 	}
@@ -167,11 +161,9 @@ func (t *HTTPTransport) parseWebhookSettings(settings map[string]any) error {
 	}
 	t.webhookAddr = addr
 	t.webhookPath = util.GetStringSetting(settings, "webhook-path", "/data")
-	// Optional shared secret for authenticating webhook POSTs.
 	if secret, ok := settings["webhook-secret"].(string); ok {
 		t.webhookSecret = secret
 	}
-	// Optional TLS for the webhook server.
 	if cert, ok := settings["tls-cert-file"].(string); ok {
 		t.webhookTLSCert = cert
 	}
@@ -196,8 +188,7 @@ func (t *HTTPTransport) Start(ctx context.Context) error {
 	// Start webhook server if configured (chained-core inbound)
 	if t.webhookAddr != "" {
 		// Fail-closed: if a webhook address is configured but no
-		// webhook-secret is set, reject startup. Accepting unauthenticated
-		// requests would allow any client to POST data to the webhook.
+		// webhook-secret is set, reject startup.
 		if t.webhookSecret == "" {
 			return fmt.Errorf("http transport %s: webhook-addr %q is configured but webhook-secret is empty; refusing to start without webhook authentication (set webhook-secret or remove webhook-addr)",
 				t.name, t.webhookAddr)
@@ -214,9 +205,7 @@ func (t *HTTPTransport) Start(ctx context.Context) error {
 		go func() {
 			// TLS is enabled only when both the cert and key file paths
 			// are configured.  When only one is set we warn and fall
-			// back to plaintext rather than failing to start, so a
-			// partial TLS config degrades safely instead of breaking
-			// the inbound path.
+			// back to plaintext.
 			if t.webhookTLSCert != "" && t.webhookTLSKey != "" {
 				slog.Info("http webhook server starting (TLS)",
 					"name", t.name, "addr", t.webhookAddr, "path", t.webhookPath)
@@ -247,7 +236,6 @@ func (t *HTTPTransport) Stop() error {
 			t.cancel()
 		}
 
-		// Shutdown webhook server if running
 		if t.webhookSrv != nil {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -272,7 +260,6 @@ func (t *HTTPTransport) Publish(ctx context.Context, point core.DataPoint) error
 }
 
 func (t *HTTPTransport) PublishBatch(ctx context.Context, points []core.DataPoint) error {
-	// Webhook-only inbound mode: no outbound URL, skip publishing
 	if t.url == "" {
 		return nil
 	}
@@ -297,8 +284,7 @@ func (t *HTTPTransport) PublishBatch(ctx context.Context, points []core.DataPoin
 	// backoff (500ms, 1s, 2s, ...).  Transient failures are network
 	// errors and 5xx responses; 4xx (and other non-2xx non-5xx) responses
 	// are client errors that will not change on retry and are returned
-	// immediately.  A RetryCount of 0 disables retry (single attempt),
-	// preserving the previous behaviour.
+	// immediately.  A RetryCount of 0 disables retry (single attempt).
 	var lastErr error
 	backoff := 500 * time.Millisecond
 	maxAttempts := retryCount + 1
@@ -346,7 +332,7 @@ func (t *HTTPTransport) PublishBatch(ctx context.Context, points []core.DataPoin
 	return lastErr
 }
 
-// publishSnapshot captures the publish-relevant state under a read lock.
+// publishSnapshot is a read-only snapshot of the publish-relevant state.
 type publishSnapshot struct {
 	client     *http.Client
 	url        string

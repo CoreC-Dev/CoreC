@@ -1,4 +1,4 @@
-// client-option assembly, TLS wiring, and the command/data subscriptions.
+// mqtt_lifecycle.go covers client-option assembly, TLS wiring, and the command/data subscriptions.
 package mqtt
 
 import (
@@ -25,11 +25,8 @@ func (t *MQTTTransport) Start(ctx context.Context) (err error) {
 		}
 	}()
 
-	// Warn if a command topic is configured without a command secret: in
-	// that mode command messages are accepted unauthenticated, which is
 	// Fail-closed: if a command topic is configured but no command-secret is
-	// set, reject startup. Accepting unauthenticated command messages would
-	// allow any MQTT client to issue PLC write commands.
+	// set, reject startup.
 	if t.commandTopic != "" && t.commandSecret == "" {
 		return fmt.Errorf("mqtt transport %s: command-topic %q is configured but command-secret is empty; refusing to start without command authentication (set command-secret or remove command-topic)",
 			t.name, t.commandTopic)
@@ -80,8 +77,7 @@ func (t *MQTTTransport) buildMQTTOptions() *pahomqtt.ClientOptions {
 	}
 	// Arm the Last Will when configured: the broker publishes
 	// it if this CoreC instance disappears without a DISCONNECT —
-	// downstream systems get a broker-side liveness signal instead of
-	// waiting for scrape gaps.
+	// downstream systems get a broker-side liveness signal.
 	if t.willTopic != "" && len(t.willPayload) > 0 {
 		opts.SetBinaryWill(t.willTopic, t.willPayload, t.willQoS, t.willRetain)
 		slog.Info("mqtt last-will armed",
@@ -125,8 +121,8 @@ func (t *MQTTTransport) buildMQTTOptions() *pahomqtt.ClientOptions {
 // connectMQTT drives the initial connection attempt. When neither
 // auto-reconnect nor connect-retry is enabled, a timeout or error is surfaced
 // as a hard failure (no background mechanism would ever recover). When a
-// retry mechanism is enabled, the historical behaviour is preserved: the
-// failure is logged and nil is returned so the background retry recovers.
+// retry mechanism is enabled, the failure is logged and nil is returned so
+// the background retry recovers.
 func (t *MQTTTransport) connectMQTT() error {
 	token := t.client.Connect()
 	if ok := token.WaitTimeout(t.connectTimeout); !ok {

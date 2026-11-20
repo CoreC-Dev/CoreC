@@ -20,12 +20,10 @@ import (
 //   - the three persistConn entries are the CLIENT side: http.Transport's
 //     keep-alive connection read/write loops, which CloseIdleConnections
 //     reaps lazily.
-//     Under full-suite -race load both shapes race goleak intermittently.
 //     The (*FD).WaitRead ignore does not match these stacks —
-//     they sit in (*pollDesc).waitRead (lowercase, a different function) —
-//     so the http-level ignores are the ones that actually bite. All
-//     ignored goroutines are runtime-managed idle connections; a genuine
-//     product leak elsewhere is still caught.
+//     they sit in (*pollDesc).waitRead (lowercase, a different function).
+//     All ignored goroutines are runtime-managed idle connections; a
+//     genuine product leak elsewhere is still caught.
 func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m,
 		goleak.IgnoreAnyFunction("internal/poll.(*FD).WaitWrite"),

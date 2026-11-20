@@ -160,8 +160,7 @@ func TestMQTTConfigParsing(t *testing.T) {
 }
 
 // TestMQTTOnCommandChannel verifies the command-forwarding plumbing: after
-// Init, OnCommand() returns a non-nil, readable channel. (A full end-to-end
-// command round-trip requires a broker and is covered by integration tests.)
+// Init, OnCommand() returns a non-nil, readable channel.
 func TestMQTTOnCommandChannel(t *testing.T) {
 	transportCfg := core.TransportConfig{
 		Name: "test-mqtt-cmd",

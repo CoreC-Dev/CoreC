@@ -39,7 +39,7 @@ func newInitdTransport(t *testing.T, name string, settings map[string]any) *MQTT
 	return mtr
 }
 
-// ─── Init error paths ───────────────────────────────────────────────
+// Init error paths
 
 // TestMQTTInitErrorPaths verifies that Init rejects malformed configuration
 // with descriptive errors rather than panicking or silently succeeding.
@@ -104,7 +104,7 @@ func TestMQTTInitErrorPaths(t *testing.T) {
 	}
 }
 
-// ─── Config parsing edge cases ──────────────────────────────────────
+// Config parsing edge cases
 
 // TestMQTTConfigParsingEdgeCases verifies that YAML-style values (float64
 // numbers, string durations, bool flags, credentials) are parsed into the
@@ -131,7 +131,6 @@ func TestMQTTConfigParsingEdgeCases(t *testing.T) {
 	}
 	mtr := newInitdTransport(t, "edge-mqtt", settings)
 
-	// Broker
 	if mtr.broker != "tcp://broker.local:1883" {
 		t.Errorf("broker: got %q, want tcp://broker.local:1883", mtr.broker)
 	}
@@ -144,18 +143,15 @@ func TestMQTTConfigParsingEdgeCases(t *testing.T) {
 	if mtr.qos != 2 {
 		t.Errorf("qos: got %d, want 2", mtr.qos)
 	}
-	// Retained flag
 	if !mtr.retained {
 		t.Error("retained: got false, want true")
 	}
-	// Credentials
 	if mtr.username != "user1" {
 		t.Errorf("username: got %q, want user1", mtr.username)
 	}
 	if mtr.password != "pass1" {
 		t.Errorf("password: got %q, want pass1", mtr.password)
 	}
-	// Parsed durations
 	if mtr.keepAlive != 30*time.Second {
 		t.Errorf("keepAlive: got %v, want 30s", mtr.keepAlive)
 	}
@@ -175,7 +171,6 @@ func TestMQTTConfigParsingEdgeCases(t *testing.T) {
 	if mtr.disconnectQuiesce != 500*time.Millisecond {
 		t.Errorf("disconnectQuiesce: got %v, want 500ms", mtr.disconnectQuiesce)
 	}
-	// Bool flags overridden to false
 	if mtr.autoReconnect {
 		t.Error("autoReconnect: got true, want false")
 	}
@@ -185,7 +180,6 @@ func TestMQTTConfigParsingEdgeCases(t *testing.T) {
 	if mtr.connectRetry {
 		t.Error("connectRetry: got true, want false")
 	}
-	// Topics
 	if mtr.commandTopic != "cmd/+/set" {
 		t.Errorf("commandTopic: got %q, want cmd/+/set", mtr.commandTopic)
 	}
@@ -217,8 +211,8 @@ func TestMQTTConfigDefaults(t *testing.T) {
 	if mtr.connectTimeout != 10*time.Second {
 		t.Errorf("default connectTimeout: got %v, want 10s", mtr.connectTimeout)
 	}
-	// connectRetryInterval has ±20% jitter applied at Init time to
-	// prevent thundering-herd. Verify it's within [4s, 6s].
+	// connectRetryInterval has ±20% jitter applied at Init time.
+	// Verify it's within [4s, 6s].
 	if mtr.connectRetryInterval < 4*time.Second || mtr.connectRetryInterval > 6*time.Second {
 		t.Errorf("default connectRetryInterval: got %v, want 4s–6s (5s ±20%% jitter)", mtr.connectRetryInterval)
 	}
@@ -265,7 +259,7 @@ func TestMQTTConfigExplicitClientID(t *testing.T) {
 	}
 }
 
-// ─── Metadata: Name / Type / Status ─────────────────────────────────
+// Metadata: Name / Type / Status
 
 // TestMQTTMetadataAndStatus verifies the metadata accessors and the Status
 // snapshot immediately after Init (no Start): the transport is disconnected,
@@ -332,7 +326,7 @@ func TestMQTTStatusQueueSize(t *testing.T) {
 	}
 }
 
-// ─── OnData ─────────────────────────────────────────────────────────
+// OnData
 
 // TestMQTTOnDataChannel verifies OnData returns nil when no data-topic is
 // configured, and a usable non-nil channel (with round-trip and identity)
@@ -377,7 +371,7 @@ func TestMQTTOnDataChannel(t *testing.T) {
 	})
 }
 
-// ─── OnCommand (thorough) ───────────────────────────────────────────
+// OnCommand (thorough)
 
 // TestMQTTOnCommandChannelThorough verifies the command channel is non-nil,
 // buffered to the configured capacity, supports a full round-trip, and is
@@ -436,7 +430,7 @@ func TestMQTTOnCommandChannelThorough(t *testing.T) {
 	}
 }
 
-// ─── Stop ───────────────────────────────────────────────────────────
+// Stop
 
 // TestMQTTStopNotConnected verifies that Stop is safe to call on a transport
 // that was never started (no client, no cancel), returns no error, leaves the
@@ -474,7 +468,7 @@ func TestMQTTStopNotConnected(t *testing.T) {
 	})
 }
 
-// ─── Publish / PublishBatch (not connected) ─────────────────────────
+// Publish / PublishBatch (not connected)
 
 // TestMQTTPublishNotConnected verifies that Publish on a transport with no
 // connected client returns a descriptive error (mentioning the transport

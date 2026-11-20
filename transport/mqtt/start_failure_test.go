@@ -59,8 +59,8 @@ func TestMQTTStartFailsWhenNoReconnect(t *testing.T) {
 }
 
 // TestMQTTStartReturnsNilWhenReconnectEnabled verifies that when a retry
-// mechanism is enabled, Start() preserves the historical behaviour of
-// returning nil and letting the background retry recover the connection.
+// mechanism is enabled, Start() returns nil and lets the background retry
+// recover the connection.
 func TestMQTTStartReturnsNilWhenReconnectEnabled(t *testing.T) {
 	addr := closedPort(t)
 	mtr := newInitdTransport(t, "reconnect-on", map[string]any{

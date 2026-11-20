@@ -150,9 +150,7 @@ func optTemplate(settings map[string]any, key, def string) (*template.Template, 
 // ValidateSettings implements core.SettingsValidator: rejects unknown
 // keys and checks the string-typed values
 // at config-validate time (the full channel-specific parsing — required
-// fields, durations, templates — still runs at Init). The drift test
-// (transport/settings_drift_test.go) fails when a key parsed by the
-// channel senders is missing here.
+// fields, durations, templates — still runs at Init).
 func (t *NotifyTransport) ValidateSettings(settings map[string]any) error {
 	known := map[string]bool{
 		"channel": true, "cooldown": true, "template": true,

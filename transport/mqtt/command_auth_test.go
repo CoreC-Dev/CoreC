@@ -8,7 +8,7 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// ─── HMAC signature primitives ──────────────────────────────────────
+// HMAC signature primitives
 
 func TestComputeHMACSignature(t *testing.T) {
 	// Sanity check on the hex(HMAC-SHA256(secret, payload)) helper.
@@ -94,7 +94,7 @@ func TestExtractCommandSignature(t *testing.T) {
 	})
 }
 
-// ─── handleCommandMessage integration ───────────────────────────────
+// handleCommandMessage integration
 
 // newCommandTransport builds an Init'd MQTTTransport with the given
 // command-secret (empty disables auth).
@@ -121,8 +121,8 @@ func drainCommand(mtr *MQTTTransport) *core.WriteCommand {
 }
 
 func TestHandleCommandMessageNoSecret(t *testing.T) {
-	// Backward compatibility: with no command-secret, unsigned command
-	// messages are accepted and forwarded to the command channel.
+	// With no command-secret, unsigned command messages are accepted and
+	// forwarded to the command channel.
 	mtr := newCommandTransport(t, "noauth", "")
 	cmd := core.WriteCommand{Driver: "opc", Tag: "setpoint", Value: 42.0, Type: core.TypeFloat64}
 	payload, _ := json.Marshal(cmd)

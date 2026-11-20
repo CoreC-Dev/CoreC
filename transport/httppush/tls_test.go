@@ -108,8 +108,7 @@ func TestWebhookTLSConfigParsed(t *testing.T) {
 }
 
 // TestWebhookTLSBackwardCompatPlaintext verifies that when no TLS files are
-// configured the webhook TLS fields stay empty — existing plaintext
-// setups are unaffected.
+// configured the webhook TLS fields stay empty.
 func TestWebhookTLSBackwardCompatPlaintext(t *testing.T) {
 	htr := initHTTPTransport(t, "wh-plain-cfg", map[string]any{
 		"url":          "http://localhost:9999/x",
@@ -125,7 +124,7 @@ func TestWebhookTLSBackwardCompatPlaintext(t *testing.T) {
 }
 
 // TestWebhookPlaintextStillWorks verifies the end-to-end plaintext webhook
-// path is unchanged when no TLS files are set (backward compatibility).
+// path when no TLS files are set.
 func TestWebhookPlaintextStillWorks(t *testing.T) {
 	tr, addr := newWebhookTransport(t, "wh-plain-e2e", "s3cr3t")
 	defer tr.Stop()

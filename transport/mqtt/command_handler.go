@@ -22,16 +22,12 @@ import (
 // includes a "timestamp" field (Unix milliseconds), the signature is
 // verified over the canonical signing bytes (payload with the signature
 // fields removed) and the timestamp must fall within ±commandMaxSkew of
-// the current time.  Messages without a timestamp are accepted for
-// backward compatibility when command-strict-replay is false (a warning
-// is logged, since such messages cannot carry a freshness bound), and
-// rejected when command-strict-replay is true.  In the backward-compatible
-// case the replay window still applies: while a timestamp-less signature
-// cannot be freshness-checked, the same payload can only be accepted once
-// per replay window (otherwise such
-// messages could be re-sent indefinitely and executed every time).
-// Production deployments should set command-strict-replay: true so
-// timestamp-less commands are rejected outright.
+// the current time.  Messages without a timestamp are accepted with a
+// warning when command-strict-replay is false, and rejected when
+// command-strict-replay is true.  In the non-strict case the replay
+// window still applies: while a timestamp-less signature cannot be
+// freshness-checked, the same payload can only be accepted once per
+// replay window.
 func (t *MQTTTransport) handleCommandMessage(topic string, payload []byte) {
 	slog.Debug("mqtt command received",
 		"topic", topic,
@@ -41,20 +37,15 @@ func (t *MQTTTransport) handleCommandMessage(topic string, payload []byte) {
 	// Message-level authentication: when a command-secret is configured,
 	// every command message must carry a valid HMAC-SHA256 signature.
 	// The signature is carried in either an "X-Signature" or "signature"
-	// JSON field.  This prevents any client that can merely publish to
-	// the command topic from injecting arbitrary control commands.
+	// JSON field.
 	if t.commandSecret != "" {
 		provided := extractCommandSignature(payload)
 		ts, hasTS := extractCommandTimestamp(payload)
 
 		if !hasTS {
-			// Legacy path: no timestamp.  Verify the HMAC over the
-			// canonical signing bytes (signature fields excluded) so
-			// that properly-constructed signed commands are accepted.
-			// This preserves backward compatibility with existing
-			// signed-command senders while making the signature
-			// verifiable (the signature value is not part of the
-			// bytes being signed).
+			// No timestamp: verify the HMAC over the canonical signing
+			// bytes (the signature value is not part of the bytes being
+			// signed).
 			if !verifyHMACSignature(t.commandSecret, commandSigningBytes(payload), provided) {
 				slog.Error("mqtt: command signature verification failed, dropping command",
 					"topic", topic, "name", t.name)
@@ -66,12 +57,11 @@ func (t *MQTTTransport) handleCommandMessage(topic string, payload []byte) {
 				return
 			}
 			// A timestamp-less signature carries no freshness bound, so
-			// the replay window is the only replay guard available for
-			// the legacy path: the first
-			// arrival is still accepted for backward compatibility, but
-			// the same payload cannot be accepted twice within the
-			// window. When the window is disabled (command-max-skew <= 0)
-			// there is no guard — replay protection is off entirely.
+			// the replay window is the only replay guard: the first
+			// arrival is accepted, but the same payload cannot be
+			// accepted twice within the window. When the window is
+			// disabled (command-max-skew <= 0) there is no guard —
+			// replay protection is off entirely.
 			if t.replayCache != nil {
 				msgHash := fmt.Sprintf("%x", sha256.Sum256(payload))
 				if !t.replayCache.checkAndAdd(msgHash) {
@@ -98,10 +88,10 @@ func (t *MQTTTransport) handleCommandMessage(topic string, payload []byte) {
 					"skew", t.commandMaxSkew, "timestamp", ts)
 				return
 			}
-			// True replay detection: compute a hash of the authenticated
-			// payload and check it against the seen-commands cache. This
-			// prevents the same message from being accepted twice within
-			// the skew window, even if an attacker re-sends it.
+			// Replay detection: compute a hash of the authenticated
+			// payload and check it against the seen-commands cache, so
+			// the same message cannot be accepted twice within the skew
+			// window.
 			if t.replayCache != nil {
 				msgHash := fmt.Sprintf("%x", sha256.Sum256(payload))
 				if !t.replayCache.checkAndAdd(msgHash) {
@@ -128,10 +118,9 @@ func (t *MQTTTransport) handleCommandMessage(topic string, payload []byte) {
 		// commandCh is full. The paho message callback MUST stay
 		// non-blocking (Order=true dispatches callbacks serially on a
 		// single goroutine; blocking would stall the inbound pipeline and
-		// risk a broker disconnect via keepalive timeout). So instead of
-		// blocking for backpressure, we record the command in a
-		// transport-local bounded dead-letter store for operator
-		// inspection and bump a dropped-commands counter.
+		// risk a broker disconnect via keepalive timeout). The command is
+		// recorded in a transport-local bounded dead-letter store for
+		// operator inspection and a dropped-commands counter is bumped.
 		t.droppedCommands.Add(1)
 		t.addCommandDeadLetter(core.DeadLetterEntry{
 			Command:  cmd,
@@ -199,8 +188,7 @@ func computeHMACSignature(secret string, payload []byte) string {
 
 // verifyHMACSignature reports whether provided matches the expected
 // HMAC-SHA256 signature of payload under secret, using a constant-time
-// comparison.  An empty secret disables verification (always true) for
-// backward compatibility.
+// comparison.  An empty secret disables verification (always true).
 func verifyHMACSignature(secret string, payload []byte, provided string) bool {
 	if secret == "" {
 		return true
@@ -226,8 +214,7 @@ func verifyHMACSignature(secret string, payload []byte, provided string) bool {
 // altered by an attacker without invalidating the signature.
 //
 // If the payload is not a valid JSON object, the raw bytes are returned
-// unchanged (falling back to authenticating the full payload), preserving
-// the historical behaviour for non-JSON command bodies.
+// unchanged (falling back to authenticating the full payload).
 func commandSigningBytes(payload []byte) []byte {
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &m); err != nil {

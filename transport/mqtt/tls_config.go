@@ -10,7 +10,7 @@ import (
 )
 
 // tlsSchemes are the broker URL schemes that the paho MQTT client routes
-// over TLS (see paho netconn.go).  Using one of these schemes is what
+// over TLS.  Using one of these schemes is what
 // actually enables TLS on the wire; SetTLSConfig only supplies the
 // configuration that the TLS dial then uses.
 var tlsSchemes = map[string]bool{
@@ -20,8 +20,7 @@ var tlsSchemes = map[string]bool{
 // buildTLSConfig constructs the *tls.Config for the MQTT client when TLS is
 // required.  TLS is required when the broker URL uses a TLS scheme or when
 // any TLS file setting (CA / client cert / key) is provided.  Returns nil
-// (no TLS) when neither condition holds, preserving backward compatibility
-// with plaintext mqtt:// / tcp:// brokers.
+// (no TLS) when neither condition holds.
 //
 //   - tls-ca-file:     loads a CA certificate pool for server verification.
 //     When omitted, Go uses the system root certificates.
@@ -36,9 +35,7 @@ func (t *MQTTTransport) buildTLSConfig() (*tls.Config, error) {
 	anyFile := t.tlsCAFile != "" || t.tlsCertFile != "" || t.tlsKeyFile != ""
 
 	// Plaintext (or unparseable plaintext) with no TLS files: build no TLS
-	// config.  This preserves the historical behaviour where Init accepts
-	// any broker string and connection failures surface only at
-	// Start/Connect time, so existing non-TLS setups are unaffected.
+	// config; connection failures surface only at Start/Connect time.
 	if !schemeTLS && !anyFile {
 		return nil, nil //nolint:nilnil // a nil *tls.Config with no error intentionally signals "no TLS needed"
 	}
@@ -60,9 +57,7 @@ func (t *MQTTTransport) buildTLSConfig() (*tls.Config, error) {
 
 	// Fail if TLS files were provided but the broker scheme is plaintext:
 	// paho only applies the TLS config to TLS-scheme brokers, so the config
-	// would silently have no effect on the wire. Failing here prevents a
-	// misconfiguration where the operator thinks TLS is enabled but
-	// credentials/commands are actually sent in plaintext.
+	// would silently have no effect on the wire.
 	if !schemeTLS && anyFile {
 		return nil, fmt.Errorf("mqtt: TLS files configured but broker scheme %q is not TLS; use mqtts:// or ssl:// scheme to enable TLS", u.Scheme)
 	}

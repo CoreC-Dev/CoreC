@@ -93,7 +93,7 @@ func initTransport(t *testing.T, cfg core.TransportConfig) *MQTTTransport {
 }
 
 // TestMQTTTLSBackwardCompatPlain ensures a plaintext broker with no TLS
-// settings builds no TLS config — existing non-TLS setups are unaffected.
+// settings builds no TLS config.
 func TestMQTTTLSBackwardCompatPlain(t *testing.T) {
 	for _, broker := range []string{
 		"tcp://broker.emqx.io:1883",
@@ -186,8 +186,7 @@ func TestMQTTTLSAllSchemes(t *testing.T) {
 
 // TestMQTTTLSFilesOnPlaintextBroker verifies that setting TLS files on a
 // plaintext broker fails Init with a clear error rather than silently
-// degrading to plaintext — the operator explicitly asked for TLS, so
-// silently sending credentials in plaintext would be a security risk.
+// degrading to plaintext.
 func TestMQTTTLSFilesOnPlaintextBroker(t *testing.T) {
 	certFile, keyFile := generateCertFiles(t)
 	cfg := newTLSConfig("plain-tlsfiles", "tcp://broker.example.com:1883", map[string]any{
@@ -271,7 +270,7 @@ func TestMQTTTLSErrors(t *testing.T) {
 // TestMQTTTLSInvalidBrokerWithFiles verifies that when TLS files are set
 // but the broker URL is unparseable, Init fails (we need a host for
 // ServerName). A plaintext unparseable broker without files must NOT fail
-// (backward compatible — paho would surface the failure at connect time).
+// (paho would surface the failure at connect time).
 func TestMQTTTLSInvalidBrokerWithFiles(t *testing.T) {
 	certFile, _ := generateCertFiles(t)
 
@@ -285,7 +284,7 @@ func TestMQTTTLSInvalidBrokerWithFiles(t *testing.T) {
 		t.Fatal("expected error for unparseable broker with TLS files, got nil")
 	}
 
-	// Unparseable broker, no TLS files → no error (backward compatible).
+	// Unparseable broker, no TLS files → no error.
 	cfg2 := newTLSConfig("bad-plain", "://", nil)
 	tr2, err := NewMQTTTransport(cfg2)
 	if err != nil {

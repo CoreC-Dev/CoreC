@@ -34,7 +34,7 @@ func buildSender(channel string, settings map[string]any, tmpl *template.Templat
 	}
 }
 
-// --- Slack / Teams (JSON webhook) ---
+// Slack / Teams
 
 // webhookSender posts a JSON payload to an incoming webhook URL. Used for
 // both Slack and Microsoft Teams with channel-specific body formatting.
@@ -82,7 +82,7 @@ func (w *webhookSender) buildPayload(text string) any {
 	return map[string]any{"text": text}
 }
 
-// --- Generic webhook ---
+// Generic webhook
 
 // genericWebhookSender posts a user-templated JSON body to a configurable
 // URL with custom method and headers (DingTalk, Feishu, custom integrations).
@@ -165,7 +165,7 @@ func postJSON(ctx context.Context, client *http.Client, url string, body []byte)
 	return nil
 }
 
-// --- Email (SMTP) ---
+// Email
 
 // emailSender sends notifications via SMTP with optional PLAIN auth.
 type emailSender struct {

@@ -17,7 +17,7 @@ import (
 // routing, and HMAC signing) using a mock paho client. They do NOT require
 // a running MQTT broker, so they must never be skipped.
 
-// ─── Mock paho client ───────────────────────────────────────────────
+// Mock paho client
 
 // mockToken is a pahomqtt.Token stub that reports a configurable result.
 type mockToken struct {
@@ -141,8 +141,6 @@ func newForwardTransport(t *testing.T, settings map[string]any, connected bool) 
 	mtr.client = client
 	return mtr, client
 }
-
-// ─── Tests ──────────────────────────────────────────────────────────
 
 // TestForwardCommandNoForwardTopic verifies that ForwardCommand returns a
 // descriptive error (mentioning the transport name) when no

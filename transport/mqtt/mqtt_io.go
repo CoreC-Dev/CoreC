@@ -1,4 +1,4 @@
-// channel accessors, status snapshot, and topic-template assembly.
+// mqtt_io.go covers channel accessors, status snapshot, and topic-template assembly.
 package mqtt
 
 import (
@@ -27,11 +27,9 @@ func (t *MQTTTransport) Stop() error {
 	}
 
 	if t.client != nil && t.client.IsConnected() {
-		// Unsubscribe from command topic
 		if t.commandTopic != "" {
 			t.client.Unsubscribe(t.commandTopic)
 		}
-		// Unsubscribe from data topic
 		if t.dataTopic != "" {
 			t.client.Unsubscribe(t.dataTopic)
 		}
@@ -54,21 +52,18 @@ func (t *MQTTTransport) Publish(ctx context.Context, point core.DataPoint) error
 		return fmt.Errorf("mqtt transport %s is not connected", t.name)
 	}
 
-	// Build topic from template
 	topic, err := t.buildTopic(point)
 	if err != nil {
 		t.failed.Add(1)
 		return fmt.Errorf("failed to build topic: %w", err)
 	}
 
-	// Serialize payload
 	payload, err := json.Marshal(point)
 	if err != nil {
 		t.failed.Add(1)
 		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	// Publish with timeout
 	token := t.client.Publish(topic, t.qos, t.retained, payload)
 	if ok := token.WaitTimeout(t.publishTimeout); !ok {
 		t.failed.Add(1)
@@ -103,8 +98,7 @@ func (t *MQTTTransport) Publish(ctx context.Context, point core.DataPoint) error
 // When command-forward-secret is configured, the forwarded command is
 // signed with HMAC-SHA256 and includes a fresh timestamp so the
 // downstream node can authenticate it and enforce replay protection.
-// When no secret is configured, the command is forwarded unsigned
-// (backward compatible with unauthenticated command setups).
+// When no secret is configured, the command is forwarded unsigned.
 func (t *MQTTTransport) ForwardCommand(ctx context.Context, cmd core.WriteCommand) error {
 	if t.commandForwardTopic == "" {
 		return fmt.Errorf("no command-forward-topic configured on transport %s", t.name)
@@ -113,31 +107,23 @@ func (t *MQTTTransport) ForwardCommand(ctx context.Context, cmd core.WriteComman
 		return fmt.Errorf("mqtt transport %s is not connected", t.name)
 	}
 
-	// Marshal the command to JSON
 	payload, err := json.Marshal(cmd)
 	if err != nil {
 		return fmt.Errorf("failed to marshal forwarded command: %w", err)
 	}
 
-	// When a forward secret is configured, sign the command with
-	// HMAC-SHA256 and add a timestamp for downstream replay protection.
 	if t.commandForwardSecret != "" {
-		// Parse into a map to add timestamp and signature fields
 		var m map[string]json.RawMessage
 		if err := json.Unmarshal(payload, &m); err != nil {
 			return fmt.Errorf("failed to enrich forwarded command: %w", err)
 		}
-		// Add fresh timestamp (Unix milliseconds)
 		tsBytes, _ := json.Marshal(time.Now().UnixMilli())
 		m["timestamp"] = tsBytes
-		// Re-marshal to get the canonical bytes (without signature)
 		signedPayload, err := json.Marshal(m)
 		if err != nil {
 			return fmt.Errorf("failed to re-marshal signed forwarded command: %w", err)
 		}
-		// Compute signature over canonical signing bytes
 		sig := computeHMACSignature(t.commandForwardSecret, commandSigningBytes(signedPayload))
-		// Add signature to the payload
 		var finalM map[string]json.RawMessage
 		if err := json.Unmarshal(signedPayload, &finalM); err != nil {
 			return fmt.Errorf("failed to add signature to forwarded command: %w", err)
@@ -150,7 +136,6 @@ func (t *MQTTTransport) ForwardCommand(ctx context.Context, cmd core.WriteComman
 		}
 	}
 
-	// Publish with timeout
 	token := t.client.Publish(t.commandForwardTopic, t.qos, false, payload)
 	if ok := token.WaitTimeout(t.publishTimeout); !ok {
 		return fmt.Errorf("mqtt forward publish timed out for topic %s", t.commandForwardTopic)
@@ -185,8 +170,6 @@ func (t *MQTTTransport) PublishBatch(ctx context.Context, points []core.DataPoin
 	}
 
 	// Bounded concurrent publish: fire tokens in small groups, then wait.
-	// One goroutine + one Paho token per point made a large batch spike
-	// memory/handles without bound.
 	const maxConcurrent = 8
 	sem := make(chan struct{}, maxConcurrent)
 	var wg sync.WaitGroup
@@ -216,9 +199,7 @@ func (t *MQTTTransport) PublishBatch(ctx context.Context, points []core.DataPoin
 		return nil
 	}
 	sort.Ints(failed)
-	// The indexed error lets the batcher retry only the failed points;
-	// returning a bare error made it resend the whole batch, duplicating
-	// every point that had already been published.
+	// The indexed error lets the batcher retry only the failed points.
 	return &core.BatchPublishError{
 		Failed: failed,
 		Err:    fmt.Errorf("publishBatch: %d/%d points failed: %w", len(failed), len(points), firstErr),
@@ -265,10 +246,6 @@ func (t *MQTTTransport) Status() core.TransportStatus {
 	}
 }
 
-// ============================================================
-// Helper functions
-// ============================================================
-
 func (t *MQTTTransport) buildTopic(point core.DataPoint) (string, error) {
 	var buf bytes.Buffer
 
@@ -283,7 +260,6 @@ func (t *MQTTTransport) buildTopic(point core.DataPoint) (string, error) {
 		return "", err
 	}
 
-	// Clean up empty segments
 	topic := buf.String()
 	for strings.Contains(topic, "//") {
 		topic = strings.ReplaceAll(topic, "//", "/")

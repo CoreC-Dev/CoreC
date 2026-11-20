@@ -19,7 +19,7 @@ import (
 // mock messages through the registered handlers. No real broker is needed,
 // so these tests must never be skipped.
 
-// ─── Mock paho.Message ──────────────────────────────────────────────
+// Mock paho.Message
 
 // mockMessage is a pahomqtt.Message stub carrying a topic and payload so
 // the subscription handlers can exercise their parsing/enqueue paths.
@@ -56,7 +56,7 @@ func (t *neverDoneToken) WaitTimeout(time.Duration) bool { return false }
 func (t *neverDoneToken) Done() <-chan struct{}          { return t.done }
 func (t *neverDoneToken) Error() error                   { return nil }
 
-// ─── subscribeCommands ─────────────────────────────────────────────
+// subscribeCommands
 
 // TestSubscribeCommandsRecordsSubscription verifies that subscribeCommands
 // subscribes to the configured command topic at the transport's QoS and
@@ -89,7 +89,7 @@ func TestSubscribeCommandsRecordsSubscription(t *testing.T) {
 
 // TestSubscribeCommandsHandlerEnqueuesCommand verifies that the handler
 // registered by subscribeCommands forwards a valid command message onto the
-// command channel (the no-secret backward-compatible path).
+// command channel (the no-secret path).
 func TestSubscribeCommandsHandlerEnqueuesCommand(t *testing.T) {
 	mtr := newInitdTransport(t, "subcmd-handler", map[string]any{
 		"broker":        "tcp://127.0.0.1:1883",
@@ -206,7 +206,7 @@ func TestSubscribeCommandsError(t *testing.T) {
 	}
 }
 
-// ─── subscribeData ─────────────────────────────────────────────────
+// subscribeData
 
 // TestSubscribeDataRecordsSubscription verifies that subscribeData subscribes
 // to the configured data topic at the transport's QoS with a non-nil handler.
@@ -367,7 +367,7 @@ func TestSubscribeDataError(t *testing.T) {
 	}
 }
 
-// ─── Publish (connected success + failure paths) ───────────────────
+// Publish (connected success + failure paths)
 
 // TestPublishSuccess verifies the connected success path: Publish marshals the
 // point, publishes to the template-rendered topic with the configured QoS and
@@ -466,7 +466,7 @@ func TestPublishTimeout(t *testing.T) {
 	}
 }
 
-// ─── Start-time subscribe wiring (on-connect handler) ──────────────
+// Start-time subscribe wiring (on-connect handler)
 
 // TestSubscribeCommandAndDataTopics verifies that a transport configured with
 // both topics subscribes to both. The real paho client is replaced by a mock,
@@ -508,7 +508,7 @@ var (
 
 // TestMQTTWillOptionsArmed verifies the LWT wiring:
 // will-topic + will-payload arm SetBinaryWill; either missing leaves
-// the will unset (back-compat default).
+// the will unset.
 func TestMQTTWillOptionsArmed(t *testing.T) {
 	// No will settings: the connect packet must carry no will.
 	bare := newInitdTransport(t, "will-none", map[string]any{

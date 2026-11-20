@@ -11,5 +11,5 @@ func init() {
 }
 
 // TypeName identifies this transport's protocol, returned by Type() and
-// embedded in Status() for consistent reporting from a single source.
+// embedded in Status().
 const TypeName = "notify"

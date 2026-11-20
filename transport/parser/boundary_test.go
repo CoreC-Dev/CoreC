@@ -143,7 +143,7 @@ func TestParseTimestampEdgeCases(t *testing.T) {
 	}
 }
 
-// ─── parseTplValueString tests ─────────────────────────────────────
+// parseTplValueString tests
 
 func TestParseTplValueString(t *testing.T) {
 	cases := []struct {

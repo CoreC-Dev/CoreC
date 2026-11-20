@@ -27,7 +27,7 @@ func (t *HTTPTransport) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	// secret may be supplied in either an "Authorization: Bearer <secret>"
 	// header or an "X-Webhook-Secret: <secret>" header.  Mismatched or
 	// missing credentials are rejected with 401.  When no secret is
-	// configured, authentication is skipped (backward-compatible).
+	// configured, authentication is skipped.
 	if t.webhookSecret != "" {
 		auth := r.Header.Get("Authorization")
 		xSecret := r.Header.Get("X-Webhook-Secret")
@@ -52,29 +52,20 @@ func (t *HTTPTransport) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	defer r.Body.Close()
-	// Limit the body size to prevent OOM from oversized payloads.  When
-	// the limit is exceeded, io.ReadAll returns an error and we reject
-	// the request.
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, webhookMaxBodyBytes))
 	if err != nil {
 		http.Error(w, "failed to read body", http.StatusBadRequest)
 		return
 	}
 
-	// Determine if the payload is a JSON array or a single object.
-	// For arrays, parse each element through the parser; for objects,
-	// parse the whole body once.
 	var rawElements []json.RawMessage
 	if err := json.Unmarshal(body, &rawElements); err != nil {
 		// Not an array — treat as single object
 		rawElements = []json.RawMessage{body}
 	}
 
-	// A batch caller must not get a bare
-	// 202 when every element fails to parse or is dropped —
-	// partial failures must be visible to the sender. The response
-	// body carries the per-outcome counts; the status stays 202
-	// because elements that DID parse are queued for the pipeline.
+	// The response is always 202; the body carries the per-outcome counts
+	// (received/accepted/parse_failed/queue_dropped).
 	accepted, parsed, parseFailed, dropped := 0, 0, 0, 0
 	for _, raw := range rawElements {
 		dp, err := t.dataParser.Parse(raw, "")
@@ -103,5 +94,5 @@ func (t *HTTPTransport) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		"parse_failed":  parseFailed,
 		"queue_dropped": dropped,
 	})
-	_ = parsed // kept for symmetry/debug readability
+	_ = parsed
 }

@@ -23,9 +23,8 @@ import (
 // client IDs. Change here if the project is rebranded.
 const projectName = "corec"
 
-// TypeName identifies this transport's protocol. It is returned by Type()
-// and embedded in Status() so the transport kind is reported consistently
-// from a single source of truth rather than a scattered string literal.
+// TypeName identifies this transport's protocol, returned by Type() and
+// embedded in Status().
 const TypeName = "mqtt"
 
 // MQTTTransport implements core.Transport for MQTT protocol.
@@ -35,10 +34,8 @@ type MQTTTransport struct {
 	name   string
 	config core.TransportConfig
 
-	// MQTT client
 	client pahomqtt.Client
 
-	// MQTT settings
 	broker   string
 	clientID string
 	username string
@@ -50,23 +47,23 @@ type MQTTTransport struct {
 	// the broker publishes the will message on this topic if the client
 	// disconnects ungracefully (crash, network cut, power loss) — the
 	// standard edge-gateway liveness signal. Empty will-topic disables
-	// it (back-compat default).
+	// it.
 	willTopic            string
 	willPayload          []byte
 	willQoS              byte
 	willRetain           bool
 	topicTemplate        *template.Template
 	commandTopic         string        // MQTT topic to subscribe for write commands
-	commandSecret        string        // HMAC-SHA256 secret for authenticating command messages; empty = no auth
+	commandSecret        string        // HMAC-SHA256 secret for authenticating command messages; empty = not configured, Start refuses to start when command-topic is set and this is empty
 	commandForwardTopic  string        // MQTT topic to publish forwarded commands (chained-core passthrough)
 	commandForwardSecret string        // HMAC-SHA256 secret for signing forwarded commands; empty = unsigned
-	commandMaxSkew       time.Duration // max allowed timestamp drift for replay protection (default 5m); 0 = 5m
+	commandMaxSkew       time.Duration // max allowed timestamp drift for replay protection; default 5m; explicit 0s disables the replay cache and freshness check (not recommended)
 	commandStrictReplay  bool          // reject commands without a timestamp when true
 	dataTopic            string        // topic to subscribe for incoming data (chained-core inbound)
 	dataParser           parser.Parser
 
 	// TLS settings (mqtts://, tls://, ssl://, ...).  Empty file paths with
-	// a plaintext broker = no TLS (backward compatible).  Built into
+	// a plaintext broker = no TLS.  Built into
 	// tlsConfig at Init time and applied to the paho client at Start time.
 	tlsCertFile string      // client certificate PEM (enables mutual TLS / mTLS)
 	tlsKeyFile  string      // client private key PEM (enables mutual TLS / mTLS)
@@ -86,10 +83,8 @@ type MQTTTransport struct {
 	publishTimeout    time.Duration
 	disconnectQuiesce time.Duration // passed to paho as milliseconds
 
-	// State
 	state core.ConnState
 
-	// Counters
 	published   atomic.Uint64
 	failed      atomic.Uint64
 	received    atomic.Uint64
@@ -117,9 +112,8 @@ type MQTTTransport struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	// replayCache stores recently-seen command message hashes to prevent
-	// replay within the command-max-skew window. It is a bounded map with
-	// time-based eviction so entries expire after the skew window passes.
+	// replayCache is a bounded deduplication cache of seen command message
+	// hashes; TTL and capacity are set in Init.
 	replayCache *replayWindow
 }
 
@@ -146,63 +140,47 @@ func (t *MQTTTransport) Init(ctx context.Context, config core.TransportConfig) e
 
 	settings := config.Settings
 
-	// Parse broker
 	if broker, ok := settings["broker"].(string); ok {
 		t.broker = broker
 	} else {
 		return fmt.Errorf("mqtt: broker is required")
 	}
 
-	// Parse client ID
 	if clientID, ok := settings["client-id"].(string); ok {
 		t.clientID = clientID
 	} else {
 		t.clientID = fmt.Sprintf("%s-%s-%d", projectName, config.Name, time.Now().UnixMilli())
 	}
 
-	// Parse credentials
 	t.username = util.GetStringSetting(settings, "username", "")
 	t.password = util.GetStringSetting(settings, "password", "")
 
-	// Parse QoS
 	t.qos = byte(util.GetIntSetting(settings, "qos", 1))
 
-	// Parse retained
 	if retained, ok := settings["retained"].(bool); ok {
 		t.retained = retained
 	}
 
-	// Connection settings
 	t.keepAlive = util.GetDurationSetting(settings, "keep-alive", core.DefaultKeepAlive)
 	t.connectTimeout = util.GetDurationSetting(settings, "connect-timeout", 10*time.Second)
 	t.autoReconnect = util.GetBoolSetting(settings, "auto-reconnect", true)
 	t.cleanSession = util.GetBoolSetting(settings, "clean-session", true)
 	t.connectRetry = util.GetBoolSetting(settings, "connect-retry", true)
-	// connect-retry-interval is paho's fixed reconnect interval, not the
-	// generic transport I/O timeout, so it keeps its own literal rather than
-	// reusing core.DefaultTransportTimeout.
 	t.connectRetryInterval = util.GetDurationSetting(settings, "connect-retry-interval", 5*time.Second)
 
-	// Apply ±20% jitter to the reconnect interval to prevent thundering-herd
-	// when multiple MQTT transports reconnect simultaneously after a broker
-	// outage. Each instance gets a slightly different interval, spreading
-	// reconnect attempts over time. This is instance-level jitter (not
-	// per-attempt exponential backoff); paho's reconnect uses a fixed
-	// interval, so we randomize it once at Init time.
+	// A one-time ±20% jitter is applied to connect-retry-interval at Init;
+	// paho reconnects at a fixed interval.
 	if t.connectRetryInterval > 0 {
 		jitter := 0.8 + rand.Float64()*0.4 // 0.8–1.2 → ±20%
 		t.connectRetryInterval = time.Duration(float64(t.connectRetryInterval) * jitter)
 	}
 
-	// Operation timeouts. These are per-operation MQTT timeouts (waiting
-	// for a Subscribe/Publish token to complete), not the generic transport
-	// I/O timeout, so they keep their own literals rather than reusing
-	// core.DefaultTransportTimeout.
+	// Per-operation MQTT timeouts: waiting for a Subscribe/Publish token
+	// to complete.
 	t.subscribeTimeout = util.GetDurationSetting(settings, "subscribe-timeout", 5*time.Second)
 	t.publishTimeout = util.GetDurationSetting(settings, "publish-timeout", 5*time.Second)
 	t.disconnectQuiesce = util.GetDurationSetting(settings, "disconnect-quiesce", time.Second)
 
-	// Parse topic template
 	if topicTpl, ok := settings["topic-template"].(string); ok {
 		tmpl, err := template.New("topic").Parse(topicTpl)
 		if err != nil {
@@ -214,13 +192,11 @@ func (t *MQTTTransport) Init(ctx context.Context, config core.TransportConfig) e
 		t.topicTemplate = tmpl
 	}
 
-	// Parse command and forward settings
 	t.parseCommandSettings(settings)
 
 	// Last Will and Testament: will-topic +
 	// will-payload (both required to arm), will-qos (default 0),
-	// will-retain (default true — edge liveness states are usually
-	// retained so late subscribers see the offline state immediately).
+	// will-retain (default true).
 	t.willTopic = util.GetStringSetting(settings, "will-topic", "")
 	if wp, ok := settings["will-payload"].(string); ok {
 		t.willPayload = []byte(wp)
@@ -230,16 +206,13 @@ func (t *MQTTTransport) Init(ctx context.Context, config core.TransportConfig) e
 		t.willRetain = true
 	}
 
-	// Initialize the replay-detection cache. When a command secret is
-	// configured, each authenticated command's hash is recorded so that
-	// the same message cannot be accepted twice within the skew window.
-	// The cache is bounded to 10,000 entries and entries expire after
-	// 2× the skew window (to cover clock drift on both sides).
+	// Replay-detection cache: when a command secret is configured and
+	// command-max-skew > 0, each authenticated command's hash is recorded;
+	// entries expire after 2× the skew window.
 	if t.commandSecret != "" && t.commandMaxSkew > 0 {
 		t.replayCache = newReplayWindow(2*t.commandMaxSkew, 10000)
 	}
 
-	// Parse data topic (for receiving data points — chained core inbound)
 	if dataTopic, ok := settings["data-topic"].(string); ok && dataTopic != "" {
 		t.dataTopic = dataTopic
 		p, err := parser.New(settings)
@@ -249,13 +222,13 @@ func (t *MQTTTransport) Init(ctx context.Context, config core.TransportConfig) e
 		t.dataParser = p
 	}
 
-	// Parse TLS settings (optional).  When the broker URL uses a TLS scheme
+	// TLS settings (optional).  When the broker URL uses a TLS scheme
 	// (mqtts://, tls://, ssl://, ...) or any TLS file is set, a *tls.Config
 	// is built and applied to the MQTT client at Start time.  This enables
 	// encrypted connections and optional mutual TLS (mTLS) using a client
 	// certificate/key pair, with server verification against a custom CA.
 	// When none of those conditions hold, no TLS config is built and the
-	// connection stays plaintext (backward compatible).
+	// connection stays plaintext.
 	t.tlsCertFile = util.GetStringSetting(settings, "tls-cert-file", "")
 	t.tlsKeyFile = util.GetStringSetting(settings, "tls-key-file", "")
 	t.tlsCAFile = util.GetStringSetting(settings, "tls-ca-file", "")
@@ -276,8 +249,7 @@ func (t *MQTTTransport) Init(ctx context.Context, config core.TransportConfig) e
 }
 
 // parseCommandSettings extracts command-related settings from the MQTT
-// transport's settings map. This is split out from Init to keep that
-// function's cyclomatic complexity manageable.
+// transport's settings map.
 func (t *MQTTTransport) parseCommandSettings(settings map[string]any) {
 	t.commandTopic = util.GetStringSetting(settings, "command-topic", "")
 	t.commandSecret = util.GetStringSetting(settings, "command-secret", "")
@@ -290,8 +262,7 @@ func (t *MQTTTransport) parseCommandSettings(settings map[string]any) {
 	//     command is rejected as a replay/stale message (default 5m).
 	//   command-strict-replay: when true, authenticated commands that do
 	//     not include a timestamp are rejected outright; when false
-	//     (default), they are accepted with a warning for backward
-	//     compatibility with senders that predate replay protection.
+	//     (default), they are accepted with a warning.
 	t.commandMaxSkew = util.GetDurationSetting(settings, "command-max-skew", 5*time.Minute)
 	t.commandStrictReplay = util.GetBoolSetting(settings, "command-strict-replay", false)
 }

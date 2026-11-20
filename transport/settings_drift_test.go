@@ -1,9 +1,8 @@
-// Package transport_test verifies that every settings key the transport
-// code parses is accepted by the production ValidateSettings implementation
-// of that transport. Checking the validator directly (rather than a second
-// hand-maintained allowlist) catches both directions of drift: a new
-// setting without a validator update, and a validator that rejects a
-// setting the transport already accepts.
+// Package transport_test verifies that every settings key the scanner
+// (common/testutil/settings_scan.go) finds in transport code is accepted
+// by that transport's production ValidateSettings. The scanner matches
+// Get*Setting calls and settings["key"] reads; notify parses keys through
+// custom helpers and is currently not scanned, so its subtest sees no keys.
 package transport_test
 
 import (

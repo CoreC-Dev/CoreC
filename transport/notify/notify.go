@@ -21,7 +21,6 @@ type NotifyTransport struct {
 	sender   sender
 	cooldown *cooldownTracker
 
-	// Stats
 	published   atomic.Uint64
 	failed      atomic.Uint64
 	lastPublish time.Time
@@ -158,7 +157,6 @@ func (t *NotifyTransport) Name() string { return t.name }
 
 func (t *NotifyTransport) Type() string { return TypeName }
 
-// Status reports the current transport status and counters.
 func (t *NotifyTransport) Status() core.TransportStatus {
 	t.mu.RLock()
 	defer t.mu.RUnlock()

@@ -7,8 +7,8 @@ import (
 
 // replayWindow is a bounded, time-expiring set of seen message hashes.
 // It prevents true replay attacks (same message accepted twice) within
-// the timestamp skew window. Entries older than the TTL are evicted
-// lazily on each check and periodically via a background goroutine.
+// the timestamp skew window. Expired entries are evicted periodically by
+// a background goroutine (ticker=TTL); at capacity the oldest entry is evicted.
 type replayWindow struct {
 	mu      sync.Mutex
 	seen    map[string]time.Time
