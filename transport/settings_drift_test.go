@@ -1,8 +1,8 @@
 // Package transport_test verifies that every settings key the scanner
 // (common/testutil/settings_scan.go) finds in transport code is accepted
 // by that transport's production ValidateSettings. The scanner matches
-// Get*Setting calls and settings["key"] reads; notify parses keys through
-// custom helpers and is currently not scanned, so its subtest sees no keys.
+// Get*Setting calls, settings["key"] reads, and notify helper calls
+// (reqString/optString/reqInt/optDuration/optStringList/optStringMap).
 package transport_test
 
 import (
@@ -25,14 +25,16 @@ var transportValidators = map[string]core.SettingsValidator{
 
 // sampleSettingValue supplies a value of the type the notify validator
 // requires. mqtt/httppush only reject unknown keys, so any value works
-// there; notify additionally type-checks every field except the two
-// list/map fields.
+// there; notify requires strings for most keys, an integer for smtp-port,
+// and exempts the list/map fields.
 func sampleSettingValue(key string) any {
 	switch key {
 	case "headers":
 		return map[string]any{}
 	case "to":
 		return []any{}
+	case "smtp-port":
+		return 587
 	default:
 		return ""
 	}
@@ -57,6 +59,9 @@ func TestTransportSettingsAllowlistsCoverParsedKeys(t *testing.T) {
 					t.Fatalf("read file: %v", err)
 				}
 				testutil.CollectParsedSettingKeys(string(data), parsed)
+			}
+			if len(parsed) == 0 {
+				t.Fatalf("%s: scanner found no settings keys — parsing idiom not covered", pkg)
 			}
 			for key := range parsed {
 				if err := validator.ValidateSettings(map[string]any{key: sampleSettingValue(key)}); err != nil {
