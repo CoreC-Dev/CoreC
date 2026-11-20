@@ -103,9 +103,8 @@ func router(ctx context.Context, secret string, allowedOrigins []string, rateLim
 		r.Post("/rules/preview", previewRule)
 		r.Delete("/rules/{name}", deleteResourceRule)
 
-		// First-class alerts: active state +
-		// bounded history + ack + real-time lifecycle stream. The
-		// legacy /logs stream keeps serving raw log lines.
+		// Alerts: active state + bounded history + ack + lifecycle stream.
+		// /logs serves raw log lines.
 		r.Get("/alerts", getAlerts)
 		r.Post("/alerts/ack", ackAlert)
 		r.Get("/alerts/stream", streamAlerts)
