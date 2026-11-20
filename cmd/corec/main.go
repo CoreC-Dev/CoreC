@@ -80,7 +80,6 @@ func run() int {
 		slog.Warn(w)
 	}
 
-	// Print registered drivers and transports
 	slog.Info("registered drivers", "types", core.RegisteredDrivers())
 	slog.Info("registered transports", "types", core.RegisteredTransports())
 
