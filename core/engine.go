@@ -340,12 +340,14 @@ type EngineConfig struct {
 	// <path>.old past 5 MiB, bounding disk at ~2×5 MiB.
 	DeadLetterPath string `yaml:"dead-letter-path,omitempty"`
 
-	// WriteMinInterval is the minimum spacing between two write commands
-	// that reach the same device. A write arriving inside the window is
-	// REFUSED, never queued: the API answers 429 and the command channel
-	// dead-letters the command with the reason intact. Only accepted
-	// writes advance the window. Empty = disabled (writes proceed
-	// immediately). Parse as a duration string, e.g. "200ms".
+	// WriteMinInterval is the minimum spacing between two accepted writes
+	// to the same driver. A write arriving inside the window is refused:
+	// the API answers 429 with a Retry-After header; the command channel
+	// waits out the remaining window and retries (pacing retries do not
+	// consume normal retries), and dead-letters the command with the
+	// reason intact once those retries are exhausted. Only accepted writes
+	// advance the window. Empty = disabled (writes proceed immediately).
+	// Parse as a duration string, e.g. "200ms".
 	WriteMinInterval string `yaml:"write-min-interval,omitempty"`
 
 	// WriteAuditPath enables on-disk persistence of the write audit trail

@@ -34,7 +34,7 @@ import (
 //   !expr                   logical NOT                 (native)
 //   (expr)                  grouping                    (native)
 //
-// Fields: driver, device, group, tag, quality, type, value
+// Fields: driver, device, group, tag, quality, type, value, timestamp
 
 type exprNode interface {
 	eval(point core.DataPoint) bool
