@@ -22,7 +22,7 @@
 ```
 
 - **正向流**：Driver.Read → DataBus → Rule 变换 → Batcher → Transport.Publish
-- **反向流**：Transport 收到命令 → HMAC 校验 → CommandManager → Driver.Write → PLC
+- **反向流**：Transport 收到命令 → HMAC 校验（transport/mqtt 命令处理）→ 引擎 `writeManager`（engine/write_manager.go）→ Driver.Write → PLC
 
 ## 包分层与依赖方向
 
@@ -68,21 +68,20 @@ cmd/corec/main.go
 
 ## 核心接口缝隙
 
-| 接口 | 方法数 | 职责 |
-|------|--------|------|
-| `core.Driver` | 11 | 南向设备读写：Connect/Close/Read/Write/Health/Reconnect 等 |
-| `core.Transport` | 10 | 北向推送：Init/Start/Stop/Publish/PublishBatch/HandleCommand 等 |
-| `core.Rule` | 11 | 规则求值：Match/Apply/Compile/Continue 等 |
-| `core.RuleEngine` | 10 | 规则集管理：SetRules/Match/RuleStats/SetRuleDisabledByName 等 |
-
-接口方法数均 ≤ 12（合理领域抽象，非 God Interface）。
+| 接口 | 职责 |
+|------|------|
+| `core.Driver` | 南向设备读写：生命周期、读/写/订阅、元数据与能力 |
+| `core.Transport` | 北向推送：生命周期、发布（单条/批量）、命令/数据反向通道 |
+| `core.Rule` | 规则求值：匹配、动作/目标、优先级、变换与继续语义 |
+| `core.RuleEngine` | 规则集管理：设置规则/子规则、匹配、统计、启用/禁用 |
 
 ## 关停顺序
 
 ```
 signal.Notify(SIGINT, SIGTERM) → hub.Stop() → engine.Stop()
   → cancel()（级联取消所有子 ctx）
-  → discovery.Stop() → alertRegistry.Stop()（告警扫描器，须先于 dataBus 关闭）
+  → discovery.Stop()
+  → derivedEvaluator.stop()（派生标签求值器；须先于 stopComponents 关闭其推入的 dataBus）
   → scheduler.Stop()（wg 屏障：生产者先于消费者静默）
   → stopComponents():
       drivers（逐个带超时）
@@ -90,11 +89,13 @@ signal.Notify(SIGINT, SIGTERM) → hub.Stop() → engine.Stop()
       batchers（带超时；flushFinal 余量发布）
       transports（逐个带超时）
       dataBus.Close() → ruleProviders → tagWatchers
-  → deadLetterStore.Close()（fsync 落盘后的 fd 释放；须在写者全部 join 后）
   → wg.Wait()（收集 processingLoop/listener goroutine）
+  → deadLetterStore.close()（fsync 落盘后的 fd 释放；须在写者全部 join 后）
+  → writeAudits.close()
+  → alertRegistry.stop()（最后停：全部 worker 已 join，record() 不会与事件通道关闭竞争）
 ```
 
-- **batchers 必须先于 transports 停止**：batcher 的 `flushFinal` 余量发布需要存活的 transport；若先停 transports，flush 会打在已断开的连接上而全部失败、引入数据丢失。
+- **batchers 先于 transports 停止**（flushFinal 需要存活 transport）。
 - **第二个 SIGINT/SIGTERM 强制退出**：优雅关停进行中再次收到信号时进程立即 `os.Exit(1)`，卡住的关停无需 `kill -9`。
 - **关停数据语义**：已进入 Batcher 的数据保证被 flush（发布或落盘）；仍滞留在 DataBus 通道、未被处理管线消费的点位在关停时被丢弃（有 Warn 日志与 error 计数，不落盘）。详见 `docs/architecture/dataflow.md` 的交付语义一节。
 

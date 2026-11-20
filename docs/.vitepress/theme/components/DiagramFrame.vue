@@ -7,7 +7,7 @@ const props = defineProps<{
   height?: string
 }>()
 
-// 基于 VitePress 的 base 自动拼接，避免写死 /CoreC/ 之类子路径导致 404
+// 基于 VitePress 的 base 自动拼接
 const resolvedSrc = computed(() =>
   props.src.startsWith('/')
     ? import.meta.env.BASE_URL.replace(/\/$/, '') + props.src
@@ -45,7 +45,6 @@ onUnmounted(() => {
 
 <template>
   <div class="diagram-frame-wrapper">
-    <!-- 预览区 -->
     <div class="diagram-preview" @click="openFullscreen">
       <iframe
         :src="resolvedSrc"
@@ -63,7 +62,6 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- 全屏浮窗 -->
     <Teleport to="body">
       <div
         v-if="isFullscreen"
@@ -163,7 +161,6 @@ onUnmounted(() => {
   box-shadow: 0 2px 8px rgba(0,0,0,0.12);
 }
 
-/* 全屏浮窗 */
 .diagram-modal {
   position: fixed;
   inset: 0;

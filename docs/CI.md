@@ -11,7 +11,7 @@
 | `release.yml` | push tag `v*` | test + vet + lint + 文档门禁 → version-check（以 tag ldflags 构建后 `-version` 输出必须等于 tag）→ 多架构构建 → tar.gz/zip + sha256 checksums → GitHub Release（`generate_release_notes: true`） |
 | `deploy-docs.yml` | push 到 `main` 且 `docs/**` 变更 | VitePress 构建 → GitHub Pages |
 
-四个工作流均带 concurrency 组与每 job `timeout-minutes`；`ci.yml` 与 `docs-gate.yml` 对同引用取消旧跑（`cancel-in-progress: true`），`release.yml` 与 `deploy-docs.yml` 排队不取消。
+四个工作流均带 concurrency 组；多数 job 设 `timeout-minutes`（release/deploy-docs 的部分 job 除外）。`ci.yml` 与 `docs-gate.yml` 对同引用取消旧跑（`cancel-in-progress: true`），`release.yml` 与 `deploy-docs.yml` 排队不取消。
 
 ## 构建矩阵
 

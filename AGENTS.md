@@ -14,7 +14,7 @@ CoreC — 工业物联网（IIoT）数据采集与控制核心，Go 实现。南
 - **分层依赖**（由 `archtest/` 结构测试机械强制，允许边以 `archtest/arch_test.go` 为准）：`core` 与 `common` 零内部依赖；`engine` ← {core, common, rule, log}；`hub` ← {core, common, config, log}；`driver/*` ← {core, common, driverbase}；`transport/*` ← {core, common, transport/parser}；`rule` / `config` ← {core, common}；`log` ← {core, common/observable}。引擎经 `core` 接口解耦驱动/传输、hub 经 `route.SetEngine` 拿到引擎实例，编译期装配只发生在 `cmd/corec`。只能单向，禁止反向或跨域（`driver/*` 互引、`transport/mqtt` ↔ `transport/httppush` 互引均禁止）。
 - **插件注册**：驱动/传输通过 `init()` 工厂注册，由 `driver/all`、`transport/all` 空导入触发。新增插件须在 `all` 包注册。
 - **边界解析**：外部输入（配置 YAML、MQTT 命令、HTTP webhook）必须经校验/解析后才能进入核心，禁止信任原始输入。
-- **配置密钥**：`${ENV_VAR}` 替换为 tree-based（parse→expand→re-marshal），非字节级；`config/config.go` 保证 API 永不回显明文。
+- **配置密钥**：`${ENV_VAR}` 替换为 tree-based（parse→expand→re-marshal），非字节级；`GET /configs` 概要版以 `secret-set` 布尔脱敏（hub/route/configs.go）；`GET /configs/raw` 认证后返回明文。
 - 违反以上约束会被结构测试（`archtest/`）机械拦截。
 
 ## 常用命令
@@ -25,13 +25,13 @@ CoreC — 工业物联网（IIoT）数据采集与控制核心，Go 实现。南
 - 全量测试：`go test -race ./...`
 - lint：`golangci-lint run`
 - 覆盖率：`go test -cover -coverprofile=cover.out ./... && go tool cover -func=cover.out`
-- 交叉编译：`go build -ldflags "-X main.version=$(git describe --tags)" -o corec ./cmd/corec`
+- 交叉编译：`go build -ldflags "-X main.version=${TAG} -X github.com/CoreC-Dev/CoreC/hub/route.Version=${TAG}" -o corec ./cmd/corec`（`TAG` 为去掉 `v` 前缀的 git tag；版本声明点见 `docs/CI.md`）
 
 ## 目录地图
 
 | 路径 | 职责 |
 |------|------|
-| `cmd/corec/` | 入口，wiring + 信号处理 |
+| `cmd/` | 入口（`corec` wiring + 信号处理、`corec-mcp` REST→MCP 适配） |
 | `core/` | 核心接口与类型（Driver/Transport/Rule 缝隙） |
 | `config/` | YAML 加载、env 替换、secrets、tags-file 热重载 |
 | `engine/` | 核心引擎（scheduler/batcher/discovery/databus/offlinebuffer） |
@@ -39,7 +39,7 @@ CoreC — 工业物联网（IIoT）数据采集与控制核心，Go 实现。南
 | `transport/{mqtt,httppush,notify,parser}` | 北向传输（数据推送 + 告警通知通道） |
 | `rule/` | 规则引擎（expr 表达式求值） |
 | `hub/{route,executor}` | 控制面 HTTP/WS API 与执行器 |
-| `common/` | 共享工具（metrics/observable/trace/util） |
+| `common/` | 共享工具包 |
 | `log/` | 结构化日志封装 |
 | `e2e/` | 端到端集成测试 |
 | `demo/` | 示例配置与场景 |

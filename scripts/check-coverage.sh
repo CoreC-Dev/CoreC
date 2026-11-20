@@ -50,10 +50,7 @@ threshold_for() {
     driver/opcua)      echo 45 ;;
     driver/s7)       echo 80 ;;
     cmd/corec)         echo 85 ;;
-    # Pinned just under what the package reaches today (67.9%) rather than at a
-    # round 60: a floor 8 points below the code catches nothing that happens
-    # between now and the next deliberate pass, while this one fails on the
-    # first untested verb someone adds. Raise it when it is raised here.
+    # cmd/corec-mcp coverage floor 65%; raise it here when coverage is raised.
     cmd/corec-mcp)     echo 65 ;;
     *)                 echo "" ;;
   esac

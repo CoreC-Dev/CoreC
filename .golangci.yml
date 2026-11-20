@@ -4,11 +4,6 @@ run:
 linters:
   # Default-enabled linters in golangci-lint v2 (always active unless disabled):
   #   errcheck, govet, ineffassign, staticcheck, unused
-  # Notes on linters requested but not separate in v2:
-  #   - gosimple:  merged into `staticcheck` (the S* checks), so enabling
-  #                staticcheck already covers gosimple.
-  #   - typecheck: built-in and always run by the Go analyzer; it is not a
-  #                selectable linter in v2.
   enable:
     - bodyclose
     - errcheck
@@ -30,8 +25,8 @@ linters:
         - performance
         - style
     gocyclo:
-      # Cyclomatic complexity threshold. Functions above this must be refactored
-      # or explicitly excluded (e.g. cmd/corec main wiring).
+      # Functions above this must be refactored or explicitly excluded
+      # (e.g. cmd/corec main wiring).
       min-complexity: 20
     revive:
       rules:
@@ -45,12 +40,9 @@ linters:
       - legacy
       - std-error-handling
     rules:
-      # Unchecked errors in tests are common and rarely actionable.
       - linters:
           - errcheck
         path: _test\.go
-      # The main entrypoint wires many subsystems together and is intentionally
-      # linear/long; exclude it from cyclomatic complexity checks.
       - linters:
           - gocyclo
         path: cmd/corec/

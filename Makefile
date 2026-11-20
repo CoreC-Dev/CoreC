@@ -13,12 +13,8 @@
 
 .PHONY: all gates build test test-all lint vet arch taste docs cover cover-gate install-hooks clean
 
-# H1 (quality audit 2026-10-21): the lint tool version is pinned HERE —
-# the single source of truth — and `make lint` self-installs it, so a
-# fresh clone mechanically reproduces CI's exact lint behavior. (CI
-# previously pinned v2.14.0 in workflow YAML only; local runs used
-# whatever was on PATH, and the repo's old hook silently skipped lint
-# when it was missing — the root cause of 8+ recurring fix-lint commits.)
+# The lint tool version is pinned here (single source of truth);
+# `make lint` self-installs it.
 GOLANGCI_VERSION ?= v2.15.0
 GOLANGCI := $(shell go env GOPATH)/bin/golangci-lint
 GOFLAGS  ?= -race
@@ -45,27 +41,27 @@ lint:
 vet:
 	go vet ./...
 
-# T7: Architecture structure test — dependency direction enforcement
+# Architecture structure test — dependency direction enforcement
 arch:
 	go test -v ./archtest/
 
-# T1/T6: Taste invariant tests — file size + structured logging
+# Taste invariant tests — file size + structured logging
 taste:
 	go test -v ./tastetest/
 
-# T9: Document lint — dead links + required sections + orphan docs + package comments
+# Document lint — dead links + required sections + orphan docs + package comments
 docs:
 	@bash scripts/check-docs.sh
 
-# T10: Coverage report
+# Coverage report
 cover:
 	go test -cover -coverprofile=cover.out ./... && go tool cover -func=cover.out | tail -1
 
-# T11: Coverage gate — per-package + overall thresholds (Phase 5)
+# Coverage gate — per-package + overall thresholds
 cover-gate:
 	@bash scripts/check-coverage.sh
 
-# T12: Tool-surface parity with the dashboard's AI assistant
+# Tool-surface parity with the dashboard's AI assistant
 # Skips (exit 0) when the sibling checkout is absent, so this repo builds alone.
 parity:
 	@node scripts/check-tools-parity.mjs --skip-if-missing
@@ -75,11 +71,8 @@ gates: vet lint arch taste docs parity test cover-gate
 	@echo ""
 	@echo "✅ All gates passed"
 
-# Install git pre-commit hook — the FAST tier (seconds, ~100% compliance):
-# vet + pinned lint (golangci-lint caches, so only changed code costs time)
-# + archtest + tastetest + doc lint. Full `make gates` (race tests,
-# coverage) stays at push/CI time: a 3-minute hook gets mass-bypassed
-# with --no-verify, which is worse than no hook (audit H1 rationale).
+# Install git pre-commit hook — fast subset: vet + pinned lint + archtest
+# + tastetest + doc lint. Race tests and coverage run at push/CI time.
 install-hooks:
 	@echo "#!/usr/bin/env bash" > .git/hooks/pre-commit
 	@echo "set -e" >> .git/hooks/pre-commit

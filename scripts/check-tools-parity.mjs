@@ -13,8 +13,7 @@
 //   node scripts/check-tools-parity.mjs --skip-if-missing      # for CI without the sibling
 //
 // Exit: 0 in step, 1 drifted, 2 could not evaluate (missing input and --skip-if-missing
-// not given). 2 is distinct from 1 on purpose: "I could not look" must never be
-// reported as "it is fine", and it must not be reported as a drift either.
+// not given).
 
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -31,10 +30,8 @@ const dashboardRoot = process.env.COREC_DASHBOARD_DIR
 const dashboardTools = join(dashboardRoot, 'src/features/assistant/tools.ts')
 
 // explicitlyAsked is true when the caller named a directory via COREC_DASHBOARD_DIR
-// rather than relying on the sibling checkout being present. CI sets it after
-// cloning the dashboard: there, a missing file is a broken checkout, NOT
-// "this repo has no dashboard next to it". Skipping in that case would report
-// the job green while the comparison never happened.
+// rather than relying on the sibling checkout being present. With it set, a
+// missing file fails (exit 2) instead of skipping.
 const explicitlyAsked = Boolean(process.env.COREC_DASHBOARD_DIR)
 
 function unavailable(why) {
@@ -45,8 +42,6 @@ function unavailable(why) {
     process.exit(2)
   }
   if (skipIfMissing) {
-    // Said out loud: a skipped check that prints nothing is indistinguishable
-    // from a passing one in a CI log.
     console.log(`  ⏭️  tools parity skipped: ${why}`)
     process.exit(0)
   }
@@ -55,10 +50,8 @@ function unavailable(why) {
   process.exit(2)
 }
 
-// The manifest lives in THIS repo, so its absence is never "not applicable":
-// it is a stale checkout or a forgotten `-update`, and both mean the comparison
-// below would be against nothing. --skip-if-missing covers the sibling checkout
-// only, never this file.
+// The manifest lives in THIS repo; its absence is exit 2. --skip-if-missing
+// covers the sibling checkout only, never this file.
 if (!existsSync(manifestPath)) {
   console.error(`  \u274c tools parity: ${manifestPath} is missing from this checkout`)
   console.error('     generate it with: go test ./cmd/corec-mcp -run TestToolsManifest -update')
@@ -95,18 +88,11 @@ if (ui.size === 0) {
   process.exit(1)
 }
 
-// Tools the dashboard adds on top of MCP, with no MCP counterpart. Empty
-// today: get_configs and validate_configs used to live here, and are now on
-// both sides. Kept as a named set so that re-adding one is a deliberate line in
-// a diff rather than a quietly tolerated difference.
+// uiOnly registers dashboard-only tools that have no MCP counterpart.
 const uiOnly = new Set()
 
-// MCP verbs the dashboard deliberately folds into an existing one.
-// read_tag(driver, tag) is GET /tags?driver=&tag=, which list_tags already takes
-// (it exposes the same `tag` argument) -- so the chat box is not missing the
-// capability, only the second name for it. Listed rather than silently filtered:
-// if it ever stops being covered, this comment is wrong and so is the check, and
-// both are easier to notice here than in a catch-all further down.
+// coveredBy registers MCP verbs the dashboard folds into an existing tool:
+// read_tag is covered by list_tags(tag=).
 const coveredBy = { read_tag: 'list_tags' }
 
 const problems = []

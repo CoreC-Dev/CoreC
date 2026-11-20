@@ -120,15 +120,13 @@ for f in "${all_md[@]}"; do
   done
   # Check VitePress config (by basename or by route path)
   if [[ $found -eq 0 ]] && grep -q "$basename" docs/.vitepress/config.ts 2>/dev/null; then found=1; fi
-  # Check VitePress route: docs/guide/intro.md → /guide/intro
+  # Check VitePress route: docs/guide/introduction.md → /guide/introduction
   if [[ $found -eq 0 && "$f" == docs/* ]]; then
     route="/${f#docs/}"; route="${route%.md}"
     if grep -q "$route" docs/.vitepress/config.ts 2>/dev/null; then found=1; fi
   fi
   # Check AGENTS.md references
   if [[ $found -eq 0 ]] && grep -q "$basename" AGENTS.md 2>/dev/null; then found=1; fi
-  # Check exec-plans references
-  if [[ $found -eq 0 ]] && grep -rq "$basename" docs/exec-plans/ 2>/dev/null; then found=1; fi
   if [[ $found -eq 0 ]]; then
     echo "  ⚠️  孤儿文档: $f（无入站链接）"
     orphan_count=$((orphan_count + 1))
@@ -165,13 +163,8 @@ done < <(find . -type d -not -path './.git/*' -not -path './vendor/*' | sed 's|^
 if [[ $missing_pkg -eq 0 ]]; then ok "所有包有注释"; else errors=$((errors + missing_pkg)); fi
 
 # ── 5. front-matter 结构合法（VitePress 站点构建的前置条件）────────────────
-# 前四项都是静态文本检查，从不渲染站点。docs/guide/mcp.md 曾把 layout/outline
-# 缩进在没有父键的位置：Docs Gate（跑本脚本）保持绿色，Deploy Docs 红在
-# "bad indentation of a mapping entry"。本地必须能拦住这一类。
-#
 # 不引入 YAML 依赖，只验结构不验语义：首个 --- 在第 1 行、有闭合 ---、
-# front-matter 非空。缩进层级是否正确由站点构建最终裁定 —— 这里宁可漏报，
-# 也不误报（误报会让人习惯性跳过这个门禁，比没有门禁更糟）。
+# front-matter 非空。缩进层级是否正确由站点构建最终裁定。
 fm_checked=0
 fm_errors=0
 while IFS= read -r f; do

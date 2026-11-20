@@ -1,5 +1,5 @@
 # EditorConfig — formatting authority for files not owned by gofmt
-# (.yaml, .md, .sh). H6-L3, quality audit 2026-10-21.
+# (.yaml, .md, .sh).
 root = true
 
 [*]

@@ -2,7 +2,7 @@
 
 > 每项门禁：检查名 · 触发时机 · 失败含义 · 修复指引 · 本地复现命令。
 > G1–G8、G11 可通过 `make gates` 一条命令本地复现；G9（版本一致性）与 G10（交叉编译矩阵）在 CI 中触发（见 `docs/CI.md`）。
-> 注：G11 在命令行上带 `--skip-if-missing`，找不到同级 `CoreC-Dashboard` 检出（CI 的单仓 checkout）时**跳过并打印 ⏭️**，而不是静默通过——另加 `COREC_DASHBOARD_DIR` 指向检出即强制比对；指定了却读不到文件，一律 exit 2 失败。
+> 注：G11 在命令行上带 `--skip-if-missing`；CI 会 clone Dashboard 并设 `COREC_DASHBOARD_DIR` 强制比对，仅当同级 `CoreC-Dashboard` 检出不存在且未显式指定目录时**跳过并打印 ⏭️**，而不是静默通过；指定了却读不到文件，一律 exit 2 失败。
 
 ## 门禁总览
 
@@ -45,7 +45,7 @@
 
 ### G4: 文件大小上限
 - **失败含义**：.go 文件超过 600 行且未在 `exemptedFiles` 中登记（豁免条目还须在 `exemptedFileCaps` 钉上限：超过钉死的行数同样失败）
-- **修复指引**：按职责拆分为更小文件。若暂不能拆，在 `tastetest/taste_test.go` 的 `exemptedFiles` 中添加条目并附 tracker ID
+- **修复指引**：按职责拆分为更小文件。若暂不能拆，在 `tastetest/taste_test.go` 的 `exemptedFiles` 中添加条目并附具体理由
 - **测试位置**：`tastetest/taste_test.go::TestFileSizeLimit`
 
 ### G5: 结构化日志
@@ -86,35 +86,35 @@
 
 ### golangci-lint 豁免
 ```go
-//nolint:gocyclo // CPLX-XXX: <reason>
+//nolint:gocyclo // <reason>
 func (b *Batcher) runTask(...) {
 ```
 
 **规则**：
 - 每个 `//nolint` 必须附 `// 原因` 注释
-- 原因应含 tracker ID 或具体理由
+- 原因须为具体理由
 - 触发豁免的问题修复后，对应的 nolint 应被移除
 
 ### 文件大小豁免
 在 `tastetest/taste_test.go` 的 `exemptedFiles` map 中登记（同时在 `exemptedFileCaps` 钉上限）：
 ```go
-"path/to/file.go": "CPLX-XXX: N lines over the cap, <reason>",
+"path/to/file.go": "N lines over the cap, <reason>",
 ```
 **规则**：`exemptedFileCaps` 中的行数上限一旦被超过即失败（豁免不允许无声增长）。
 
 ### 测试跳过豁免
 ```go
 func TestSomething(t *testing.T) {
-    t.Skip("TEST-XXX: requires OPC UA simulation server")
+    t.Skip("requires OPC UA simulation server")
 ```
-**规则**：每个 `t.Skip` 须附 tracker ID 或具体原因。
+**规则**：每个 `t.Skip` 须附具体原因。
 
 ## G11: 工具面一致性（tools parity）
 - **失败含义**：`cmd/corec-mcp` 与 Dashboard AI 助手的工具清单出现差异——一边新增/改名/删除了工具，另一边没跟；或同一个工具在两边读写分类不同。后者最危险：意味着 UI 侧可能在不打开写开关时调用到能改变设备的动词。
-- **修复指引**：先在本仓改 `tools.go`，跑 `go test ./cmd/corec-mcp -run TestToolsManifest -update` 重新生成 `cmd/corec-mcp/tools_manifest.json`；再到 `CoreC-Dashboard` 同步 `src/features/assistant/tools.ts`。**两边一起提交**，不要只改一侧让 CI 红着过夜——下次别人会以为那条红是环境噪声。
+- **修复指引**：先在本仓改 `tools.go`，跑 `go test ./cmd/corec-mcp -run TestToolsManifest -update` 重新生成 `cmd/corec-mcp/tools_manifest.json`；再到 `CoreC-Dashboard` 同步 `src/features/assistant/tools.ts`。**两边一起提交**（corec-mcp 与 Dashboard tools.ts 须同一变更同步）。
 - **检查方式**：`scripts/check-tools-parity.mjs` 读本仓生成的清单（`tools_manifest.json`）与 Dashboard 的 `tools.ts` 做集合比对。Dashboard 的工具名不硬编码在脚本里，所以任何一侧的改动都会被看到。
 - **已知有意差异**（登记在脚本里，不是漏洞）：
   - `read_tag`：CoreC 侧是独立工具，Dashboard 侧由 `list_tags(tag=)` 覆盖——`coveredBy`。
-  - `get_configs` / `validate_configs`：Dashboard 独有的只读工具，不属控制动词——`uiOnly`。
+  - `uiOnly` 当前为空。
 - 两边都独有、或读写分类冲突的，一律失败，**不自动豁免**。
 - **何时可跳过**：仅当同级 `CoreC-Dashboard` 检出不存在。`make parity` 已带 `--skip-if-missing`，跳过时输出 `⏭️` 并说明原因，不会伪装成通过。手动跑脚本不加该 flag 时，缺输入退出码为 `2`（与"发现漂移"的 `1` 区分），这样"我看不到"不会被误读成"它没问题"。

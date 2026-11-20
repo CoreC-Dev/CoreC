@@ -49,15 +49,15 @@ type Config struct {
 	Addr   string
 	Secret string
 
-	// TLS support (M1). When both are set, the server uses HTTPS.
+	// TLS support. When both are set, the server uses HTTPS.
 	TLSCert string
 	TLSKey  string
 
-	// AllowedOrigins restricts CORS to specific origins (M3).
+	// AllowedOrigins restricts CORS to specific origins.
 	// Empty means permissive default (Access-Control-Allow-Origin: *).
 	AllowedOrigins []string
 
-	// RateLimitPerSec limits requests per second per IP (M2).
+	// RateLimitPerSec limits requests per second per IP.
 	// 0 means no limit.
 	RateLimitPerSec int
 

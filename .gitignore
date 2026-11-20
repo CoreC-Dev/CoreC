@@ -10,10 +10,10 @@ dist/
 # Test binary, built with `go test -c`
 *.test
 
-# Output of the go coverage tool, specifically when used with LiteIDE
+# Coverage artifacts
 *.out
 
-# Dependency directories (remove the comment below to include it)
+# vendor/ (not committed; see CONTRIBUTING)
 # vendor/
 
 # Local data & logs
@@ -31,7 +31,6 @@ logs/
 Thumbs.db
 /corec
 /corec-mcp
-/corec-stripped
 
 # VitePress docs
 docs/node_modules/
