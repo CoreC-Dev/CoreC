@@ -1,13 +1,10 @@
 // Package main implements corec-mcp: a stateless Model Context Protocol
 // adapter that exposes a running CoreC instance to AI agents.
 //
-// Command corec-mcp exposes a running CoreC instance to AI agents over the
-// Model Context Protocol.
-//
-// Every tool delegates to CoreC's control-plane REST API, so the existing
-// guarantees apply unchanged: the API secret authenticates each call,
-// per-tag write protection rejects read-only points, write pacing refuses
-// writes that arrive too soon, and each write lands in the audit history.
+// Every tool delegates to CoreC's control-plane REST API: the API secret
+// authenticates each call, per-tag write protection rejects read-only
+// points, write pacing refuses writes that arrive too soon, and each
+// write lands in the audit history.
 //
 // Usage:
 //
