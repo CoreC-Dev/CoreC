@@ -35,9 +35,9 @@ func Init(e core.Engine, initialCfg *core.Config, path string) {
 	route.ReloadFunc = ReloadWithOrigin
 	route.PatchFunc = PatchWithOrigin
 	route.GetConfigFunc = CurrentConfig
-	// Path A: expose the raw config (GET /configs/raw) and the dry-run
-	// validator (POST /configs/validate) to the route layer without creating an
-	// import cycle (executor → route, never the reverse).
+	// Expose the raw config (GET /configs/raw) and the dry-run
+	// validator (POST /configs/validate) to the route layer (executor →
+	// route, never the reverse).
 	route.GetRawConfigFunc = RawConfigYAML
 	route.ValidateFunc = Validate
 	// Server-side config backups (GET/POST /configs/backups,
@@ -97,10 +97,9 @@ func Validate(payload string) (warnings []string, err error) {
 	if vErr := config.Validate(cfg); vErr != nil {
 		return nil, fmt.Errorf("config validation failed: %w", vErr)
 	}
-	// config.Validate is intentionally dependency-free and cannot compile
-	// match expressions. Ask the live engine (optional role) to compile the
-	// same rule set ApplyConfig would install, so "valid" here means the PUT
-	// will not fail at SetRules.
+	// config.Validate does not compile match expressions; the live engine
+	// (optional RuleValidator role) compiles the same rule set ApplyConfig
+	// would install, so "valid" here means the PUT will not fail at SetRules.
 	if engine != nil {
 		if v, ok := engine.(core.RuleValidator); ok {
 			if rErr := v.ValidateRules(cfg); rErr != nil {
@@ -264,11 +263,9 @@ func ReloadWithOrigin(path, payload, remote string) error {
 		if p != "" {
 			// Auto-snapshot (server-side config backups): copy the current
 			// on-disk config into the backup set immediately BEFORE it is
-			// overwritten, so every successful dashboard-driven change has a
-			// pre-change rollback point. Only runs when a file already
-			// exists (first persist has nothing to back up) and is strictly
-			// best-effort: a failed snapshot logs a warning and never blocks
-			// the reload — availability of the change outranks the backup.
+			// overwritten. Only runs when a file already exists (first
+			// persist has nothing to back up) and is best-effort: a failed
+			// snapshot logs a warning and never blocks the reload.
 			snapshotExistingConfig(p)
 			// 0o600: owner read/write only. The config file contains the API
 			// secret and driver/transport credentials — world/group-readable
@@ -468,18 +465,6 @@ func reloadChangeKeys(path, payload string) []string {
 	return []string{"active-file"}
 }
 
-// --- Resource-level sugar endpoints ---
-//
-// Removing a single driver/transport/rule previously required the caller
-// to fetch the full YAML, splice it, and PUT the whole config. These
-// helpers do exactly that internally — mutate the active config, then
-// run the SAME validate → apply → persist chain as PUT /configs
-// (including rollback on failure, the pre-change backup snapshot, and
-// the audit entry) — so the narrow API gets every safety rail for free.
-
-// removeFromConfig removes one named entry from the given slice and
-// reports whether it existed. Generics keep it copy-free at the call
-// sites (the slices are small; simplicity wins).
 func removeNamedDriver(cfg *core.Config, name string) bool {
 	for i := range cfg.Drivers {
 		if cfg.Drivers[i].Name == name {
@@ -510,8 +495,10 @@ func removeNamedRule(cfg *core.Config, name string) bool {
 	return false
 }
 
-// removeResource is the shared body: snapshot the active config, drop
-// the named entry, and reload through the full chain. Returns
+// removeResource is the shared body of the resource-level DELETE helpers:
+// snapshot the active config, drop the named entry, and run the same
+// validate → apply → persist chain as PUT /configs (including rollback on
+// failure, the pre-change backup snapshot, and the audit entry). Returns
 // os.ErrNotExist-style error when the name is missing (the route maps
 // it to 404).
 func removeResource(kind, name, remote string, drop func(*core.Config) bool) error {

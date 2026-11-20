@@ -167,9 +167,7 @@ func buildConfigOverview(cfg *core.Config) configOverview {
 // ConfigError implements (parse/validation failures). The route cannot
 // import the executor package (executor imports route for wiring), so
 // the classification is duck-typed: when the reload error says the
-// CALLER's payload is at fault, answer 400 with the actual reason —
-// the operator otherwise learns nothing but "internal server error"
-// and must go dig through server logs.
+// CALLER's payload is at fault, answer 400 with the actual reason.
 // Apply-stage failures do not implement this and keep the masked 500.
 type clientFixableConfigError interface {
 	ClientFixable() bool

@@ -93,7 +93,6 @@ func TestHTTPMetricsMiddlewareCountsRequests(t *testing.T) {
 		renderError(w, r, http.StatusInternalServerError, "boom")
 	}))
 
-	// Two GET 200s.
 	for i := 0; i < 2; i++ {
 		req := httptest.NewRequest(http.MethodGet, "/things", http.NoBody)
 		rec := httptest.NewRecorder()
@@ -103,7 +102,6 @@ func TestHTTPMetricsMiddlewareCountsRequests(t *testing.T) {
 		}
 	}
 
-	// One POST 500.
 	req := httptest.NewRequest(http.MethodPost, "/things", http.NoBody)
 	rec := httptest.NewRecorder()
 	errHandler.ServeHTTP(rec, req)

@@ -7,13 +7,11 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// getDrivers only depends on the DriverManager role of the engine.
 func getDrivers(w http.ResponseWriter, r *http.Request) {
 	var dm core.DriverManager = getEngine()
 	render(w, r, http.StatusOK, map[string]any{"drivers": dm.ListDrivers()})
 }
 
-// getDriver only depends on the DriverManager role of the engine.
 func getDriver(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	var dm core.DriverManager = getEngine()
@@ -27,9 +25,8 @@ func getDriver(w http.ResponseWriter, r *http.Request) {
 	renderError(w, r, http.StatusNotFound, "driver not found")
 }
 
-// getDriverTags depends on the DataAccessor and StatsProvider roles of
-// the engine (latest values + staleness threshold). It snapshots the
-// engine once so both reads observe the same engine instance.
+// getDriverTags snapshots the engine once so both reads observe the
+// same engine instance.
 func getDriverTags(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	e := getEngine()

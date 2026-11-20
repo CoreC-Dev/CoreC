@@ -5,13 +5,10 @@ import (
 	"net/http"
 )
 
-// Resource-level DELETE endpoints: removing
-// a single driver/transport/rule would otherwise require the client to
-// fetch the full YAML, splice it, and PUT the whole config — hostile to
-// API consumers and easy to get wrong (one bad splice corrupts
-// everything). These sugar endpoints splice internally and run the SAME
-// validate → apply → persist chain as PUT /configs: the pre-change
-// backup snapshot, the failure rollback, and the audit entry all apply.
+// Resource-level DELETE endpoints: removing a single driver/transport/rule.
+// These endpoints splice internally and run the same validate → apply →
+// persist chain as PUT /configs: the pre-change backup snapshot, the
+// failure rollback, and the audit entry all apply.
 //
 // Deletion is a significant operation: the handlers log the caller for
 // the audit trail; the endpoint is idempotent-404 for names the active
@@ -33,9 +30,7 @@ var (
 
 // ResourceErrorClass is the typed result of ClassifyResourceError — the
 // injected classifier and both sides of the boundary share these
-// exported constants — declaring raw
-// ints independently on each side would let renumbering either side
-// compile fine and silently misroute 404/400/500.
+// exported constants.
 const (
 	ResourceErrInternal = 0 // masked 500
 	ResourceErrNotFound = 1 // 404

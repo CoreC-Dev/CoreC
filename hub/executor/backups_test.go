@@ -13,8 +13,6 @@ import (
 	"github.com/CoreC-Dev/CoreC/hub/route"
 )
 
-// --- helpers ---
-
 // backupTestConfig writes content to a config file under dir and returns its
 // path.
 func backupTestConfig(t *testing.T, dir, content string) string {
@@ -36,8 +34,6 @@ type failingTransportEngine struct {
 func (m *failingTransportEngine) AddTransport(core.TransportConfig) error {
 	return errors.New("transport apply failed")
 }
-
-// --- auto-snapshot on Reload ---
 
 // TestReloadAutoSnapshot_CreatesBackupBeforePersist proves the core flow:
 // a payload reload (dashboard PUT /configs) snapshots the on-disk config
@@ -166,7 +162,7 @@ func TestReloadAutoSnapshot_RetentionLimit(t *testing.T) {
 	eng := &mockEngineForExecutor{}
 	Init(eng, &core.Config{}, cfgPath)
 
-	const reloads = configBackupMax + 2 // 12 reloads → 12 snapshots
+	const reloads = configBackupMax + 2
 	var namesAfterFirst, namesAfterSecond []route.ConfigBackupInfo
 	for i := 0; i < reloads; i++ {
 		if err := Reload("", "global:\n  log-level: debug\n"); err != nil {
@@ -276,8 +272,6 @@ func TestReloadAutoSnapshot_ApplyFailure(t *testing.T) {
 	}
 }
 
-// --- GetConfigBackup: content + strict name validation (anti-traversal) ---
-
 // TestGetConfigBackup_Content proves the backup reader returns the exact
 // stored content.
 func TestGetConfigBackup_Content(t *testing.T) {
@@ -336,8 +330,6 @@ func TestGetConfigBackup_NameValidation(t *testing.T) {
 		t.Errorf("GetConfigBackup(missing) error = %v, want ErrBackupNotFound", err)
 	}
 }
-
-// --- RestoreConfigBackup ---
 
 // TestRestoreConfigBackup_FullChain proves restore runs the complete
 // validate → ApplyConfig → persist chain: the current config returns to the
@@ -446,8 +438,6 @@ func TestRestoreConfigBackup_NotFoundAndInvalidName(t *testing.T) {
 		t.Errorf("restore(traversal) error = %v, want ErrInvalidBackupName", err)
 	}
 }
-
-// --- CreateConfigBackup (manual snapshot) ---
 
 // TestCreateConfigBackup_Manual proves the manual snapshot endpoint backing:
 // it copies the current on-disk file into the backup set and reports the

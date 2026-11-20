@@ -306,7 +306,7 @@ func decodeHealthNotReady(t *testing.T, resp *http.Response) notReadyHealthRespo
 // TestHealthzReadyComponentDetailsAllDriversDisconnected verifies that
 // when readiness fails because no drivers are connected, the response
 // includes a reason and a per-driver components list with the correct
-// connected flags. This guards the Part A enhancement contract.
+// connected flags.
 func TestHealthzReadyComponentDetailsAllDriversDisconnected(t *testing.T) {
 	ts := newTestServer("", &mockEngineV2{
 		stats: core.EngineStats{

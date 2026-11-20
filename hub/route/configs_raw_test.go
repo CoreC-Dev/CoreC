@@ -113,8 +113,8 @@ func TestValidateConfigs(t *testing.T) {
 	ts := httptest.NewServer(router(context.Background(), "secret-123", nil, 0, true, false))
 	defer ts.Close()
 
-	// 1. Valid config → 200 {valid: true}. Includes a driver (data source) and
-	// an HTTP webhook transport (satisfies "at least one transport" + inbound).
+	// 1. Valid config → 200 {valid: true}: a complete valid config with a
+	// driver and an HTTP webhook transport.
 	validYAML := "node:\n  id: edge\n  role: collector\nglobal:\n  log-level: info\n  api:\n    listen: 0.0.0.0:9090\n    secret: valid-secret-123\ndrivers:\n  - name: plc1\n    type: modbus-tcp\n    settings:\n      host: 192.168.1.5\n      port: 502\n    tags:\n      - name: temp\n        address: \"40001\"\n        type: float32\ntransports:\n  - name: wh1\n    type: http\n    settings:\n      webhook-addr: 0.0.0.0:9091\n      webhook-path: /data\nrules:\n  - name: r1\n    match: ALL\n    action: forward\n    target: wh1\n"
 	body, _ := json.Marshal(map[string]string{"payload": validYAML})
 	req, _ := http.NewRequest("POST", ts.URL+"/configs/validate", bytes.NewReader(body))
@@ -135,8 +135,8 @@ func TestValidateConfigs(t *testing.T) {
 	}
 
 	// 2. Invalid config (api.secret too short) → 400 {valid: false, error: ...}.
-	// Note: "no data source / no transport" is no longer invalid — an empty
-	// config is a valid idle state. Use a hard, registry-independent failure
+	// Note: "no data source / no transport" is valid — an empty config is a
+	// valid idle state. Use a hard, registry-independent failure
 	// (secret length) so the outcome does not depend on driver registration.
 	invalidYAML := "global:\n  api:\n    listen: 0.0.0.0:9090\n    secret: short\n"
 	body, _ = json.Marshal(map[string]string{"payload": invalidYAML})

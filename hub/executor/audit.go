@@ -7,8 +7,7 @@ import (
 )
 
 // configAuditCap bounds the in-memory config change audit trail exposed
-// via GET /configs/audit. Same order of magnitude as the write audit
-// history (1000): enough for hours of debugging, cheap in memory.
+// via GET /configs/audit.
 const configAuditCap = 500
 
 // ConfigAuditEntry lives in core (see core/audit.go): both the executor

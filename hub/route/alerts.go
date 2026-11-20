@@ -14,11 +14,9 @@ import (
 // getAlerts serves the engine's first-class alert state: the
 // currently-active alerts (fired within the active
 // window, acknowledged or not) plus the bounded lifecycle history
-// (fired/acked/cleared events, newest first). Alerts must be queryable
-// state, not a WARN log line the Dashboard has to reconstruct by
-// filtering log levels.
+// (fired/acked/cleared events, newest first).
 //
-// Only depends on the optional core.AlertProvider role; engines that do
+// Uses the optional core.AlertProvider role; engines that do
 // not implement it answer 501 so clients can distinguish "alerts not
 // supported" from "no alerts".
 func getAlerts(w http.ResponseWriter, r *http.Request) {
@@ -53,9 +51,8 @@ type ackAlertRequest struct {
 	Key string `json:"key"`
 }
 
-// ackAlert acknowledges an active alert. Only
-// depends on the optional core.AlertProvider role. Key comes in the
-// body rather than the URL path because keys contain "|".
+// ackAlert acknowledges an active alert. Uses the optional
+// core.AlertProvider role. Key comes in the body; keys contain "|".
 func ackAlert(w http.ResponseWriter, r *http.Request) {
 	var req ackAlertRequest
 	if err := json.NewDecoder(limitedBody(r).Body).Decode(&req); err != nil {

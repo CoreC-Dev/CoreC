@@ -41,8 +41,10 @@ type driverTestResult struct {
 }
 
 // loggerInjector and metricsInjector are the optional injection
-// interfaces drivers may implement (mirroring engine/driver_manager.go).
-// The temporary instance gets the same wiring a configured driver would.
+// interfaces drivers may implement. The temporary instance gets
+// log.DefaultLogger() and NoopMetrics (connectivity probe only, not the
+// engine's metrics registry); drivers without injection keep their
+// internal defaults.
 type loggerInjector interface {
 	SetLogger(core.Logger)
 }
@@ -103,9 +105,9 @@ func testDriver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Optional wiring, mirroring engine.AddDriver: drivers that support
-	// SetLogger/SetMetrics get the same backends a configured instance
-	// would; others keep their internal defaults.
+	// Optional injection: log.DefaultLogger() and NoopMetrics (probe only,
+	// not the engine's metrics registry); drivers that do not support
+	// SetLogger/SetMetrics keep their internal defaults.
 	if li, ok := driver.(loggerInjector); ok {
 		li.SetLogger(log.DefaultLogger())
 	}

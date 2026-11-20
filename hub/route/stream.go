@@ -9,7 +9,6 @@ import (
 	"github.com/coder/websocket/wsjson"
 )
 
-// streamTags only depends on the EventSubscriber role of the engine.
 func streamTags(w http.ResponseWriter, r *http.Request) {
 	c, err := acceptWS(w, r)
 	if err != nil {
@@ -19,10 +18,8 @@ func streamTags(w http.ResponseWriter, r *http.Request) {
 
 	ctx := c.CloseRead(r.Context())
 
-	// Optional driver filter via query parameter
 	filter := r.URL.Query().Get("driver")
 
-	// Subscribe to real-time data points
 	var es core.EventSubscriber = getEngine()
 	ch, unsub := es.Subscribe(filter)
 	defer unsub()

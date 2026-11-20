@@ -24,10 +24,9 @@ func healthzLive(w http.ResponseWriter, r *http.Request) {
 }
 
 // componentState is the per-component summary included in a not-ready
-// readiness response. It deliberately exposes only the name and a boolean
-// connected flag — no counters, error strings, or addresses — so the
-// readiness probe stays cheap to parse and does not leak operational
-// details to an unauthenticated probe caller.
+// readiness response. It exposes only the name and a boolean connected
+// flag — no counters, error strings, or addresses — to an unauthenticated
+// probe caller.
 type componentState struct {
 	Name      string `json:"name"`
 	Connected bool   `json:"connected"`
@@ -58,8 +57,8 @@ type notReadyHealthResponse struct {
 // Readiness checks whether the engine is ready to serve real traffic. A
 // failing readiness probe causes Kubernetes to remove the pod from the
 // service's load-balancer (it stops routing requests to it) but does NOT
-// restart the pod. This is the right place to check that the engine is
-// running and that at least one data path is healthy.
+// restart the pod. It checks that the engine is running and that at least
+// one data path is healthy.
 //
 // The engine is considered ready when ALL of the following hold:
 //   - Engine status is "running" (not stopped/suspended).

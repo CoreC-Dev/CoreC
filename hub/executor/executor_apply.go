@@ -27,9 +27,8 @@ func ApplyConfig(cfg *core.Config, force bool) error {
 		}
 	}
 
-	// Step 1b/1c: Warn about config sections that cannot be hot-applied
-	// (require a restart). Extracted to keep ApplyConfig's cyclomatic
-	// complexity under the gocyclo threshold.
+	// Warn about config sections that cannot be hot-applied
+	// (require a restart).
 	warnRestartRequired(currentCfg, cfg)
 
 	// Step 2: Suspend engine to pause task ticks
@@ -116,15 +115,12 @@ func ApplyConfig(cfg *core.Config, force bool) error {
 // ApplyConfig cannot hot-apply and therefore require a process restart to
 // take effect:
 //   - api.listen / api.secret / api TLS — the HTTP server is bound once at
-//     boot; reload cannot rebind or re-authenticate it (m8),
+//     boot; reload cannot rebind or re-authenticate it,
 //   - rule-providers, rule-groups, and engine tuning parameters — silently
-//     ignored by ApplyConfig; warn so operators know a restart is needed
-//     (problem 5),
+//     ignored by ApplyConfig; warn so operators know a restart is needed,
 //   - node (topology auto-discovery) and global.buffer (offline buffer) —
 //     wired once at engine start; warn so operators know a restart is
-//     needed (silently ignoring them hides the restart requirement).
-//
-// Extracted from ApplyConfig to reduce its cyclomatic complexity.
+//     needed.
 func warnRestartRequired(oldCfg, cfg *core.Config) {
 	if oldCfg == nil {
 		return

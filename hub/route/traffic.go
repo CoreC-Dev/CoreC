@@ -10,7 +10,6 @@ import (
 	"github.com/coder/websocket/wsjson"
 )
 
-// getTraffic only depends on the StatsProvider role of the engine.
 func getTraffic(w http.ResponseWriter, r *http.Request) {
 	c, err := acceptWS(w, r)
 	if err != nil {
@@ -25,10 +24,8 @@ func getTraffic(w http.ResponseWriter, r *http.Request) {
 			interval = d
 		}
 	}
-	// mode=totals keeps the cumulative counters; the default
-	// is rates (README promises "实时吞吐量统计": lifetime totals would
-	// force clients to diff, and a restart-to-zero would produce a
-	// negative first frame).
+	// mode=totals pushes the cumulative counters; the default
+	// pushes per-interval rates.
 	modeTotals := r.URL.Query().Get("mode") == "totals"
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

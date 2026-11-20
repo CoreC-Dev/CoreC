@@ -15,8 +15,6 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// --- enhanced mock engine ---
-
 type mockEngineV2 struct {
 	core.Engine
 	stats        core.EngineStats
@@ -203,8 +201,6 @@ func decodeJSON(t *testing.T, resp *http.Response, v any) {
 	}
 }
 
-// --- tests ---
-
 func TestGetVersion(t *testing.T) {
 	ts := newTestServer("", &mockEngineV2{})
 	defer ts.Close()
@@ -230,7 +226,6 @@ func TestGetDriverByName(t *testing.T) {
 	ts := newTestServer("", eng)
 	defer ts.Close()
 
-	// Found
 	resp := authedGet(t, ts, "/drivers/plc1", "")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
@@ -241,7 +236,6 @@ func TestGetDriverByName(t *testing.T) {
 		t.Errorf("unexpected driver: %+v", d)
 	}
 
-	// Not found
 	resp2 := authedGet(t, ts, "/drivers/nonexistent", "")
 	if resp2.StatusCode != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", resp2.StatusCode)
@@ -288,7 +282,6 @@ func TestGetTransportByName(t *testing.T) {
 	ts := newTestServer("", eng)
 	defer ts.Close()
 
-	// Found
 	resp := authedGet(t, ts, "/transports/mqtt1", "")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
@@ -299,7 +292,6 @@ func TestGetTransportByName(t *testing.T) {
 		t.Errorf("unexpected transport: %+v", tr)
 	}
 
-	// Not found
 	resp2 := authedGet(t, ts, "/transports/nope", "")
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusNotFound {

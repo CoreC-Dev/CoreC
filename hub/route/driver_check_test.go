@@ -81,7 +81,7 @@ var (
 // registerFakeTestDrivers registers the fake driver types lazily — from
 // inside each test, NOT from an init() — mirroring the engine package's
 // registerMockTypes pattern. This matters: the plugin registry is
-// process-global, and config validation (config/validate.go, M10) skips
+// process-global, and config validation skips
 // driver-type checks only while the registry is EMPTY.
 // configs_raw_test.go's TestValidateConfigs parses a config with the real
 // type "modbus-tcp" and relies on that empty-registry escape (this test

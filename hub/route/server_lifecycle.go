@@ -64,7 +64,7 @@ func ReCreateServer(cfg *Config) {
 	serverCancel = cancel
 
 	// Determine pprof configuration. PprofDisabled defaults to false
-	// (pprof enabled, backward compatible). When PprofAddr is set, pprof
+	// (pprof enabled). When PprofAddr is set, pprof
 	// runs on a separate server and is NOT registered on the main router.
 	pprofOnMain := !cfg.PprofDisabled && cfg.PprofAddr == ""
 
@@ -130,10 +130,9 @@ func ReCreateServer(cfg *Config) {
 }
 
 // startMetricsServer starts the dedicated credential-free /metrics
-// server when MetricsAddr is configured. Like the pprof sibling, it has
-// NO authentication, so a non-loopback bind is refused fail-closed —
-// the operator must use a loopback or otherwise network-isolated
-// interface (e.g. a docker bridge, a private VLAN, or an SSH tunnel).
+// server when MetricsAddr is configured. It has NO authentication, so a
+// non-loopback bind is refused fail-closed: only loopback addresses
+// (127.0.0.1, ::1, localhost) are accepted.
 func startMetricsServer(cfg *Config) {
 	if cfg.MetricsAddr == "" {
 		return
@@ -208,8 +207,8 @@ func serveAPI(server *http.Server, ln net.Listener, cfg *Config) {
 
 // startPprofServer starts a separate pprof server if PprofAddr is
 // configured. This keeps profiling endpoints off the main API port
-// and does NOT require authentication, so it should be bound to a
-// loopback or private interface only.
+// and does NOT require authentication, so it must be bound to a
+// loopback interface only.
 //
 // The separate pprof server has no authentication, so it
 // must only bind to a loopback address. A non-loopback PprofAddr (e.g.
@@ -317,7 +316,7 @@ func CloseServer() error {
 //   - arbitrary hostnames, which could resolve to a non-loopback address and
 //     cannot be verified statically (fail-closed).
 //
-// Used to gate the unauthenticated separate pprof server.
+// Used to gate the unauthenticated separate pprof and metrics servers.
 func isLoopbackAddr(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {

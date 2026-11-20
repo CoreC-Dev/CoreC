@@ -72,9 +72,9 @@ func TestExecutorApplyConfig(t *testing.T) {
 	}
 
 	// Use a temp-dir config path: Reload persists the payload to configPath
-	// (and now snapshots the replaced file into <dir>/backups/), so a
+	// (and snapshots the replaced file into <dir>/backups/), so a
 	// repo-relative path would write test artifacts into the package
-	// directory (see the "config.yaml" cleanup in git history).
+	// directory.
 	Init(eng, initialCfg, filepath.Join(t.TempDir(), "config.yaml"))
 
 	// Verify current config

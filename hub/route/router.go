@@ -14,7 +14,7 @@ func router(ctx context.Context, secret string, allowedOrigins []string, rateLim
 	// calls (which do their own Origin check, independent of CORS) honor the
 	// same allowed-origins config. Without this, cross-origin WS upgrades
 	// are 403'd by coder/websocket's strict default.
-	// Use the atomic setter to avoid racing concurrent acceptWS callers (BR-4).
+	// Use the atomic setter to avoid racing concurrent acceptWS callers.
 	setWSAllowedOrigins(allowedOrigins)
 
 	r := chi.NewRouter()
@@ -55,8 +55,7 @@ func router(ctx context.Context, secret string, allowedOrigins []string, rateLim
 		r.Put("/configs", updateConfigs)
 		r.Patch("/configs", patchConfigs)
 		r.Post("/configs/validate", validateConfigs)
-		// Config change audit trail: who changed what,
-		// when — previously only a server log line.
+		// Config change audit trail: who changed what, when.
 		r.Get("/configs/audit", getConfigAudit)
 
 		// Server-side config backups: snapshot copies of the persisted

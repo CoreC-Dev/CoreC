@@ -11,10 +11,7 @@ func TestAnnotateStalenessDisabled(t *testing.T) {
 	tags := map[string]core.DataPoint{
 		"temp": {Tag: "temp", Value: 42.5, Timestamp: time.Now()},
 	}
-	// threshold=0 means disabled, should return original map unchanged
 	result := annotateStaleness(tags, 0)
-	// With threshold=0, the function returns the original map as-is.
-	// Verify IsStale is not set on any entry.
 	for k, v := range result {
 		if v.IsStale {
 			t.Errorf("entry %q should not be stale with threshold=0", k)
@@ -57,14 +54,11 @@ func TestAnnotateStalenessDoesNotMutateOriginal(t *testing.T) {
 		"stale": {Tag: "stale", Value: 2.0, Timestamp: now.Add(-2 * time.Minute)},
 	}
 
-	// Call annotateStaleness
 	result := annotateStaleness(tags, 30*time.Second)
 
-	// Original map should NOT be mutated
 	if tags["stale"].IsStale {
 		t.Error("original map was mutated: IsStale should still be false")
 	}
-	// Result map should have IsStale=true
 	if !result["stale"].IsStale {
 		t.Error("result map should have IsStale=true")
 	}

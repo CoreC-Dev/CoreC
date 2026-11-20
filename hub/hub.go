@@ -21,7 +21,6 @@ func parseDuration(s string) time.Duration {
 	return d
 }
 
-// Start initializes the API routes, executor, and starts the API server.
 func Start(engine core.Engine, cfg *core.Config, configPath string) {
 	route.SetEngine(engine)
 	executor.Init(engine, cfg, configPath)
@@ -49,7 +48,6 @@ func Start(engine core.Engine, cfg *core.Config, configPath string) {
 	}
 }
 
-// Stop shuts down the API server.
 func Stop() {
 	if err := route.CloseServer(); err != nil {
 		slog.Error("API server stop error", "error", err)

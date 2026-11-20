@@ -14,8 +14,7 @@ import (
 )
 
 // defaultHTTPDurationBuckets defines the upper bounds (in seconds) of the
-// HTTP request-duration histogram. The tiers match common latency SLOs
-// (1ms, 5ms, 10ms, 50ms, 100ms, 500ms, 1s, 5s). Observations that exceed
+// HTTP request-duration histogram. Observations that exceed
 // the largest bucket fall into an implicit +Inf overflow bucket, so the
 // counts slice has length len(defaultHTTPDurationBuckets)+1.
 var defaultHTTPDurationBuckets = []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5}

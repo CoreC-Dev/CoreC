@@ -10,9 +10,7 @@ import (
 )
 
 // maxRequestBody limits JSON body size to prevent OOM from oversized requests.
-// 1 MiB is sufficient for typical config payloads; if large rule sets exceed
-// this, consider making it configurable via APIConfig.
-const maxRequestBody = 1 << 20 // 1 MiB
+const maxRequestBody = 1 << 20
 
 // wsAllowedOrigins is the set of origins permitted to upgrade to a WebSocket
 // connection. It is populated by router() from the configured AllowedOrigins.
@@ -25,7 +23,7 @@ const maxRequestBody = 1 << 20 // 1 MiB
 // rejected with HTTP 403, silently breaking all realtime pages.
 //
 // Stored as an atomic.Value so router() can swap it during hot-reload without
-// racing concurrent acceptWS callers (BR-4).
+// racing concurrent acceptWS callers.
 var wsAllowedOrigins atomic.Value // stores []string
 
 // getWSAllowedOrigins atomically loads the current allowed-origins slice.

@@ -11,7 +11,6 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// Default HTTP server timeouts. Overridable via APIConfig.
 const (
 	defaultReadHeaderTimeout = 10 * time.Second
 	// defaultReadTimeout and defaultWriteTimeout are 0 (disabled) by default.
@@ -33,10 +32,8 @@ const (
 	// WebSocket streams. Overridable via the ?interval= query parameter.
 	wsPushInterval = 1 * time.Second
 
-	// corsMaxAgeSeconds is the CORS preflight cache duration in seconds
-	// (24h). Stored as an int and stringified with strconv.Itoa where
-	// needed, so the numeric value is not expressed as a fragile string
-	// literal.
+	// corsMaxAgeSeconds is the CORS preflight cache duration in seconds.
+	// Stored as an int and stringified with strconv.Itoa where needed.
 	corsMaxAgeSeconds = 86400
 
 	// rateLimitBucketTTL is how long a rate-limit bucket is kept after its
@@ -74,22 +71,23 @@ type Config struct {
 	IdleTimeout       time.Duration
 
 	// PprofDisabled controls whether pprof profiling endpoints are
-	// disabled. Default false (pprof enabled, backward compatible).
+	// disabled. Default false (pprof enabled).
 	// Set to true to disable pprof entirely.
 	PprofDisabled bool
 
 	// MetricsAddr, when non-empty, starts a separate HTTP server serving
 	// only /metrics WITHOUT authentication.
-	// Bind to a loopback or private interface only; while set, /metrics
-	// is removed from the authenticated main API.
+	// Bind to a loopback interface only (non-loopback addresses are
+	// refused); while set, /metrics is removed from the authenticated
+	// main API.
 	MetricsAddr string
 
 	// PprofAddr, when non-empty, starts a separate HTTP server for pprof
 	// endpoints on this address. This keeps profiling endpoints off the
 	// main API port. When empty, pprof is registered on the main server
 	// (unless PprofDisabled is true). The separate server does NOT require
-	// authentication, so it should only be bound to a loopback or
-	// private interface.
+	// authentication, so it must be bound to a loopback interface only
+	// (non-loopback addresses are refused).
 	PprofAddr string
 }
 
@@ -108,8 +106,8 @@ var (
 	ReloadFunc       func(path, payload, remote string) error
 	PatchFunc        func(patch map[string]any, remote string) error
 	GetConfigFunc    func() *core.Config
-	GetRawConfigFunc func() (string, error)                 // Path A: GET /configs/raw — full YAML with secrets in plaintext
-	ValidateFunc     func(payload string) ([]string, error) // Path A: POST /configs/validate — dry-run; returns idle warnings + error
+	GetRawConfigFunc func() (string, error)                 // GET /configs/raw — full YAML with secrets in plaintext
+	ValidateFunc     func(payload string) ([]string, error) // POST /configs/validate — dry-run; returns idle warnings + error
 
 	// Server-side config backup slots, implemented by hub/executor (see
 	// backups.go there): GET/POST /configs/backups, GET

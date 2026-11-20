@@ -35,10 +35,7 @@ func getMemory(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-ticker.C:
 			// runtime/metrics.Read collects runtime statistics without
-			// triggering a Stop-The-World pause. The previous
-			// runtime.ReadMemStats call forced a STW on every push (default
-			// once per second) per connected client, producing latency
-			// spikes proportional to the client count. Each metric below is
+			// triggering a Stop-The-World pause. Each metric below is
 			// the exact runtime.ReadMemStats analog: heap objects bytes ==
 			// HeapAlloc, total allocs == TotalAlloc, total memory class ==
 			// Sys, completed GC cycles == NumGC.

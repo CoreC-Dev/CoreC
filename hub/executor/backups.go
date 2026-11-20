@@ -102,17 +102,15 @@ func saveConfigBackup(data []byte) (string, error) {
 
 	name := backupFileName(nextBackupStamp())
 	target := filepath.Join(dir, name)
-	// 0o600: owner read/write only, same rationale as the active config file
-	// in Reload — backups contain the API secret and driver/transport
-	// credentials, so world/group-readable files would leak them to other
-	// users on the host.
+	// 0o600: owner read/write only — backups contain the API secret and
+	// driver/transport credentials.
 	if err := os.WriteFile(target, data, 0o600); err != nil {
 		return "", fmt.Errorf("failed to write config backup %s: %w", name, err)
 	}
 	// os.WriteFile only applies perm on file creation and the umask may
-	// clear owner bits; chmod explicitly (mirrors the persist path in
-	// Reload) so the backup is never more open than 0o600. Non-fatal on
-	// failure: the file was created with at most 0o600 already.
+	// clear owner bits; chmod explicitly so the backup is never more open
+	// than 0o600. Non-fatal on failure: the file was created with at most
+	// 0o600 already.
 	if err := os.Chmod(target, 0o600); err != nil {
 		slog.Warn("config backup created but failed to tighten file permissions",
 			"path", target, "error", err)
@@ -164,7 +162,7 @@ func pruneConfigBackups(dir string) {
 //
 // A missing file is a silent no-op (first persist — nothing to back up);
 // any other failure only logs a warning: a failed snapshot must never block
-// an otherwise valid reload (availability first).
+// an otherwise valid reload.
 func snapshotExistingConfig(path string) {
 	info, err := os.Stat(path)
 	if err != nil {

@@ -12,8 +12,6 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// --- ParseWithPath tests ---
-
 func TestParseWithPathValid(t *testing.T) {
 	// Create a temp config file.
 	dir := t.TempDir()
@@ -55,8 +53,6 @@ func TestParseWithPathNonExistent(t *testing.T) {
 		t.Error("expected error for non-existent file")
 	}
 }
-
-// --- resolveConfigPath tests ---
 
 func TestResolveConfigPathValid(t *testing.T) {
 	dir := t.TempDir()
@@ -120,8 +116,6 @@ func TestResolveConfigPathNoBase(t *testing.T) {
 		t.Error("expected error when no base config path is set")
 	}
 }
-
-// --- Reload from file path tests ---
 
 func TestReloadFromFilePath(t *testing.T) {
 	dir := t.TempDir()
@@ -258,8 +252,6 @@ func TestReloadPathErrorsAreClientFixable(t *testing.T) {
 	})
 }
 
-// --- Patch tests ---
-
 func TestPatchUnknownKey(t *testing.T) {
 	Init(&mockEngineForExecutor{}, &core.Config{}, "config.yaml")
 
@@ -296,8 +288,6 @@ func TestPatchMultipleKeys(t *testing.T) {
 		t.Error("expected error for multiple unknown keys")
 	}
 }
-
-// --- ApplyConfig tests ---
 
 func TestApplyConfigNilEngine(t *testing.T) {
 	// Reset to nil engine.
@@ -357,10 +347,8 @@ func TestApplyConfigForceFlag(t *testing.T) {
 	}
 }
 
-// --- Path A: Validate dry-run + sentinel-merge tests ---
-
-// liveConfigForValidate is a valid config with a real api.secret that the
-// sentinel-merge can backfill from when a redacted payload is validated.
+// liveConfigForValidate provides a valid api.secret as Init's active config.
+// Validate checks only the payload's own plaintext values; no backfill.
 func liveConfigForValidate() *core.Config {
 	return &core.Config{
 		Global: core.GlobalConfig{
@@ -461,9 +449,9 @@ rules:
 }
 
 // TestValidate_TooShortRotatedSecretFails proves the dry-run catches a genuine
-// validation error: if the operator types a NEW secret that's too short (< 8),
-// the merge leaves it untouched and validate rejects it. This confirms the
-// dry-run is a faithful predictor, not a rubber-stamp.
+// validation error: a NEW secret that's too short (< 8) in the payload is
+// rejected by Validate. This confirms the dry-run is a faithful predictor,
+// not a rubber-stamp.
 func TestValidate_TooShortRotatedSecretFails(t *testing.T) {
 	Init(&mockEngineForExecutor{}, liveConfigForValidate(), "config.yaml")
 

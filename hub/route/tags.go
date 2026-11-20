@@ -35,19 +35,17 @@ func annotateStaleness(tags map[string]core.DataPoint, threshold time.Duration) 
 	return result
 }
 
-// getAllTags depends on the DataAccessor and StatsProvider roles of the
-// engine (latest values + staleness threshold). It snapshots the engine
-// once so both reads observe the same engine instance.
+// getAllTags snapshots the engine once so both reads observe the same
+// engine instance.
 func getAllTags(w http.ResponseWriter, r *http.Request) {
 	e := getEngine()
 	var da core.DataAccessor = e
 	var sp core.StatsProvider = e
 	tags := annotateStaleness(da.LatestValues(""), sp.StaleThreshold())
 
-	// Server-side filtering so thousand-tag deployments
-	// stop shipping the full map per query. ?driver= serves one driver
-	// (the cheap per-driver snapshot path); ?tag= matches substrings
-	// across the flattened view; ?prefix= matches tag-name prefixes.
+	// Server-side filtering: ?driver= serves one driver (the per-driver
+	// snapshot path); ?tag= matches substrings across the flattened
+	// view; ?prefix= matches tag-name prefixes.
 	q := r.URL.Query()
 	if d := q.Get("driver"); d != "" {
 		tags = da.LatestValues(d)
@@ -83,8 +81,7 @@ func getAllTags(w http.ResponseWriter, r *http.Request) {
 // "type" key decodes as TypeBool and silently writes a bool to the PLC,
 // corrupting the register instead of rejecting the request. The check
 // is enforced at the API boundary only; the MQTT command path keeps
-// lenient decoding (its senders are documented to always sign and
-// carry the type).
+// lenient decoding.
 func requireWriteCommandType(raw []byte) error {
 	var probe map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &probe); err != nil {
@@ -96,7 +93,6 @@ func requireWriteCommandType(raw []byte) error {
 	return nil
 }
 
-// writeTag only depends on the DataAccessor role of the engine.
 func writeTag(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(limitedBody(r).Body)
 	if err != nil {
@@ -208,11 +204,9 @@ type batchWriteRequest struct {
 	Writes []core.WriteCommand `json:"writes"`
 }
 
-// batchWrite executes a list of write commands one by one (recipe
-// downloads and commissioning scripts otherwise need N round trips).
-// The response mirrors the request
-// order; per-command errors are verbatim (driver-not-found etc.),
-// and the summary counts make partial success visible at a glance.
+// batchWrite executes a list of write commands one by one. The response
+// mirrors the request order; per-command errors are verbatim
+// (driver-not-found etc.).
 func batchWrite(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(limitedBody(r).Body)
 	if err != nil {
@@ -244,9 +238,6 @@ func batchWrite(w http.ResponseWriter, r *http.Request) {
 		renderError(w, r, http.StatusBadRequest, "writes is required and must not be empty")
 		return
 	}
-	// The shared 1 MiB body cap bounds the batch implicitly; an
-	// explicit ceiling keeps one request from pinning the write
-	// semaphore for minutes.
 	const maxBatchWrites = 128
 	if len(req.Writes) > maxBatchWrites {
 		renderError(w, r, http.StatusBadRequest,

@@ -12,23 +12,18 @@ import (
 // getWriteHistory returns the write audit history: the most recent write
 // attempts — successes AND failures — newest first, from the engine's
 // bounded history. It complements GET /write/failed (the dead-letter
-// queue, which only holds writes that exhausted all retries): control
-// deployments need visibility into successful PLC writes too, e.g. for
-// compliance tracing of who set which setpoint when.
+// queue, which only holds writes that exhausted all retries).
 //
 // The engine optionally satisfies core.WriteAuditor. When it does not
 // (alternative Engine implementations, test mocks), the endpoint reports
-// 501 rather than 500 so clients can distinguish "write history not
-// supported by this engine" from "no writes recorded yet" (which is a
-// plain 200 with an empty list).
+// 501; "no writes recorded yet" is a plain 200 with an empty list.
 func getWriteHistory(w http.ResponseWriter, r *http.Request) {
 	auditor, ok := getEngine().(core.WriteAuditor)
 	if !ok {
 		renderError(w, r, http.StatusNotImplemented, "write history not supported by this engine")
 		return
 	}
-	// Server-side filtering for the compliance trail —
-	// the full 1000-entry response is queryable by driver, tag, and
+	// Server-side filtering: the response is queryable by driver, tag, and
 	// since-time (RFC 3339), with an optional result limit.
 	entries := auditor.WriteHistory()
 	// Filters allocate fresh slices: the WriteAuditor contract returns a

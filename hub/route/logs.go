@@ -18,7 +18,6 @@ func getLogs(w http.ResponseWriter, r *http.Request) {
 
 	ctx := c.CloseRead(r.Context())
 
-	// Subscribe to the log bus
 	ch, unsub := log.Subscribe()
 	defer unsub()
 

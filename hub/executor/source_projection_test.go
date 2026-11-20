@@ -10,9 +10,9 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// TestRawConfigYAMLProjectsTagsFileRoundTrip is the P0-1 regression: a
-// tags-file driver must round-trip through GET /configs/raw and PUT
-// /configs without re-expanding the file and colliding on tag names.
+// TestRawConfigYAMLProjectsTagsFileRoundTrip verifies that a tags-file
+// driver round-trips through GET /configs/raw and PUT /configs without
+// re-expanding the file and colliding on tag names.
 func TestRawConfigYAMLProjectsTagsFileRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	tagsPath := filepath.Join(dir, "tags.yaml")

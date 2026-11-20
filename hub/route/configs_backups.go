@@ -25,9 +25,8 @@ type ConfigBackupInfo struct {
 // Sentinel errors classifying config-backup failures. The executor (the only
 // implementer of the backup function variables) wraps them into returned
 // errors; handlers map each one onto a precise HTTP status via errors.Is.
-// They live here — not in hub/executor — because the wiring direction is
-// executor → route (route must not import executor, or the assignment pattern
-// used for ReloadFunc and friends would become an import cycle).
+// Backup endpoints live in the route layer; the executor provides the
+// implementation (wiring direction executor → route).
 var (
 	// ErrNoConfigPath is returned when the core started without a persisted
 	// config file path (empty-config startup), so there is no on-disk file

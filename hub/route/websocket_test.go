@@ -19,8 +19,6 @@ import (
 	"github.com/coder/websocket/wsjson"
 )
 
-// --- WebSocket endpoint tests ---
-
 // TestStreamTagsWebSocket verifies that the /tags/stream WebSocket endpoint
 // accepts a connection and forwards subscribed data points as JSON.
 func TestStreamTagsWebSocket(t *testing.T) {
@@ -30,7 +28,6 @@ func TestStreamTagsWebSocket(t *testing.T) {
 	ts := newTestServer("", eng)
 	defer ts.Close()
 
-	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/tags/stream"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -53,7 +50,6 @@ func TestStreamTagsWebSocket(t *testing.T) {
 // TestGetLogsWebSocket verifies that the /logs WebSocket endpoint
 // accepts a connection and forwards log events.
 func TestGetLogsWebSocket(t *testing.T) {
-	// Initialize the log system so Subscribe works.
 	log.Init(slog.LevelInfo, "text") // Initialize log system so Subscribe works
 
 	eng := &mockEngineV2{}
@@ -220,8 +216,6 @@ func TestGetMemoryWebSocket(t *testing.T) {
 	c.Close(websocket.StatusNormalClosure, "")
 }
 
-// --- Rate limit middleware test ---
-
 func TestRateLimitMiddleware(t *testing.T) {
 	eng := &mockEngineV2{
 		drivers: []core.DriverStatus{{Name: "plc1", Type: "modbus-tcp"}},
@@ -250,8 +244,6 @@ func TestRateLimitMiddleware(t *testing.T) {
 		t.Error("expected at least one 200 response")
 	}
 }
-
-// --- CORS middleware test ---
 
 func TestCORSMiddleware(t *testing.T) {
 	eng := &mockEngineV2{}
@@ -307,8 +299,6 @@ func TestCORSMiddlewareRestricted(t *testing.T) {
 		t.Error("expected disallowed origin to not be echoed back")
 	}
 }
-
-// --- ReCreateServer / CloseServer tests ---
 
 func TestReCreateServerNilConfig(t *testing.T) {
 	// nil config should be a no-op.
@@ -371,8 +361,6 @@ func TestReCreateServerReplaces(t *testing.T) {
 	CloseServer()
 }
 
-// --- Authentication edge cases ---
-
 func TestAuthQueryToken(t *testing.T) {
 	eng := &mockEngineV2{
 		drivers: []core.DriverStatus{{Name: "plc1", Type: "modbus-tcp"}},
@@ -422,8 +410,6 @@ func TestAuthCorrectBearer(t *testing.T) {
 	}
 }
 
-// --- Config overview test ---
-
 func TestGetConfigs(t *testing.T) {
 	eng := &mockEngineV2{}
 	ts := newTestServer("", eng)
@@ -455,8 +441,6 @@ func TestGetConfigs(t *testing.T) {
 		t.Error("expected non-nil config overview")
 	}
 }
-
-// --- Rules endpoint test ---
 
 func TestGetRules(t *testing.T) {
 	eng := &mockEngineV2{
@@ -534,8 +518,6 @@ func TestDisableRuleOutOfRange(t *testing.T) {
 	}
 }
 
-// --- Health endpoint test ---
-
 func TestHelloEndpoint(t *testing.T) {
 	eng := &mockEngineV2{}
 	ts := newTestServer("", eng)
@@ -556,8 +538,6 @@ func TestHelloEndpoint(t *testing.T) {
 		t.Errorf("expected status=ok, got %q", result["status"])
 	}
 }
-
-// --- pprof loopback validation ---
 
 func TestIsLoopbackAddr(t *testing.T) {
 	cases := []struct {

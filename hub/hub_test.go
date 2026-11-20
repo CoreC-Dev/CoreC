@@ -148,7 +148,7 @@ func TestStartStopWithAPI(t *testing.T) {
 	Start(eng, cfg, "config.yaml")
 
 	// CloseServer is safe to call regardless of whether the listener
-	// goroutine has started yet (it sets inShutdown), so no sleep needed.
+	// goroutine has started yet, so no sleep needed.
 	Stop()
 
 	// After Stop, CloseServer should return nil (server already closed).
@@ -257,14 +257,10 @@ func TestStartWithRateLimit(t *testing.T) {
 	Stop()
 }
 
-// TestStartWithAPIAndVerifyHealth checks that the API server actually
-// responds to requests after Start.
 // TestStartWithMetricsAddr verifies that hub.Start passes the configured
 // global.api.metrics-addr through to the route server config: the
 // credential-free dedicated /metrics server must actually come up, and
 // the authenticated copy on the main API must be suppressed (404).
-// Regression guard for the wiring gap where MetricsAddr was parsed but
-// never passed to route.Config, silently disabling the whole feature.
 func TestStartWithMetricsAddr(t *testing.T) {
 	apiAddr := freeAddr(t)
 	metricsAddr := freeAddr(t)
@@ -307,6 +303,8 @@ func TestStartWithMetricsAddr(t *testing.T) {
 	}
 }
 
+// TestStartWithAPIAndVerifyHealth checks that the API server actually
+// responds to requests after Start.
 func TestStartWithAPIAndVerifyHealth(t *testing.T) {
 	// Use a dynamic port to avoid collisions with other tests.
 	addr := freeAddr(t)

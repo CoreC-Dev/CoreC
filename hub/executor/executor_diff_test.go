@@ -34,7 +34,7 @@ func (m *mockEngineRemoveFail) Suspend() error                   { return nil }
 func (m *mockEngineRemoveFail) Resume() error                    { return nil }
 
 // TestDiffDrivers_RemoveAllToEmpty verifies the N→0 reload path: removing
-// all drivers when the new config has none. This was previously untested.
+// all drivers when the new config has none.
 func TestDiffDrivers_RemoveAllToEmpty(t *testing.T) {
 	eng := &mockEngineRemoveFail{}
 	prevEngine := engine
@@ -56,7 +56,7 @@ func TestDiffDrivers_RemoveAllToEmpty(t *testing.T) {
 }
 
 // TestDiffDrivers_RemoveErrorPropagated verifies that a RemoveDriver failure
-// is now propagated as an error (previously swallowed with slog.Error).
+// is propagated as an error.
 func TestDiffDrivers_RemoveErrorPropagated(t *testing.T) {
 	eng := &mockEngineRemoveFail{
 		removeDriverErr: errors.New("driver busy"),
@@ -119,7 +119,7 @@ func TestDiffTransports_RemoveAllToEmpty(t *testing.T) {
 }
 
 // TestDiffTransports_RemoveErrorPropagated verifies that a RemoveTransport
-// failure is now propagated as an error (previously swallowed with slog.Error).
+// failure is propagated as an error.
 func TestDiffTransports_RemoveErrorPropagated(t *testing.T) {
 	eng := &mockEngineRemoveFail{
 		removeTransportErr: errors.New("transport busy"),

@@ -8,13 +8,10 @@ import (
 )
 
 // writeRuntimeMetrics emits Go runtime and process-level metrics as
-// Prometheus gauges. These are essential for production monitoring:
-// goroutine leaks, memory pressure, GC pressure, and CPU usage.
+// Prometheus gauges: goroutines, memory, GC, and CPU.
 //
 // All values are read via runtime/metrics, which samples runtime state
-// without triggering a Stop-The-World pause. The previous implementation
-// used runtime.ReadMemStats, which forces a STW to obtain a consistent
-// snapshot — undesirable on the /metrics scrape path.
+// without triggering a Stop-The-World pause.
 // runtime.NumGoroutine() and runtime.NumCPU() are also STW-free and are
 // therefore used directly.
 func writeRuntimeMetrics(b *strings.Builder) {

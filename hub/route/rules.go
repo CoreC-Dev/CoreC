@@ -8,7 +8,6 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// getRules only depends on the RuleManager role of the engine.
 func getRules(w http.ResponseWriter, r *http.Request) {
 	var rm core.RuleManager = getEngine()
 	render(w, r, http.StatusOK, map[string]any{"rules": rm.GetRuleStats()})
@@ -20,14 +19,12 @@ type disableRuleRequest struct {
 	// config reloads, unlike an index which shifts when rules are
 	// reordered or removed.
 	Name string `json:"name"`
-	// Index addresses the rule by position; kept for backward
-	// compatibility with clients that predate name addressing. A pointer
-	// distinguishes "omitted" from the valid index 0.
+	// Index addresses the rule by position. A pointer distinguishes
+	// "omitted" from the valid index 0.
 	Index    *int `json:"index"`
 	Disabled bool `json:"disabled"`
 }
 
-// disableRule only depends on the RuleManager role of the engine.
 func disableRule(w http.ResponseWriter, r *http.Request) {
 	var req disableRuleRequest
 	if err := json.NewDecoder(limitedBody(r).Body).Decode(&req); err != nil {
@@ -50,8 +47,6 @@ func disableRule(w http.ResponseWriter, r *http.Request) {
 		// stable identifier and the index may be stale.
 		err = rm.SetRuleDisabledByName(req.Name, req.Disabled)
 	case req.Index == nil:
-		// An omitted index used to fall through to index 0 — in a
-		// priority-ordered table that is often the safety interlock.
 		renderError(w, r, http.StatusBadRequest, "name or index is required")
 		return
 	default:

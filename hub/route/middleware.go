@@ -63,9 +63,7 @@ func corsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
 // The client IP is always taken from r.RemoteAddr. The X-Real-IP (and
 // X-Forwarded-For) headers are intentionally NOT trusted, because a client
 // can spoof them to attribute requests to arbitrary IPs and bypass the
-// limit. If trusted-proxy support is needed in the future, it must be an
-// explicit, opt-in configuration that only honors forwarded headers from
-// known proxy addresses.
+// limit.
 //
 // To keep the buckets map from growing unbounded under a spoofed-IP flood,
 // a background goroutine periodically evicts buckets that have not been
@@ -83,9 +81,7 @@ func rateLimitMiddleware(ctx context.Context, perSec int) func(http.Handler) htt
 	)
 
 	// Evict stale buckets periodically so the map cannot grow unbounded.
-	// The goroutine exits when ctx is cancelled (server shutdown/reload),
-	// preventing the goroutine leak that occurred when ReCreateServer
-	// rebuilt the router without stopping the previous eviction loop.
+	// The goroutine exits when ctx is cancelled (server shutdown/reload).
 	go func() {
 		ticker := time.NewTicker(rateLimitEvictInterval)
 		defer ticker.Stop()
@@ -165,8 +161,7 @@ func rateLimitMiddleware(ctx context.Context, perSec int) func(http.Handler) htt
 }
 
 // safeRequestLogger logs HTTP requests at DEBUG level without exposing the token
-// query parameter. Replaces chi's middleware.Logger to prevent credential
-// disclosure in access logs. Logging at DEBUG means request lines are governed by
+// query parameter. Logging at DEBUG means request lines are governed by
 // the global log-level setting: visible when log-level=debug, silenced at info
 // and above (production), and hot-reloadable via PATCH /configs.
 func safeRequestLogger(next http.Handler) http.Handler {
@@ -238,9 +233,10 @@ func authentication(secret string) func(http.Handler) http.Handler {
 }
 
 // isWebSocketUpgrade reports whether the request is a WebSocket upgrade
-// handshake. The browser WebSocket API cannot set custom Authorization
-// headers, so these requests are permitted to carry the token via a
-// query parameter as a narrowly-scoped exception.
+// handshake. WS upgrades cannot carry an Authorization header, so these
+// requests may carry the token via the Sec-WebSocket-Protocol subprotocol
+// (token.<secret>, preferred) or the ?token= query parameter (legacy
+// fallback).
 func isWebSocketUpgrade(r *http.Request) bool {
 	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
 }

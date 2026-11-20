@@ -203,7 +203,7 @@ func TestCORS(t *testing.T) {
 	me := &mockEngine{}
 	SetEngine(me)
 
-	// Only explicitly allowed origins should receive CORS headers (M3 fix).
+	// Only explicitly allowed origins should receive CORS headers.
 	handler := router(context.Background(), "", []string{"http://localhost:3000"}, 0, true, false)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
@@ -362,8 +362,8 @@ func TestWebSocketSubprotocolTokenAuth(t *testing.T) {
 	}
 }
 
-// TestDisableRuleRequiresNameOrIndex: an omitted index used to fall through
-// to rule 0, which is often the safety interlock in a priority-ordered list.
+// TestDisableRuleRequiresNameOrIndex verifies that a disable request with
+// neither name nor index is rejected with 400.
 func TestDisableRuleRequiresNameOrIndex(t *testing.T) {
 	me := &mockEngine{}
 	SetEngine(me)

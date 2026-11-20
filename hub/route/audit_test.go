@@ -1,8 +1,7 @@
-// This file holds tests for the audit logging added to the config-, rule-,
+// This file holds tests for the audit logging in the config-, rule-,
 // and tag-writing handlers. The tests verify that the slog audit records
-// are emitted on both success and failure paths while preserving each
-// handler's existing HTTP behaviour (status code, side effects, response
-// body) — i.e. audit logging does not break existing functionality.
+// are emitted on both success and failure paths alongside each
+// handler's HTTP behaviour (status code, side effects, response body).
 package route
 
 import (

@@ -240,8 +240,8 @@ func TestPromEscape(t *testing.T) {
 	}
 }
 
-// TestPromMetricsNewFamilies verifies that the observability enhancement
-// metric families are present in the /metrics output: log dropped counter,
+// TestPromMetricsNewFamilies verifies that the additional metric
+// families are present in the /metrics output: log dropped counter,
 // driver reconnect counter, offline buffer metrics, HTTP request metrics,
 // and latency histograms. The mockEngineV2 does not satisfy
 // LatencyProvider or OfflineBufferStatsProvider, so those families are

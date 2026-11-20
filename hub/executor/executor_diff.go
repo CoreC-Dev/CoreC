@@ -30,8 +30,7 @@ type diffActions struct {
 
 // rollback best-effort undoes every recorded action in reverse order
 // of application (transports were applied after drivers; rules last).
-// Every failure is logged and the rollback continues — a partial
-// restoration is strictly better than a half-applied reload.
+// Every failure is logged and the rollback continues.
 func (a *diffActions) rollback(oldCfg *core.Config) {
 	for _, name := range a.addedTransports {
 		if err := engine.RemoveTransport(name); err != nil {

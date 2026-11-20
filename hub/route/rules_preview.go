@@ -21,10 +21,7 @@ type previewRuleRequest struct {
 
 // previewRule trial-runs a match expression against a sample data point
 // (offline rule preview). The expression is compiled and evaluated in a
-// scratch rule engine — the active rule set is never touched — so rule
-// authors can validate syntax and semantics BEFORE saving, instead of
-// discovering a compile error only when production data flows through a
-// saved rule.
+// scratch rule engine — the active rule set is never touched.
 func previewRule(w http.ResponseWriter, r *http.Request) {
 	var req previewRuleRequest
 	if err := json.NewDecoder(limitedBody(r).Body).Decode(&req); err != nil {

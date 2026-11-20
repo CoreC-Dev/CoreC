@@ -56,12 +56,9 @@ func writeDriverMetrics(b *strings.Builder, driverStats map[string]core.DriverSt
 			promEscape(name), val)
 	}
 
-	// Freshness observability:
-	// the driver status carries last_read, but only through
-	// the JSON API - Prometheus could not alert on "driver N has not
-	// read for M seconds" without polling /drivers. Both gauges are
-	// omitted for a driver that has never completed a read rather than
-	// fabricating a zero age, which would read as "read just now".
+	// Freshness observability: both gauges are omitted for a driver that
+	// has never completed a read rather than fabricating a zero age,
+	// which would read as "read just now".
 	writePromHeader(b, "corec_driver_last_read_timestamp_seconds", "gauge", "Unix timestamp (seconds) of the driver's last successful read; omitted before the first read")
 	for _, name := range names {
 		d := driverStats[name]

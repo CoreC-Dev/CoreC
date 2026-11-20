@@ -13,7 +13,6 @@ import (
 func writeHTTPMetrics(b *strings.Builder) {
 	counts, durBuckets, durSum, durCount := httpMetricsCollector.snapshot()
 
-	// ── Request count by method + status ──
 	writePromHeader(b, "corec_http_requests_total", "counter", "Total HTTP requests served by the API gateway")
 	keys := make([]string, 0, len(counts))
 	for k := range counts {
@@ -21,7 +20,6 @@ func writeHTTPMetrics(b *strings.Builder) {
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		// key format: "METHOD:STATUS"
 		method, status, ok := splitMetricKey(k)
 		if !ok {
 			continue
@@ -30,7 +28,6 @@ func writeHTTPMetrics(b *strings.Builder) {
 			promEscape(method), promEscape(status), counts[k])
 	}
 
-	// ── Request duration histogram ──
 	// durBuckets are non-cumulative per-bucket counts; Prometheus expects
 	// cumulative buckets. We compute the running sum below.
 	writePromHeader(b, "corec_http_request_duration_seconds", "histogram", "HTTP request duration in seconds")

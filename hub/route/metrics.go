@@ -17,16 +17,15 @@ const promContentType = "text/plain; version=0.0.4; charset=utf-8"
 // promMetrics exposes engine statistics in Prometheus text exposition format.
 // It is registered inside the authenticated route group, so a scraper must
 // present the API secret just like any other protected endpoint. The metrics
-// are produced entirely from the engine's existing Stats() method — no
-// external Prometheus client library is used. promMetrics only depends on
-// the StatsProvider role of the engine.
+// are rendered from the engine's Stats() plus optional role families, Go
+// runtime and HTTP request metrics; no external Prometheus client library
+// is used.
 func promMetrics(w http.ResponseWriter, r *http.Request) {
 	var sp core.StatsProvider = getEngine()
 	stats := sp.Stats()
 
 	var b strings.Builder
 
-	// ─── Counters (monotonically increasing totals) ───────────────────
 	writePromHeader(&b, "corec_reads_total", "counter", "Total data points read from drivers")
 	fmt.Fprintf(&b, "corec_reads_total %d\n", stats.TotalRead)
 
@@ -42,7 +41,6 @@ func promMetrics(w http.ResponseWriter, r *http.Request) {
 	writePromHeader(&b, "corec_log_dropped_total", "counter", "Total log events dropped due to slow consumers (full source channel or subscriber buffer)")
 	fmt.Fprintf(&b, "corec_log_dropped_total %d\n", log.Dropped())
 
-	// ─── Gauges (instantaneous values) ────────────────────────────────
 	// Note: gauges must NOT use the _total suffix — that is reserved for
 	// counters (monotonically increasing values) per Prometheus/OpenMetrics
 	// convention.
@@ -58,43 +56,31 @@ func promMetrics(w http.ResponseWriter, r *http.Request) {
 	writePromHeader(&b, "corec_uptime_seconds", "gauge", "Engine uptime in seconds")
 	fmt.Fprintf(&b, "corec_uptime_seconds %g\n", stats.Uptime.Seconds())
 
-	writePromHeader(&b, "corec_points_per_second", "gauge", "Data points processed per second over the last minute (0 when collection stalls)")
+	writePromHeader(&b, "corec_points_per_second", "gauge", "Data points processed per second over the last minute (0 about a minute after collection stalls)")
 	fmt.Fprintf(&b, "corec_points_per_second %g\n", stats.PointsPerSec)
 
-	// ─── Per-driver metrics ───────────────────────────────────────────
 	writeDriverMetrics(&b, stats.DriverStats)
 
-	// ─── Scheduler health (degraded/error-streak/overrun) ─────────────
 	writeSchedulerMetrics(&b)
 
-	// ─── Per-transport metrics ────────────────────────────────────────
 	writeTransportMetrics(&b, stats.TransportStats)
 
-	// ─── Dropped-by-cause breakdown ────────────────────────────────────
 	writeDroppedBreakdown(&b)
 
-	// ─── Driver-emitted protocol metrics ──────────────────────────────
 	writeDriverEmittedMetrics(&b)
 
-	// ─── Offline buffer metrics ───────────────────────────────────────
 	writeOfflineBufferMetrics(&b)
 
-	// ─── Batcher flush-queue drop counter ──────────────────────────────
 	writeFlushBatchesDropped(&b)
 
-	// ─── Write dead-letter queue ─────────────────────────────────────
 	writeDeadLetterMetrics(&b)
 
-	// ─── Alert registry ───────────────────────────────────────────────
 	writeAlertMetrics(&b)
 
-	// ─── HTTP request metrics ──────────────────────────────────────────
 	writeHTTPMetrics(&b)
 
-	// ─── Latency histograms ───────────────────────────────────────────
 	writeLatencyMetrics(&b)
 
-	// ─── Go runtime / process metrics ─────────────────────────────────
 	writeRuntimeMetrics(&b)
 
 	w.Header().Set("Content-Type", promContentType)

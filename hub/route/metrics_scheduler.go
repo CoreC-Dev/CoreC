@@ -8,12 +8,8 @@ import (
 )
 
 // writeSchedulerMetrics emits scheduler health families from the
-// engine's optional core.SchedulerHealthProvider role. Degraded
-// collections, sustained error streaks,
-// and cumulative overruns are otherwise visible only in throttled
-// logs — with these gauges Prometheus can alert on "this driver is
-// running degraded" and "reads are consistently slower than the
-// collection interval" without shipping logs.
+// engine's optional core.SchedulerHealthProvider role: degraded
+// collections, sustained error streaks, and cumulative overruns.
 //
 // When the engine does not satisfy the role (test mocks, engines that
 // never started a scheduler), no families are emitted.

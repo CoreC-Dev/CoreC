@@ -40,8 +40,6 @@ func (m *mockOfflineBufferEngine) OfflineBufferEvictions() uint64 {
 	return m.evicted
 }
 
-// ─── writeOfflineBufferMetrics (direct) ────────────────────────────
-
 // TestWriteOfflineBufferMetricsDirect verifies that when the engine satisfies
 // OfflineBufferStatsProvider, writeOfflineBufferMetrics emits the pending
 // gauge and the drained/pushed counters with the exact values and HELP/TYPE
@@ -118,8 +116,6 @@ func TestWriteOfflineBufferMetricsZero(t *testing.T) {
 	}
 }
 
-// ─── writeFlushBatchesDropped (direct) ─────────────────────────────
-
 // TestWriteFlushBatchesDroppedDirect verifies that when the engine satisfies
 // FlushBatchesDroppedProvider, writeFlushBatchesDropped emits the counter with
 // the exact value and HELP/TYPE headers.
@@ -156,8 +152,6 @@ func TestWriteFlushBatchesDroppedAbsentWhenNotProvider(t *testing.T) {
 		t.Errorf("expected no flush-batches-dropped metrics when engine lacks the provider interface, got:\n%s", out)
 	}
 }
-
-// ─── /metrics endpoint integration ─────────────────────────────────
 
 // TestPromMetricsOfflineBuffer verifies that the offline-buffer and
 // flush-batches-dropped families appear in the /metrics scrape output with the
