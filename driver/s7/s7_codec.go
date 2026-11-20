@@ -109,9 +109,6 @@ func encodeS7Value(v any, addr s7Address, dt core.DataType, h *gos7.Helper) ([]b
 		}
 		copy(buf, b)
 	case core.TypeString:
-		// S7 strings use a PLC-specific header layout (max-len/actual-len prefix)
-		// that this driver cannot encode safely without the matching gos7 helper.
-		// Refuse rather than silently writing a malformed value.
 		return nil, fmt.Errorf("s7: writing string is not supported")
 	default:
 		return nil, fmt.Errorf("s7: unsupported write data type: %s", dt)

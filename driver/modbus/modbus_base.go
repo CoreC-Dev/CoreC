@@ -88,12 +88,10 @@ type modbusBase struct {
 	// SetMetrics during AddDriver.
 	metrics core.Metrics
 
-	// Connection
 	client  *mb.ModbusClient
 	slaveID uint8
 	timeout time.Duration
 
-	// Retry settings
 	maxRetry int
 
 	// Tag mapping: name → TagConfig
@@ -256,14 +254,9 @@ func (b *modbusBase) handleConnLostIfCurrent(captured *mb.ModbusClient) {
 	b.HandleConnectionLost()
 }
 
-// Start, Stop, Restart, Status, Name, Type, reconnectLoop, startReconnectLoop,
-// and HandleConnectionLost are provided by the embedded driverbase.BaseDriver.
-
 func (b *modbusBase) Subscribe(ctx context.Context, tags []string) (<-chan core.DataPoint, error) {
 	return nil, core.ErrSubscribeNotSupported
 }
-
-// Name, Type, and Status are provided by the embedded driverbase.BaseDriver.
 
 func (b *modbusBase) Capabilities() core.DriverCapabilities {
 	return core.DriverCapabilities{
@@ -274,5 +267,3 @@ func (b *modbusBase) Capabilities() core.DriverCapabilities {
 		MaxBatchSize: modbusMaxBatchSize, // Modbus FC03 max 125 registers per request (protocol limit)
 	}
 }
-
-// HandleConnectionLost is provided by the embedded driverbase.BaseDriver.

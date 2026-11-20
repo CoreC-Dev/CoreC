@@ -76,13 +76,9 @@ func (d *OPCUADriver) Read(ctx context.Context, tags []string) ([]core.TagValue,
 	return results, nil
 }
 
-// assembleReadResults maps a ReadResponse to TagValues, stamping every
-// point — good and bad alike — with the local receive time `now`.
-// All consumers of TagValue.Timestamp compare it against the local clock
-// (derived-tag stale guards, API staleness annotation, dataAge metrics)
-// and the other drivers stamp local time as well, so adopting the OPC UA
-// server's SourceTimestamp here would skew every staleness judgement
-// wherever the server clock drifts from the CoreC host.
+// assembleReadResults maps a ReadResponse to TagValues: timestamps are the
+// local receive time `now` (good and bad points alike), and non-OK statuses
+// map to QualityBad and drop the value.
 func (d *OPCUADriver) assembleReadResults(resp *ua.ReadResponse, validTagNames []string, now time.Time) []core.TagValue {
 	results := make([]core.TagValue, 0, len(resp.Results))
 	for i, r := range resp.Results {

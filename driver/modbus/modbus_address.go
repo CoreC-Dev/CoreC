@@ -5,10 +5,6 @@ import (
 	"strconv"
 )
 
-// ============================================================
-// Helper functions
-// ============================================================
-
 // parseModbusAddress parses a Modbus address string (e.g. "40001") into
 // register type and zero-based address.
 func parseModbusAddress(addr string) (addrInfo, error) {

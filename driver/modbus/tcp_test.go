@@ -127,7 +127,6 @@ func TestModbusLoopbackReadWrite(t *testing.T) {
 		t.Fatalf("failed to start modbus server: %v", err)
 	}
 	defer server.Stop()
-	// server.Start() is synchronous — ready immediately.
 
 	driverCfg := core.DriverConfig{
 		Name: "test-plc",
@@ -161,7 +160,6 @@ func TestModbusLoopbackReadWrite(t *testing.T) {
 	}
 	defer drv.Stop()
 
-	// Test reading
 	values, err := drv.Read(ctx, []string{"pump_on", "temp", "speed", "fault_flag"})
 	if err != nil {
 		t.Fatalf("Read error: %v", err)
@@ -180,13 +178,12 @@ func TestModbusLoopbackReadWrite(t *testing.T) {
 	if values[2].Value != uint16(999) {
 		t.Errorf("speed: expected 999, got %v", values[2].Value)
 	}
-	// fault_flag is a discrete input (1xxxx / FC02) — verifies the
-	// discreteInputs map is actually read, not the coils map.
+	// fault_flag uses the 1xxxx discrete-input mapping; discrete/coil
+	// isolation is covered by TestModbusDiscreteInputsRead.
 	if values[3].Value != true {
 		t.Errorf("fault_flag: expected true, got %v", values[3].Value)
 	}
 
-	// Test writing
 	writeResults, err := drv.Write(ctx, []core.WriteCommand{
 		{Driver: "test-plc", Tag: "temp", Value: uint16(4321), Type: core.TypeUint16},
 		{Driver: "test-plc", Tag: "pump_on", Value: false, Type: core.TypeBool},
@@ -210,9 +207,8 @@ func TestModbusLoopbackReadWrite(t *testing.T) {
 }
 
 // TestModbusDiscreteInputsRead specifically exercises the FC02 discrete-input
-// (1xxxx) area end-to-end through a real loopback modbus server. This guards
-// against regressions where HandleDiscreteInputs accidentally reads the coils
-// map instead of a dedicated discrete-inputs map.
+// (1xxxx) area end-to-end through a real loopback modbus server, with coils
+// all false and discrete inputs interleaved so the two maps are told apart.
 func TestModbusDiscreteInputsRead(t *testing.T) {
 	port, err := getFreePort()
 	if err != nil {
@@ -237,7 +233,6 @@ func TestModbusDiscreteInputsRead(t *testing.T) {
 		t.Fatalf("failed to start modbus server: %v", err)
 	}
 	defer server.Stop()
-	// server.Start() is synchronous — ready immediately.
 
 	driverCfg := core.DriverConfig{
 		Name: "test-plc-di",
@@ -450,7 +445,7 @@ func TestModbusWriteScaleRoundTrip(t *testing.T) {
 	}
 
 	// Write the engineering value back: the device must receive the raw
-	// representation 150, not 1 (the pre-fix behaviour).
+	// representation 150 — an un-inverted write would send 1.
 	writeResults, err := drv.Write(ctx, []core.WriteCommand{
 		{Driver: "scaled-plc", Tag: "pressure", Value: 1.5, Type: core.TypeUint16},
 	})

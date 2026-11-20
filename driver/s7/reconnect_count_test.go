@@ -1,5 +1,3 @@
-// Supports S7-200, S7-300, S7-400, S7-1200, and S7-1500 PLCs.
-//
 // This file holds tests for the ReconnectCount status field, which is
 // populated from the reconnect loop's counted variant and surfaced via
 // Status() so it can be exposed as a Prometheus metric.

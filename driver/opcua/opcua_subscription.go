@@ -14,9 +14,9 @@ import (
 
 // startSubscription creates a real OPC UA subscription and monitored items for
 // all configured tags, then launches a goroutine that forwards value-change
-// notifications into d.subChannel as core.DataPoint values. This is the actual
-// implementation behind Subscribe(); it is called automatically after a
-// successful connect when the driver is in subscription mode.
+// notifications into d.subChannel as core.DataPoint values. It is called
+// automatically after a successful connect when the driver is in
+// subscription mode.
 func (d *OPCUADriver) startSubscription(ctx context.Context) error {
 	d.RLock()
 	client := d.client
@@ -106,11 +106,7 @@ func (d *OPCUADriver) subscriptionLoop(ctx context.Context,
 			if !ok {
 				continue
 			}
-			// Stamp the local receive time on every forwarded point: all
-			// staleness consumers compare against the CoreC host clock,
-			// and the polling drivers stamp local time too, so the
-			// server's SourceTimestamp would skew staleness wherever the
-			// OPC UA server clock drifts from the host.
+			// Timestamps are the local receive time.
 			now := time.Now()
 			for _, item := range notif.MonitoredItems {
 				tagName, found := handleToTag[item.ClientHandle]
@@ -123,19 +119,9 @@ func (d *OPCUADriver) subscriptionLoop(ctx context.Context,
 
 				var dp core.DataPoint
 				if item.Value.Status != ua.StatusOK {
-					// Map the server-reported quality, mirroring the
-					// polling path, which has always translated
-					// non-OK statuses into QualityBad. Hardcoding
-					// QualityGood here would let a server-reported Bad
-					// value (dead sensor, unavailable node) enter the
-					// pipeline as GOOD data and bypass every
-					// bad-quality policy. Non-OK statuses (including
-					// Uncertain) map conservatively to Bad,
-					// mirroring the polling path; the value is
-					// dropped so a stale reading cannot ride along
-					// (DataPoint, unlike TagValue, carries no
-					// per-value error - the bad-quality policy owns
-					// visibility from here).
+					// Non-OK statuses (including Uncertain) map to
+					// QualityBad; the value is dropped (DataPoint
+					// carries no per-value error).
 					slog.Debug("opcua subscription bad status",
 						"name", d.Name(), "tag", tagName, "status", item.Value.Status)
 					dp = core.DataPoint{
@@ -175,8 +161,9 @@ func (d *OPCUADriver) subscriptionLoop(ctx context.Context,
 	}
 }
 
-// stopSubscription tears down an active OPC UA subscription and waits for the
-// notification goroutine to exit. Safe to call when no subscription is active.
+// stopSubscription tears down an active subscription; it does not wait for
+// the notification goroutine — Stop() waits via subWg. Safe to call when no
+// subscription is active.
 func (d *OPCUADriver) stopSubscription() {
 	d.Lock()
 	sub := d.subscription
@@ -191,8 +178,7 @@ func (d *OPCUADriver) stopSubscription() {
 		defer cancelFn()
 		_ = sub.Cancel(cancelCtx)
 	}
-	// Closing notifyCh is handled by the library on Cancel; the goroutine
-	// exits via channel close or context cancellation. We don't wait here
-	// because the goroutine is tracked by subWg and waited on in Stop().
+	// The library never closes notifyCh (send-only Notifs); the loop exits
+	// when Stop() cancels the driver context and waits via subWg.
 	_ = notifyCh
 }

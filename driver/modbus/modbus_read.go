@@ -50,7 +50,8 @@ func (b *modbusBase) Read(ctx context.Context, tags []string) ([]core.TagValue, 
 	// are grouped by Modbus area and read in a single round-trip per
 	// contiguous range (Phase 2). Non-batchable tags and any tags whose
 	// batch read failed fall back to the per-tag readTag path (Phase 3),
-	// which preserves the original retry/error semantics exactly.
+	// which uses the per-tag retry policy: connection-class errors only,
+	// up to maxRetry.
 	reqs := make([]batchTagReq, len(tags))
 	valid := make([]bool, len(tags))
 	for i, tagName := range tags {
@@ -76,7 +77,7 @@ func (b *modbusBase) Read(ctx context.Context, tags []string) ([]core.TagValue, 
 
 	// Phase 3: assemble results in input order. Batched tags use the
 	// value from Phase 2; everything else goes through the per-tag
-	// readTag path with the original retry/transform/error handling.
+	// readTag path with retry, transform and error handling.
 	results := make([]core.TagValue, 0, len(tags))
 	for i, tagName := range tags {
 		if !valid[i] {
@@ -91,7 +92,6 @@ func (b *modbusBase) Read(ctx context.Context, tags []string) ([]core.TagValue, 
 
 		req := reqs[i]
 
-		// Use the batched value if Phase 2 produced one.
 		if rv, ok := batchValues[i]; ok {
 			value := util.ApplyTransform(rv, req.cfg.Scale, req.cfg.Offset)
 			results = append(results, core.TagValue{
@@ -104,11 +104,11 @@ func (b *modbusBase) Read(ctx context.Context, tags []string) ([]core.TagValue, 
 			continue
 		}
 
-		// Individual read with retry (original behaviour). Retry individual
-		// tag reads up to maxRetry times, but only for connection-class
-		// errors (e.g. EOF/reset/timeout). Non-connection errors such as
-		// Modbus exception responses ("illegal data address") are not
-		// retried, since repeating the same request will not succeed.
+		// Retry individual tag reads up to maxRetry times, but only for
+		// connection-class errors (e.g. EOF/reset/timeout). Non-connection
+		// errors such as Modbus exception responses ("illegal data
+		// address") are not retried, since repeating the same request
+		// will not succeed.
 		value, newClient, aborted, err := b.readTagWithRetry(ctx, client, req, tagName)
 		client = newClient
 		if aborted {
@@ -136,7 +136,6 @@ func (b *modbusBase) Read(ctx context.Context, tags []string) ([]core.TagValue, 
 			continue
 		}
 
-		// Apply scale and offset
 		value = util.ApplyTransform(value, req.cfg.Scale, req.cfg.Offset)
 
 		results = append(results, core.TagValue{
@@ -171,11 +170,9 @@ func (b *modbusBase) readTagWithRetry(ctx context.Context, client *mb.ModbusClie
 			// Wait for backoff but return immediately if ctx is cancelled.
 			select {
 			case <-ctx.Done():
-				// Same wedged-connection fix as the batch path (see the
-				// batch comment for the full mechanism): tear the dead
-				// connection down before the task deadline swallows
-				// the teardown — ctx-abort must not strand a dead
-				// client in state Connected.
+				// On ctx abort during retry backoff, tear down the dead
+				// client before returning so a cancelled task does not
+				// leave a dead client in StateConnected.
 				b.handleConnLostIfCurrent(client)
 				return nil, client, true, ctx.Err()
 			case <-time.After(b.ReconnectBackoff()):
@@ -317,10 +314,6 @@ func readFloat64Tag(client *mb.ModbusClient, ai addrInfo) (any, error) {
 	return math.Float64frombits(binary.BigEndian.Uint64(buf)), nil
 }
 
-// ============================================================
-// Batch reading
-// ============================================================
-
 // batchTagReq is a resolved tag request used by the batch-read path.
 type batchTagReq struct {
 	name      string
@@ -336,7 +329,7 @@ type batchTagReq struct {
 // and whether the tag can participate in a batched read. Tags that readTag
 // would reject — non-bool types on coil/discrete-input areas, or types the
 // driver doesn't support — report batchable=false so they fall back to the
-// per-tag readTag path and surface the same error as before.
+// per-tag readTag path and surface readTag's error.
 func batchQuantity(ai addrInfo, dt core.DataType) (uint16, bool) {
 	if ai.area == areaCoil || ai.area == areaDiscreteInput {
 		if dt != core.TypeBool {

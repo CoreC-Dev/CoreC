@@ -9,10 +9,6 @@ import (
 	"github.com/CoreC-Dev/CoreC/core"
 )
 
-// ============================================================
-// Address parser & decoding
-// ============================================================
-
 // Regular expressions for S7 address syntax
 var (
 	// DB1.DBX0.0, DB100.DBD4, DB5.DBW2, DB1.DBB0
@@ -29,7 +25,7 @@ func parseS7Address(addrStr string, dt core.DataType) (s7Address, error) {
 	addrStr = strings.TrimSpace(addrStr)
 
 	// validateBitOffset ensures the bit offset is 0–7. Values ≥ 8 cause
-	// silent shift overflow in gos7's GetBoolAt/SetBitAt helpers.
+	// silent shift overflow in gos7's GetBoolAt/SetBoolAt helpers.
 	validateBitOffset := func(bit int) error {
 		if bit < 0 || bit > 7 {
 			return fmt.Errorf("s7: bit offset %d out of range (must be 0–7)", bit)
@@ -37,7 +33,6 @@ func parseS7Address(addrStr string, dt core.DataType) (s7Address, error) {
 		return nil
 	}
 
-	// Try DB pattern
 	if m := reDB.FindStringSubmatch(addrStr); len(m) > 0 {
 		dbNum, _ := strconv.Atoi(m[1])
 		kind := strings.ToUpper(m[2])
@@ -62,7 +57,6 @@ func parseS7Address(addrStr string, dt core.DataType) (s7Address, error) {
 		}, nil
 	}
 
-	// Try Merker (M) pattern
 	if m := reM.FindStringSubmatch(addrStr); len(m) > 0 {
 		kind := strings.ToUpper(m[1])
 		byteOffset, _ := strconv.Atoi(m[2])
@@ -88,7 +82,6 @@ func parseS7Address(addrStr string, dt core.DataType) (s7Address, error) {
 		}, nil
 	}
 
-	// Try Input (I/E) pattern
 	if m := reI.FindStringSubmatch(addrStr); len(m) > 0 {
 		kind := strings.ToUpper(m[1])
 		byteOffset, _ := strconv.Atoi(m[2])
@@ -114,7 +107,6 @@ func parseS7Address(addrStr string, dt core.DataType) (s7Address, error) {
 		}, nil
 	}
 
-	// Try Output (Q/A) pattern
 	if m := reQ.FindStringSubmatch(addrStr); len(m) > 0 {
 		kind := strings.ToUpper(m[1])
 		byteOffset, _ := strconv.Atoi(m[2])

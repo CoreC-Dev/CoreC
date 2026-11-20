@@ -36,9 +36,7 @@ func mustInit(t *testing.T, cfg core.DriverConfig) *OPCUADriver {
 	return drv.(*OPCUADriver)
 }
 
-// ---------------------------------------------------------------------------
 // NewOPCUADriver
-// ---------------------------------------------------------------------------
 
 func TestNewOPCUADriver(t *testing.T) {
 	cfg := core.DriverConfig{
@@ -133,9 +131,7 @@ func TestNewOPCUADriverSubBufferSize(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Init — config parsing
-// ---------------------------------------------------------------------------
 
 func TestInitConfigParsing(t *testing.T) { //nolint:gocyclo // exhaustive config-parsing table test; complexity 22.
 	cfg := core.DriverConfig{
@@ -282,9 +278,7 @@ func TestInitYAMLNumberBatchSize(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // Init — error paths
-// ---------------------------------------------------------------------------
 
 func TestInitErrorPaths(t *testing.T) {
 	tests := []struct {
@@ -343,9 +337,7 @@ func TestInitErrorPaths(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Name / Type / Status
-// ---------------------------------------------------------------------------
 
 func TestName(t *testing.T) {
 	drv, err := NewOPCUADriver(core.DriverConfig{Name: "plant-opcua", Settings: map[string]any{}})
@@ -422,9 +414,7 @@ func TestStatus(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Capabilities
-// ---------------------------------------------------------------------------
 
 func TestCapabilities(t *testing.T) {
 	t.Run("feature flags always enabled", func(t *testing.T) {
@@ -464,9 +454,7 @@ func TestCapabilities(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // Stop
-// ---------------------------------------------------------------------------
 
 func TestStop(t *testing.T) {
 	t.Run("fresh driver never started", func(t *testing.T) {
@@ -510,9 +498,7 @@ func TestStop(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // Restart
-// ---------------------------------------------------------------------------
 
 func TestRestart(t *testing.T) {
 	t.Run("re-init updates endpoint and tags", func(t *testing.T) {
@@ -601,9 +587,7 @@ func TestRestart(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // parseNodeID edge cases (exercises ua.ParseNodeID, which Init relies on)
-// ---------------------------------------------------------------------------
 
 func TestParseNodeIDEdgeCases(t *testing.T) {
 	valid := []struct {
@@ -681,9 +665,7 @@ func TestParseNodeIDEdgeCases(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Server-free data-operation behaviour (bonus: real behaviour, no server)
-// ---------------------------------------------------------------------------
 
 func TestReadNotConnected(t *testing.T) {
 	d := mustInit(t, validConfig("x"))

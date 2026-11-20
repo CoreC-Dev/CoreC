@@ -1,19 +1,11 @@
 package s7
 
-// ============================================================
-// Behavior tests for merged area reads.
+// Behavior tests for merged area reads:
+//   - one failed merged read marks every tag in that segment QualityBad;
+//   - tags whose gap exceeds s7MergeGapLimit are not merged;
+//   - bit tags are read one by one.
 //
-// The merged reader changes three observable behaviours:
-//  1. one failed merged read marks every tag in that segment QualityBad
-//     (not per-tag failures on separate reads);
-//  2. tags whose gap exceeds s7MergeGapLimit are not merged, so sparse
-//     batches keep an intermediate round-trip count;
-//  3. bit tags are still read one by one.
-//
-// The tests below pin those behaviours plus the core invariant: the
-// simulated client's trip count equals
-// the merged batch count.
-// ============================================================
+// The simulated client's trip count equals the merged batch count.
 
 import (
 	"context"
@@ -102,10 +94,9 @@ func readAllGood(t *testing.T, d *S7Driver, names []string) []core.TagValue {
 	return vals
 }
 
-// TestS7ReadMergedRoundTrips asserts the core acceptance criterion on
-// the full scenario matrix: the simulated client's trip count
-// equals the projected merged batch count (chunked at s7MaxBatchSize,
-// merged per chunk) — never one per tag.
+// TestS7ReadMergedRoundTrips asserts on the full scenario matrix that
+// the simulated client's trip count equals the projected merged batch
+// count (chunked at s7MaxBatchSize, merged per chunk) — never one per tag.
 func TestS7ReadMergedRoundTrips(t *testing.T) {
 	for _, scen := range benchScenarios() {
 		t.Run(scen.name, func(t *testing.T) {
@@ -173,7 +164,7 @@ func TestS7ReadSparseGapLimitBoundary(t *testing.T) {
 	}
 }
 
-// TestS7ReadBitTagsStayPerTag pins registered behaviour 3: bit tags are
+// TestS7ReadBitTagsStayPerTag verifies that bit tags are
 // never merged — every bit costs its own round trip, next to the one
 // round trip the contiguous word segment needs.
 func TestS7ReadBitTagsStayPerTag(t *testing.T) {
@@ -298,10 +289,10 @@ func TestS7ReadSegmentCapSplitsContiguousRun(t *testing.T) {
 	}
 }
 
-// TestS7ReadBatchChunkingPreservesMerging verifies the outer batch
-// contract is untouched: a 230-tag Read is chunked at s7MaxBatchSize
-// (220) and each chunk merges its own contiguous run, so the read count
-// still records 230 tags and the round trips stay at the merged count.
+// TestS7ReadBatchChunkingPreservesMerging verifies that a 230-tag Read is
+// chunked at s7MaxBatchSize (220) and each chunk merges its own contiguous
+// run, so the read count still records 230 tags and the round trips stay
+// at the merged count.
 func TestS7ReadBatchChunkingPreservesMerging(t *testing.T) {
 	const n = 230
 	tags := make([]core.TagConfig, n)
@@ -327,7 +318,7 @@ func TestS7ReadBatchChunkingPreservesMerging(t *testing.T) {
 }
 
 // TestS7ReadUnknownTagCostsNoTraffic verifies unknown tags fail per-tag
-// without any PLC traffic, unchanged from the tag-per-trip reader.
+// without any PLC traffic.
 func TestS7ReadUnknownTagCostsNoTraffic(t *testing.T) {
 	tags := []core.TagConfig{{Name: "known", Address: "DB1.DBW0", Type: "uint16"}}
 	d, sim := newSimScenarioDriver(t, "unknown", tags)
@@ -350,7 +341,7 @@ func TestS7ReadUnknownTagCostsNoTraffic(t *testing.T) {
 	}
 }
 
-// TestS7ReadSegmentFailureFailsWholeSegment pins registered behaviour 1:
+// TestS7ReadSegmentFailureFailsWholeSegment verifies that
 // when a merged read fails, every tag in that segment is QualityBad with
 // the same error, tags in other segments still succeed, and the error
 // counter records one failed round trip — not one per tag.
@@ -418,9 +409,8 @@ func TestS7ReadSegmentFailureFailsWholeSegment(t *testing.T) {
 	}
 }
 
-// TestS7ReadBitFailureIsolatedPerTag verifies the unmerged bit path keeps
-// the old per-tag failure semantics: one failing bit read marks only that
-// bit, not its neighbours.
+// TestS7ReadBitFailureIsolatedPerTag verifies that in the unmerged bit
+// path one failing bit read marks only that bit, not its neighbours.
 func TestS7ReadBitFailureIsolatedPerTag(t *testing.T) {
 	tags := []core.TagConfig{
 		{Name: "ok_bit", Address: "DB1.DBX0.0", Type: "bool"},
@@ -596,8 +586,7 @@ func TestS7ReadMergedValuesMatchImage(t *testing.T) {
 // the tag's type, applying the transform the configuration asks for
 // (tags with index ≡ 3 mod 7 carry scale 2 / offset 1, mirroring
 // util.ApplyTransform's per-type behaviour — every numeric width is
-// transformed; uint8 included since the ApplyTransform type-coverage
-// fix, with scaled integers decoding as float64).
+// transformed, with scaled integers decoding as float64).
 func expectedWordValue(i int, typeName string, start int) any {
 	scaled := i%7 == 3
 	switch typeName {
@@ -673,8 +662,8 @@ func mustTestAtoi(t *testing.T, s string) int {
 }
 
 // TestS7PlanMatchesProjection diff-tests the production planner against
-// the independent projection transcribed from the design document, over
-// the full benchmark matrix and the planner's boundary cases.
+// an independent reimplementation of the merge rules, over the full
+// benchmark matrix and the planner's boundary cases.
 func TestS7PlanMatchesProjection(t *testing.T) {
 	var allSpans []s7Span
 	for _, scen := range benchScenarios() {

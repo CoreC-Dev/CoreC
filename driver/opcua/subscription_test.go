@@ -53,9 +53,7 @@ func drainSubChannel(t *testing.T, ch <-chan core.DataPoint) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // subscriptionLoop
-// ---------------------------------------------------------------------------
 
 // TestOPCUASubscriptionLoopForwardsDataChange verifies that a well-formed
 // DataChangeNotification is decoded, transformed, and forwarded to the
@@ -239,9 +237,7 @@ func TestOPCUASubscriptionLoopChannelFullDrops(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // startSubscription
-// ---------------------------------------------------------------------------
 
 // TestOPCUAStartSubscriptionNoClient verifies the early guard: with no client
 // connected, startSubscription returns an error without touching the network.
@@ -296,9 +292,7 @@ func TestOPCUAStartSubscriptionUnconnectedClient(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // HandleConnectionLost
-// ---------------------------------------------------------------------------
 
 // TestOPCUAHandleConnectionLost verifies that HandleConnectionLost transitions
 // the driver to StateError and starts the reconnect loop, and that a second
@@ -351,8 +345,8 @@ func TestOPCUAHandleConnectionLost(t *testing.T) {
 	}
 }
 
-// TestOPCUAStaleConnectionErrorIgnored is the stale-client regression
-// test: an error reported against a client that has already
+// TestOPCUAStaleConnectionErrorIgnored verifies that an error reported
+// against a client that has already
 // been replaced by a completed reconnect must NOT tear down the fresh
 // connection, while an error from the current client still must. The
 // endpoint is a dead loopback port and the reconnect interval is long, so
@@ -424,10 +418,9 @@ func TestOPCUAStaleConnectionErrorIgnored(t *testing.T) {
 	}
 }
 
-// TestOPCUASubscriptionLoopLocalTimestamp is the local-timestamp
-// regression test for subscription mode: forwarded data points must carry
-// the local receive time, not the OPC UA server's SourceTimestamp, so a
-// drifting server clock cannot skew staleness downstream.
+// TestOPCUASubscriptionLoopLocalTimestamp verifies that forwarded data
+// points carry the local receive time, not the OPC UA server's
+// SourceTimestamp.
 func TestOPCUASubscriptionLoopLocalTimestamp(t *testing.T) {
 	d := mustInit(t, validConfig("sub-ts"))
 	handleToTag := map[uint32]string{0: "tag1"}
@@ -451,12 +444,7 @@ func TestOPCUASubscriptionLoopLocalTimestamp(t *testing.T) {
 
 // TestOPCUASubscriptionLoopBadStatusMapsQuality verifies the subscription
 // path maps the server's StatusCode to CoreC quality, matching the polling
-// path:
-// a Bad value must surface as QualityBad with no value. Hardcoding
-// QualityGood instead would let server-reported quality degradation (dead
-// sensor, unavailable node) enter the pipeline as trustworthy GOOD data
-// and bypass every bad-quality policy — both paths in the same driver
-// must agree.
+// path: a Bad value must surface as QualityBad with no value.
 func TestOPCUASubscriptionLoopBadStatusMapsQuality(t *testing.T) {
 	d := mustInit(t, validConfig("bad"))
 	handleToTag := map[uint32]string{0: "tag1"}

@@ -356,7 +356,7 @@ func TestNameTypeStatus(t *testing.T) {
 }
 
 // TestCapabilities verifies the driver advertises the S7 protocol's
-// capabilities, including the PDU-derived max batch size.
+// capabilities, including the max number of tags per Read call.
 func TestCapabilities(t *testing.T) {
 	d := newTestDriver(t, "c")
 	caps := d.Capabilities()
@@ -377,7 +377,7 @@ func TestCapabilities(t *testing.T) {
 		t.Errorf("MaxBatchSize = %d, want const s7MaxBatchSize (%d)", caps.MaxBatchSize, s7MaxBatchSize)
 	}
 	if caps.MaxBatchSize != 220 {
-		t.Errorf("MaxBatchSize = %d, want 220 (standard S7 PDU limit)", caps.MaxBatchSize)
+		t.Errorf("MaxBatchSize = %d, want 220 (max tags per Read call)", caps.MaxBatchSize)
 	}
 }
 

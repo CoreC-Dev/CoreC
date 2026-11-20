@@ -153,21 +153,18 @@ func TestModbusReadTagErrorPaths(t *testing.T) {
 	client := d.client
 	d.RUnlock()
 
-	// Non-bool type on a coil area must fail.
 	if _, err := d.readTag(client, addrInfo{area: areaCoil, addr: 0}, core.TypeUint16, "coil-u16"); err == nil {
 		t.Error("expected error for uint16 on coil area, got nil")
 	} else if !strings.Contains(err.Error(), "not supported") {
 		t.Errorf("expected 'not supported' error, got: %v", err)
 	}
 
-	// Non-bool type on a discrete-input area must fail.
 	if _, err := d.readTag(client, addrInfo{area: areaDiscreteInput, addr: 0}, core.TypeUint16, "di-u16"); err == nil {
 		t.Error("expected error for uint16 on discrete-input area, got nil")
 	} else if !strings.Contains(err.Error(), "not supported") {
 		t.Errorf("expected 'not supported' error, got: %v", err)
 	}
 
-	// Unsupported data type on a register area must fail.
 	if _, err := d.readTag(client, addrInfo{area: areaHoldingRegister, addr: 0}, core.TypeString, "str"); err == nil {
 		t.Error("expected error for unsupported data type, got nil")
 	} else if !strings.Contains(err.Error(), "unsupported data type") {
@@ -370,15 +367,14 @@ func TestModbusHandleConnectionLostNoOpWhenError(t *testing.T) {
 		t.Error("expected ReconnectCount > 0 from the reconnect loop")
 	}
 
-	// A second call must be a no-op (guard returns early because state is Error).
 	d.HandleConnectionLost()
 	if drv.Status().State != core.StateError {
 		t.Errorf("expected StateError to persist after no-op call, got %v", drv.Status().State)
 	}
 }
 
-// TestModbusStaleConnectionErrorIgnored is the stale-client regression
-// test: an error reported against a client that has already
+// TestModbusStaleConnectionErrorIgnored verifies that an error reported
+// against a client that has already
 // been replaced by a completed reconnect must NOT tear down the fresh
 // connection, while an error from the current client still must.
 func TestModbusStaleConnectionErrorIgnored(t *testing.T) {
@@ -469,8 +465,8 @@ func TestModbusStaleConnectionErrorIgnored(t *testing.T) {
 	}
 }
 
-// TestModbusWriteConnectionErrorTriggersReconnect is the write-path
-// reconnect regression test: a connection-class Write failure must tear
+// TestModbusWriteConnectionErrorTriggersReconnect verifies that a
+// connection-class Write failure must tear
 // the connection down for reconnection just like the Read path, while a
 // non-connection write failure (read-only area) must not.
 func TestModbusWriteConnectionErrorTriggersReconnect(t *testing.T) {

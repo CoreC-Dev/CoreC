@@ -1,10 +1,7 @@
 // Package driverbase provides a reusable lifecycle skeleton for southbound
 // drivers (Modbus, OPC UA, S7). Concrete drivers embed BaseDriver and supply
 // protocol-specific hooks (connect, closeConn, init) during Init; the base
-// provides Start/Stop/Restart/Status/reconnectLoop/handleConnectionLost.
-//
-// This eliminates ~176 lines of cross-driver lifecycle duplication
-// and the 3-line ParseReconnectSettings block repeated in each driver.
+// provides Start/Stop/Restart/Status/HandleConnectionLost.
 package driverbase
 
 import (
@@ -51,22 +48,16 @@ type BaseDriver struct {
 	tagCountFunc  func() int
 }
 
-// SetConnectFunc sets the protocol-specific connect function.
 func (d *BaseDriver) SetConnectFunc(f func() error) { d.connectFunc = f }
 
-// SetInitFunc sets the init function used by Restart.
 func (d *BaseDriver) SetInitFunc(f func(context.Context, core.DriverConfig) error) { d.initFunc = f }
 
-// SetCloseConnFunc sets the connection close hook (called with mu held).
 func (d *BaseDriver) SetCloseConnFunc(f func()) { d.closeConnFunc = f }
 
-// SetExtraShutdown sets the optional pre-lock teardown hook.
 func (d *BaseDriver) SetExtraShutdown(f func()) { d.extraShutdown = f }
 
-// SetOnConnLost sets the optional post-unlock cleanup hook.
 func (d *BaseDriver) SetOnConnLost(f func()) { d.onConnLost = f }
 
-// SetTagCountFunc sets the tag count function for Status().
 func (d *BaseDriver) SetTagCountFunc(f func() int) { d.tagCountFunc = f }
 
 // SetMeta sets the driver name, type, and config. Called during Init.
@@ -89,7 +80,6 @@ func (d *BaseDriver) SetLogger(l core.Logger) {
 
 // ParseReconnectSettings reads reconnect-interval, reconnect-max-interval,
 // and max-reconnect-failures from the settings map with core defaults.
-// Replaces the identical 3-line block inlined in each driver's Init.
 func (d *BaseDriver) ParseReconnectSettings(settings map[string]any) {
 	d.reconnectBackoff = util.GetDurationSetting(settings, "reconnect-interval", core.DefaultReconnectBackoff)
 	d.maxReconnectBackoff = util.GetDurationSetting(settings, "reconnect-max-interval", core.DefaultMaxReconnectBackoff)
@@ -289,9 +279,6 @@ func (d *BaseDriver) HandleConnectionLost() {
 	d.startReconnectLoop()
 }
 
-// --- Helper methods for concrete drivers ---
-
-// SetState updates the connection state (thread-safe).
 func (d *BaseDriver) SetState(s core.ConnState) {
 	d.mu.Lock()
 	d.state = s
@@ -301,7 +288,6 @@ func (d *BaseDriver) SetState(s core.ConnState) {
 // SetStateLocked sets state without locking (caller must hold mu).
 func (d *BaseDriver) SetStateLocked(s core.ConnState) { d.state = s }
 
-// GetState returns the current connection state (thread-safe).
 func (d *BaseDriver) GetState() core.ConnState {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -317,43 +303,30 @@ func (d *BaseDriver) SetLastErrorLocked(err string) { d.lastError = err }
 // SetLastRead sets the last read timestamp (caller holds mu).
 func (d *BaseDriver) SetLastRead(t time.Time) { d.lastRead = t }
 
-// AddReadCount adds n to the read counter.
 func (d *BaseDriver) AddReadCount(n uint64) { d.readCount.Add(n) }
 
-// RecordError increments errorCount.
 func (d *BaseDriver) RecordError() {
 	d.errorCount.Add(1)
 }
 
-// ReconnectCount returns the current reconnect count.
 func (d *BaseDriver) ReconnectCount() uint64 { return d.reconnectCount.Load() }
 
-// ReconnectBackoff returns the initial reconnect backoff interval.
 func (d *BaseDriver) ReconnectBackoff() time.Duration { return d.reconnectBackoff }
 
-// MaxReconnectBackoff returns the maximum reconnect backoff interval.
 func (d *BaseDriver) MaxReconnectBackoff() time.Duration { return d.maxReconnectBackoff }
 
-// ReadCount returns the total read count.
 func (d *BaseDriver) ReadCount() uint64 { return d.readCount.Load() }
 
-// ErrorCount returns the total error count.
 func (d *BaseDriver) ErrorCount() uint64 { return d.errorCount.Load() }
 
-// Context returns the driver's context (set during Start).
 func (d *BaseDriver) Context() context.Context { return d.ctx }
 
-// Logger returns the driver's logger.
 func (d *BaseDriver) Logger() core.Logger { return d.logger }
 
-// Lock acquires the write lock.
 func (d *BaseDriver) Lock() { d.mu.Lock() }
 
-// Unlock releases the write lock.
 func (d *BaseDriver) Unlock() { d.mu.Unlock() }
 
-// RLock acquires the read lock.
 func (d *BaseDriver) RLock() { d.mu.RLock() }
 
-// RUnlock releases the read lock.
 func (d *BaseDriver) RUnlock() { d.mu.RUnlock() }

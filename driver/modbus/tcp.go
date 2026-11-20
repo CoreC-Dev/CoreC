@@ -36,14 +36,12 @@ func (d *ModbusTCPDriver) Init(ctx context.Context, config core.DriverConfig) er
 
 	settings := config.Settings
 
-	// Parse host
 	if host, ok := settings["host"].(string); ok {
 		d.host = host
 	} else {
 		return fmt.Errorf("modbus-tcp: host is required")
 	}
 
-	// Parse port
 	d.port = util.GetIntSetting(settings, "port", 502)
 
 	if err := d.initCommon("modbus-tcp", settings, config); err != nil {
@@ -64,7 +62,7 @@ func (d *ModbusTCPDriver) Init(ctx context.Context, config core.DriverConfig) er
 func (d *ModbusTCPDriver) connect() error {
 	return d.openClient(&mb.ClientConfiguration{
 		URL:     fmt.Sprintf("tcp://%s:%d", d.host, d.port),
-		Speed:   1, // ignored for TCP but required by library > 0
+		Speed:   1,
 		Timeout: d.timeout,
 	})
 }

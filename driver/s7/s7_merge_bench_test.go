@@ -13,17 +13,11 @@ import (
 	"github.com/robinson/gos7"
 )
 
-// ============================================================
-// Simulated PLC client, scenario builders, merge projection and
-// benchmarks for the S7 per-tag N+1 read problem.
-//
-// The discipline: prove the cost of the
-// current tag-per-trip Read with numbers before touching production code.
-// Everything in this file is test-only: the simulated client counts PLC
-// round trips against a deterministic in-memory image, the scenarios are
-// the design's 100/500-tag × 3-distribution matrix, and the projection
-// computes the round-trip count the merged-read algorithm would need.
-// ============================================================
+// Simulated PLC client, scenario builders, merge projection and benchmarks
+// for S7 merged reads. Everything in this file is test-only: the simulated
+// client counts PLC round trips against a deterministic in-memory image,
+// the scenarios form a 100/500-tag × 3-distribution matrix, and the
+// projection computes the round-trip count the merged-read algorithm needs.
 
 // simImageSize is the byte length of each simulated memory-area image. The
 // sparse 500-tag scenario spans ~18 KB, so 32 KB leaves headroom.
@@ -153,14 +147,10 @@ func (s *simS7Client) recordedCalls() []simReadCall {
 	return append([]simReadCall(nil), s.calls...)
 }
 
-// ============================================================
-// Scenario builders: the benchmark scenario matrix.
-//
-// 100/500 float32 tags in three address distributions:
+// Scenario builders: 100/500 float32 tags in three address distributions:
 //   - contig:   one DB, consecutive dword offsets (no gaps)
 //   - sparse:   one DB, random 0-64 byte gaps between consecutive tags
 //   - multi-db: round-robin across DB1-DB3, contiguous within each DB
-// ============================================================
 
 // s7Span is a bare address span: the input of the merge projection.
 type s7Span struct {
@@ -268,20 +258,14 @@ func initSimDriver(tb testing.TB, name string, tags []core.TagConfig, client gos
 	return d
 }
 
-// ============================================================
-// Merge projection (design algorithm, transcribed independently).
-// ============================================================
-
 // projectedSegments computes how many PLC round trips the merged-read
 // algorithm needs for the given spans: group by (area, dbNumber), sort each
 // group by start offset, then greedily merge neighbours whose byte gap is
 // at most 32, capping every merged segment at 480 bytes.
 //
-// The limits and the algorithm are transcribed from the planner's
-// specification. They are deliberately NOT shared with the production planner,
-// so the two implementations can be checked against each other
-// (TestS7PlanMatchesProjection) and a transcription slip on either side
-// shows up as a mismatch.
+// The projection is implemented independently of the production planner;
+// TestS7PlanMatchesProjection checks the two implementations against each
+// other for drift.
 func projectedSegments(spans []s7Span) int {
 	type groupKey struct {
 		area s7Area
@@ -299,12 +283,12 @@ func projectedSegments(spans []s7Span) int {
 		segStart, segLen := 0, 0
 		for _, sp := range g {
 			if segLen == 0 || sp.start-(segStart+segLen) > 32 || sp.start+sp.size-segStart > 480 {
-				total++ // gap or length limit exceeded: start a new segment
+				total++
 				segStart, segLen = sp.start, sp.size
 				continue
 			}
 			if end := sp.start + sp.size; end-segStart > segLen {
-				segLen = end - segStart // overlapping span extends the segment
+				segLen = end - segStart
 			}
 		}
 	}
@@ -400,8 +384,7 @@ func TestS7ReadScenarioCoverageInvariants(t *testing.T) {
 // projection's round trips, and the ratio between them. With the merged
 // implementation the measured count must equal the projection (ratio
 // 1.0); a higher ratio means the merge regressed toward tag-per-trip
-// reads. Baseline for comparison: the old tag-per-trip implementation
-// issued one AGReadDB per tag.
+// reads.
 func BenchmarkS7ReadTripCost(b *testing.B) {
 	for _, scen := range benchScenarios() {
 		for _, delay := range []time.Duration{0, time.Millisecond, 5 * time.Millisecond, 10 * time.Millisecond} {

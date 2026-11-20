@@ -141,7 +141,6 @@ func TestModbusBatchReadContiguous(t *testing.T) {
 		}
 	}
 
-	// The whole contiguous range must be a single batched request.
 	if got := counter.holdingReads.Load(); got != 1 {
 		t.Errorf("expected 1 batched holding-register request, got %d", got)
 	}
@@ -233,7 +232,6 @@ func TestModbusBatchReadMixedTypes(t *testing.T) {
 	check("f64", values[3].Value, 2.718281828459045)
 	check("i16", values[4].Value, int16(-42))
 
-	// All five tags occupy one contiguous register span → one request.
 	if got := counter.holdingReads.Load(); got != 1 {
 		t.Errorf("expected 1 batched holding-register request, got %d", got)
 	}
@@ -320,7 +318,6 @@ func TestModbusBatchReadSparse(t *testing.T) {
 			t.Errorf("tag %d: expected %d, got %v", i, w, values[i].Value)
 		}
 	}
-	// Two contiguous runs separated by a gap → two batched requests.
 	if got := counter.holdingReads.Load(); got != 2 {
 		t.Errorf("expected 2 batched holding-register requests, got %d", got)
 	}
@@ -491,7 +488,6 @@ func TestModbusBatchReadMixedAreas(t *testing.T) {
 	checkBool(8, false)
 	checkBool(9, true)
 
-	// One batched request per area.
 	if got := counter.holdingReads.Load(); got != 1 {
 		t.Errorf("expected 1 holding request, got %d", got)
 	}

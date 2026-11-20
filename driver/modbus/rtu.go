@@ -15,7 +15,6 @@ import (
 type ModbusRTUDriver struct {
 	modbusBase
 
-	// Serial port parameters
 	serialDevice string // e.g. "/dev/ttyUSB0", "COM3"
 	baudRate     uint   // e.g. 9600, 19200, 115200
 	dataBits     uint   // 7 or 8 (default 8)
@@ -42,30 +41,25 @@ func (d *ModbusRTUDriver) Init(ctx context.Context, config core.DriverConfig) er
 
 	settings := config.Settings
 
-	// Parse serial device path (required)
 	if dev, ok := settings["serial-device"].(string); ok && dev != "" {
 		d.serialDevice = dev
 	} else {
 		return fmt.Errorf("modbus-rtu: serial-device is required (e.g. /dev/ttyUSB0 or COM3)")
 	}
 
-	// Parse baud rate (default 9600)
 	d.baudRate = uint(util.GetIntSetting(settings, "baud-rate", 9600))
 	if d.baudRate == 0 {
 		d.baudRate = 9600
 	}
 
-	// Parse data bits (default 8)
 	d.dataBits = uint(util.GetIntSetting(settings, "data-bits", 8))
 
-	// Parse parity (default "none")
 	p, err := parseParity(settings)
 	if err != nil {
 		return err
 	}
 	d.parity = p
 
-	// Parse stop bits (default 0 → library auto-selects based on parity)
 	d.stopBits = uint(util.GetIntSetting(settings, "stop-bits", 0))
 
 	if err := d.initCommon("modbus-rtu", settings, config); err != nil {

@@ -45,7 +45,6 @@ func TestOPCUAInitValidation(t *testing.T) {
 	}
 }
 
-// ============================================================
 // In-process tests for OPC UA driver logic.
 //
 // The opcua.Client is a concrete struct, not an interface, so the Read/Write
@@ -55,7 +54,6 @@ func TestOPCUAInitValidation(t *testing.T) {
 // the driver's error-wrapping and request-building paths in-process. The
 // variant encoding, NodeID parsing, config validation, and subscription
 // configuration are all fully testable without a server.
-// ============================================================
 
 // initConnectedOPCUA builds and inits a driver, then swaps in an unconnected
 // real opcua.Client and marks the driver StateConnected. This lets Read/Write
@@ -118,7 +116,6 @@ func TestNodeIDParsing(t *testing.T) {
 					t.Errorf("StringID = %q, want %q", nodeID.StringID(), tt.strID)
 				}
 			}
-			// Round-trip: String() must reproduce the canonical form.
 			if got := nodeID.String(); got != tt.wantStr {
 				t.Errorf("String() = %q, want %q", got, tt.wantStr)
 			}
@@ -538,8 +535,6 @@ func TestOPCUASubscriptionConfig(t *testing.T) {
 	})
 }
 
-// ----- helpers -----
-
 func variantValueEqual(a, b any) bool { //nolint:gocyclo // deep-equality helper over many OPC UA variant types; complexity 26.
 	switch av := a.(type) {
 	case bool:
@@ -588,8 +583,8 @@ func variantValueEqual(a, b any) bool { //nolint:gocyclo // deep-equality helper
 	}
 }
 
-// TestOPCUAWriteConnectionErrorTriggersReconnect is the write-path
-// reconnect regression test: a connection-class write failure must tear
+// TestOPCUAWriteConnectionErrorTriggersReconnect verifies that a
+// connection-class write failure must tear
 // the connection down for reconnection just like the Read path, while a
 // non-connection write failure must not. The unconnected client used here
 // surfaces StatusBadServerNotConnected — which is NOT connection-class —
@@ -666,8 +661,8 @@ func TestOPCUAWriteConnectionErrorTriggersReconnect(t *testing.T) {
 	}
 }
 
-// TestOPCUAAssembleReadResultsLocalTimestamp is the local-timestamp
-// regression test: every point assembled from a ReadResponse — good
+// TestOPCUAAssembleReadResultsLocalTimestamp verifies that every point
+// assembled from a ReadResponse — good
 // and bad alike — must carry the local receive time, not the OPC UA
 // server's SourceTimestamp. All staleness consumers (derived-tag stale
 // guards, API is_stale annotation, dataAge metrics) compare against the

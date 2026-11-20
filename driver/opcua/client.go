@@ -22,7 +22,6 @@ const TypeName = "opcua"
 type OPCUADriver struct {
 	driverbase.BaseDriver
 
-	// OPC UA settings
 	endpoint       string
 	securityPolicy string
 	securityMode   string
@@ -34,14 +33,11 @@ type OPCUADriver struct {
 	subBufferSize  int
 	maxBatchSize   int
 
-	// OPC UA client
 	client *opcua.Client
 
-	// Tag mappings: name -> TagConfig, name -> *ua.NodeID
 	tags    map[string]core.TagConfig
 	nodeIDs map[string]*ua.NodeID
 
-	// Subscription state
 	subMode      bool
 	subInterval  time.Duration
 	subChannel   chan core.DataPoint
@@ -153,9 +149,6 @@ func (d *OPCUADriver) Init(ctx context.Context, config core.DriverConfig) error 
 	return nil
 }
 
-// Start, Stop, Restart, Status, Name, Type, reconnectLoop, startReconnectLoop,
-// and HandleConnectionLost are provided by the embedded driverbase.BaseDriver.
-
 func (d *OPCUADriver) connect(ctx context.Context) error {
 	opts := []opcua.Option{
 		opcua.RequestTimeout(d.timeout),
@@ -211,16 +204,12 @@ func (d *OPCUADriver) connect(ctx context.Context) error {
 	return nil
 }
 
-// startReconnectLoop and reconnectLoop are provided by BaseDriver.
-
 func (d *OPCUADriver) Subscribe(ctx context.Context, tags []string) (<-chan core.DataPoint, error) {
 	if !d.subMode {
 		return nil, core.ErrSubscribeNotSupported
 	}
 	return d.subChannel, nil
 }
-
-// Name, Type, and Status are provided by the embedded driverbase.BaseDriver.
 
 func (d *OPCUADriver) Capabilities() core.DriverCapabilities {
 	return core.DriverCapabilities{
@@ -248,9 +237,3 @@ func (d *OPCUADriver) handleConnLostIfCurrent(captured *opcua.Client) {
 	}
 	d.HandleConnectionLost()
 }
-
-// HandleConnectionLost is provided by the embedded driverbase.BaseDriver.
-
-// ============================================================
-// Helper functions
-// ============================================================

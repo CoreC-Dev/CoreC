@@ -1,5 +1,5 @@
 // Package s7 implements the Siemens S7 protocol driver for CoreC.
-// Supports S7-200, S7-300, S7-400, S7-1200, and S7-1500 PLCs.
+// Supports S7-300/400/1200/1500 (S7-200 requires an Ethernet CP).
 package s7
 
 import (
@@ -15,7 +15,6 @@ import (
 	"github.com/robinson/gos7"
 )
 
-// s7Area defines the Siemens memory areas
 type s7Area int
 
 const (
@@ -25,8 +24,8 @@ const (
 	areaQ                // Process Outputs (Q / A / PA)
 )
 
-// s7MaxBatchSize is the maximum number of tags processed per Read batch,
-// matching the PDU limit advertised via Capabilities().MaxBatchSize.
+// s7MaxBatchSize caps the number of tags one Read call processes; merged
+// segment length is separately capped in bytes by s7MaxPDUReadLen (480).
 const s7MaxBatchSize = 220
 
 // TypeName is the protocol type identifier for the S7 driver.
@@ -53,7 +52,6 @@ type S7Driver struct {
 	// config/state) so non-bit writes and reads are not blocked by it.
 	writeMu sync.Mutex
 
-	// Connection settings
 	host        string
 	port        int
 	rack        int
@@ -61,12 +59,10 @@ type S7Driver struct {
 	timeout     time.Duration
 	idleTimeout time.Duration
 
-	// Connection instances
 	handler *gos7.TCPClientHandler
 	client  gos7.Client
 	helper  gos7.Helper
 
-	// Tag mappings
 	tags  map[string]core.TagConfig
 	addrs map[string]s7Address
 }
@@ -159,9 +155,6 @@ func (d *S7Driver) handleConnLostIfCurrent(captured gos7.Client) {
 	d.HandleConnectionLost()
 }
 
-// Start, Stop, Restart, Status, Name, Type, reconnectLoop, startReconnectLoop,
-// and HandleConnectionLost are provided by the embedded driverbase.BaseDriver.
-
 func (d *S7Driver) connect() error {
 	addr := fmt.Sprintf("%s:%d", d.host, d.port)
 	handler := gos7.NewTCPClientHandler(addr, d.rack, d.slot)
@@ -185,8 +178,6 @@ func (d *S7Driver) connect() error {
 	return nil
 }
 
-// reconnectLoop and startReconnectLoop are provided by BaseDriver.
-
 func (d *S7Driver) Read(ctx context.Context, tags []string) ([]core.TagValue, error) {
 	d.RLock()
 	client := d.client
@@ -201,11 +192,10 @@ func (d *S7Driver) Read(ctx context.Context, tags []string) ([]core.TagValue, er
 	results := make([]core.TagValue, 0, len(tags))
 	now := time.Now()
 
-	// Process tags in batches of s7MaxBatchSize (the PDU limit advertised
-	// via Capabilities().MaxBatchSize). Within a batch, contiguous tags in
-	// the same (area, DB) are merged into single area reads;
-	// bit tags and sparse tags fall back to one read per tag. See
-	// s7_merge.go for the planner and the registered behavior changes.
+	// Process tags in batches of s7MaxBatchSize tags. Within a batch,
+	// contiguous tags in the same (area, DB) are merged into single area
+	// reads; bit tags and sparse tags fall back to one read per tag.
+	// See s7_merge.go for the planner.
 	for start := 0; start < len(tags); start += s7MaxBatchSize {
 		end := start + s7MaxBatchSize
 		if end > len(tags) {
@@ -223,8 +213,8 @@ func (d *S7Driver) Read(ctx context.Context, tags []string) ([]core.TagValue, er
 }
 
 // readAddress reads one tag with its own PLC round trip. The merged Read
-// path uses it only for bit tags (never merged in the first version);
-// non-bit tags are read through merged segments in s7_merge.go.
+// path uses it only for bit tags, which are never merged; non-bit tags are
+// read through merged segments in s7_merge.go.
 func (d *S7Driver) readAddress(client gos7.Client, addr s7Address, dt core.DataType) (any, error) {
 	buf := make([]byte, addr.size)
 	if err := readS7Area(client, addr.area, addr.dbNumber, addr.start, buf); err != nil {
@@ -342,16 +332,12 @@ func (d *S7Driver) Subscribe(ctx context.Context, tags []string) (<-chan core.Da
 	return nil, core.ErrSubscribeNotSupported
 }
 
-// Name, Type, and Status are provided by the embedded driverbase.BaseDriver.
-
 func (d *S7Driver) Capabilities() core.DriverCapabilities {
 	return core.DriverCapabilities{
 		CanRead:      true,
 		CanWrite:     true,
 		CanSubscribe: false,
 		BatchRead:    true,
-		MaxBatchSize: s7MaxBatchSize, // PDU limit for standard S7 requests
+		MaxBatchSize: s7MaxBatchSize, // max tags processed per Read call
 	}
 }
-
-// HandleConnectionLost is provided by the embedded driverbase.BaseDriver.

@@ -209,15 +209,6 @@ func TestS7DecodeBufferSizedOK(t *testing.T) {
 	}
 }
 
-// ============================================================
-// In-process Read/Write path tests using a mock gos7.Client.
-//
-// These tests exercise the driver's Read/Write logic — request building,
-// area dispatch, encode/decode, error wrapping, batching, and transform
-// application — without contacting a real PLC. A mockS7Client stands in
-// for gos7.Client and records every AG read/write call.
-// ============================================================
-
 // initConnectedMockDriver builds a driver, runs Init with the supplied tags,
 // then swaps in a mock client and marks the driver connected so Read/Write
 // can be called in-process.
@@ -263,20 +254,16 @@ func TestS7WriteEncode(t *testing.T) {
 		wantSize  int
 		wantData  []byte
 	}{
-		// Data Block area
 		{"DB uint16", "DB1.DBW0", "uint16", uint16(12345), "DB", 0, 2, []byte{0x30, 0x39}},
 		{"DB int16 negative", "DB1.DBW2", "int16", int16(-1), "DB", 2, 2, []byte{0xFF, 0xFF}},
 		{"DB uint32", "DB1.DBD4", "uint32", uint32(0x075BCD15), "DB", 4, 4, []byte{0x07, 0x5B, 0xCD, 0x15}},
 		{"DB int32 negative", "DB1.DBD8", "int32", int32(-1), "DB", 8, 4, []byte{0xFF, 0xFF, 0xFF, 0xFF}},
 		{"DB float32", "DB1.DBD12", "float32", float32(36.5), "DB", 12, 4, f32Bytes},
 		{"DB uint8", "DB1.DBB16", "uint8", 0xAB, "DB", 16, 1, []byte{0xAB}},
-		// Merker area
 		{"M uint16", "MW10", "uint16", uint16(300), "MB", 10, 2, []byte{0x01, 0x2C}},
 		{"M int32", "MD20", "int32", int32(1000000), "MB", 20, 4, []byte{0x00, 0x0F, 0x42, 0x40}},
 		{"M float64", "M30", "float64", float64(36.5), "MB", 30, 8, f64Bytes},
-		// Input area (I)
 		{"I uint16", "IW0", "uint16", uint16(1), "EB", 0, 2, []byte{0x00, 0x01}},
-		// Output area (Q)
 		{"Q uint32", "QD4", "uint32", uint32(42), "AB", 4, 4, []byte{0x00, 0x00, 0x00, 0x2A}},
 		{"Q uint8 zero", "QB8", "uint8", 0, "AB", 8, 1, []byte{0x00}},
 	}
@@ -371,8 +358,9 @@ func TestS7WriteEncodeBit(t *testing.T) {
 }
 
 // TestS7ReadDecode verifies that Read decodes raw S7 response bytes into the
-// correct Go values for each supported data type, going through the full
-// Read → readAddress → decodeS7Buffer path with a mock client.
+// correct Go values for each supported data type with a mock client, through
+// Read → readS7Batch → readMergedSegment (word tags) / readBitTag →
+// readAddress (bits) → decodeS7Buffer.
 func TestS7ReadDecode(t *testing.T) {
 	f32Bytes := make([]byte, 4)
 	binary.BigEndian.PutUint32(f32Bytes, math.Float32bits(36.5))
@@ -743,7 +731,6 @@ func TestS7AddressParsing(t *testing.T) {
 		wantBit_  bool
 		wantErr   bool
 	}{
-		// Data Block
 		{"DB bit", "DB1.DBX0.0", core.TypeBool, areaDB, 1, 0, 0, 1, true, false},
 		{"DB byte", "DB1.DBB0", core.TypeUint8, areaDB, 1, 0, 0, 1, false, false},
 		{"DB word", "DB10.DBW4", core.TypeInt16, areaDB, 10, 4, 0, 2, false, false},
@@ -751,7 +738,6 @@ func TestS7AddressParsing(t *testing.T) {
 		{"DB bit high offset", "DB255.DBX100.7", core.TypeBool, areaDB, 255, 100, 7, 1, true, false},
 		{"DB lowercase", "db1.dbx0.3", core.TypeBool, areaDB, 1, 0, 3, 1, true, false},
 
-		// Merker (M)
 		{"M bit", "M10.0", core.TypeBool, areaM, 0, 10, 0, 1, true, false},
 		{"M byte", "MB10", core.TypeUint8, areaM, 0, 10, 0, 1, false, false},
 		{"M word", "MW20", core.TypeUint16, areaM, 0, 20, 0, 2, false, false},
@@ -759,7 +745,6 @@ func TestS7AddressParsing(t *testing.T) {
 		{"M bit 7", "M0.7", core.TypeBool, areaM, 0, 0, 7, 1, true, false},
 		{"M bare bool inferred", "M5", core.TypeBool, areaM, 0, 5, 0, 1, true, false},
 
-		// Inputs (I and German E)
 		{"I bit", "I0.0", core.TypeBool, areaI, 0, 0, 0, 1, true, false},
 		{"I byte", "IB1", core.TypeUint8, areaI, 0, 1, 0, 1, false, false},
 		{"I word", "IW2", core.TypeUint16, areaI, 0, 2, 0, 2, false, false},
@@ -767,7 +752,6 @@ func TestS7AddressParsing(t *testing.T) {
 		{"E bit (German alias)", "E0.5", core.TypeBool, areaI, 0, 0, 5, 1, true, false},
 		{"E word (German alias)", "EW2", core.TypeUint16, areaI, 0, 2, 0, 2, false, false},
 
-		// Outputs (Q and German A)
 		{"Q bit", "Q0.0", core.TypeBool, areaQ, 0, 0, 0, 1, true, false},
 		{"Q byte", "QB1", core.TypeUint8, areaQ, 0, 1, 0, 1, false, false},
 		{"Q word", "QW2", core.TypeUint16, areaQ, 0, 2, 0, 2, false, false},
@@ -775,10 +759,8 @@ func TestS7AddressParsing(t *testing.T) {
 		{"A bit (German alias)", "A0.3", core.TypeBool, areaQ, 0, 0, 3, 1, true, false},
 		{"A dword (German alias)", "AD4", core.TypeUint32, areaQ, 0, 4, 0, 4, false, false},
 
-		// Whitespace trimming
 		{"leading/trailing whitespace", "  MW10  ", core.TypeUint16, areaM, 0, 10, 0, 2, false, false},
 
-		// Errors
 		{"empty string", "", core.TypeInt16, 0, 0, 0, 0, 0, false, true},
 		{"garbage", "ZZ123", core.TypeInt16, 0, 0, 0, 0, 0, false, true},
 		{"DB missing kind", "DB1.0", core.TypeInt16, 0, 0, 0, 0, 0, false, true},
@@ -841,8 +823,6 @@ func TestS7WriteEncodeUnsupportedType(t *testing.T) {
 	}
 }
 
-// ----- small test helpers -----
-
 func mustDataType(s string) core.DataType {
 	dt, ok := core.ParseDataType(s)
 	if !ok {
@@ -897,11 +877,7 @@ func valuesEqual(a, b any) bool {
 	}
 }
 
-// ============================================================
-// Stale-error connection guard.
-// ============================================================
-
-// TestS7StaleConnectionErrorIgnored is the stale-client regression test: an error
+// TestS7StaleConnectionErrorIgnored verifies that an error
 // reported against a client that has already been replaced by a completed
 // reconnect must NOT tear down the fresh connection, while an error from
 // the current client still must. The driver is pointed at a dead loopback
@@ -976,8 +952,8 @@ func TestS7StaleConnectionErrorIgnored(t *testing.T) {
 	}
 }
 
-// TestS7WriteConnectionErrorTriggersReconnect is the write-path reconnect
-// regression test: a connection-class Write failure must tear the
+// TestS7WriteConnectionErrorTriggersReconnect verifies that a
+// connection-class Write failure must tear the
 // connection down for reconnection just like the Read path, while a
 // non-connection write failure must not. The driver points at a dead
 // loopback port with a long reconnect interval so the background loop

@@ -27,7 +27,7 @@ func TestWriteValueForTag(t *testing.T) {
 
 	// Scaled tag: engineering value is inverted to the raw representation.
 	// pressure reads raw 150 with scale 0.01 as 1.5; writing 1.5 must
-	// encode raw 150 (previously it encoded 1).
+	// encode raw 150 (an un-inverted write would encode 1).
 	t.Run("scaled tag inverts engineering value", func(t *testing.T) {
 		cmd := core.WriteCommand{Tag: "pressure", Value: 1.5}
 		cfg := core.TagConfig{Name: "pressure", Scale: 0.01, Offset: 0}

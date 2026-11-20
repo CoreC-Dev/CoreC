@@ -1,15 +1,7 @@
 package s7
 
-// ============================================================
-// Merged area reads.
-//
-// The tag-per-trip reader issued one AGRead* call per tag, so a Read of N
-// tags cost N serial PLC round trips even when every tag lived in the same
-// DB a few bytes apart (see s7_merge_bench_test.go for the measured cost).
-// The planner below groups tags by (area, dbNumber), sorts them by start
-// offset and greedily merges neighbours into single area reads, collapsing
-// the round-trip count from N to the number of merged segments.
-// ============================================================
+// Merged area reads: the planner groups tags by (area, dbNumber), sorts them
+// by start offset and greedily merges neighbours into single area reads.
 
 import (
 	"fmt"
@@ -23,9 +15,7 @@ import (
 
 const (
 	// s7MergeGapLimit is the maximum inter-tag gap, in bytes, that still
-	// merges two tags into one read. Reading up to 32 bytes of padding
-	// between two tags is cheaper than a second PLC round trip; a larger
-	// gap falls back to separate reads.
+	// merges two tags into one read; a larger gap falls back to separate reads.
 	s7MergeGapLimit = 32
 
 	// s7MaxPDUReadLen caps the byte length of one merged segment. S7-400/
@@ -44,8 +34,6 @@ type s7ReadTag struct {
 	dt    core.DataType
 
 	// Transform parameters (the only TagConfig fields the read path uses).
-	// Keeping them instead of the whole TagConfig keeps the struct small,
-	// since grouping and sorting copy tags by value.
 	scale  float64
 	offset float64
 }
@@ -64,7 +52,8 @@ type s7ReadSegment struct {
 // merging across areas or DBs — sorts each group by start offset and
 // greedily merges neighbours into segments: two tags share a segment when
 // the gap between them is at most s7MergeGapLimit bytes and the merged
-// length stays within s7MaxPDUReadLen. Overlapping tags always merge.
+// length stays within s7MaxPDUReadLen. Overlapping tags merge unless the
+// merged length exceeds s7MaxPDUReadLen.
 // Groups are visited in ascending (area, dbNumber) order so the resulting
 // read sequence is deterministic.
 func planS7ReadSegments(tags []s7ReadTag) []s7ReadSegment {
@@ -155,12 +144,10 @@ func readS7Area(client gos7.Client, area s7Area, dbNumber, start int, buf []byte
 // readS7Batch reads one batch (at most s7MaxBatchSize tags) and returns one
 // TagValue per input tag, in input order:
 //
-//   - Unknown tags fail immediately with no PLC traffic (unchanged).
+//   - Unknown tags fail immediately with no PLC traffic.
 //   - Non-bit tags are merged into planned segments; every tag in a failed
-//     segment is marked QualityBad with that segment's error (a
-//     deliberate behavior change: one failed round trip fails its whole segment).
-//   - Bit tags keep the tag-per-trip read of the previous implementation
-//     (conservative first version: bits are never merged).
+//     segment is marked QualityBad with that segment's error.
+//   - Bit tags are never merged; each is read with its own round trip.
 func (d *S7Driver) readS7Batch(client gos7.Client, batch []string, now time.Time) []core.TagValue {
 	values := make([]core.TagValue, len(batch))
 	var wordTags, bitTags []s7ReadTag
@@ -200,7 +187,7 @@ func (d *S7Driver) readS7Batch(client gos7.Client, batch []string, now time.Time
 		d.readMergedSegment(client, seg, now, values)
 	}
 
-	// Phase 3 — bit tags, one read each (unchanged semantics).
+	// Phase 3 — bit tags, one read each.
 	for _, tag := range bitTags {
 		values[tag.index] = d.readBitTag(client, tag, now)
 	}
@@ -211,7 +198,7 @@ func (d *S7Driver) readS7Batch(client gos7.Client, batch []string, now time.Time
 // readMergedSegment performs one merged area read and decodes every tag in
 // the segment out of the shared buffer. When the read fails, every tag in
 // the segment is marked QualityBad with the same error — one failed round
-// trip fails its whole segment (a deliberate behavior change).
+// trip fails its whole segment.
 func (d *S7Driver) readMergedSegment(client gos7.Client, seg s7ReadSegment, now time.Time, values []core.TagValue) {
 	buf := make([]byte, seg.length)
 	err := readS7Area(client, seg.area, seg.dbNumber, seg.start, buf)
@@ -257,8 +244,8 @@ func (d *S7Driver) readMergedSegment(client gos7.Client, seg s7ReadSegment, now 
 	}
 }
 
-// readBitTag reads one bit tag with its own PLC round trip, mirroring the
-// pre-merge per-tag error handling exactly.
+// readBitTag reads one bit tag with its own PLC round trip; a failure
+// affects only that tag.
 func (d *S7Driver) readBitTag(client gos7.Client, tag s7ReadTag, now time.Time) core.TagValue {
 	val, err := d.readAddress(client, tag.addr, tag.dt)
 	if err != nil {

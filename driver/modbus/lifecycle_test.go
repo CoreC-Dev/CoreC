@@ -10,8 +10,6 @@ import (
 	mb "github.com/simonvetter/modbus"
 )
 
-// --- Name / Status / Subscribe tests ---
-
 func TestModbusNameStatusSubscribe(t *testing.T) {
 	port, err := getFreePort()
 	if err != nil {
@@ -35,7 +33,6 @@ func TestModbusNameStatusSubscribe(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 	defer server.Stop()
-	// server.Start() calls net.Listen synchronously — ready immediately.
 
 	cfg := core.DriverConfig{
 		Name: "test-plc",
@@ -64,17 +61,14 @@ func TestModbusNameStatusSubscribe(t *testing.T) {
 	}
 	defer drv.Stop()
 
-	// Name
 	if drv.Name() != "test-plc" {
 		t.Errorf("expected name 'test-plc', got %q", drv.Name())
 	}
 
-	// Type
 	if drv.Type() != "modbus-tcp" {
 		t.Errorf("expected type 'modbus-tcp', got %q", drv.Type())
 	}
 
-	// Status
 	status := drv.Status()
 	if status.Name != "test-plc" {
 		t.Errorf("expected status name 'test-plc', got %q", status.Name)
@@ -99,8 +93,6 @@ func TestModbusNameStatusSubscribe(t *testing.T) {
 	}
 }
 
-// --- Restart test ---
-
 func TestModbusRestart(t *testing.T) {
 	port, err := getFreePort()
 	if err != nil {
@@ -124,7 +116,6 @@ func TestModbusRestart(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 	defer server.Stop()
-	// server.Start() is synchronous — ready immediately.
 
 	cfg := core.DriverConfig{
 		Name: "restart-plc",
@@ -167,7 +158,7 @@ func TestModbusRestart(t *testing.T) {
 		t.Fatalf("Restart: %v", err)
 	}
 
-	// Poll until reconnected after restart (replaces fixed sleep).
+	// Poll until reconnected after restart.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if drv.Status().State == core.StateConnected {
@@ -185,8 +176,6 @@ func TestModbusRestart(t *testing.T) {
 	}
 }
 
-// --- Reconnect test (connect to non-existent server, then start it) ---
-
 func TestModbusReconnectOnFailure(t *testing.T) {
 	port, err := getFreePort()
 	if err != nil {
@@ -197,12 +186,12 @@ func TestModbusReconnectOnFailure(t *testing.T) {
 		Name: "reconnect-plc",
 		Type: "modbus-tcp",
 		Settings: map[string]any{
-			"host":               "127.0.0.1",
-			"port":               port,
-			"slave-id":           1,
-			"timeout":            "500ms",
-			"retry-interval":     "100ms",
-			"max-retry-interval": "200ms",
+			"host":                   "127.0.0.1",
+			"port":                   port,
+			"slave-id":               1,
+			"timeout":                "500ms",
+			"reconnect-interval":     "100ms",
+			"reconnect-max-interval": "200ms",
 		},
 		Tags: []core.TagConfig{
 			{Name: "val", Address: "40001", Type: "uint16"},
@@ -250,9 +239,9 @@ func TestModbusReconnectOnFailure(t *testing.T) {
 	}
 	defer server.Stop()
 
-	// Wait for reconnect. The window is generous (6s) because the reconnect
-	// loop backs off up to max-retry-interval and, under CI/load, goroutine
-	// scheduling can delay the next attempt beyond the nominal interval.
+	// Wait for reconnect. The reconnect loop backs off between
+	// reconnect-interval (100ms) and reconnect-max-interval (200ms); the
+	// 6s window leaves headroom for goroutine scheduling under CI/load.
 	connected := false
 	for i := 0; i < 60; i++ {
 		time.Sleep(100 * time.Millisecond)
@@ -276,8 +265,6 @@ func TestModbusReconnectOnFailure(t *testing.T) {
 		}
 	}
 }
-
-// --- Capabilities test ---
 
 func TestModbusCapabilities(t *testing.T) {
 	drv, err := NewModbusTCPDriver(core.DriverConfig{
@@ -307,8 +294,6 @@ func TestModbusCapabilities(t *testing.T) {
 		t.Errorf("expected MaxBatchSize 125, got %d", caps.MaxBatchSize)
 	}
 }
-
-// --- Init error paths ---
 
 func TestModbusInitMissingHost(t *testing.T) {
 	drv, err := NewModbusTCPDriver(core.DriverConfig{
@@ -363,8 +348,6 @@ func TestModbusInitInvalidAddress(t *testing.T) {
 		t.Error("expected error for invalid address")
 	}
 }
-
-// --- Stop without Start ---
 
 func TestModbusStopWithoutStart(t *testing.T) {
 	drv, err := NewModbusTCPDriver(core.DriverConfig{

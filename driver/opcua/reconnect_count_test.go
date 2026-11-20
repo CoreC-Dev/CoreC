@@ -18,8 +18,8 @@ import (
 // instantly) with a short timeout and short reconnect interval, so the
 // loop retries quickly and ReconnectCount must grow monotonically.
 //
-// The test uses polling (not a fixed sleep) to observe the counter,
-// matching the no-flaky-patterns rule in CONTRIBUTING.md. The reconnect
+// The test uses polling with a deadline (CONTRIBUTING.md: no fixed-sleep
+// synchronization). The reconnect
 // goroutine is always torn down via t.Cleanup so the test never leaks a
 // goroutine even if an assertion fails.
 func TestOPCUAReconnectCountIncrements(t *testing.T) {

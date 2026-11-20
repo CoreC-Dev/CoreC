@@ -35,7 +35,6 @@ func newModbusNetDriver(config core.DriverConfig, driverType, urlScheme string) 
 	}
 	d.SetInitFunc(d.Init)
 	d.SetConnectFunc(d.connect)
-	// Store driverType for Init (SetMeta is called in initCommon).
 	d.SetMeta(config.Name, driverType, config)
 	return d, nil
 }
@@ -89,8 +88,10 @@ func (d *ModbusNetDriver) Init(ctx context.Context, config core.DriverConfig) er
 
 func (d *ModbusNetDriver) connect() error {
 	return d.openClient(&mb.ClientConfiguration{
-		URL:     fmt.Sprintf("%s://%s:%d", d.urlScheme, d.host, d.port),
-		Speed:   1, // ignored for network transports but required by library > 0
+		URL: fmt.Sprintf("%s://%s:%d", d.urlScheme, d.host, d.port),
+		// Speed feeds RTU inter-frame timing (t1/t3.5) even over TCP/UDP;
+		// the library defaults 0 to 19200.
+		Speed:   1,
 		Timeout: d.timeout,
 	})
 }

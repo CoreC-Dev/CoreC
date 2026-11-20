@@ -64,7 +64,6 @@ func (d *ModbusNetDriver) ValidateSettings(settings map[string]any) error {
 		map[string]bool{"host": true, "port": true}), "modbus")
 }
 
-// union merges two key sets (small maps; called once per validation).
 func union(a, b map[string]bool) map[string]bool {
 	out := make(map[string]bool, len(a)+len(b))
 	for k := range a {

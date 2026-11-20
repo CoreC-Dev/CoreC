@@ -73,14 +73,12 @@ func (d *ModbusTLSDriver) Init(ctx context.Context, config core.DriverConfig) er
 		return fmt.Errorf("modbus-tls: ca-file is required (CA / server certificate PEM)")
 	}
 
-	// Load client certificate + key pair
 	cert, err := tlsutil.LoadClientCert(d.certFile, d.keyFile)
 	if err != nil {
 		return fmt.Errorf("modbus-tls: %w", err)
 	}
 	d.clientCert = &cert
 
-	// Load CA certificate pool for server validation
 	rootCAs, err := tlsutil.LoadCertPool(d.caFile)
 	if err != nil {
 		return fmt.Errorf("modbus-tls: %w", err)
@@ -105,7 +103,7 @@ func (d *ModbusTLSDriver) Init(ctx context.Context, config core.DriverConfig) er
 func (d *ModbusTLSDriver) connect() error {
 	return d.openClient(&mb.ClientConfiguration{
 		URL:           fmt.Sprintf("tcp+tls://%s:%d", d.host, d.port),
-		Speed:         1, // ignored for TCP but required by library > 0
+		Speed:         1,
 		Timeout:       d.timeout,
 		TLSClientCert: d.clientCert,
 		TLSRootCAs:    d.rootCAs,

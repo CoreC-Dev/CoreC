@@ -49,9 +49,7 @@ func generateSelfSignedCert(t *testing.T) (certFile, keyFile string) {
 // generateCertKey generates a self-signed certificate and private key in PEM
 // encoding using an ECDSA P-256 key.
 func generateCertKey(template *x509.Certificate) (certPEM, keyPEM []byte, err error) {
-	// Use crypto/ecdsa + crypto/x509 to create a self-signed cert.
-	// We avoid importing ecdsa directly by using tls.X509KeyPair round-trip
-	// via a temporary in-memory approach.
+	// Delegates to generateCertKeyRaw (ECDSA P-256).
 	return generateCertKeyRaw(template)
 }
 

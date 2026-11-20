@@ -39,10 +39,10 @@ func TestGetStateLockedUnderHeldRLockAndQueuedWriter(t *testing.T) {
 	// Give the writer time to actually queue on the mutex.
 	time.Sleep(50 * time.Millisecond)
 
-	// The fixed accessor: must return immediately despite the held
-	// RLock and the queued writer. The old GetState() here would block
-	// forever (inner RLock waits for the writer, writer waits for the
-	// outer RLock held by THIS goroutine).
+	// GetStateLocked must return immediately despite the held
+	// RLock and the queued writer. A self-locking GetState() here would
+	// block forever (inner RLock waits for the writer, writer waits for
+	// the outer RLock held by THIS goroutine).
 	done := make(chan core.ConnState, 1)
 	go func() {
 		done <- d.GetStateLocked()

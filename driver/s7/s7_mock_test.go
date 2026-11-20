@@ -95,7 +95,7 @@ func (m *mockS7Client) writeFrom(area string, dbNumber, start, size int, buffer 
 	return m.writeErr
 }
 
-// ----- AG read/write methods (the ones the driver actually uses) -----
+// AG read/write methods (the ones the driver actually uses).
 
 func (m *mockS7Client) AGReadDB(dbNumber, start, size int, buffer []byte) error {
 	return m.readInto("DB", dbNumber, start, size, buffer)
@@ -122,7 +122,7 @@ func (m *mockS7Client) AGWriteAB(start, size int, buffer []byte) error {
 	return m.writeFrom("AB", 0, start, size, buffer)
 }
 
-// ----- Remaining interface methods: stubbed, never used by the driver -----
+// Remaining interface methods: stubbed, never used by the driver.
 
 func (m *mockS7Client) AGReadTM(start, size int, buffer []byte) error  { return nil }
 func (m *mockS7Client) AGWriteTM(start, size int, buffer []byte) error { return nil }
