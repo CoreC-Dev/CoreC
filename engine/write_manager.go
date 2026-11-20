@@ -111,11 +111,12 @@ func (w *writeManager) WriteTag(ctx context.Context, cmd core.WriteCommand) (*co
 		}
 	}
 
-	// Per-driver write pacing (settings.write-min-interval) at the same
+	// Per-driver write pacing (engine.write-min-interval) at the same
 	// write choke point: API single write, batch and the MQTT command
-	// channel all honour the device's minimum spacing. Rejection is a
-	// client-actionable ErrWritePaced (429 on the API, immediate dead
-	// letter on the command channel).
+	// channel all honour the driver's minimum spacing. Rejection is a
+	// client-actionable ErrWritePaced (429 on the API; the command channel
+	// waits out the window and retries, dead-lettering only after pacing
+	// retries are exhausted).
 	if err := w.pacer.check(cmd.Driver); err != nil {
 		w.recordWriteAudit(cmd, false, err.Error())
 		return nil, err

@@ -187,7 +187,7 @@ wscat -c "ws://localhost:9090/tags/stream?token=corec-secret-token"
 | `engine.stale-threshold` | duration | 否 | `0`（禁用） | 数据陈旧判定阈值，超过此时长未更新的缓存值标记为 `is_stale` |
 | `engine.write-retry-count` | int | 否 | `3` | 写入指令失败重试次数，重试耗尽后进入死信队列 |
 | `engine.command-concurrency` | int | 否 | `16` | 写入指令最大并行数，超限施加背压并溢入死信队列；设 `1` 恢复串行 |
-| `engine.write-min-interval` | duration | 否 | `""`（不限速） | 同一设备两次写入的最小间隔。窗口内的写入**拒绝而非排队**：API 返回 `429`（响应头 `Retry-After`），命令通道立即进死信队列并保留原因。仅被接受的写入推进时间窗 |
+| `engine.write-min-interval` | duration | 否 | `""`（不限速） | 同一驱动两次被接受写入的最小间隔。窗口内的写入**拒绝而非排队**：API 返回 `429`（响应头 `Retry-After`）；命令通道先等待剩余窗口重试，pacing 重试耗尽后带原因进死信队列。仅被接受的写入推进时间窗 |
 | `engine.write-audit-path` | string | 否 | `""`（仅内存） | 写审计轨迹**落盘持久化**：追加式 JSONL，重启回放进内存环形（`GET /write/history` 立即有历史）。文件超过 5MiB 轮转为 `<path>.old`，磁盘占用上限约 2×5MiB |
 | `engine.high-priority-workers` | int | 否 | `2` | 快间隔标签（`interval` ≤ 1s）专用处理协程数，与批量读取协程隔离 |
 | `engine.alert-active-window` | duration | 否 | `15m` | 告警活动窗口——告警静默满该时长后自动清除（移入历史）。确认（ack）不会清除告警，只有静默会；详见 [告警 API](../api/alerts.md) |
