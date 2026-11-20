@@ -66,7 +66,7 @@ func (t *HTTPTransport) handleWebhook(w http.ResponseWriter, r *http.Request) {
 
 	// The response is always 202; the body carries the per-outcome counts
 	// (received/accepted/parse_failed/queue_dropped).
-	accepted, parsed, parseFailed, dropped := 0, 0, 0, 0
+	accepted, parseFailed, dropped := 0, 0, 0
 	for _, raw := range rawElements {
 		dp, err := t.dataParser.Parse(raw, "")
 		if err != nil {
@@ -74,7 +74,6 @@ func (t *HTTPTransport) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			slog.Error("http webhook: failed to parse payload", "error", err)
 			continue
 		}
-		parsed++
 		select {
 		case t.dataCh <- dp:
 			accepted++
@@ -94,5 +93,4 @@ func (t *HTTPTransport) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		"parse_failed":  parseFailed,
 		"queue_dropped": dropped,
 	})
-	_ = parsed
 }
