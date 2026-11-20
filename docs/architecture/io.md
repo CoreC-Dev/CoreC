@@ -40,37 +40,11 @@ Read(ctx context.Context, tags []string) ([]TagValue, error)
 Subscribe(ctx context.Context, tags []string) (<-chan DataPoint, error)
 ```
 
-输入数据类型：
-
-```go
-type TagValue struct {
-    Tag       string    // "temperature"
-    Value     any       // 42.5
-    Type      DataType  // TypeFloat32
-    Quality   Quality   // QualityGood
-    Timestamp time.Time // 采集时间戳
-    Error     error     // 读取错误
-}
-```
+输入数据类型为 `TagValue`：tag、value、type、quality、采集时间戳与读取错误。
 
 ### 3. 北向控制指令
 
-云端通过 MQTT command topic 下发写指令：
-
-```go
-type WriteCommand struct {
-    Driver string   // "plc-modbus"
-    Device string   // "192.168.1.10"
-    Tag    string   // "temperature"
-    Value  any      // 50
-    Type   DataType // TypeFloat32
-    // 以下字段由信任边界（route handler / 命令监听器）盖章，
-    // 不信任客户端载荷；均为 omitempty，JSON 中缺省时省略。
-    Source string // 来源："api"（HTTP 直写）或 "command"（传输反向命令）
-    Remote string // API 来源写者的网络地址（r.RemoteAddr）
-    Raw    bool   // true 时跳过 scale/offset 反变换，按原始设备值写入
-}
-```
+云端通过 MQTT command topic 下发写指令（`WriteCommand`：driver/device/tag/value/type，`device` 为保留字段、当前未使用）。`Source`（`api` 或 `command`）、`Remote`（API 调用方地址）由信任边界（route handler / 命令监听器）盖章，不信任客户端载荷，均为 omitempty；`Raw=true` 时跳过 scale/offset 反变换，按原始设备值写入。
 
 流向：MQTT 订阅 command-topic → `Transport.OnCommand()` → `startCommandListener` → `Driver.Write()` → PLC
 
@@ -112,22 +86,7 @@ Parser 支持三种模式（`transport/parser`）：
 
 ### 1. 北向数据发布
 
-主输出流，采集数据经规则匹配后发布到云端：
-
-```go
-type DataPoint struct {
-    Driver    string            // "plc-modbus"
-    Device    string            // 驱动采集路径留空（DriverConfig/TagConfig 无 Device 字段）；链式入站可由 parser 配置填充
-    Group     string            // "sensors"
-    Tag       string            // "temperature"
-    Value     any               // 42.5
-    Type      DataType          // TypeFloat32
-    Quality   Quality           // QualityGood
-    Timestamp time.Time         // 采集时间
-    Metadata  map[string]string // 扩展元数据（发布时注入命中的规则名 "rule"）
-    IsStale   bool              // 仅由 API 层在缓存值超过 stale 阈值时置位；正常管道处理不设置，不出现在发布载荷
-}
-```
+主输出流，采集数据经规则匹配后以 `DataPoint` 发布到云端。`Device` 在驱动采集路径留空（配置无 Device 字段），链式入站可由 parser 配置填充；`Metadata` 在发布时注入命中的规则名 `"rule"`；`IsStale` 仅由 API 层在缓存读取超过 stale 阈值时置位，不出现在发布载荷。
 
 | 传输 | 输出形式 | 目标 |
 |:---|:---|:---|

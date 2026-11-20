@@ -13,24 +13,30 @@ CoreC 提供五个 WebSocket 端点，用于实时推送数据点、日志、流
 
 ### 鉴权
 
-WebSocket 端点同样受认证中间件保护。由于浏览器 `WebSocket` API 不支持自定义请求头，推荐通过 **Query 参数** 传递 Token：
+WebSocket 端点同样受认证中间件保护。Token 的携带方式：
+
+- **子协议（首选）**：`Sec-WebSocket-Protocol: token.<URL编码secret>`，不进入访问日志。
+- **`?token=` 查询参数（legacy 回退）**：会进入访问日志。
+- **`Authorization: Bearer` 请求头**：适用于支持自定义 Header 的非浏览器客户端。
 
 ::: code-group
 
-```bash [wscat（命令行）]
-wscat -c "ws://localhost:9090/tags/stream?token=corec-secret-token"
-```
-
-```js [浏览器 JavaScript]
-const ws = new WebSocket('ws://localhost:9090/tags/stream?token=corec-secret-token')
+```js [浏览器 JavaScript（子协议，首选）]
+const ws = new WebSocket('ws://localhost:9090/tags/stream', [
+  'corec.v1',
+  `token.${encodeURIComponent('corec-secret-token')}`,
+])
 ws.onmessage = (event) => {
   const point = JSON.parse(event.data)
   console.log(point)
 }
 ```
 
+```bash [wscat（?token=，legacy 回退）]
+wscat -c "ws://localhost:9090/tags/stream?token=corec-secret-token"
+```
+
 ```bash [Authorization Header（非浏览器客户端）]
-# 部分客户端库支持自定义 Header
 wscat -c "ws://localhost:9090/tags/stream" \
   -H "Authorization: Bearer corec-secret-token"
 ```
@@ -187,9 +193,9 @@ wscat -c "ws://localhost:9090/logs?token=corec-secret-token"
 
 ## /alerts/stream — 一等告警实时流
 
-服务端告警注册表（audit OBS-4/HUB-6）的事件流：每次告警触发/确认（ack）/清除（静默到期）推送一个 `AlertEvent` 对象。字段与语义详见 [告警 API](alerts.md)（`GET /alerts` 活动告警 + `POST /alerts/ack` 确认 + 历史）。
+服务端告警注册表的事件流：每次告警触发/确认（ack）/清除（静默到期）推送一个 `AlertEvent` 对象。字段与语义详见 [告警 API](alerts.md)（`GET /alerts` 活动告警 + `POST /alerts/ack` 确认 + 历史）。
 
-连接方式与 `/logs` 相同（Bearer 认证，`?token=` 查询串亦受支持）。消息格式：
+连接方式与 `/logs` 相同（子协议 `token.<URL编码secret>` 首选，`?token=` 为 legacy 回退，见[鉴权](#鉴权)）。消息格式：
 
 ```json
 {
@@ -201,7 +207,7 @@ wscat -c "ws://localhost:9090/logs?token=corec-secret-token"
 
 ## /traffic — 流量统计实时流
 
-定期推送引擎**吞吐速率**（读取/发布/丢弃，每秒），服务端完成差分——客户端拿到的就是可直接绘制的速率曲线，没有重启归零导致的负值帧，也没有"第一帧之前是死区"的问题。
+定期推送引擎**吞吐速率**（读取/发布/丢弃，每秒），服务端按 `interval` 差分推送速率。
 
 ### 请求
 
@@ -214,7 +220,7 @@ GET /traffic?interval={duration}&mode={totals|rate}
 | 参数 | 类型 | 必填 | 说明 |
 |:---|:---|:---|:---|
 | `interval` | string (duration) | 否 | 推送间隔，如 `1s`、`500ms`；省略或非法值时默认 `1s` |
-| `mode` | string | 否 | `rate`（默认）：速率帧；`totals`：历史累计计数帧（旧客户端的差分用法兼容） |
+| `mode` | string | 否 | `rate`（默认）：速率帧；`totals`：历史累计计数帧 |
 
 ### 消息格式（默认，速率）
 
@@ -230,7 +236,7 @@ GET /traffic?interval={duration}&mode={totals|rate}
 
 连接后的**第一帧**没有差分基线：`read_rate` 携带引擎的 60s 窗口速率（与 `corec_points_per_second` 同口径），`publish_rate`/`dropped_rate` 为 0——永不出现负值或空洞。
 
-### 消息格式（`mode=totals`，兼容）
+### 消息格式（`mode=totals`）
 
 ```json
 {
@@ -250,10 +256,6 @@ GET /traffic?interval={duration}&mode={totals|rate}
 | `read` | uint64 | 仅 `mode=totals`：累计读取（`EngineStats.TotalRead`） |
 | `publish` | uint64 | 仅 `mode=totals`：累计发布 |
 | `dropped` | uint64 | 仅 `mode=totals`：累计丢弃 |
-
-::: info 推送频率
-默认每 1 秒推送一次，可通过 `?interval=` 自定义间隔。
-:::
 
 ### 示例
 
@@ -280,7 +282,7 @@ ws.onmessage = (e) => {
 
 ## /memory — 内存监控实时流
 
-定期推送 Go 运行时内存统计，用于监控核心内存占用和 GC 活动。数据经 `runtime/metrics` 采样（不触发 Stop-The-World 停顿），推送本身不会造成延迟毛刺。
+定期推送 Go 运行时内存统计，用于监控核心内存占用和 GC 活动。数据经 `runtime/metrics` 采样（不触发 Stop-The-World 停顿）。
 
 ### 请求
 
@@ -317,10 +319,6 @@ GET /memory?interval={duration}
 | `sys` | uint64 | 从操作系统获取的内存总字节数（`/memory/classes/total:bytes`，等价 `MemStats.Sys`） |
 | `num_gc` | uint64 | GC 完成次数（`/gc/cycles/total:gc-cycles`，等价 `MemStats.NumGC`） |
 | `goroutines` | int | 当前 goroutine 数量（`runtime.NumGoroutine()`） |
-
-::: info 推送频率
-默认每 1 秒推送一次（`time.NewTicker(wsPushInterval)`），可通过 `?interval=` 查询参数自定义间隔。
-:::
 
 ### 示例
 

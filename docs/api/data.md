@@ -22,7 +22,7 @@ GET /tags?prefix={prefix}
 GET /tags?tag={substr}
 ```
 
-#### 查询参数（roadmap #35）
+#### 查询参数
 
 | 参数 | 类型 | 必填 | 说明 |
 |:---|:---|:---|:---|
@@ -78,7 +78,7 @@ GET /tags?tag={substr}
 | `group` | string | 采集分组名称 |
 | `tag` | string | 标签名称 |
 | `value` | any | 标签值 |
-| `type` | string | 数据类型枚举（`DataType` 实现了自定义 `MarshalJSON`/`UnmarshalJSON`）：序列化为可读字符串 `bool, int8, int16, int32, int64, uint8, uint16, uint32, uint64, float32, float64, string, bytes`。反序列化同时接受字符串（如 `"float32"`）和历史整数形式（`9` = float32） |
+| `type` | string | 数据类型枚举（`DataType` 实现了自定义 `MarshalJSON`/`UnmarshalJSON`）：序列化为可读字符串 `bool, int8, int16, int32, int64, uint8, uint16, uint32, uint64, float32, float64, string, bytes`。反序列化同时接受字符串（如 `"float32"`）和整数形式（`9` = float32） |
 | `quality` | int | 数据质量枚举（`Quality` 为 `int`，按整数序列化）：`0=good, 1=bad, 2=uncertain` |
 | `timestamp` | string (RFC 3339) | 采集时间戳 |
 | `is_stale` | bool | 数据是否陈旧（超过引擎 `stale-threshold` 未更新），仅在启用陈旧检测时出现 |
@@ -122,19 +122,19 @@ Content-Type: application/json
 | `device` | string | 否 | 目标设备标识（当前未使用，保留字段） |
 | `tag` | string | 是 | 目标标签名称 |
 | `value` | any | 是 | 待写入的值（默认为**工程值**，见下方 scale 说明） |
-| `type` | string \| int | 是 | 值的数据类型。接受可读字符串（如 `"float32"`，推荐）或历史整数形式（`10` = float64）。完整映射：`bool=0, int8=1, int16=2, int32=3, int64=4, uint8=5, uint16=6, uint32=7, uint64=8, float32=9, float64=10, string=11, bytes=12` |
+| `type` | string \| int | 是 | 值的数据类型。接受可读字符串（如 `"float32"`，推荐）或整数形式（`10` = float64）。完整映射：`bool=0, int8=1, int16=2, int32=3, int64=4, uint8=5, uint16=6, uint32=7, uint64=8, float32=9, float64=10, string=11, bytes=12` |
 | `raw` | bool | 否 | 默认 `false`。设为 `true` 时跳过 scale/offset 反演，把 `value` 按设备原始值直接编码（用于调试/原始报文下发场景） |
 
 ::: tip 与 scale/offset 的关系（写路径反演）
 读取方向配置了 `scale`/`offset` 的标签，读取上报的是工程值（`原始值 × scale + offset`）。写入时默认接受**工程值**，驱动在编码前自动反演回原始值（`(value - offset) / scale`），保证读写往返一致：UI 显示 1.5（scale=0.01），下发 1.5，设备寄存器收到 150。需要直接写设备原始值的调试场景，传 `"raw": true`。`bool`/`string`/`bytes` 类型不参与变换，原样透传。
 :::
 
-::: warning 请求体限制
-请求体最大 1 MiB。超出限制时，JSON 解码将失败并返回 `400 Bad Request`。
+::: warning 请求体超限
+`POST /write` 与 `POST /write/batch` 超出全局请求体上限时读取请求体失败，返回 `500`（脱敏 `internal server error`）。
 :::
 
 ::: warning 省略 `type` 会被 400 拒绝
-`type` 是必填字段：请求体缺失 `"type"` 键时返回 `400 Bad Request` 与错误信息 `"type" is required (one of: bool, int8, …)`。此校验在 API 边界执行——缺失该键曾经会静默按零值 `bool` 类型写入设备，属数据损坏隐患。MQTT 命令通道（反向流）不受此校验影响，其载荷契约仍按[传输配置](../config/transports.md#命令认证与防重放)执行。
+`type` 是必填字段：请求体缺失 `"type"` 键时返回 `400 Bad Request` 与错误信息 `"type" is required (one of: bool, int8, …)`。此校验在 API 边界执行。MQTT 命令通道（反向流）不受此校验影响，其载荷契约仍按[传输配置](../config/transports.md#命令认证与防重放)执行。
 :::
 
 ### 响应
@@ -177,7 +177,7 @@ Content-Type: application/json
 
 ### 批量写入 — `POST /write/batch`
 
-配方下发、开机整定等场景一次提交一组写入指令（roadmap #37），**顺序执行、逐条返回结果**——部分失败不影响后续指令，每条尝试照常进入写入审计历史与（重试耗尽后的）死信队列，语义与单条写完全一致。
+一次提交一组写入指令，**顺序执行、逐条返回结果**——部分失败不影响后续指令。每条尝试记入写入审计历史；与单条 API 写一致——失败不重试、不进死信队列（死信仅作用于反向流指令）。
 
 ```json
 {
@@ -192,7 +192,7 @@ Content-Type: application/json
 |:---|:---|
 | `200 OK` | 至少一条成功（含部分失败）；`results` 按请求顺序逐条返回，`succeeded`/`failed` 汇总 |
 | `422 Unprocessable Entity` | 全部失败（请求合法、设备层面全部拒绝）——与 2xx 部分成功区分 |
-| `400 Bad Request` | 空数组、超过 128 条、请求体非法、或任一元素缺失 `type`（错误信息形如 `writes[N]: "type" is required …`，整批拒绝、不执行任何写入） |
+| `400 Bad Request` | 空数组、超过 128 条、JSON 非法、或任一元素缺失 `type`（错误信息形如 `writes[N]: "type" is required …`，整批拒绝、不执行任何写入） |
 
 **响应示例**：
 
@@ -208,7 +208,7 @@ Content-Type: application/json
 ```
 
 ::: warning 顺序性与体积上限
-指令**严格按数组顺序执行**；单批上限 128 条（请求体同时受 1 MiB 全局上限约束），更大批次拆分为多个请求。
+指令**严格按数组顺序执行**；单批上限 128 条，更大批次拆分为多个请求。
 :::
 
 ### WriteResult 字段说明
@@ -279,7 +279,7 @@ API POST /write  →  Engine.WriteTag(cmd)  →  Driver.Write([]cmd)  →  设�
 
 ## 查询失败写入指令
 
-查询死信队列中所有重试耗尽后仍失败的写入指令。死信队列在内存中维护，上限 1000 条，超出时驱逐最旧条目；配置 `global.engine.dead-letter-path` 后，条目会同时追加写入 JSONL 文件并在进程启动时回放（重启不丢失）。
+查询死信队列中最终失败的写入指令：重试耗尽、永久性配置类错误、入站丢弃、传输移除前未派发等。死信队列在内存中维护，上限 1000 条，超出时驱逐最旧条目；配置 `global.engine.dead-letter-path` 后，条目会同时追加写入 JSONL 文件并在进程启动时回放（重启不丢失）。
 
 ### 请求
 
@@ -292,7 +292,7 @@ GET /write/failed?source=ingress
 
 | `source` | 说明 |
 |:---|:---|
-| `engine`（默认） | 引擎死信队列——重试耗尽后仍失败的写指令 |
+| `engine`（默认） | 引擎死信队列——反向流中最终失败的写指令（重试耗尽、永久性配置类错误、传输移除前未派发等） |
 | `ingress` | **入站丢弃**——命令到达传输时因命令通道满而被丢弃的指令（如 MQTT command-topic 消费洪峰）。条目带 `transport` 字段标明丢弃它的传输 |
 
 未知 `source` 值返回 `400 Bad Request`。死信深度与累计入队数也可经 `corec_dead_letter_queue_size` / `corec_dead_letter_pushed_total` 指标监控（入站丢弃量见 `corec_transport_dropped_commands_total`）。
@@ -342,9 +342,9 @@ curl http://localhost:9090/write/failed \
 
 ## 查询写入审计历史
 
-返回写入审计历史（audit trail）：最近 **1000** 条写入尝试，**成功与失败均记录**，按时间新→旧排列。控制类系统的合规刚需——不仅失败要可见（死信队列），成功的 PLC 写操作也必须可追溯（何时、何人、从何处写了哪个点）。
+返回写入审计历史（audit trail）：最近 **1000** 条写入尝试，**成功与失败均记录**，按时间新→旧排列。
 
-与 `GET /write/failed` 的区别：死信队列只保留重试耗尽的失败指令；审计历史是"最近发生了哪些写"的完整有界记录，每一条**尝试**记一条（反向流指令重试时，每次重试各记一条）。
+与 `GET /write/failed` 的区别：死信队列保留反向流中最终失败的写指令（重试耗尽、永久性配置类错误、入站丢弃、传输移除前未派发等）；审计历史是"最近发生了哪些写"的完整有界记录，每一条**尝试**记一条（反向流指令重试时，每次重试各记一条）。
 
 ### 请求
 
@@ -354,7 +354,7 @@ GET /write/history?driver={name}&tag={substr}
 GET /write/history?since={rfc3339}&limit={n}
 ```
 
-#### 查询参数（roadmap #35）
+#### 查询参数
 
 | 参数 | 类型 | 必填 | 说明 |
 |:---|:---|:---|:---|
@@ -363,7 +363,7 @@ GET /write/history?since={rfc3339}&limit={n}
 | `since` | string (RFC 3339) | 否 | 只返回该时刻**及之后**的记录（如 `2026-10-20T12:00:00Z`；非法值返回 400） |
 | `limit` | int | 否 | 最多返回前 n 条（新→旧截断）；无法解析、负数或不小于结果长度的值被忽略（返回全量） |
 
-参数可组合，过滤在服务端完成——合规检索不再需要拉全量 1000 条后客户端过滤。
+参数可组合，过滤在服务端完成。
 
 ### 响应
 
@@ -407,7 +407,7 @@ GET /write/history?since={rfc3339}&limit={n}
 | `driver` | string | 目标驱动实例名称 |
 | `device` | string | 目标设备标识（常为空字符串） |
 | `tag` | string | 目标标签名称 |
-| `value` | any | 实际写入的值。与运行日志刻意不记录值不同，写审计历史的核心用途就是记录"写了什么" |
+| `value` | any | 实际写入的值 |
 | `type` | string | 值的数据类型（`DataType`，按字符串序列化） |
 | `success` | bool | 该次尝试是否成功 |
 | `error` | string | 失败信息（仅失败时出现） |
@@ -420,7 +420,7 @@ GET /write/history?since={rfc3339}&limit={n}
 :::
 
 ::: warning 历史边界
-审计历史为内存环形缓冲，上限 1000 条（超出驱逐最旧条目）：跨配置 reload 存活，**进程重启后清空**；它是有界的最近记录，不是持久化审计日志。需要长期留存时请由外部系统轮询拉取归档。
+审计历史默认为内存环形缓冲（上限 1000 条，超出驱逐最旧条目）：跨配置 reload 存活，**进程重启后清空**。配置 `global.engine.write-audit-path` 后逐条追加 JSONL 落盘，并在重启时回放最近记录。
 :::
 
 ### 引擎不支持时 — `501 Not Implemented`

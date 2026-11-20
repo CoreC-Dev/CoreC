@@ -15,12 +15,12 @@ CoreC 核心内置一套 RESTful API 与 WebSocket 实时流接口，用于驱�
 | 基础地址 | `http://<host>:<port>`，由 `global.api.listen` 决定 |
 | 内容类型 | `application/json`（绝大多数请求体与响应体）；例外：`GET /configs/raw` 与 `GET /configs/backups/{name}` 返回 `application/yaml`，`GET /metrics` 返回 Prometheus 文本格式（`text/plain; version=0.0.4`） |
 | 字符编码 | UTF-8 |
-| 请求体上限 | 1 MiB（`maxRequestBody`，超出将返回 `400 Bad Request`） |
-| 鉴权方式 | Bearer Token（`Authorization` 请求头；仅 WebSocket 升级请求例外地可用 `?token=` 查询参数，见下文） |
+| 请求体上限 | 1 MiB（`maxRequestBody`）。超出上限：`/write`、`/write/batch` 返回 `500`，其余端点返回 `400` |
+| 鉴权方式 | Bearer Token（`Authorization` 请求头；WebSocket 升级请求另可用子协议 `token.<secret>`（首选）或 `?token=` 查询参数（legacy），见下文） |
 
 ## 认证
 
-当配置项 `global.api.secret` 非空时，除公开端点外的所有端点均需鉴权。普通 HTTP 请求**只接受 `Authorization` 请求头**；`?token=` 查询参数仅对 WebSocket 升级请求开放（浏览器 WebSocket API 无法自定义 Header 的狭窄例外，避免 Token 泄露到浏览器历史、反向代理日志与 Referer 头）：
+当配置项 `global.api.secret` 非空时，除公开端点外的所有端点均需鉴权。普通 HTTP 请求**只接受 `Authorization` 请求头**；WebSocket 升级请求可用子协议 `token.<URL编码secret>`（首选，不进访问日志）或 `?token=` 查询参数（legacy 回退，会进访问日志）：
 
 ::: code-group
 
@@ -29,7 +29,14 @@ curl http://localhost:9090/drivers \
   -H "Authorization: Bearer corec-secret-token"
 ```
 
-```bash [Query 参数（仅 WebSocket 升级请求）]
+```js [子协议（WebSocket，首选）]
+const ws = new WebSocket('ws://localhost:9090/tags/stream', [
+  'corec.v1',
+  `token.${encodeURIComponent('corec-secret-token')}`,
+])
+```
+
+```bash [Query 参数（WebSocket，legacy 回退）]
 wscat -c "ws://localhost:9090/tags/stream?token=corec-secret-token"
 ```
 
@@ -100,7 +107,7 @@ API 内置 CORS 中间件，用于支持浏览器端仪表盘跨域访问。行�
 | `422 Unprocessable Entity` | 全部批量写失败 | `POST /write/batch` 请求合法但所有指令均被设备层面拒绝 |
 | `429 Too Many Requests` | 请求频率超限 | 触发速率限制中间件（`global.api.rate-limit-per-sec`，按客户端 IP 令牌桶，超限响应带 `Retry-After: 1`） |
 | `500 Internal Server Error` | 内部错误 | 写入失败、配置应用失败、资源级 DELETE 应用失败等（响应体为脱敏的 `internal server error`，真实原因仅记录服务端日志） |
-| `501 Not Implemented` | 能力不支持 | 引擎未实现端点依赖的可选角色接口（如 `GET /write/history` 需要 `core.WriteAuditor`、`POST /rules/preview` 需要 `core.RulePreviewer`、`GET /alerts`/`POST /alerts/ack`/`WS /alerts/stream` 需要 `core.AlertProvider`/`core.AlertStreamer`、驱动暂停/恢复与 `GET /drivers/paused` 需要暂停角色、`GET /configs/audit` 需要审计接线） |
+| `501 Not Implemented` | 能力不支持 | 引擎未实现端点依赖的可选角色接口（如 `GET /write/history` 需要 `core.WriteAuditor`、`POST /rules/preview` 需要 `core.RulePreviewer`、`GET /alerts`/`POST /alerts/ack`/`WS /alerts/stream` 需要 `core.AlertProvider`/`core.AlertStreamer`、驱动暂停/恢复与 `GET /drivers/paused` 需要暂停角色、`GET /configs/audit` 需 executor 注入审计函数） |
 | `503 Service Unavailable` | 服务状态不满足 | 空配置启动（无配置文件路径）时访问配置/备份端点、`GET /configs` 无活动配置、`GET /healthz/ready` 引擎未就绪 |
 
 ## 端点索引
@@ -133,7 +140,7 @@ API 内置 CORS 中间件，用于支持浏览器端仪表盘跨域访问。行�
 | `POST` | `/drivers/{name}/resume` | 是 | 恢复指定驱动的采集（下一 tick 起效） |
 | `GET` | `/transports` | 是 | 列出所有传输状态 |
 | `GET` | `/transports/{name}` | 是 | 获取指定传输状态 |
-| `POST` | `/transports/{name}/test` | 是 | 传输连通性测试（临时实例，不落配置） |
+| `POST` | `/transports/{name}/test` | 是 | 向该运行中传输发布一条测试消息（会真实送达通知渠道）；返回 `{ok,message}`，连通与失败均 200，名称不存在 404 |
 | `DELETE` | `/transports/{name}` | 是 | 删除单个传输——被规则引用时返回 400 并说明原因；同上走完整安全链 |
 | `GET` | `/tags` | 是 | 获取所有驱动最新标签值 |
 | `POST` | `/write` | 是 | 向设备写入标签值 |
@@ -163,10 +170,6 @@ API 内置 CORS 中间件，用于支持浏览器端仪表盘跨域访问。行�
 | `/alerts/stream` | 是 | 实时告警生命周期事件流（fired/acked/cleared） |
 | `/traffic` | 是 | 实时流量统计（默认每秒推送，支持 `?interval=`） |
 | `/memory` | 是 | 实时内存统计（默认每秒推送，支持 `?interval=`） |
-
-::: info WebSocket 鉴权
-WebSocket 端点同样受认证中间件保护。由于浏览器 WebSocket API 无法自定义 Header，建议通过 Query 参数传递 Token：`ws://host:port/tags/stream?token=<secret>`。
-:::
 
 ## 中间件链
 

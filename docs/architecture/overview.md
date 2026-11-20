@@ -23,27 +23,11 @@ CoreC 采用六边形插件架构，将工业数据采集抽象为**南向驱动
 | `s7` | Siemens S7 | S7-200 / S7-300 / S7-400 / S7-1200 / S7-1500 |
 | `opcua` | OPC UA | SCADA / MES / OPC 服务器 |
 
-所有驱动实现统一的 `Driver` 接口：
-
-```go
-type Driver interface {
-    Init(ctx context.Context, config DriverConfig) error
-    Start(ctx context.Context) error
-    Stop() error
-    Restart(ctx context.Context, config DriverConfig) error
-    Read(ctx context.Context, tags []string) ([]TagValue, error)
-    Write(ctx context.Context, commands []WriteCommand) ([]WriteResult, error)
-    Subscribe(ctx context.Context, tags []string) (<-chan DataPoint, error)
-    Name() string
-    Type() string
-    Status() DriverStatus
-    Capabilities() DriverCapabilities
-}
-```
+所有驱动实现 `core.Driver` 统一接口（生命周期/读写/订阅/状态/能力），定义见 `core/driver.go`。
 
 ### 核心层 — Engine
 
-核心是整个系统的核心，包含以下组件：
+引擎组件：
 
 - **Scheduler** — 为每个「驱动 + 采集周期」组合启动独立 goroutine，用 `time.Ticker` 驱动定时读取；连续失败 5 次后自动降级（采集间隔 ×10、下限 10s），恢复后自动还原
 - **DataBus** — 双优先级带缓冲 Go channel：主通道默认 cap=8192（`core.DefaultDataBusSize`），快周期任务（interval ≤ 1s）走独立高优先级通道（容量为主通道 1/4、上限 1024、下限 64），两者均采用 drop-oldest 背压策略
@@ -81,18 +65,18 @@ type Driver interface {
    WebSocket → Real-time Stream (tags/logs/traffic/memory/alerts)
 ```
 
-## 设计哲学
+## 运行时机制
 
-| 原则 | 实现 |
+| 机制 | 行为 |
 |:---|:---|
-| **最新值优先** | DataBus 满时丢最旧、塞最新（两个通道同策略），采集永不阻塞；离线缓冲满时同样弃最旧批次 |
-| **读多写少** | LatestCache（64 分片）、RuleEngine 用 RWMutex，多读不互斥 |
-| **零开销统计** | 引擎吞吐/错误计数器用 `sync/atomic`，读取速率用无锁滑动窗口（60 个原子桶），直方图仅按次加锁 |
+| **Drop-oldest 背压** | DataBus 满时丢最旧、塞最新（两个通道同策略），采集永不阻塞；离线缓冲满时同样弃最旧批次 |
+| **读写锁** | LatestCache（64 分片）、RuleEngine 用 RWMutex，多读不互斥 |
+| **原子统计** | 引擎吞吐/错误计数器用 `sync/atomic`，读取速率用无锁滑动窗口（60 个原子桶），直方图仅按次加锁 |
 | **非阻塞 fan-out** | WebSocket 订阅用 `select + default`，慢订阅者不影响管道 |
-| **错误抑制** | 调度器 10s 窗口限频错误日志，防止日志风暴 |
-| **断路器保护** | 驱动连续重连失败达阈值（默认 20 次）后将重连间隔提升至 5 分钟低频重试，循环持续探活，避免资源浪费 |
-| **离线缓冲兜底** | 传输失败时数据落盘，传输恢复后自动回放，保证数据完整性 |
-| **写入可靠投递** | 控制指令失败自动重试，耗尽或配置类错误进入死信队列供查询（可配置落盘持久化） |
+| **错误抑制** | 调度器 10s 窗口限频错误日志 |
+| **断路器** | 驱动连续重连失败达阈值（默认 20 次）后将重连间隔提升至 5 分钟低频重试，循环持续探活 |
+| **离线缓冲** | 传输失败时数据落盘，传输恢复后自动回放 |
+| **写入重试与死信** | 控制指令失败自动重试，耗尽或配置类错误进入死信队列供查询（可配置落盘持久化） |
 
 ## 相关页面
 

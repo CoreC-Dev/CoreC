@@ -194,43 +194,7 @@ GET /drivers/{name}/tags
 
 ### 字段说明 — DataPoint
 
-| 字段 | 类型 | 说明 |
-|:---|:---|:---|
-| `driver` | string | 采集该值的驱动名称 |
-| `device` | string | 设备标识。当前始终为空字符串 `""`（配置无 Device 来源） |
-| `group` | string | 采集分组名称 |
-| `tag` | string | 标签名称 |
-| `value` | any | 标签值（类型由 `type` 决定） |
-| `type` | string | 数据类型枚举（`DataType` 实现自定义 `MarshalJSON`，按字符串序列化），见下表 |
-| `quality` | int | 数据质量枚举（`Quality` 为 `int`，按整数序列化），见下表 |
-| `timestamp` | string (RFC 3339) | 采集时间戳 |
-| `is_stale` | bool | 数据是否陈旧（超过引擎 `stale-threshold` 未更新），仅在启用陈旧检测时出现 |
-| `metadata` | object | 附加元数据键值对（可选，存在时才出现） |
-
-### 数据类型（type）
-
-`type` 为 `DataType` 枚举，实现了自定义 `MarshalJSON`/`UnmarshalJSON`：序列化为可读字符串，反序列化同时接受字符串和历史整数形式。
-
-| 序列化值 | 整数 | Go 类型 | 说明 |
-|:---|:---|:---|:---|
-| `"bool"` | `0` | bool | 布尔值 |
-| `"int8"` / `"int16"` / `"int32"` / `"int64"` | `1` / `2` / `3` / `4` | int8 / int16 / int32 / int64 | 有符号整数 |
-| `"uint8"` / `"uint16"` / `"uint32"` / `"uint64"` | `5` / `6` / `7` / `8` | uint8 / uint16 / uint32 / uint64 | 无符号整数 |
-| `"float32"` / `"float64"` | `9` / `10` | float32 / float64 | 浮点数 |
-| `"string"` | `11` | string | 字符串 |
-| `"bytes"` | `12` | []byte | 字节序列 |
-
-> 写命令（`/write`）的 `type` 字段同时接受上表的字符串值和整数形式（向后兼容）。
-
-### 数据质量（quality）
-
-`quality` 为 `Quality`（`int`）枚举，按整数序列化：
-
-| 值 | 说明 |
-|:---|:---|
-| `0` | good — 数据有效 |
-| `1` | bad — 数据无效（设备错误、通信失败等） |
-| `2` | uncertain — 数据不确定 |
+字段与枚举（数据类型 `DataType`、质量 `Quality`）同[数据读写](data.md#datapoint-字段说明)。
 
 ### 示例
 
@@ -243,7 +207,7 @@ curl http://localhost:9090/drivers/plc1/tags \
 
 ## 驱动连通性测试
 
-用一份**尚未保存**的驱动配置创建临时驱动实例，按配置驱动的真实生命周期（创建 → 初始化 → 启动连接）试连一次，测出连接耗时，然后**必定关闭**。用于在保存驱动配置前验证 host/port/endpoint 等参数是否可达——此前配置错误只能保存后靠生产流量暴露。
+用一份**尚未保存**的驱动配置创建临时驱动实例，按配置驱动的真实生命周期（创建 → 初始化 → 启动连接）试连一次，测出连接耗时，然后**必定关闭**。用于在保存驱动配置前验证 host/port/endpoint 等参数是否可达。
 
 ### 请求
 
@@ -274,11 +238,7 @@ Content-Type: application/json
 | `name` | string | 否 | 临时实例的日志标签，缺省 `"driver-test"`。仅用于日志，不代表任何注册或持久化 |
 
 ::: warning 字段名是 json tag，不是 yaml 字段名
-请求字段 `type`/`settings`/`name` 是 handler 内定义的**显式 json tag**——`core.DriverConfig` 只有 yaml tag（它是 YAML 配置契约），API 层不直接反序列化它，因此请求字段名与 YAML 字段名无关，按本表使用。
-:::
-
-::: warning 请求体限制
-请求体最大 1 MiB。
+请求字段名以本表为准（json tag）。
 :::
 
 ### 响应
@@ -343,21 +303,11 @@ curl -X POST http://localhost:9090/drivers/test \
   -d '{"type": "modbus-tcp", "settings": {"host": "192.168.1.100", "port": 502, "slave-id": 1}}'
 ```
 
-### 典型用法
-
-```bash
-# Dashboard 驱动编辑器中：
-# 1. 填写新驱动的 type 与 settings
-# 2. POST /drivers/test 验证参数可达性
-# → {"ok": true, "connected": true, ...} 后再写入配置并 PUT /configs
-# → {"ok": false, "error": "connection refused", ...} 时修正 host/port 再试
-```
-
 ---
 
 ## 暂停与恢复驱动采集
 
-设备维修、更换传感器等场景需要在**不动配置**的情况下临时停止某驱动的采集（此前只能整份改配置，走一次完整的删除+重建）。暂停只标记调度器：任务保留、驱动连接保持、恢复后从下一 tick 继续。
+设备维修、更换传感器等场景需要在**不动配置**的情况下临时停止某驱动的采集。暂停只标记调度器：任务保留、驱动连接保持、恢复后从下一 tick 继续。
 
 ### 暂停 — `POST /drivers/{name}/pause`
 
@@ -374,7 +324,7 @@ curl -X POST http://localhost:9090/drivers/plc1/pause \
 | `500 Internal Server Error` | 暂停操作内部失败 |
 | `501 Not Implemented` | 引擎不支持暂停 |
 
-暂停期间：该驱动的所有采集任务跳过 tick（不读、不产生数据点）；驱动连接**不关闭**（恢复即读，无重连延迟）；`/tags` 中的既有缓存值随 `stale-threshold` 标记为陈旧。
+暂停期间：该驱动的所有采集任务跳过 tick（不读、不产生数据点）；驱动连接**不关闭**（恢复即读，无重连延迟）；`/tags` 中的既有缓存值随 `stale-threshold` 标记为陈旧。暂停状态不落盘，进程重启后清零。
 
 ### 恢复 — `POST /drivers/{name}/resume`
 
@@ -394,7 +344,3 @@ curl -X POST http://localhost:9090/drivers/plc1/pause \
 ```
 
 引擎不支持暂停角色时同样返回 `501 Not Implemented`。
-
-::: info 与配置删除的区别
-暂停是**调度器级**开关：配置、连接、缓存全部保留，恢复零成本。删除驱动（改配置）则拆除连接、清除任务，恢复需完整重建与重连。注意：暂停状态不落盘，进程重启后清零。
-:::

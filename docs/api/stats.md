@@ -191,7 +191,7 @@ curl http://localhost:9090/metrics \
 | `corec_log_dropped_total` | counter | 因慢消费者丢弃的日志事件数 |
 | `corec_drivers` / `corec_transports` / `corec_rules` | gauge | 已配置驱动/传输/规则数量 |
 | `corec_uptime_seconds` | gauge | 引擎运行秒数 |
-| `corec_points_per_second` | gauge | 近 60 秒每秒数据点吞吐（采集停止即归零，与 `/stats` 的 `points_per_sec` 同口径） |
+| `corec_points_per_second` | gauge | 近 60 秒每秒数据点吞吐（采集停止约 1 分钟后归零，与 `/stats` 的 `points_per_sec` 同口径） |
 
 ### 按驱动
 
@@ -257,7 +257,7 @@ curl http://localhost:9090/metrics \
 | `corec_gc_count` | counter | GC 完成次数 |
 | `corec_gc_pause_total_seconds` | counter | GC 停顿累计秒数 |
 | `corec_cpu_count` | gauge | 可用逻辑 CPU 数 |
-| 驱动自上报系列 | — | 驱动协议级指标按驱动自有名称原样输出（如 `modbus_*`、`opcua_*`、`s7_*`） |
+| 驱动自上报系列 | — | 驱动协议级指标按驱动自有名称原样输出（当前仅 Modbus：`modbus_exception_total`） |
 
 ## /stats 使用示例
 

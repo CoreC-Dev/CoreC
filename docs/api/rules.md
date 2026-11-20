@@ -78,7 +78,7 @@ GET /rules
 | `hit_at` | string (RFC 3339) | 最近一次命中时间 |
 | `miss_count` | uint64 | 累计未命中次数 |
 | `miss_at` | string (RFC 3339) | 最近一次未命中时间 |
-| `eval_errors` | uint64 | 匹配表达式**求值失败**次数（如对 string 值做 `value > 90` 数值比较）。非零说明该规则在失败点上永远不匹配且无任何信号——修复表达式或值类型（此前该类失败被静默吞成"未命中"） |
+| `eval_errors` | uint64 | 匹配表达式**求值失败**次数（如对 string 值做 `value > 90` 数值比较）。非零表示表达式在部分点上求值失败（该点不匹配）；首次失败有一条 Warn 日志，计数持续累计 |
 | `eval_at` | string (RFC 3339) | 最近一次求值失败时间 |
 
 ### 动作类型（action）
@@ -125,12 +125,8 @@ Content-Type: application/json
 | 字段 | 类型 | 必填 | 说明 |
 |:---|:---|:---|:---|
 | `name` | string | 与 `index` 二选一 | 规则名（对应 `GET /rules` 返回的 `name` 字段）。**推荐**，reload 后仍稳定。同时传入 `name` 与 `index` 时以 `name` 为准 |
-| `index` | int | 与 `name` 二选一 | 规则索引（对应 `GET /rules` 返回的 `index` 字段）。向后兼容保留；注意 reload 或重排后索引会漂移。**两者都省略时按 `index=0` 处理** |
+| `index` | int | 与 `name` 二选一 | 规则索引（对应 `GET /rules` 返回的 `index` 字段）。向后兼容保留；注意 reload 或重排后索引会漂移。**`name` 与 `index` 均省略时返回 `400`（`name or index is required`）** |
 | `disabled` | bool | 是 | `true` 为禁用，`false` 为启用 |
-
-::: warning 请求体限制
-请求体最大 1 MiB。
-:::
 
 ### 响应
 
@@ -189,26 +185,6 @@ curl -X PATCH http://localhost:9090/rules/disable \
 
 :::
 
-### 典型用法
-
-```bash
-# 1. 查看当前规则列表，获取目标规则的 name
-curl http://localhost:9090/rules \
-  -H "Authorization: Bearer corec-secret-token"
-
-# 2. 临时禁用高优先级的 drop 规则以排查问题（按 name，reload 后仍指向同一条规则）
-curl -X PATCH http://localhost:9090/rules/disable \
-  -H "Authorization: Bearer corec-secret-token" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "overtemp-alarm", "disabled": true}'
-
-# 3. 排查完成后重新启用
-curl -X PATCH http://localhost:9090/rules/disable \
-  -H "Authorization: Bearer corec-secret-token" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "overtemp-alarm", "disabled": false}'
-```
-
 ---
 
 ## 规则试算
@@ -217,7 +193,7 @@ curl -X PATCH http://localhost:9090/rules/disable \
 
 试算直接编译并求值 `match` 表达式：`action`/`target` 的合法性属于配置校验（config.validate）的职责，试算只关心 `match` 表达式本身。
 
-试算把**编译错误**与**求值错误**都原样返回给规则作者（求值错误此前被静默吞成"未匹配"）：写错类型（如对 string 值做 `value > 90`）会得到 400 与具体原因，而不是一个无声的 `matched: false`。
+试算把**编译错误**与**求值错误**都原样返回给规则作者：写错类型（如对 string 值做 `value > 90`）会得到 400 与具体原因，而不是一个无声的 `matched: false`。
 
 ### 请求
 
@@ -248,10 +224,6 @@ Content-Type: application/json
 |:---|:---|:---|:---|
 | `match` | string | 是 | 待试算的 match 表达式。空字符串返回 `400` |
 | `point` | object (DataPoint) | 否 | 样例数据点，结构与 `GET /tags` 返回的 `DataPoint` 一致，可直接粘贴后微调。省略时按零值 DataPoint 求值（适合只引用 `value` 的表达式） |
-
-::: warning 请求体限制
-请求体最大 1 MiB。
-:::
 
 ### 响应
 
@@ -339,8 +311,7 @@ curl -X POST http://localhost:9090/rules/preview \
 
 ```bash
 # 在 Dashboard 规则编辑器中：先试算，再保存
-# 1. 从 GET /tags 复制真实数据点作为样例，试算新表达式（shell 示例
-#    选用不含单引号的表达式；含字符串字面量的写法见上方请求体示例）
+# 1. 从 GET /tags 复制真实数据点作为样例，试算新表达式
 curl -X POST http://localhost:9090/rules/preview \
   -H "Authorization: Bearer corec-secret-token" \
   -H "Content-Type: application/json" \
