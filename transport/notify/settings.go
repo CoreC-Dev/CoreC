@@ -148,9 +148,9 @@ func optTemplate(settings map[string]any, key, def string) (*template.Template, 
 }
 
 // ValidateSettings implements core.SettingsValidator: rejects unknown
-// keys and checks the string-typed values
-// at config-validate time (the full channel-specific parsing — required
-// fields, durations, templates — still runs at Init).
+// keys and checks value types at config-validate time (the full
+// channel-specific parsing — required fields, durations, templates —
+// still runs at Init).
 func (t *NotifyTransport) ValidateSettings(settings map[string]any) error {
 	known := map[string]bool{
 		"channel": true, "cooldown": true, "template": true,
@@ -168,8 +168,15 @@ func (t *NotifyTransport) ValidateSettings(settings map[string]any) error {
 			sort.Strings(valid)
 			return fmt.Errorf("unknown notify setting %q (valid: %s)", key, strings.Join(valid, ", "))
 		}
-		// Strings except the two intentionally non-string fields.
+		// headers/to are list/map fields and smtp-port is an integer;
+		// every other key must be a string.
 		if key == "headers" || key == "to" {
+			continue
+		}
+		if key == "smtp-port" {
+			if !isIntSetting(val) {
+				return fmt.Errorf("notify setting %q must be an integer", key)
+			}
 			continue
 		}
 		if _, ok := val.(string); !ok {
@@ -177,6 +184,16 @@ func (t *NotifyTransport) ValidateSettings(settings map[string]any) error {
 		}
 	}
 	return nil
+}
+
+// isIntSetting reports whether v is one of the numeric types reqInt accepts.
+func isIntSetting(v any) bool {
+	switch v.(type) {
+	case int, int64, float64:
+		return true
+	default:
+		return false
+	}
 }
 
 var _ core.SettingsValidator = (*NotifyTransport)(nil)
