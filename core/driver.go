@@ -127,7 +127,7 @@ type DriverCapabilities struct {
 	BatchRead    bool `json:"batch_read"`
 	// MaxBatchSize is unit-specific per driver: modbus counts registers per
 	// request, s7 counts tags per Read call, opcua counts NodeIDs per read
-	// request. It is capability reporting only; engine and hub do not
-	// consume it.
+	// request. Each driver's Read enforces its own limit; engine and hub do
+	// not consume the reported value.
 	MaxBatchSize int `json:"max_batch_size"`
 }
