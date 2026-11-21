@@ -3,6 +3,7 @@ package opcua
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/CoreC-Dev/CoreC/common/util"
@@ -10,6 +11,10 @@ import (
 	"github.com/gopcua/opcua/ua"
 )
 
+// Read splits the nodes into requests of at most maxBatchSize nodes,
+// sent sequentially with the same ctx. A chunk failure fails the whole
+// read and results of earlier chunks are discarded; the read counters
+// advance only after every chunk succeeds.
 func (d *OPCUADriver) Read(ctx context.Context, tags []string) ([]core.TagValue, error) {
 	d.RLock()
 	client := d.client
@@ -45,28 +50,38 @@ func (d *OPCUADriver) Read(ctx context.Context, tags []string) ([]core.TagValue,
 		return nil, fmt.Errorf("no valid tags found in request")
 	}
 
-	req := &ua.ReadRequest{
-		NodesToRead:        readValues,
-		TimestampsToReturn: ua.TimestampsToReturnBoth,
-	}
+	d.RLock()
+	batchSize := d.maxBatchSize
+	d.RUnlock()
 
-	resp, err := client.Read(ctx, req)
-	if err != nil {
-		d.RecordError()
-		d.Lock()
-		d.SetLastErrorLocked(err.Error())
-		d.Unlock()
-
-		// Check if connection is lost and trigger reconnect. The guard
-		// ignores errors from a client that has already been replaced by
-		// a reconnect.
-		if util.IsConnectionError(err) {
-			d.handleConnLostIfCurrent(client)
+	chunks := chunkReadValues(readValues, batchSize)
+	results := make([]core.TagValue, 0, len(readValues))
+	offset := 0
+	for _, chunk := range chunks {
+		req := &ua.ReadRequest{
+			NodesToRead:        chunk,
+			TimestampsToReturn: ua.TimestampsToReturnBoth,
 		}
-		return nil, fmt.Errorf("opcua batch read failed: %w", err)
-	}
 
-	results := d.assembleReadResults(resp, validTagNames, now)
+		resp, err := client.Read(ctx, req)
+		if err != nil {
+			d.RecordError()
+			d.Lock()
+			d.SetLastErrorLocked(err.Error())
+			d.Unlock()
+
+			// Check if connection is lost and trigger reconnect. The guard
+			// ignores errors from a client that has already been replaced by
+			// a reconnect.
+			if util.IsConnectionError(err) {
+				d.handleConnLostIfCurrent(client)
+			}
+			return nil, fmt.Errorf("opcua batch read failed: %w", err)
+		}
+
+		results = append(results, d.assembleReadResults(resp, validTagNames[offset:offset+len(chunk)], now)...)
+		offset += len(chunk)
+	}
 
 	d.AddReadCount(uint64(len(results)))
 	d.Lock()
@@ -74,6 +89,19 @@ func (d *OPCUADriver) Read(ctx context.Context, tags []string) ([]core.TagValue,
 	d.Unlock()
 
 	return results, nil
+}
+
+// chunkReadValues splits readValues into chunks of at most size nodes,
+// preserving order. A non-positive size yields a single chunk; empty
+// input yields no chunks.
+func chunkReadValues(readValues []*ua.ReadValueID, size int) [][]*ua.ReadValueID {
+	if size <= 0 || len(readValues) <= size {
+		if len(readValues) == 0 {
+			return nil
+		}
+		return [][]*ua.ReadValueID{readValues}
+	}
+	return slices.Collect(slices.Chunk(readValues, size))
 }
 
 // assembleReadResults maps a ReadResponse to TagValues: timestamps are the

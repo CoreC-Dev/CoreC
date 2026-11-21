@@ -366,7 +366,7 @@ tags:
 | `key-file` | string | 否 | — | 客户端私钥 PEM 文件路径 |
 | `subscription-interval` | duration | 否 | `500ms` | 订阅模式下的发布间隔 |
 | `subscription-buffer` | int | 否 | `1024` | 订阅通道缓冲容量 |
-| `max-batch-size` | int | 否 | `1000` | 能力上报的批量读取节点数（`Capabilities().MaxBatchSize`）；当前 Read 将全部节点放入单个请求，不按此值分块 |
+| `max-batch-size` | int | 否 | `1000` | 单次读请求的最大节点数，Read 按此值分块发送；同时经 `Capabilities().MaxBatchSize` 上报 |
 | `reconnect-interval` | duration | 否 | `2s` | 重连初始退避间隔 |
 | `reconnect-max-interval` | duration | 否 | `30s` | 重连退避上限 |
 | `max-reconnect-failures` | int | 否 | `20` | 断路器阈值，连续失败达到此值后将重连间隔提升至 5 分钟低频重试 |
