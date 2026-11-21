@@ -3,8 +3,13 @@
 </p>
 
 <p align="center">
+  <a href="https://go.dev/"><img src="https://img.shields.io/badge/Go-1.27.4-00ADD8?logo=go&logoColor=white" alt="Go Version"></a>
   <a href="https://github.com/CoreC-Dev/CoreC/actions/workflows/ci.yml"><img src="https://github.com/CoreC-Dev/CoreC/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+</p>
+
+<p align="center">
+  <img src="https://icon-marquee.giann.dev/v1/marquee?i=go,mqtt,yml,websocket,prometheus,githubactions,linux,docker,grafana,json&width=800" alt="CoreC 技术栈" />
 </p>
 
 **CoreC** 是一个面向工业物联网 (IIoT) 与边缘计算的**高性能、配置驱动、插件化数据采集与控制核心**。
