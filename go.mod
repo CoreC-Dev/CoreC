@@ -11,7 +11,7 @@ require (
 	github.com/gopcua/opcua v0.9.1
 	github.com/robinson/gos7 v0.0.0-20260622162611-2d6806f80c8b
 	github.com/simonvetter/modbus v1.6.4
-	github.com/tidwall/gjson v1.20.0
+	github.com/tidwall/gjson v1.20.3
 	go.uber.org/goleak v1.3.0
 )
 
@@ -19,7 +19,7 @@ require (
 	github.com/goburrow/serial v0.1.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
-	github.com/tidwall/pretty v1.2.0 // indirect
+	github.com/tidwall/pretty v1.3.0 // indirect
 	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 )
