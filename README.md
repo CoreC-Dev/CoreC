@@ -3,299 +3,54 @@
 </p>
 
 <p align="center">
-  <a href="https://go.dev/"><img src="https://img.shields.io/badge/Go-1.27.3-00ADD8?logo=go&logoColor=white" alt="Go Version"></a>
-  <a href="https://github.com/CoreC-Dev/CoreC/actions/workflows/ci.yml"><img src="https://github.com/CoreC-Dev/CoreC/actions/workflows/ci.yml/badge.svg" alt="golangci-lint"></a>
+  <a href="https://github.com/CoreC-Dev/CoreC/actions/workflows/ci.yml"><img src="https://github.com/CoreC-Dev/CoreC/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
-</p>
-
-<p align="center">
-  <img src="https://icon-marquee.giann.dev/v1/marquee?i=go,mqtt,yml,websocket,prometheus,githubactions,linux&width=800" alt="CoreC 技术栈" />
 </p>
 
 **CoreC** 是一个面向工业物联网 (IIoT) 与边缘计算的**高性能、配置驱动、插件化数据采集与控制核心**。
 
 > **CoreC = Connect · Collect · Control** —— 设备连接管理、工业数据采集、控制指令下发，三位一体。
 
-项目采用六边形可插拔架构，将 `Inbound -> Rule -> Outbound` 的数据流概念映射为工业领域的 **`南向驱动 (Driver) -> 核心引擎与规则路由 (Engine & Rules) -> 北向传输 (Transport)`**，并支持反向控制指令下发。
-
-```text
-   ____                  ____ 
-  / ___|___  _ __ ___   / ___|
- | |   / _ \| '__/ _ \ | |    
- | |__| (_) | | |  __/ | |___ 
-  \____\___/|_|  \___|  \____| {version}
-
-  IIoT Data Collection and Distribution Core
-```
-
----
+项目采用六边形可插拔架构：**南向驱动 (Driver) → 核心引擎与规则路由 (Engine & Rules) → 北向传输 (Transport)**，并支持反向控制指令下发。
 
 ## 核心特性
 
-- **纯核心定位 (Headless & Embeddable)**: 无任何 UI 强绑定，轻量级单二进制，既可作为独立 Daemon 运行，也能轻松嵌入上层 SCADA、MES 或边缘网关系统。
-- **六边形插件化架构**: 统一抽象的 `core.Driver`（南向）与 `core.Transport`（北向）接口，支持 Go `init()` 自动工厂注册模式。
-- **配置即逻辑 (YAML-Driven)**: 三段式 YAML 配置，统一管理驱动、点位、传输与路由规则。支持 `tags-file` 将数百采集点拆分到独立文件，配合 `tags-interval` 实现标签热重载。支持 `${ENV_VAR}` 环境变量替换，敏感字段（密码、密钥）无需硬编码。
-- **双向数据通道 (Bidirectional)**:
-  - **上行采集**: 周期定时轮询调度 (Scheduler) 与事件驱动主动订阅 (Subscription)。
-  - **下行控制**: 北向传输（如 MQTT Command Topic）接收控制指令，反向调度驱动写入 PLC 寄存器/线圈。
-  - **命令跨实例透传**: 中继节点（无本地驱动）通过 `command-forward-topic` 自动转发命令到下游节点，支持多跳级联（cloud → gateway → edge）。
-- **生产级容错与调度**:
-  - **断线重连与指数退避**: 设备离线自动后台重连，重连成功后自动恢复正常采集。
-  - **断路器保护**: 驱动连续重连失败达到阈值后触发断路器，转为低频重试。
-  - **高频错误抑制**: 窗口限频与发生计数聚合。
-  - **调度器自动降级**: 采集任务连续失败时自动放慢采集频率，恢复后自动还原。
-  - **离线持久化缓冲**: 传输不可达时数据落盘缓存，传输恢复后自动回放，减少数据丢失。
-  - **坏质量数据策略**: 可配置 `QualityBad` 数据的处理方式（发布/丢弃/标记/告警）。
-  - **数据陈旧检测**: 缓存值超过阈值未更新时 API 响应标记 `is_stale`。
-  - **写入重试与死信队列**: 控制指令下发失败自动重试，耗尽后进入死信队列供查询和手动重试。
-  - **传输故障降级**: 配置 `fallback` 备用传输，主传输失败时自动切换。
-  - **优雅关停（goleak 测试覆盖）**: 信号中断即时捕获，倒序清理协程与网络连接。
-- **External Controller RESTful API**: 提供完整的控制面 API——配置热重载（派生标签热应用 + 失败自动回滚 + 变更审计轨迹 + 服务端备份/恢复）、驱动/传输/规则**资源级删除**（新增经 `PUT /configs`）、驱动采集 pause/resume、规则命中统计/运行时禁用/试算（编译与求值错误原样透出）、批量写、一等告警（状态/历史/Ack + 实时流）、实时日志/数据/吞吐速率/内存 WebSocket 流、服务端过滤的历史与标签查询。
-- **生产级可观测性**: Prometheus `/metrics` 端点——引擎级计数器 + **按驱动/传输拆分的指标族**（读延迟/发布延迟直方图带 driver/transport 标签、last_read 新鲜度、调度器降级/超限、丢弃归因、死信深度、规则告警计数、驱动自报协议指标 [如 modbus 异常码]）+ Go 运行时/进程指标，主 API 认证后暴露或经 `api.metrics-addr` 专用免密回环端口；pprof 性能分析端点（可配置开关与独立端口）；**一等告警注册表**（active/ack/生命周期历史 + `WS /alerts/stream` 实时流 + `POST /alerts/ack`）；W3C Trace Context 请求追踪（解析/注入 `traceparent`；注：未配置 OTLP 导出后端，span 仅以 slog.Debug 记录）。
-- **传输层加密**: MQTT 支持 TLS/mTLS（`mqtts://` + 客户端证书 + CA 验证），API 支持 HTTPS。
-
----
-
-## 架构映射
-
-| CoreC 组件 | 说明 |
-|:---|:---|
-| `Driver` (南向驱动) | 支持 Modbus 全家族 (TCP/RTU/UDP/TLS), Siemens S7, OPC UA 等 |
-| `Transport` (北向传输) | 支持 MQTT、HTTP Push/Webhook、Notify（Slack/Teams/Email/Webhook 通知） |
-| `Engine` (核心引擎) | 数据总线消费、生命周期管理、双向指令调度、派生标签计算 |
-| `Scheduler` (主动调度器) | 按点位采集周期主动触发读取 |
-| `Rule` (规则引擎) | 优先级规则链匹配，支持 `forward`, `drop`, `alert`, `mirror`, `transform` |
-| `Derived Tags` (派生标签) | 从已采集标签的缓存值经算术表达式计算 KPI（效率/OEE/温差），自动流入管线 |
-| `DataPoint` (统一数据点) | 包含测点名、类型、时间戳、质量戳 (Quality)、值 |
-
----
+- **纯核心定位**：无 UI 强绑定，轻量级单二进制，可独立运行或嵌入 SCADA/MES/边缘网关系统。
+- **插件化架构**：统一的 `core.Driver` / `core.Transport` 接口，`init()` 工厂注册。
+- **配置即逻辑**：三段式 YAML 统一管理驱动、点位、传输与规则；`tags-file` 标签热重载；`${ENV_VAR}` 环境变量替换。
+- **双向数据通道**：上行周期轮询与事件订阅；下行控制指令写入设备；命令跨实例多跳透传。
+- **生产级容错**：断线重连与断路器、调度自动降级、离线持久化缓冲、写入重试与死信队列、传输故障降级、优雅关停。
+- **控制面 API**：RESTful + WebSocket——配置热重载与备份/恢复、资源管理、批量写、一等告警、实时数据/日志/告警流。
+- **可观测性**：Prometheus `/metrics`（按驱动/传输拆分的指标族）、pprof、W3C Trace Context 请求追踪。
+- **传输层加密**：MQTT TLS/mTLS、API HTTPS。
 
 ## 支持协议
 
-### 1. 南向驱动 (Southbound Drivers)
+- **南向驱动**：Modbus 全家族（TCP / RTU / UDP / TLS / RTU over TCP/UDP）、Siemens S7、OPC UA（轮询 + 订阅）。
+- **北向传输**：MQTT（QoS 0/1/2、主题模板、命令订阅）、HTTP Push/Webhook、Notify 告警通知（Slack / Teams / Email / Webhook）。
 
-- **Modbus TCP** (`driver/modbus/`):
-  - 支持 `0xxxx` (线圈)、`1xxxx` (离散输入)、`3xxxx` (输入寄存器)、`4xxxx` (保持寄存器)。
-  - 支持多种数据类型（`bool`, `uint16`, `int16`, `uint32`, `int32`, `uint64`, `int64`, `float32`, `float64`）。
-  - 支持保持寄存器与线圈的下发写入。
-- **Modbus RTU** (`driver/modbus/`):
-  - 通过串口（RS-232 / RS-485）连接 Modbus RTU 设备，支持与 TCP 相同的四种寄存器区与数据类型。
-  - 可配置波特率（`baud-rate`，默认 9600）、数据位（`data-bits`，默认 8）、校验位（`parity`：`none`/`even`/`odd`，默认 `none`）、停止位（`stop-bits`，默认自动）。
-  - 支持保持寄存器与线圈的下发写入。
-- **Modbus RTU over TCP** (`modbus-rtuovertcp`)：RTU 帧封装在 TCP 连接中，适用于串口转以太网网关场景。
-- **Modbus UDP** (`modbus-udp`)：Modbus TCP over UDP，适用于对实时性要求高、可容忍丢包的场景。
-- **Modbus RTU over UDP** (`modbus-rtuoverudp`)：RTU 帧封装在 UDP 中。
-- **Modbus TCP over TLS** (`modbus-tls`)：加密版 Modbus TCP，支持双向 TLS 认证（mTLS），需配置 `cert-file`、`key-file`、`ca-file`。
-- **Siemens S7** (`driver/s7/`):
-  - 支持 S7-200/300/400/1200/1500。
-  - 支持 DB 块（如 `DB1.DBD0` 浮点、`DB1.DBW4` 字、`DB1.DBX0.0` 位）、Merker(M)、Inputs(I/E)、Outputs(Q/A)。
-  - 支持位级读-改-写（Read-Modify-Write）及各种数据块写入下发。
-- **OPC UA** (`driver/opcua/`):
-  - 支持标准 NodeID 解析（如 `ns=2;s=Conveyor.Speed`, `ns=1;i=1001`）。
-  - 支持轮询读取 (Polling) 与事件订阅 (Subscription)。
-  - 支持测点值写入下发。
-
-### 2. 北向传输 (Northbound Transports)
-
-- **MQTT** (`transport/mqtt/`):
-  - 支持 QoS 0/1/2、Retain、动态主题模板 (`factory/{{.Driver}}/{{.Group}}/{{.Tag}}`)。
-  - 支持 Command Topic 反向订阅接收下发控制指令。
-- **HTTP Push** (`transport/httppush/`):
-  - 原生连接池复用，支持批量 JSON Push、自定义 Headers / Auth Token。
-  - 支持 Webhook 入站接收（配置 `webhook-addr` + `webhook-secret`，fail-closed）。
-- **Notify 告警通知** (`transport/notify/`):
-  - 将数据点格式化后推送 Slack、Teams、Email 或通用 Webhook 通知通道。
-  - 配合规则 `action: forward, target: notify-xxx` 使用；支持消息模板与冷却窗口（`cooldown`）抑制重复告警。
-
----
+详见 [驱动指南](docs/guide/drivers.md) 与 [传输指南](docs/guide/transports.md)。
 
 ## 快速上手
 
-### 1. 编译构建
 ```bash
 git clone https://github.com/CoreC-Dev/CoreC.git
 cd CoreC
-go build -o corec.exe ./cmd/corec
+go build -o corec ./cmd/corec
+COREC_API_SECRET=change-me-please ./corec -c config.example.yaml
 ```
 
-### 2. 运行测试
-```bash
-go test -v ./...
-```
+最小配置示例见 [`config.example.yaml`](config.example.yaml)；完整步骤见 [快速上手指南](docs/guide/quickstart.md)，构建与部署方式见 [安装指南](docs/guide/installation.md)。
 
-### 3. 配置文件示例
-参考 [`config.example.yaml`](config.example.yaml)：
+## 文档
 
-```yaml
-global:
-  log-level: info
+- [文档首页](docs/index.md) · [简介](docs/guide/introduction.md) · [架构总览](ARCHITECTURE.md)
+- [配置参考](docs/config/example.md) · [API 参考](docs/api/overview.md)（REST/WebSocket 端点索引与认证）
+- [数据流](docs/guide/data-flow.md) · [规则](docs/guide/rules.md) · [可观测性](docs/guide/observability.md) · [级联部署](docs/guide/chained-core.md)
+- [MCP 适配器](docs/guide/mcp.md) · [安全姿态](SECURITY.md) · [质量门禁](docs/gates.md) · [贡献指南](CONTRIBUTING.md)
 
-drivers:
-  - name: plc-modbus
-    type: modbus-tcp
-    settings:
-      host: 192.168.1.100
-      port: 502
-      slave-id: 1
-    tags:
-      - name: temperature
-        address: "40001"
-        type: float32
-        group: sensors
-        interval: 1s
-
-transports:
-  - name: cloud-mqtt
-    type: mqtt
-    settings:
-      broker: tcp://broker.emqx.io:1883
-      topic-template: "factory/{{.Driver}}/{{.Group}}/{{.Tag}}"
-      command-topic: "factory/commands/#"
-
-rules:
-  - name: high-temp-alert
-    match: "tag == 'temperature' && value > 90"
-    action: alert
-    target: cloud-mqtt
-    priority: 1
-  - name: default-catch-all
-    match: "ALL"
-    action: forward
-    target: cloud-mqtt
-    priority: 999
-```
-
-### 4. 启动核心
-```bash
-./corec.exe -c config.example.yaml
-```
-
-### 4b. 空配置启动 + Dashboard 驱动配置
-
-CoreC 支持以**空配置 / 仅 API 配置**启动（无 driver、transport、rule），进入 idle 模式后由运维在 Dashboard 中从零搭建全部业务配置。[`config.example.yaml`](config.example.yaml) 的活动内容即为最小配置（其余示例全部注释掉）：
-
-```bash
-COREC_API_SECRET=change-me-please ./corec.exe -c config.example.yaml
-```
-
-启动后日志会输出非阻塞告警（`no data source configured` / `no transport configured`），引擎以空管线运行，Dashboard 连上后即可通过配置中心（`PUT /configs`）或驱动/传输/规则向导逐步添加配置。详见 [`docs/config/example.md`](docs/config/example.md) → "空配置 / Idle 模式"。
-
----
-
-## External Controller API
-
-CoreC 内置 RESTful 控制面 API。在配置文件中启用：
-
-```yaml
-global:
-  api:
-    listen: 0.0.0.0:9090
-    secret: your-secret-token
-```
-
-### 认证
-
-所有受保护端点需要 Bearer Token 认证；WebSocket 认证经 `Sec-WebSocket-Protocol` 子协议（`token.<secret>`，首选）或 `?token=` 查询参数（legacy）：
-
-```bash
-curl -H "Authorization: Bearer your-secret-token" http://localhost:9090/drivers
-```
-
-### REST 端点
-
-| 方法 | 路径 | 说明 |
-|:---|:---|:---|
-| GET | `/` | 服务信息（名称/版本/运行时间） |
-| GET | `/version` | 版本信息 |
-| GET | `/healthz/live` | 存活探针（无需认证，Kubernetes liveness） |
-| GET | `/healthz/ready` | 就绪探针（无需认证，Kubernetes readiness） |
-| GET | `/configs` | 当前配置概要 |
-| GET | `/configs/raw` | 完整配置 YAML 原文（含明文凭据，认证可见，配置中心编辑器用） |
-| PUT | `/configs` | 热重载配置（`{"path":"config.yaml"}` 或 `{"payload":"<yaml>"}` ；变更前自动快照） |
-| PATCH | `/configs` | 修改运行时设置（如 `{"log-level":"debug"}` ） |
-| POST | `/configs/validate` | 配置 dry-run 校验（不应用） |
-| GET | `/configs/audit` | 配置变更审计轨迹（最近 500 次成功变更） |
-| GET | `/configs/backups` | 服务端配置备份列表（新→旧，保留最近 10 份，仅元数据） |
-| GET | `/configs/backups/{name}` | 读取指定备份 YAML 原文 |
-| POST | `/configs/backups` | 手动创建当前磁盘配置快照 |
-| POST | `/configs/backups/{name}/restore` | 一键恢复指定备份（走完整校验链） |
-| GET | `/drivers` | 列出所有南向驱动及状态 |
-| GET | `/drivers/{name}` | 查看单个驱动 |
-| GET | `/drivers/{name}/tags` | 查看驱动下所有测点最新值 |
-| POST | `/drivers/test` | 驱动连通性测试（临时实例，不落配置，连接即关，5s 超时） |
-| GET | `/drivers/paused` | 列出当前暂停采集的驱动 |
-| POST | `/drivers/{name}/pause` | 暂停驱动采集（不动配置/连接；维修场景） |
-| POST | `/drivers/{name}/resume` | 恢复驱动采集（下一 tick 起效） |
-| DELETE | `/drivers/{name}` | 删除单个驱动（服务端拼接配置，走完整校验/应用/持久化链） |
-| GET | `/transports` | 列出所有北向传输及状态 |
-| GET | `/transports/{name}` | 查看单个传输 |
-| POST | `/transports/{name}/test` | 传输连通性测试（向该传输发布一条测试数据点） |
-| DELETE | `/transports/{name}` | 删除单个传输（被规则引用时 400 并说明原因） |
-| GET | `/tags` | 所有测点最新缓存值 |
-| POST | `/write` | 下发控制指令 `{"driver":"plc1","tag":"temp","value":50,"type":"float32"}` |
-| POST | `/write/batch` | 批量写入（顺序执行、逐条结果，上限 128 条） |
-| GET | `/write/failed` | 查询死信队列中重试耗尽的失败写入指令 |
-| GET | `/write/history` | 查询写入审计历史（最近 1000 条写记录，含成功与失败，新→旧） |
-| GET | `/alerts` | 查询活动规则告警 + 生命周期历史（active/ack/cleared 状态机） |
-| POST | `/alerts/ack` | 确认（Acknowledge）一条活动告警 |
-| GET | `/rules` | 列出规则 + **命中/未命中统计** |
-| DELETE | `/rules/{name}` | 删除单条规则（按 name） |
-| PATCH | `/rules/disable` | 运行时启用/禁用规则 `{"index":0,"disabled":true}` |
-| POST | `/rules/preview` | 规则试算：离线验证 match 表达式（不影响生产规则集） |
-| GET | `/stats` | 引擎运行统计 |
-| GET | `/metrics` | Prometheus 文本格式指标（计数器/仪表盘 + Go 运行时指标） |
-| GET | `/debug/pprof/*` | pprof 性能分析端点（CPU/heap/goroutine，可配置关闭或独立端口） |
-
-### WebSocket 端点
-
-| 路径 | 说明 |
-|:---|:---|
-| `/logs` | 实时日志流（捕获所有 `slog` 调用） |
-| `/alerts/stream` | 实时告警生命周期事件流（fired/acked/cleared） |
-| `/traffic` | 实时吞吐速率流（服务端差分；`?mode=totals` 保留累计模式） |
-| `/tags/stream` | 实时数据点流（`?driver=xxx` 可过滤） |
-| `/memory` | 实时内存使用与 GC 统计 |
-
-### CORS
-
-API 服务器默认启用 CORS（`Access-Control-Allow-Origin: *`），支持浏览器 Dashboard 直接访问。
-
----
-
-## 工程参考
-
-- 安全姿态与当前边界：[SECURITY.md](SECURITY.md)
-- 质量门禁清单（G1–G11）：[docs/gates.md](docs/gates.md)
+配套前端：[CoreC-Dashboard](https://github.com/CoreC-Dev/CoreC-Dashboard)（多实例监控、配置中心、规则管理与写入控制）。
 
 ## 许可证
 
-本项目以 **MIT 许可证** 开源：允许商用、修改与再分发，但**必须保留版权与许可声明**，且作者**不承担任何担保与责任**（"AS IS"）。
-
-```text
-MIT License
-Copyright (c) 2026 CoreC Contributors
-```
-
-完整条款见 [LICENSE](LICENSE)。
-
-### 第三方依赖许可证
-
-本项目依赖以下开源组件，其许可证如下：
-
-| 依赖 | 许可证 |
-|:---|:---|
-| [expr-lang/expr](https://github.com/expr-lang/expr) | MIT |
-| [tidwall/gjson](https://github.com/tidwall/gjson) | MIT |
-| [coder/websocket](https://github.com/coder/websocket) | ISC |
-| [eclipse/paho.mqtt.golang](https://github.com/eclipse/paho.mqtt.golang) | EPL-2.0 / EDL-1.0 |
-| [go-chi/chi/v5](https://github.com/go-chi/chi) | MIT |
-| [goccy/go-yaml](https://github.com/goccy/go-yaml) | MIT |
-| [gopcua/opcua](https://github.com/gopcua/opcua) | MIT |
-| [robinson/gos7](https://github.com/robinson/gos7) | MIT |
-| [simonvetter/modbus](https://github.com/simonvetter/modbus) | MIT |
-| [goburrow/serial](https://github.com/goburrow/serial) *(间接)* | MIT |
-| [tidwall/match](https://github.com/tidwall/match) *(间接)* | MIT |
-| [tidwall/pretty](https://github.com/tidwall/pretty) *(间接)* | MIT |
-| [gorilla/websocket](https://github.com/gorilla/websocket) *(间接)* | BSD-3-Clause |
-| [golang.org/x/net](https://golang.org/x/net) *(间接)* | BSD-3-Clause |
-| [golang.org/x/sync](https://golang.org/x/sync) *(间接)* | BSD-3-Clause |
+本项目以 [MIT 许可证](LICENSE) 开源。第三方依赖许可证清单见 [docs/license.md](docs/license.md)。

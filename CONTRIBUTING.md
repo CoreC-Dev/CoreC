@@ -89,7 +89,7 @@ golangci-lint run --timeout 5m                  # v2，配置见 .golangci.yml�
 
 ## 6. 依赖与许可证契约
 
-- 本项目 **MIT**，只接受 MIT/BSD/ISC/Apache-2.0/EPL-2.0 等宽松许可证依赖。**不准引入 GPL/AGPL/LGPL**。新依赖在 PR 描述里写明许可证，并同步更新 `README.md` 的「第三方依赖许可证」表。
+- 本项目 **MIT**，只接受 MIT/BSD/ISC/Apache-2.0/EPL-2.0 等宽松许可证依赖。**不准引入 GPL/AGPL/LGPL**。新依赖在 PR 描述里写明许可证，并同步更新 `docs/license.md` 的「第三方依赖许可证」表。
 - `go mod tidy` 后提交，`go.sum` 必须与 `go.mod` 一致。不提交 `vendor/`。
 - 能用标准库和现有依赖解决的，不引新依赖。
 
@@ -101,9 +101,9 @@ golangci-lint run --timeout 5m                  # v2，配置见 .golangci.yml�
 
 | 改了什么 | 要同步更新 |
 |:---|:---|
-| 配置项 / 驱动 / 传输 | `README.md`、`config.example.yaml`、`docs/guide/` |
+| 配置项 / 驱动 / 传输 | `config.example.yaml`、`docs/guide/`、`docs/config/` |
 | 架构 / 接口 / 扩展机制 | `ARCHITECTURE.md`、`docs/architecture/` |
-| 公开 API 端点 | `README.md` 的 API 表 |
+| 公开 API 端点 | `docs/api/overview.md` 的端点索引 |
 
 文档不同步的 PR 不合。`docs/**`、`README.md` 的改动不触发 CI（见 `.github/workflows/ci.yml` 的 `paths-ignore`），所以文档 PR 不会因测试矩阵卡住——但这不是跳过同步的借口。
 
