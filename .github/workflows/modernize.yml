@@ -10,6 +10,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  actions: write
 
 concurrency:
   group: modernize
@@ -67,7 +68,10 @@ jobs:
           if [ -z "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[].number')" ]; then
             gh pr create --base main --head "$BRANCH" \
               --title "refactor: scheduled go fix modernization" \
-              --body "Automated \`go fix ./...\` fixpoint pass from the Modernize workflow. Vet, race tests and pinned lint passed in-workflow; ci.yml runs the full gate set on this PR."
+              --body "Automated \`go fix ./...\` fixpoint pass from the Modernize workflow. Vet, race tests and pinned lint passed in-workflow; ci.yml is dispatched on this branch for the full gate set."
           else
             echo "Existing open PR for $BRANCH updated by force-push."
           fi
+          # GITHUB_TOKEN-created PR events do not trigger pull_request
+          # workflows; workflow_dispatch is the supported exception.
+          gh workflow run ci.yml --ref "$BRANCH"

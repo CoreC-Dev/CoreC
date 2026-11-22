@@ -9,7 +9,7 @@
 | `ci.yml` | push/PR 到 `main`（`paths-ignore`: `docs/**`、`README.md`、`.github/workflows/deploy-docs.yml`） | `go test -race -short`（含 archtest/tastetest）、`go vet`、`make fix-check`（go fix 不动点门禁）、`make lint`（golangci-lint 钉版于 Makefile，CI 自装）、文档门禁（`check-docs.sh`）、actionlint 校验、按包覆盖率下限检查（`check-coverage.sh`，与本地 `make cover-gate` 同一脚本）、build-check 矩阵 |
 | `docs-gate.yml` | push/PR **仅文档路径**（`docs/**`、`README.md`、`AGENTS.md`、`ARCHITECTURE.md`、`CONTRIBUTING.md`） | 文档门禁 |
 | `release.yml` | push tag `v*` | test + vet + fix-check + lint + 文档门禁 → version-check（以 tag ldflags 构建后 `-version` 输出必须等于 tag）→ 多架构构建 → tar.gz/zip + sha256 checksums → GitHub Release（`generate_release_notes: true`） |
-| `modernize.yml` | 每周一 02:30 UTC（`schedule`）+ `workflow_dispatch` | `make fix` 应用 go fix 到不动点；有变更则 vet + race 测试 + lint，通过后开/更新 `chore/go-fix-modernize` PR（PR 再跑完整 `ci.yml` 门禁） |
+| `modernize.yml` | 每周一 02:30 UTC（`schedule`）+ `workflow_dispatch` | `make fix` 应用 go fix 到不动点；有变更则 vet + race 测试 + lint，通过后开/更新 `chore/go-fix-modernize` PR，并在该分支显式 `workflow_dispatch` 触发 `ci.yml` 全门禁（GITHUB_TOKEN 创建的 PR 事件不触发 pull_request 工作流） |
 | `deploy-docs.yml` | push 到 `main` 且 `docs/**` 变更 | VitePress 构建 → GitHub Pages |
 
 各工作流均带 concurrency 组；多数 job 设 `timeout-minutes`（release/deploy-docs 的部分 job 除外）。`ci.yml` 与 `docs-gate.yml` 对同引用取消旧跑（`cancel-in-progress: true`），`release.yml`、`deploy-docs.yml` 与 `modernize.yml` 排队不取消。
