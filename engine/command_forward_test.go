@@ -476,7 +476,7 @@ func TestCommandListenerDispatchesConcurrently(t *testing.T) {
 	})
 
 	start := time.Now()
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		tr.cmdCh <- core.WriteCommand{Driver: "plc", Tag: "setpoint", Value: float64(i)}
 	}
 
@@ -521,7 +521,7 @@ func TestCommandListenerSerialWhenConcurrencyOne(t *testing.T) {
 		e.runtime.wg.Wait()
 	})
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		tr.cmdCh <- core.WriteCommand{Driver: "plc", Tag: "setpoint", Value: float64(i)}
 	}
 

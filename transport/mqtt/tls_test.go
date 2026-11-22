@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
+	"maps"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -68,9 +69,7 @@ func newTLSConfig(name, broker string, tls map[string]any) core.TransportConfig 
 	settings := map[string]any{
 		"broker": broker,
 	}
-	for k, v := range tls {
-		settings[k] = v
-	}
+	maps.Copy(settings, tls)
 	return core.TransportConfig{
 		Name:     name,
 		Type:     "mqtt",

@@ -63,7 +63,7 @@ func TestOfflineBufferDrainStopsOnError(t *testing.T) {
 	defer ob.Close()
 
 	points := []core.DataPoint{{Driver: "plc1", Tag: "temp", Value: 1.0}}
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if err := ob.Push(points, "mqtt"); err != nil {
 			t.Fatalf("Push: %v", err)
 		}
@@ -109,7 +109,7 @@ func TestOfflineBufferEviction(t *testing.T) {
 	}
 
 	// Push 5 batches, capacity is 3
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if err := ob.Push(points, "mqtt"); err != nil {
 			t.Fatalf("Push %d: %v", i, err)
 		}
@@ -162,7 +162,7 @@ func TestOfflineBufferRestartPreservesSeq(t *testing.T) {
 	}
 
 	points := []core.DataPoint{{Driver: "plc1", Tag: "temp", Value: 1.0}}
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if err := ob1.Push(points, "mqtt"); err != nil {
 			t.Fatalf("Push: %v", err)
 		}
@@ -248,7 +248,7 @@ func TestOfflineBufferPendingCount(t *testing.T) {
 	}
 
 	points := []core.DataPoint{{Driver: "plc1", Tag: "temp", Value: 1.0, Timestamp: time.Now()}}
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		if err := ob.Push(points, "mqtt"); err != nil {
 			t.Fatalf("Push %d: %v", i, err)
 		}
@@ -262,15 +262,15 @@ func TestOfflineBufferPendingCount(t *testing.T) {
 
 	// Concurrent reads must not race or panic. -race in CI exercises this.
 	done := make(chan struct{})
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		go func() {
 			defer func() { done <- struct{}{} }()
-			for j := 0; j < 50; j++ {
+			for range 50 {
 				_ = ob.PendingCount()
 			}
 		}()
 	}
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		<-done
 	}
 }
@@ -292,7 +292,7 @@ func TestOfflineBufferDrainCount(t *testing.T) {
 
 	points := []core.DataPoint{{Driver: "plc1", Tag: "temp", Value: 1.0, Timestamp: time.Now()}}
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if err := ob.Push(points, "mqtt"); err != nil {
 			t.Fatalf("Push %d: %v", i, err)
 		}
@@ -314,7 +314,7 @@ func TestOfflineBufferDrainCount(t *testing.T) {
 	// Push 3 more; this time the publish callback fails on the 2nd batch,
 	// so Drain stops after 1 success (transport-down pause path). DrainCount
 	// must still reflect the 1 batch that was replayed.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if err := ob.Push(points, "mqtt"); err != nil {
 			t.Fatalf("Push %d: %v", i, err)
 		}

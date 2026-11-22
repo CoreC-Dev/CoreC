@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -142,7 +141,7 @@ func TestAlertRegistrySilenceClears(t *testing.T) {
 func TestAlertHistoryCap(t *testing.T) {
 	am := newAlertManager(time.Hour)
 	rule := testAlertRule{"r"}
-	for i := 0; i < alertHistoryCap+37; i++ {
+	for i := range alertHistoryCap + 37 {
 		am.record(rule, alertPoint("d", "t", i))
 		// Each distinct tag creates an alert + one fired event; acking
 		// adds a second event per alert to reach the cap faster.
@@ -163,7 +162,7 @@ func TestAlertHistoryCap(t *testing.T) {
 func TestAlertRegistryCap(t *testing.T) {
 	am := newAlertManager(time.Hour)
 	rule := testAlertRule{"flood"}
-	for i := 0; i < alertRegistryCap+10; i++ {
+	for i := range alertRegistryCap + 10 {
 		am.record(rule, alertPoint("d", "t", i))
 	}
 	if got := len(am.active); got > alertRegistryCap {
@@ -213,8 +212,7 @@ func TestAlertRegistryOverflowOrderIsFiredFirst(t *testing.T) {
 // not just reach the OnAlert log handler.
 func TestFireAlertRecordsInRegistry(t *testing.T) {
 	e := New().(*CoreCEngine)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	cfg := &core.Config{
 		Rules: []core.RuleConfig{
 			{Name: "hot", Match: "value > 90", Action: "alert"},

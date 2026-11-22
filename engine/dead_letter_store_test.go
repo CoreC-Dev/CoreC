@@ -61,7 +61,7 @@ func TestDeadLetterStoreCapKeepsNewest(t *testing.T) {
 		t.Fatalf("open store: %v", err)
 	}
 	base := time.Now()
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		store.append(dlEntry(string(rune('a'+i)), base.Add(time.Duration(i)*time.Second)))
 	}
 	store.close()
@@ -138,7 +138,7 @@ func TestDeadLetterStoreRotationBoundsDisk(t *testing.T) {
 		t.Fatalf("reopen: %v", err)
 	}
 	base := time.Now()
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		store.append(dlEntry(string(bigTag)+string(rune('a'+i)), base))
 	}
 	store.close()

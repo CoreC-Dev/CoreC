@@ -210,19 +210,15 @@ func (b *transportBatcher) start(ctx context.Context) {
 	b.buf.flushBatches = make(chan []core.DataPoint, defaultFlushBatchQueueSize)
 	// Always start the flushLoop so buffer-full batches are flushed
 	// asynchronously, even when no periodic flush interval is configured.
-	b.wg.Add(1)
-	go func() {
-		defer b.wg.Done()
+	b.wg.Go(func() {
 		b.flushLoop()
-	}()
+	})
 	// Start the offline-buffer drain loop if an offline buffer is
 	// configured. This periodically replays buffered batches.
 	if b.offlineBuffer != nil {
-		b.wg.Add(1)
-		go func() {
-			defer b.wg.Done()
+		b.wg.Go(func() {
 			b.drainLoop()
-		}()
+		})
 	}
 }
 

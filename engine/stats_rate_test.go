@@ -60,7 +60,7 @@ func TestBadQualityDropCounting(t *testing.T) {
 	e.processing.dataBus = NewDataBus(64)
 	e.processing.badQualityPolicy = badQualityDrop
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		e.processing.processPoint(core.DataPoint{
 			Driver: "d", Tag: "t", Value: 1.0, Quality: core.QualityBad,
 			Timestamp: time.Now(),

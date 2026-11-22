@@ -279,10 +279,7 @@ func (s *scheduler) runTask(ctx context.Context, runner *taskRunner) {
 	// interval to reduce load on a failing driver. When the driver
 	// recovers, the ticker is reset to the original interval.
 	const degradeAfterErrors = 5
-	degradedInterval := interval * 10
-	if degradedInterval < 10*time.Second {
-		degradedInterval = 10 * time.Second
-	}
+	degradedInterval := max(interval*10, 10*time.Second)
 
 	for {
 		select {

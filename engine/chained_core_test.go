@@ -92,8 +92,7 @@ func TestChainedCore_OnDataToDataBus(t *testing.T) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	engine := New()
 	if err := engine.Start(ctx, cfg); err != nil {
@@ -164,8 +163,7 @@ func TestChainedCore_MultipleTransports(t *testing.T) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	engine := New()
 	if err := engine.Start(ctx, cfg); err != nil {

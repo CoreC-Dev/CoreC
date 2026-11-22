@@ -77,10 +77,7 @@ func (m *mockS7Client) readInto(area string, dbNumber, start, size int, buffer [
 	if m.readErr != nil {
 		return m.readErr
 	}
-	n := len(buffer)
-	if n > len(m.readData) {
-		n = len(m.readData)
-	}
+	n := min(len(buffer), len(m.readData))
 	copy(buffer, m.readData[:n])
 	return nil
 }
@@ -138,7 +135,7 @@ func (m *mockS7Client) DBFill(dbnumber, fillchar int) error { return nil }
 func (m *mockS7Client) DBGet(dbnumber int, usrdata []byte, size int) error {
 	return nil
 }
-func (m *mockS7Client) Read(variable string, buffer []byte) (interface{}, error) {
+func (m *mockS7Client) Read(variable string, buffer []byte) (any, error) {
 	return nil, nil //nolint:nilnil // mock: nil result with no error is the intended stub behaviour
 }
 func (m *mockS7Client) GetAgBlockInfo(blocktype, blocknum int) (gos7.S7BlockInfo, error) {

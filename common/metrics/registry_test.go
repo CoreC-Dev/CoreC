@@ -48,14 +48,12 @@ func TestRegistryLabelOrderIrrelevant(t *testing.T) {
 func TestRegistryConcurrentWrites(t *testing.T) {
 	r := NewRegistry()
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 100; j++ {
+	for range 8 {
+		wg.Go(func() {
+			for range 100 {
 				r.IncCounter("hot", map[string]string{"w": "x"})
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	if snap := r.Snapshot(); len(snap) != 1 || snap[0].Value != 800 {

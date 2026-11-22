@@ -102,16 +102,16 @@ func parseNoValidateWithBase(data []byte, baseDir string) (*core.Config, error) 
 func unknownKeyError(err error) error {
 	msg := err.Error()
 	const marker = `unknown field "`
-	i := strings.Index(msg, marker)
-	if i < 0 {
+	_, after, ok := strings.Cut(msg, marker)
+	if !ok {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
-	rest := msg[i+len(marker):]
-	j := strings.IndexByte(rest, '"')
-	if j < 0 {
+	rest := after
+	before0, _, ok0 := strings.Cut(rest, "\"")
+	if !ok0 {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
-	key := rest[:j]
+	key := before0
 	return fmt.Errorf("failed to parse config: unknown key %q -- %w (check the field name against config.example.yaml)", key, err)
 }
 

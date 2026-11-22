@@ -520,8 +520,7 @@ func toFloat64(t *testing.T, v any) float64 {
 
 func TestReconnectLoop(t *testing.T) {
 	t.Run("connect succeeds on first try", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		callCount := 0
 		connect := func() error {
@@ -536,8 +535,7 @@ func TestReconnectLoop(t *testing.T) {
 	})
 
 	t.Run("connect succeeds after retries", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		callCount := 0
 		connect := func() error {
@@ -594,8 +592,7 @@ func TestReconnectLoop(t *testing.T) {
 	})
 
 	t.Run("backoff doubles up to max", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		// Track timing of calls to verify backoff increases.
 		callCount := 0
@@ -669,8 +666,7 @@ func TestApplyTransformLargeOffset(t *testing.T) {
 
 // TestReconnectLoopMaxBackoffCap verifies that backoff is capped at maxBackoff.
 func TestReconnectLoopMaxBackoffCap(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	callCount := 0
 	connect := func() error {
@@ -723,7 +719,7 @@ func TestJitteredBackoffBounds(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			lo := time.Duration(float64(tt.base) * 0.8)
 			hi := time.Duration(float64(tt.base) * 1.2)
-			for i := 0; i < 10000; i++ {
+			for i := range 10000 {
 				got := jitteredBackoff(tt.base)
 				if got < lo || got > hi {
 					t.Fatalf("iteration %d: jitteredBackoff(%v) = %v, want [%v, %v]", i, tt.base, got, lo, hi)
@@ -750,7 +746,7 @@ func TestJitteredBackoffEdgeCases(t *testing.T) {
 func TestJitteredBackoffVaries(t *testing.T) {
 	base := 1 * time.Second
 	seen := make(map[time.Duration]bool)
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		seen[jitteredBackoff(base)] = true
 	}
 	// With ±20% continuous jitter over 1000 draws we should observe many
@@ -764,12 +760,11 @@ func TestJitteredBackoffVaries(t *testing.T) {
 // completes successfully after retries when jitter is applied to every
 // backoff wait.
 func TestReconnectSucceedsWithJitter(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
-	var calls int32
+	var calls atomic.Int32
 	connectFn := func() error {
-		n := atomic.AddInt32(&calls, 1)
+		n := calls.Add(1)
 		if n < 3 {
 			return errors.New("connection refused")
 		}
@@ -782,7 +777,7 @@ func TestReconnectSucceedsWithJitter(t *testing.T) {
 	ReconnectLoopWithBreaker(ctx, "test", connectFn, 10*time.Millisecond, 100*time.Millisecond, 0)
 	elapsed := time.Since(start)
 
-	if got := atomic.LoadInt32(&calls); got != 3 {
+	if got := calls.Load(); got != 3 {
 		t.Errorf("expected 3 connect calls, got %d", got)
 	}
 	// 3 attempts with backoffs <= 1.2*{10,20}ms ≈ 36ms; allow generous
@@ -798,12 +793,11 @@ func TestReconnectSucceedsWithJitter(t *testing.T) {
 // the breaker still trips and switches to the long (~5min, jittered)
 // interval, so the call rate drops dramatically.
 func TestReconnectJitterDoesNotBreakBreaker(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
-	var calls int32
+	var calls atomic.Int32
 	connectFn := func() error {
-		atomic.AddInt32(&calls, 1)
+		calls.Add(1)
 		return errors.New("always fails")
 	}
 
@@ -813,10 +807,10 @@ func TestReconnectJitterDoesNotBreakBreaker(t *testing.T) {
 
 	// Poll until the 3 pre-breaker attempts complete or the deadline passes.
 	deadline := time.Now().Add(5 * time.Second)
-	for atomic.LoadInt32(&calls) < 3 && time.Now().Before(deadline) {
+	for calls.Load() < 3 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
-	callsAtBreaker := atomic.LoadInt32(&calls)
+	callsAtBreaker := calls.Load()
 	if callsAtBreaker < 3 {
 		t.Fatalf("expected >= 3 calls before breaker trips, got %d", callsAtBreaker)
 	}
@@ -824,7 +818,7 @@ func TestReconnectJitterDoesNotBreakBreaker(t *testing.T) {
 	// No more calls should arrive within the breaker window (4min min
 	// jittered interval >> 300ms).
 	time.Sleep(300 * time.Millisecond)
-	callsAfter := atomic.LoadInt32(&calls)
+	callsAfter := calls.Load()
 	if callsAfter > callsAtBreaker {
 		t.Fatalf("circuit breaker did not slow down with jitter: calls grew %d -> %d",
 			callsAtBreaker, callsAfter)

@@ -251,11 +251,9 @@ func (d *BaseDriver) reconnectLoop() {
 
 // startReconnectLoop launches reconnectLoop in a tracked goroutine.
 func (d *BaseDriver) startReconnectLoop() {
-	d.wg.Add(1)
-	go func() {
-		defer d.wg.Done()
+	d.wg.Go(func() {
 		d.reconnectLoop()
-	}()
+	})
 }
 
 // HandleConnectionLost transitions to StateError, closes the connection,

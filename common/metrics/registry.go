@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"maps"
 	"sort"
 	"sync"
 )
@@ -79,9 +80,7 @@ func (r *Registry) SetGauge(name string, value float64, labels map[string]string
 func (r *Registry) add(name string, kind MetricKind, labels map[string]string, delta float64, increment bool) {
 	key := keyFor(name, labels)
 	cp := make(map[string]string, len(labels))
-	for k, v := range labels {
-		cp[k] = v
-	}
+	maps.Copy(cp, labels)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()

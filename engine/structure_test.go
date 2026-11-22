@@ -39,22 +39,22 @@ func godObjectStructs() []struct {
 		name string
 		typ  reflect.Type
 	}{
-		{"CoreCEngine", reflect.TypeOf(CoreCEngine{})},
-		{"engineRuntime", reflect.TypeOf(engineRuntime{})},
-		{"ruleRole", reflect.TypeOf(ruleRole{})},
-		{"readAccessor", reflect.TypeOf(readAccessor{})},
-		{"statsCollector", reflect.TypeOf(statsCollector{})},
-		{"driverRegistry", reflect.TypeOf(driverRegistry{})},
-		{"transportManager", reflect.TypeOf(transportManager{})},
-		{"writeManager", reflect.TypeOf(writeManager{})},
-		{"processingCore", reflect.TypeOf(processingCore{})},
-		{"lifecycleSupport", reflect.TypeOf(lifecycleSupport{})},
+		{"CoreCEngine", reflect.TypeFor[CoreCEngine]()},
+		{"engineRuntime", reflect.TypeFor[engineRuntime]()},
+		{"ruleRole", reflect.TypeFor[ruleRole]()},
+		{"readAccessor", reflect.TypeFor[readAccessor]()},
+		{"statsCollector", reflect.TypeFor[statsCollector]()},
+		{"driverRegistry", reflect.TypeFor[driverRegistry]()},
+		{"transportManager", reflect.TypeFor[transportManager]()},
+		{"writeManager", reflect.TypeFor[writeManager]()},
+		{"processingCore", reflect.TypeFor[processingCore]()},
+		{"lifecycleSupport", reflect.TypeFor[lifecycleSupport]()},
 		// Both sit AT the 10-field limit and must stay pinned here.
-		{"alertManager", reflect.TypeOf(alertManager{})},
-		{"scheduler", reflect.TypeOf(scheduler{})},
-		{"transportBatcher", reflect.TypeOf(transportBatcher{})},
-		{"batcherRetryPolicy", reflect.TypeOf(batcherRetryPolicy{})},
-		{"batcherBufferState", reflect.TypeOf(batcherBufferState{})},
+		{"alertManager", reflect.TypeFor[alertManager]()},
+		{"scheduler", reflect.TypeFor[scheduler]()},
+		{"transportBatcher", reflect.TypeFor[transportBatcher]()},
+		{"batcherRetryPolicy", reflect.TypeFor[batcherRetryPolicy]()},
+		{"batcherBufferState", reflect.TypeFor[batcherBufferState]()},
 	}
 }
 

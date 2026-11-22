@@ -6,6 +6,7 @@ package route
 import (
 	"bufio"
 	"errors"
+	"maps"
 	"net"
 	"net/http"
 	"strconv"
@@ -80,9 +81,7 @@ func (m *httpMetrics) snapshot() (counts map[string]uint64, durBuckets []uint64,
 	defer m.mu.Unlock()
 
 	counts = make(map[string]uint64, len(m.requestCount))
-	for k, v := range m.requestCount {
-		counts[k] = v
-	}
+	maps.Copy(counts, m.requestCount)
 	durBuckets = make([]uint64, len(m.durations.counts))
 	copy(durBuckets, m.durations.counts)
 	durSum = m.durations.sum

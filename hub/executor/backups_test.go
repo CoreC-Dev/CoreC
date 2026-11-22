@@ -164,7 +164,7 @@ func TestReloadAutoSnapshot_RetentionLimit(t *testing.T) {
 
 	const reloads = configBackupMax + 2
 	var namesAfterFirst, namesAfterSecond []route.ConfigBackupInfo
-	for i := 0; i < reloads; i++ {
+	for i := range reloads {
 		if err := Reload("", "global:\n  log-level: debug\n"); err != nil {
 			t.Fatalf("reload %d failed: %v", i+1, err)
 		}

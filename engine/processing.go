@@ -2,6 +2,7 @@ package engine
 
 import (
 	"log/slog"
+	"maps"
 	"time"
 
 	"github.com/CoreC-Dev/CoreC/common/util"
@@ -95,22 +96,16 @@ func (p *processingCore) processingLoopHighPriority() {
 // startProcessingWorkers launches the N worker goroutines that consume
 // from the DataBus channel, plus optional high-priority workers.
 func (p *processingCore) startProcessingWorkers() {
-	numWorkers := p.numWorkers
-	if numWorkers < 1 {
-		numWorkers = 1
-	}
+	numWorkers := max(p.numWorkers, 1)
 	p.eng.runtime.wg.Add(numWorkers)
-	for i := 0; i < numWorkers; i++ {
+	for range numWorkers {
 		go p.processingLoop()
 	}
 
-	numHP := p.numHighPriorityWorkers
-	if numHP < 0 {
-		numHP = 0
-	}
+	numHP := max(p.numHighPriorityWorkers, 0)
 	if numHP > 0 {
 		p.eng.runtime.wg.Add(numHP)
-		for i := 0; i < numHP; i++ {
+		for range numHP {
 			go p.processingLoopHighPriority()
 		}
 		slog.Info("high-priority processing workers started", "count", numHP)
@@ -190,9 +185,7 @@ func (p *processingCore) processPoint(point core.DataPoint) {
 func pointWithRule(point core.DataPoint, ruleName string) core.DataPoint {
 	p := point
 	p.Metadata = make(map[string]string, len(point.Metadata)+1)
-	for k, v := range point.Metadata {
-		p.Metadata[k] = v
-	}
+	maps.Copy(p.Metadata, point.Metadata)
 	p.Metadata["rule"] = ruleName
 	return p
 }

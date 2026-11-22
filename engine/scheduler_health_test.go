@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"maps"
 	"reflect"
 	"sync"
 	"testing"
@@ -26,8 +27,7 @@ func quietOnData(driver string, values []core.TagValue, plan *triggerPlan, prior
 // exposition.
 func TestSchedulerHealthAggregation(t *testing.T) {
 	s := NewScheduler(quietReadFunc, quietOnData, 0)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	if err := s.Start(ctx); err != nil {
 		t.Fatalf("scheduler start failed: %v", err)
 	}
@@ -99,8 +99,7 @@ func TestSchedulerPauseResumeRoundTrip(t *testing.T) {
 	}
 	s := NewScheduler(readFn, func(driver string, values []core.TagValue, plan *triggerPlan, priority int) {},
 		0)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	if err := s.Start(ctx); err != nil {
 		t.Fatalf("scheduler start: %v", err)
 	}
@@ -120,9 +119,7 @@ func TestSchedulerPauseResumeRoundTrip(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		cp := make(map[string]int, len(readsByDriver))
-		for k, v := range readsByDriver {
-			cp[k] = v
-		}
+		maps.Copy(cp, readsByDriver)
 		return cp
 	}
 	waitFor := func(cond func() bool, window time.Duration, msg string) {

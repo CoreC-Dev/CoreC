@@ -46,9 +46,9 @@ func writeHTTPMetrics(b *strings.Builder) {
 
 // splitMetricKey splits "METHOD:STATUS" into its parts.
 func splitMetricKey(k string) (method, status string, ok bool) {
-	idx := strings.Index(k, ":")
-	if idx < 0 {
+	before, after, ok := strings.Cut(k, ":")
+	if !ok {
 		return "", "", false
 	}
-	return k[:idx], k[idx+1:], true
+	return before, after, true
 }

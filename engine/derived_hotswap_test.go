@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -66,8 +65,7 @@ func drainDerived(ch <-chan core.DataPoint) {
 //   - applying to a never-started engine errors instead of corrupting
 func TestApplyDerivedTagsHotSwap(t *testing.T) {
 	e := New().(*CoreCEngine)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	cfg := &core.Config{
 		DerivedTags: []core.DerivedTagConfig{

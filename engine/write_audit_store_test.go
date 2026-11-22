@@ -33,7 +33,7 @@ func TestWriteAuditStoreSurvivesRestart(t *testing.T) {
 	ctx := context.Background()
 
 	e := auditEngine(t, path)
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if _, err := e.WriteTag(ctx, core.WriteCommand{Driver: "plc", Tag: "t1", Value: float64(i), Type: core.TypeFloat32}); err != nil {
 			t.Fatalf("write %d: %v", i, err)
 		}

@@ -3,6 +3,7 @@ package executor
 import (
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/CoreC-Dev/CoreC/core"
@@ -120,25 +121,13 @@ rules:
 	}
 
 	// d1 should be removed
-	foundD1Removed := false
-	for _, name := range eng.removedDrivers {
-		if name == "d1" {
-			foundD1Removed = true
-			break
-		}
-	}
+	foundD1Removed := slices.Contains(eng.removedDrivers, "d1")
 	if !foundD1Removed {
 		t.Errorf("expected d1 to be removed, removed list: %v", eng.removedDrivers)
 	}
 
 	// d3 should be added
-	foundD3Added := false
-	for _, name := range eng.addedDrivers {
-		if name == "d3" {
-			foundD3Added = true
-			break
-		}
-	}
+	foundD3Added := slices.Contains(eng.addedDrivers, "d3")
 	if !foundD3Added {
 		t.Errorf("expected d3 to be added, added list: %v", eng.addedDrivers)
 	}

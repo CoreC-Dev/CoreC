@@ -32,7 +32,7 @@ func TestDataBus_BroadcastAfterClose(t *testing.T) {
 // in a tight loop while another calls Close.
 func TestDataBus_BroadcastConcurrentWithClose(t *testing.T) {
 	bus := NewDataBus(64)
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		_, _ = bus.Subscribe("")
 	}
 
@@ -40,10 +40,8 @@ func TestDataBus_BroadcastConcurrentWithClose(t *testing.T) {
 	stop := make(chan struct{})
 
 	// Broadcaster goroutines.
-	for i := 0; i < 4; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 4 {
+		wg.Go(func() {
 			for {
 				select {
 				case <-stop:
@@ -64,7 +62,7 @@ func TestDataBus_BroadcastConcurrentWithClose(t *testing.T) {
 					}()
 				}
 			}
-		}()
+		})
 	}
 
 	// Let broadcasters run briefly, then close.

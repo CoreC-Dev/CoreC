@@ -1078,7 +1078,7 @@ func TestBatchWrite(t *testing.T) {
 	// Oversized batch → 400 with the cap named.
 	var huge strings.Builder
 	huge.WriteString(`{"writes":[`)
-	for i := 0; i < 129; i++ {
+	for i := range 129 {
 		if i > 0 {
 			huge.WriteByte(',')
 		}

@@ -68,13 +68,7 @@ func (s *statsCollector) Stats() core.EngineStats {
 	pointsPerSec := float64(0)
 	windowSecs := s.readRate.WindowSeconds()
 	elapsedSecs := int64(uptime.Seconds())
-	divisor := windowSecs
-	if elapsedSecs < divisor {
-		divisor = elapsedSecs
-	}
-	if divisor < 1 {
-		divisor = 1
-	}
+	divisor := max(min(elapsedSecs, windowSecs), 1)
 	pointsPerSec = float64(s.readRate.Sum(time.Now())) / float64(divisor)
 
 	// dataBus is only created in Start(); before Start it is nil.

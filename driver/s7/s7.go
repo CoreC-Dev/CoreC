@@ -197,10 +197,7 @@ func (d *S7Driver) Read(ctx context.Context, tags []string) ([]core.TagValue, er
 	// reads; bit tags and sparse tags fall back to one read per tag.
 	// See s7_merge.go for the planner.
 	for start := 0; start < len(tags); start += s7MaxBatchSize {
-		end := start + s7MaxBatchSize
-		if end > len(tags) {
-			end = len(tags)
-		}
+		end := min(start+s7MaxBatchSize, len(tags))
 		results = append(results, d.readS7Batch(client, tags[start:end], now)...)
 		d.AddReadCount(uint64(end - start))
 	}

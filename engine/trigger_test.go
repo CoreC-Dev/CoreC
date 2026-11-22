@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -48,12 +49,7 @@ func (r *triggerRecorder) rounds() [][]string {
 }
 
 func hasTag(r []string, tag string) bool {
-	for _, x := range r {
-		if x == tag {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(r, tag)
 }
 
 func newTriggerRunner() *taskRunner {

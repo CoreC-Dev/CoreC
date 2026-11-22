@@ -60,7 +60,7 @@ func TestWritePacingDisabledByDefault(t *testing.T) {
 	e := newTestEngine(t)
 	d := registerTaggedDriver(e, "plc", nil)
 	ctx := context.Background()
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if _, err := e.WriteTag(ctx, core.WriteCommand{Driver: "plc", Tag: "t", Value: float64(i), Type: core.TypeFloat32}); err != nil {
 			t.Fatalf("write %d: %v", i, err)
 		}

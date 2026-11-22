@@ -425,10 +425,9 @@ func (w *writeManager) executeWriteWithRetry(cmd core.WriteCommand) {
 		}
 
 		if attempt < maxAttempts-1 {
-			delay := defaultRetryBaseDelay * time.Duration(1<<attempt) // 100ms, 200ms, 400ms...
-			if delay > defaultCommandRetryMaxDelay {
-				delay = defaultCommandRetryMaxDelay
-			}
+			delay := min(
+				// 100ms, 200ms, 400ms...
+				defaultRetryBaseDelay*time.Duration(1<<attempt), defaultCommandRetryMaxDelay)
 			slog.Warn("command write retry",
 				"driver", cmd.Driver, "tag", cmd.Tag,
 				"attempt", attempt+1, "max", maxAttempts,

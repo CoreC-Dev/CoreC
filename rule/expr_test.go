@@ -23,7 +23,7 @@ func TestEvalErrorsCountedInRuleStat(t *testing.T) {
 
 	// String values can never satisfy a numeric comparison: every
 	// evaluation fails. The rule must count them, not silently miss.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		e.Match(core.DataPoint{
 			Driver: "d", Tag: "name", Value: "hello", Type: core.TypeString,
 			Quality: core.QualityGood, Timestamp: time.Now(),

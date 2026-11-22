@@ -51,13 +51,7 @@ func NewDataBus(bufferSize int) *DataBus {
 	if bufferSize <= 0 {
 		bufferSize = 4096
 	}
-	highPriSize := bufferSize / 4
-	if highPriSize > 1024 {
-		highPriSize = 1024
-	}
-	if highPriSize < 64 {
-		highPriSize = 64
-	}
+	highPriSize := max(min(bufferSize/4, 1024), 64)
 	return &DataBus{
 		ch:        make(chan core.DataPoint, bufferSize),
 		highPriCh: make(chan core.DataPoint, highPriSize),

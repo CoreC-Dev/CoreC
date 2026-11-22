@@ -167,8 +167,7 @@ func TestOPCUASubscriptionLoopNonDataChange(t *testing.T) {
 // notification channel causes subscriptionLoop to exit cleanly.
 func TestOPCUASubscriptionLoopChannelClosed(t *testing.T) {
 	d := mustInit(t, validConfig("closed"))
-	ctx, cancelFn := context.WithCancel(context.Background())
-	defer cancelFn()
+	ctx := t.Context()
 	notifyCh := make(chan *opcua.PublishNotificationData, 8)
 	d.subWg.Add(1)
 	go d.subscriptionLoop(ctx, notifyCh, map[uint32]string{}, map[string]core.TagConfig{})

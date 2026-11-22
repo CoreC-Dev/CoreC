@@ -60,7 +60,7 @@ func TestObservableDropped(t *testing.T) {
 
 	// Send more than the subscriber buffer capacity to force drops.
 	const sendCount = 200 // 128 buffered + 72 dropped
-	for i := 0; i < sendCount; i++ {
+	for i := range sendCount {
 		src <- i
 	}
 
@@ -103,7 +103,7 @@ func TestObservableNoDropsWhenConsuming(t *testing.T) {
 	// Send items with a small yield so the consumer can keep up.
 	// A burst can cause transient drops due to goroutine scheduling,
 	// which is expected behavior, not a bug.
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		src <- i
 		time.Sleep(time.Millisecond)
 	}

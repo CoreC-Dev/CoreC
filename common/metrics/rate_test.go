@@ -13,7 +13,7 @@ func at(sec int64) time.Time { return time.Unix(sec, 0) }
 // than the window.
 func TestRateWindowSteadyTraffic(t *testing.T) {
 	rw := NewRateWindow()
-	for sec := int64(0); sec < 60; sec++ {
+	for sec := range int64(60) {
 		rw.Observe(at(sec), 10)
 	}
 	if got := rw.Sum(at(59)); got != 600 {
@@ -81,14 +81,12 @@ func TestRateWindowConcurrentObserve(t *testing.T) {
 	now := at(77)
 	const goroutines, perGoroutine = 16, 1000
 	var wg sync.WaitGroup
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < perGoroutine; j++ {
+	for range goroutines {
+		wg.Go(func() {
+			for range perGoroutine {
 				rw.Observe(now, 1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	want := uint64(goroutines * perGoroutine)

@@ -93,7 +93,7 @@ func TestHTTPMetricsMiddlewareCountsRequests(t *testing.T) {
 		renderError(w, r, http.StatusInternalServerError, "boom")
 	}))
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		req := httptest.NewRequest(http.MethodGet, "/things", http.NoBody)
 		rec := httptest.NewRecorder()
 		okHandler.ServeHTTP(rec, req)

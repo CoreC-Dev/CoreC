@@ -102,7 +102,7 @@ func newTCPDriver(t *testing.T, port int, tags []core.TagConfig) core.Driver {
 func TestModbusBatchReadContiguous(t *testing.T) {
 	const n = 10
 	holding := make(map[uint16]uint16, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		holding[uint16(i)] = uint16(1000 + i)
 	}
 	inner := &testModbusHandler{
@@ -117,7 +117,7 @@ func TestModbusBatchReadContiguous(t *testing.T) {
 
 	tags := make([]core.TagConfig, n)
 	names := make([]string, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		names[i] = fmt.Sprintf("r%d", i)
 		tags[i] = core.TagConfig{Name: names[i], Address: fmt.Sprintf("%d", 40001+i), Type: "uint16"}
 	}
@@ -132,7 +132,7 @@ func TestModbusBatchReadContiguous(t *testing.T) {
 	if len(values) != n {
 		t.Fatalf("expected %d values, got %d", n, len(values))
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if values[i].Quality != core.QualityGood {
 			t.Errorf("r%d: expected good quality, got %v (err=%v)", i, values[i].Quality, values[i].Error)
 		}
@@ -242,7 +242,7 @@ func TestModbusBatchReadMixedTypes(t *testing.T) {
 func TestModbusBatchReadCoils(t *testing.T) {
 	const n = 8
 	coils := make(map[uint16]bool, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		coils[uint16(i)] = i%2 == 0
 	}
 	inner := &testModbusHandler{
@@ -257,7 +257,7 @@ func TestModbusBatchReadCoils(t *testing.T) {
 
 	tags := make([]core.TagConfig, n)
 	names := make([]string, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		names[i] = fmt.Sprintf("c%d", i)
 		tags[i] = core.TagConfig{Name: names[i], Address: fmt.Sprintf("%05d", 1+i), Type: "bool"}
 	}
@@ -268,7 +268,7 @@ func TestModbusBatchReadCoils(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		want := i%2 == 0
 		if values[i].Value != want {
 			t.Errorf("c%d: expected %v, got %v", i, want, values[i].Value)
@@ -329,7 +329,7 @@ func TestModbusBatchReadSparse(t *testing.T) {
 func TestModbusBatchReadMaxSizeSplit(t *testing.T) {
 	const n = 130
 	holding := make(map[uint16]uint16, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		holding[uint16(i)] = uint16(5000 + i)
 	}
 	inner := &testModbusHandler{
@@ -344,7 +344,7 @@ func TestModbusBatchReadMaxSizeSplit(t *testing.T) {
 
 	tags := make([]core.TagConfig, n)
 	names := make([]string, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		names[i] = fmt.Sprintf("r%d", i)
 		tags[i] = core.TagConfig{Name: names[i], Address: fmt.Sprintf("%d", 40001+i), Type: "uint16"}
 	}
@@ -355,7 +355,7 @@ func TestModbusBatchReadMaxSizeSplit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if values[i].Value != uint16(5000+i) {
 			t.Errorf("r%d: expected %d, got %v", i, 5000+i, values[i].Value)
 		}

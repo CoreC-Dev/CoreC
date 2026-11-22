@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -144,7 +145,7 @@ func pruneConfigBackups(dir string) {
 	if len(stamps) <= configBackupMax {
 		return
 	}
-	sort.Slice(stamps, func(i, j int) bool { return stamps[i] < stamps[j] })
+	slices.Sort(stamps)
 	for _, stamp := range stamps[:len(stamps)-configBackupMax] {
 		target := filepath.Join(dir, backupFileName(stamp))
 		if err := os.Remove(target); err != nil && !os.IsNotExist(err) {

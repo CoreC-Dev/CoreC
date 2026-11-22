@@ -91,8 +91,8 @@ func ParseDataType(s string) (DataType, bool) {
 
 // UnmarshalYAML accepts the string form ("float32") and integer iota
 // codes, mirroring UnmarshalJSON.
-func (d *DataType) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	var raw interface{}
+func (d *DataType) UnmarshalYAML(unmarshal func(any) error) error {
+	var raw any
 	if err := unmarshal(&raw); err != nil {
 		return err
 	}

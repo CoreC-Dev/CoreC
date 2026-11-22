@@ -91,7 +91,7 @@ func TestStartReplaysDeadLettersWithoutDuplication(t *testing.T) {
 
 	cfg := &core.Config{Global: core.GlobalConfig{Engine: core.EngineConfig{DeadLetterPath: path}}}
 	ctx := context.Background()
-	for cycle := 0; cycle < 2; cycle++ {
+	for cycle := range 2 {
 		if err := e.Start(ctx, cfg); err != nil {
 			t.Fatalf("start %d: %v", cycle+1, err)
 		}

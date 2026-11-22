@@ -230,8 +230,7 @@ func TestReloadPathErrorsAreClientFixable(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected error")
 			}
-			var ce *ConfigError
-			if !errors.As(err, &ce) {
+			if _, ok := errors.AsType[*ConfigError](err); !ok {
 				t.Errorf("reload path error should be a *ConfigError (client-fixable, 400), got %T: %v", err, err)
 			}
 		})
@@ -245,8 +244,7 @@ func TestReloadPathErrorsAreClientFixable(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error")
 		}
-		var ce *ConfigError
-		if !errors.As(err, &ce) {
+		if _, ok := errors.AsType[*ConfigError](err); !ok {
 			t.Errorf("no-path reload error should be a *ConfigError (client-fixable, 400), got %T: %v", err, err)
 		}
 	})
@@ -509,8 +507,7 @@ func TestReloadErrorClassification(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for malformed YAML")
 		}
-		var cfe *ConfigError
-		if !errors.As(err, &cfe) {
+		if _, ok := errors.AsType[*ConfigError](err); !ok {
 			t.Errorf("parse failure not classified as ConfigError: %v", err)
 		}
 	})
@@ -522,8 +519,7 @@ func TestReloadErrorClassification(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected validation error")
 		}
-		var cfe *ConfigError
-		if !errors.As(err, &cfe) {
+		if _, ok := errors.AsType[*ConfigError](err); !ok {
 			t.Errorf("validation failure not classified as ConfigError: %v", err)
 		}
 		if !strings.Contains(err.Error(), "api.secret") {
@@ -550,8 +546,7 @@ func TestReloadErrorClassification(t *testing.T) {
 		if !strings.Contains(err.Error(), "engine not initialized") {
 			t.Fatalf("error = %v, want the deterministic unwired-engine apply failure", err)
 		}
-		var cfe *ConfigError
-		if errors.As(err, &cfe) {
+		if _, ok := errors.AsType[*ConfigError](err); ok {
 			t.Errorf("apply failure wrongly classified as client-fixable: %v", err)
 		}
 	})
@@ -740,8 +735,7 @@ func TestRemoveResourceByNames(t *testing.T) {
 	// Transport removal that leaves a dangling rule target → ConfigError
 	// (route maps to 400 with the reason).
 	err := RemoveTransportByName("mqtt-a", "10.0.0.1:2")
-	var cfe *ConfigError
-	if !errors.As(err, &cfe) {
+	if _, ok := errors.AsType[*ConfigError](err); !ok {
 		t.Fatalf("removing referenced transport: err = %v, want ConfigError", err)
 	}
 	if !strings.Contains(err.Error(), "fwd") {

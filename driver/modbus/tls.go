@@ -32,10 +32,8 @@ type ModbusTLSDriver struct {
 // NewModbusTLSDriver creates a new Modbus TCP-over-TLS driver.
 func NewModbusTLSDriver(config core.DriverConfig) (core.Driver, error) {
 	d := &ModbusTLSDriver{
-		modbusBase: modbusBase{
-			tags:  make(map[string]core.TagConfig),
-			addrs: make(map[string]addrInfo),
-		},
+		tags:  make(map[string]core.TagConfig),
+		addrs: make(map[string]addrInfo),
 	}
 	d.SetInitFunc(d.Init)
 	d.SetConnectFunc(d.connect)

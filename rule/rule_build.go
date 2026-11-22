@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -46,10 +47,8 @@ func detectCircularSubRules(groups map[string][]core.RuleConfig) error {
 }
 
 func checkCircular(name string, groups map[string][]core.RuleConfig, chain []string) error {
-	for _, c := range chain {
-		if c == name {
-			return fmt.Errorf("circular sub-rule reference: %v -> %s", chain, name)
-		}
+	if slices.Contains(chain, name) {
+		return fmt.Errorf("circular sub-rule reference: %v -> %s", chain, name)
 	}
 	chain = append(chain, name)
 	for _, rc := range groups[name] {

@@ -76,7 +76,7 @@ func (c *mockPahoClient) Connect() pahomqtt.Token {
 }
 func (c *mockPahoClient) Disconnect(quiesce uint) {}
 
-func (c *mockPahoClient) Publish(topic string, qos byte, retained bool, payload interface{}) pahomqtt.Token {
+func (c *mockPahoClient) Publish(topic string, qos byte, retained bool, payload any) pahomqtt.Token {
 	c.mu.Lock()
 	c.publishes = append(c.publishes, publishedMessage{
 		topic:    topic,

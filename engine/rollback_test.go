@@ -173,8 +173,7 @@ func TestRollbackStartIntegration(t *testing.T) {
 	eng := New()
 	e := eng.(*CoreCEngine)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	cfg := &core.Config{
 		Transports: []core.TransportConfig{

@@ -348,7 +348,7 @@ func TestS7ReadUnknownTagCostsNoTraffic(t *testing.T) {
 func TestS7ReadSegmentFailureFailsWholeSegment(t *testing.T) {
 	var tags []core.TagConfig
 	for db := 1; db <= 3; db++ {
-		for w := 0; w < 3; w++ {
+		for w := range 3 {
 			tags = append(tags, core.TagConfig{
 				Name:    fmt.Sprintf("db%d_w%d", db, w),
 				Address: fmt.Sprintf("DB%d.DBW%d", db, w*2),
@@ -527,7 +527,7 @@ func TestS7ReadMergedValuesMatchImage(t *testing.T) {
 	}
 	offsets := map[string]int{"DB1": 0, "DB2": 0, "DB3": 0, "M": 0}
 	wordStarts := map[string]int{}
-	for i := 0; i < 60; i++ {
+	for i := range 60 {
 		td := typeDefs[i%len(typeDefs)]
 		group := []string{"DB1", "DB2", "DB3", "M"}[i%4]
 		start := offsets[group]
@@ -550,7 +550,7 @@ func TestS7ReadMergedValuesMatchImage(t *testing.T) {
 		offsets[group] = start + td.size + r.Intn(41)
 	}
 	// Bit tags in DB4 (their own group, read one by one).
-	for i := 0; i < bits; i++ {
+	for i := range bits {
 		tags = append(tags, core.TagConfig{
 			Name:    fmt.Sprintf("bit%02d", i),
 			Address: fmt.Sprintf("DB4.DBX%d.%d", i*3, i%8),

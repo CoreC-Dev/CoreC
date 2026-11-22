@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -24,8 +23,7 @@ func TestEngineReloadClearsOldDrivers(t *testing.T) {
 		Transports: []core.TransportConfig{{Name: "t1", Type: "mock-data"}},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg1); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -72,8 +70,7 @@ func TestEngineReloadClearsOldTransports(t *testing.T) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg1); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -121,8 +118,7 @@ func TestEngineReloadStatsConsistency(t *testing.T) {
 		Transports: []core.TransportConfig{{Name: "t1", Type: "mock-data"}},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg1); err != nil {
 		t.Fatalf("Start failed: %v", err)

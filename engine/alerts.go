@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -93,15 +94,10 @@ func alertKey(rule core.Rule, driver, tag string) string {
 // registry size. Sweep cadence is window/4 (at least every 30s), so an
 // expired alert leaves the active set within ~window/4 of its expiry.
 func (am *alertManager) start(ctx context.Context) {
-	sweepEvery := am.activeWindow / 4
-	if sweepEvery < 30*time.Second {
-		sweepEvery = 30 * time.Second
-	}
+	sweepEvery := max(am.activeWindow/4, 30*time.Second)
 	sweepEvery = minDuration(sweepEvery, am.activeWindow)
 	ctx, am.cancel = context.WithCancel(ctx)
-	am.wg.Add(1)
-	go func() {
-		defer am.wg.Done()
+	am.wg.Go(func() {
 		ticker := time.NewTicker(sweepEvery)
 		defer ticker.Stop()
 		for {
@@ -112,7 +108,7 @@ func (am *alertManager) start(ctx context.Context) {
 				am.sweep(time.Now())
 			}
 		}
-	}()
+	})
 }
 
 // stop cancels the sweep goroutine, waits for it, then closes the event
@@ -311,9 +307,7 @@ func (am *alertManager) fireCounts() map[string]uint64 {
 	am.mu.Lock()
 	defer am.mu.Unlock()
 	out := make(map[string]uint64, len(am.firedByRule))
-	for k, v := range am.firedByRule {
-		out[k] = v
-	}
+	maps.Copy(out, am.firedByRule)
 	return out
 }
 

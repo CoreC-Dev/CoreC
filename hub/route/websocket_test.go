@@ -228,7 +228,7 @@ func TestRateLimitMiddleware(t *testing.T) {
 
 	// Fire 10 rapid requests — some should be rate limited (429).
 	statusCodes := make(map[int]int)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		resp, err := http.Get(ts.URL + "/drivers")
 		if err != nil {
 			t.Fatalf("request %d failed: %v", i, err)
@@ -620,7 +620,7 @@ func TestRateLimitMiddlewareSharedByHost(t *testing.T) {
 	defer ts.Close()
 
 	statusCodes := make(map[int]int)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		// A fresh client forces a new TCP connection (new source port)
 		// per request — the exact shape a connection-cycling attacker
 		// produces.
@@ -682,7 +682,7 @@ func TestMetricsDedicatedServer(t *testing.T) {
 		// The dedicated endpoint answers credential-free. The listener
 		// binds asynchronously — poll until the socket answers.
 		var resp *http.Response
-		for attempt := 0; attempt < 50; attempt++ {
+		for range 50 {
 			resp, err = http.Get("http://" + metricsAddr + "/metrics")
 			if err == nil {
 				break
@@ -723,11 +723,4 @@ func TestMetricsDedicatedServer(t *testing.T) {
 			t.Error("metrics server started on a non-loopback address; must be refused fail-closed")
 		}
 	})
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

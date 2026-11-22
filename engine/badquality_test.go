@@ -51,7 +51,7 @@ func TestDeadLetterQueue(t *testing.T) {
 	cmd := core.WriteCommand{Driver: "plc1", Tag: "setpoint", Value: 50.0}
 
 	// Add entries
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		e.writes.addDeadLetter(core.DeadLetterEntry{
 			Command:  cmd,
 			Error:    "connection refused",
