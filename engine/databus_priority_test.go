@@ -60,7 +60,7 @@ func TestDataBusHighPriorityPushDropped(t *testing.T) {
 
 	hpCap := cap(bus.highPriCh)
 
-	for i := 0; i < hpCap; i++ {
+	for i := range hpCap {
 		bus.PushHighPriority(core.DataPoint{Driver: "d", Tag: fmt.Sprintf("t%d", i), Value: float64(i)})
 	}
 	if got := bus.HighPriorityPushDropped(); got != 0 {
@@ -120,7 +120,7 @@ func TestEngineHighPriorityWorkersProcessData(t *testing.T) {
 
 	// Saturate the main channel with many normal-priority points.
 	// The single normal worker will be busy draining these.
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		e.processing.dataBus.Push(core.DataPoint{
 			Driver:    "plc",
 			Tag:       "bulk",

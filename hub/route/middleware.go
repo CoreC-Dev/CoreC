@@ -248,7 +248,7 @@ func isWebSocketUpgrade(r *http.Request) bool {
 // reverse-proxy access logs and Referer headers.
 func wsSubprotocolToken(r *http.Request) string {
 	for _, headerValue := range r.Header.Values("Sec-WebSocket-Protocol") {
-		for _, part := range strings.Split(headerValue, ",") {
+		for part := range strings.SplitSeq(headerValue, ",") {
 			part = strings.TrimSpace(part)
 			const prefix = "token."
 			if !strings.HasPrefix(part, prefix) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"maps"
 	"math"
 	"sort"
 	"time"
@@ -413,9 +414,7 @@ func (b *modbusBase) performBatchReads(ctx context.Context, client *mb.ModbusCli
 				// for it.
 				continue
 			}
-			for idx, v := range values {
-				batchValues[idx] = v
-			}
+			maps.Copy(batchValues, values)
 		}
 	}
 
@@ -521,10 +520,7 @@ func mergeBatches(area areaType, indices []int, reqs []batchTagReq, maxBatch uin
 	for _, idx := range indices[1:] {
 		tStart := reqs[idx].ai.addr
 		tEnd := tStart + reqs[idx].qty
-		mergedEnd := curEnd
-		if tEnd > mergedEnd {
-			mergedEnd = tEnd
-		}
+		mergedEnd := max(tEnd, curEnd)
 		mergedQty := mergedEnd - cur.start
 		// Merge when the next range is contiguous or overlapping with
 		// the current batch AND the combined range stays within the

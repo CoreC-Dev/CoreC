@@ -243,7 +243,7 @@ func TestModbusReconnectOnFailure(t *testing.T) {
 	// reconnect-interval (100ms) and reconnect-max-interval (200ms); the
 	// 6s window leaves headroom for goroutine scheduling under CI/load.
 	connected := false
-	for i := 0; i < 60; i++ {
+	for range 60 {
 		time.Sleep(100 * time.Millisecond)
 		if drv.Status().State == core.StateConnected {
 			connected = true

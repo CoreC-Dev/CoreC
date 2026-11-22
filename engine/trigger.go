@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"log/slog"
+	"slices"
 
 	"github.com/CoreC-Dev/CoreC/common/util"
 	"github.com/CoreC-Dev/CoreC/core"
@@ -72,10 +73,8 @@ func (r *taskRunner) gateTriggerTags(ctx context.Context, task core.ScheduleTask
 // gatedOf reports whether tag is gated by a trigger group, and which one.
 func (r *taskRunner) gatedOf(tag string) (string, bool) {
 	for group, tags := range r.gated {
-		for _, g := range tags {
-			if g == tag {
-				return group, true
-			}
+		if slices.Contains(tags, tag) {
+			return group, true
 		}
 	}
 	return "", false

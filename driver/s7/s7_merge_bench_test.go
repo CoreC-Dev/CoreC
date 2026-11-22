@@ -196,7 +196,7 @@ func (s *benchScenario) addTag(i, db, start int) {
 // contigScenario: n tags in DB1 at consecutive dword offsets (0, 4, 8, ...).
 func contigScenario(n int) benchScenario {
 	s := benchScenario{name: fmt.Sprintf("tags=%d/dist=contig", n)}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		s.addTag(i, 1, i*4)
 	}
 	return s
@@ -209,7 +209,7 @@ func sparseScenario(n int) benchScenario {
 	s := benchScenario{name: fmt.Sprintf("tags=%d/dist=sparse", n)}
 	r := rand.New(rand.NewSource(42)) //nolint:gosec // deterministic test data, not cryptography
 	start := 0
-	for i := 0; i < n; i++ {
+	for i := range n {
 		s.addTag(i, 1, start)
 		start += 4 + r.Intn(65)
 	}
@@ -221,7 +221,7 @@ func sparseScenario(n int) benchScenario {
 func multiDBScenario(n int) benchScenario {
 	s := benchScenario{name: fmt.Sprintf("tags=%d/dist=multi-db", n)}
 	offsets := [3]int{}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		db := 1 + i%3
 		s.addTag(i, db, offsets[db-1])
 		offsets[db-1] += 4
@@ -342,10 +342,7 @@ func contigSpans(n int) []s7Span {
 func projectedScenarioTrips(scen benchScenario) int {
 	total := 0
 	for start := 0; start < len(scen.spans); start += s7MaxBatchSize {
-		end := start + s7MaxBatchSize
-		if end > len(scen.spans) {
-			end = len(scen.spans)
-		}
+		end := min(start+s7MaxBatchSize, len(scen.spans))
 		total += projectedSegments(scen.spans[start:end])
 	}
 	return total

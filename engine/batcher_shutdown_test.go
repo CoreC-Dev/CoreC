@@ -108,8 +108,7 @@ func TestBatcherFlushFinalBudgetPersistsToOffline(t *testing.T) {
 		t.Fatal("expected non-nil batcher")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	b.start(ctx)
 
 	// A partial batch sits in the buffer; stop() must flushFinal it.
@@ -229,8 +228,7 @@ func TestBatcherPublishRejectedAfterStop(t *testing.T) {
 		t.Fatal("expected non-nil batcher")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	b.start(ctx)
 	b.stop()
 
@@ -264,8 +262,7 @@ func TestBatcherPublishRejectedWhileStopping(t *testing.T) {
 		t.Fatal("expected non-nil batcher")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	b.start(ctx)
 	// A partial batch keeps stop() busy in flushFinal (the hanging
 	// transport holds it until the 300ms budget expires).
@@ -305,10 +302,10 @@ func TestBatcherPublishRejectedWhileStopping(t *testing.T) {
 func TestStopComponentsDropsAndCountsQueuedPoints(t *testing.T) {
 	eng := New().(*CoreCEngine)
 	eng.processing.dataBus = NewDataBus(64)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		eng.processing.dataBus.Push(core.DataPoint{Driver: "plc", Tag: "t", Value: float64(i), Timestamp: time.Now()})
 	}
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		eng.processing.dataBus.PushHighPriority(core.DataPoint{Driver: "plc", Tag: "hp", Value: float64(i), Timestamp: time.Now()})
 	}
 

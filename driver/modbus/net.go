@@ -27,10 +27,8 @@ type ModbusNetDriver struct {
 // (e.g. "rtuovertcp").
 func newModbusNetDriver(config core.DriverConfig, driverType, urlScheme string) (core.Driver, error) {
 	d := &ModbusNetDriver{
-		modbusBase: modbusBase{
-			tags:  make(map[string]core.TagConfig),
-			addrs: make(map[string]addrInfo),
-		},
+		tags:      make(map[string]core.TagConfig),
+		addrs:     make(map[string]addrInfo),
 		urlScheme: urlScheme,
 	}
 	d.SetInitFunc(d.Init)

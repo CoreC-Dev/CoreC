@@ -18,7 +18,7 @@ func TestDeadLetterStats(t *testing.T) {
 	e := New().(*CoreCEngine)
 	e.writes.deadLetters.maxLen = 3
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		e.writes.addDeadLetter(core.DeadLetterEntry{
 			Command:  core.WriteCommand{Driver: "d", Tag: "t", Value: i},
 			Error:    "boom",

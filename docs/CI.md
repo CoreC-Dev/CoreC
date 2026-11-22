@@ -6,12 +6,13 @@
 
 | 工作流 | 触发 | 内容 |
 |---|---|---|
-| `ci.yml` | push/PR 到 `main`（`paths-ignore`: `docs/**`、`README.md`、`.github/workflows/deploy-docs.yml`） | `go test -race -short`（含 archtest/tastetest）、`go vet`、`make lint`（golangci-lint 钉版于 Makefile，CI 自装）、文档门禁（`check-docs.sh`）、actionlint 校验、按包覆盖率下限检查（`check-coverage.sh`，与本地 `make cover-gate` 同一脚本）、build-check 矩阵 |
+| `ci.yml` | push/PR 到 `main`（`paths-ignore`: `docs/**`、`README.md`、`.github/workflows/deploy-docs.yml`） | `go test -race -short`（含 archtest/tastetest）、`go vet`、`make fix-check`（go fix 不动点门禁）、`make lint`（golangci-lint 钉版于 Makefile，CI 自装）、文档门禁（`check-docs.sh`）、actionlint 校验、按包覆盖率下限检查（`check-coverage.sh`，与本地 `make cover-gate` 同一脚本）、build-check 矩阵 |
 | `docs-gate.yml` | push/PR **仅文档路径**（`docs/**`、`README.md`、`AGENTS.md`、`ARCHITECTURE.md`、`CONTRIBUTING.md`） | 文档门禁 |
-| `release.yml` | push tag `v*` | test + vet + lint + 文档门禁 → version-check（以 tag ldflags 构建后 `-version` 输出必须等于 tag）→ 多架构构建 → tar.gz/zip + sha256 checksums → GitHub Release（`generate_release_notes: true`） |
+| `release.yml` | push tag `v*` | test + vet + fix-check + lint + 文档门禁 → version-check（以 tag ldflags 构建后 `-version` 输出必须等于 tag）→ 多架构构建 → tar.gz/zip + sha256 checksums → GitHub Release（`generate_release_notes: true`） |
+| `modernize.yml` | 每周一 02:30 UTC（`schedule`）+ `workflow_dispatch` | `make fix` 应用 go fix 到不动点；有变更则 vet + race 测试 + lint，通过后开/更新 `chore/go-fix-modernize` PR（PR 再跑完整 `ci.yml` 门禁） |
 | `deploy-docs.yml` | push 到 `main` 且 `docs/**` 变更 | VitePress 构建 → GitHub Pages |
 
-四个工作流均带 concurrency 组；多数 job 设 `timeout-minutes`（release/deploy-docs 的部分 job 除外）。`ci.yml` 与 `docs-gate.yml` 对同引用取消旧跑（`cancel-in-progress: true`），`release.yml` 与 `deploy-docs.yml` 排队不取消。
+各工作流均带 concurrency 组；多数 job 设 `timeout-minutes`（release/deploy-docs 的部分 job 除外）。`ci.yml` 与 `docs-gate.yml` 对同引用取消旧跑（`cancel-in-progress: true`），`release.yml`、`deploy-docs.yml` 与 `modernize.yml` 排队不取消。
 
 ## 构建矩阵
 
@@ -30,4 +31,5 @@ build-check 与 release 矩阵对齐：linux{amd64,arm64,armv7}、darwin{amd64,a
 - Go 版本经 `go-version-file: go.mod` 解析（当前 `go 1.27.3`），全部 workflow 不在 YAML 里硬编码版本；golangci-lint 钉版于 Makefile（`GOLANGCI_VERSION ?= v2.15.0`），`make lint` 自装同版本。
 - 文档提交（`docs/**`、`README.md`）不触发主 CI（test 矩阵），但触发文档门禁。
 - 本地与 CI 用同一套门禁脚本（`make gates` / `check-coverage.sh` / `check-docs.sh`）。
-- `make install-hooks` 安装 git pre-commit hook，提交前本地先跑门禁（vet + lint + arch + taste + docs 的快速子集；race 测试与覆盖率留给 CI/push）。
+- 代码现代化：`make fix` 把 `go fix ./...` 应用到不动点（单轮产物可能触发下一轮修复，如 min/max 嵌套）并 gofmt；`make fix-check`（= `go fix -diff ./...`）要求工作树已是不动点，作为 CI/release/pre-commit 门禁；`modernize.yml` 定期把新的可修复项以 PR 形式送回。
+- `make install-hooks` 安装 git pre-commit hook，提交前本地先跑门禁（vet + lint + fix-check + arch + taste + docs 的快速子集；race 测试与覆盖率留给 CI/push）。

@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -190,8 +189,7 @@ func TestE2E_ModbusToHTTPPush(t *testing.T) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("engine Start: %v", err)
@@ -321,8 +319,7 @@ func TestE2E_ModbusWithTransform(t *testing.T) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("engine Start: %v", err)
@@ -411,8 +408,7 @@ func TestE2E_ModbusWithAlert(t *testing.T) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("engine Start: %v", err)
@@ -495,8 +491,7 @@ func TestE2E_ModbusWithDropRule(t *testing.T) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("engine Start: %v", err)
@@ -549,8 +544,7 @@ func TestE2E_WriteCommandToModbus(t *testing.T) {
 		Transports: []core.TransportConfig{},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("engine Start: %v", err)
@@ -645,8 +639,7 @@ func TestE2E_EngineReload(t *testing.T) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg1); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -742,8 +735,7 @@ func TestE2E_TriggerGatedCollection(t *testing.T) {
 		}},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("engine Start: %v", err)
 	}

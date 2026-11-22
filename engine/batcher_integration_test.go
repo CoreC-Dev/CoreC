@@ -83,13 +83,12 @@ func TestBatcherPublishFlush(t *testing.T) {
 		t.Fatal("expected non-nil batcher")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	b.start(ctx)
 	defer b.stop()
 
 	// Send 3 points — should trigger a flush.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		_ = b.publish(ctx, core.DataPoint{
 			Driver: "plc", Tag: "t", Value: float64(i), Timestamp: time.Now(),
 		})
@@ -124,8 +123,7 @@ func TestBatcherFlushInterval(t *testing.T) {
 		t.Fatal("expected non-nil batcher")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	b.start(ctx)
 	defer b.stop()
 
@@ -152,8 +150,7 @@ func TestBatcherRetryThenSucceed(t *testing.T) {
 	}
 	b := newTransportBatcher(tr, cfg, nil, nil, nil, nil, time.Second)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	b.start(ctx)
 	defer b.stop()
 
@@ -192,12 +189,11 @@ func TestBatcherRetryExhaustedBuffersToOffline(t *testing.T) {
 	}
 	b := newTransportBatcher(tr, cfg, ob, nil, nil, nil, time.Second)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	b.start(ctx)
 	defer b.stop()
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		_ = b.publish(ctx, core.DataPoint{
 			Driver: "plc", Tag: "t", Value: float64(i), Timestamp: time.Now(),
 		})
@@ -243,8 +239,7 @@ func TestBatcherDrainReplaysOfflineBuffer(t *testing.T) {
 	}
 	b := newTransportBatcher(tr, cfg, ob, nil, nil, nil, time.Second)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	b.start(ctx)
 	defer b.stop()
 
@@ -277,8 +272,7 @@ func TestBatcherFlushFinalPublishesRemaining(t *testing.T) {
 	}
 	b := newTransportBatcher(tr, cfg, nil, nil, nil, nil, time.Second)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	b.start(ctx)
 
 	// Publish a point that stays in the buffer (no flush triggered).
@@ -352,7 +346,7 @@ func TestBatcherOfflineBufferPendingWithBuffer(t *testing.T) {
 
 	// Pre-populate the buffer outside the batcher.
 	points := []core.DataPoint{{Driver: "plc", Tag: "t", Value: 1.0, Timestamp: time.Now()}}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if err := ob.Push(points, "test"); err != nil {
 			t.Fatalf("Push %d: %v", i, err)
 		}
@@ -397,14 +391,13 @@ func TestBatcherOfflineBufferPushedIncremented(t *testing.T) {
 	}
 	b := newTransportBatcher(tr, cfg, ob, nil, nil, nil, time.Second)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	b.start(ctx)
 	defer b.stop()
 
 	// Publish 2 points; each fills the size-1 batch, fails all retries,
 	// and is pushed to the offline buffer.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		_ = b.publish(ctx, core.DataPoint{
 			Driver: "plc", Tag: "t", Value: float64(i), Timestamp: time.Now(),
 		})
@@ -440,7 +433,7 @@ func TestEngineOfflineBufferStats(t *testing.T) {
 
 	// Put 2 batches on disk so pending is non-zero.
 	points := []core.DataPoint{{Driver: "plc", Tag: "t", Value: 1.0, Timestamp: time.Now()}}
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if err := ob.Push(points, "test"); err != nil {
 			t.Fatalf("Push %d: %v", i, err)
 		}
@@ -554,15 +547,14 @@ func TestBatcherPublishAsyncNonBlocking(t *testing.T) {
 		t.Fatal("expected non-nil batcher")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	b.start(ctx)
 	defer b.stop()
 
 	// Two publishes with a slow PublishBatch. Each fills the size-1 batch.
 	// If publish() blocked on PublishBatch this loop would take >= 300ms.
 	start := time.Now()
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		_ = b.publish(ctx, core.DataPoint{
 			Driver: "plc", Tag: "t", Value: float64(i), Timestamp: time.Now(),
 		})
@@ -598,13 +590,12 @@ func TestBatcherOnPublishCallback(t *testing.T) {
 		t.Fatal("expected non-nil batcher")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	b.start(ctx)
 	defer b.stop()
 
 	// Send 3 points — should trigger a flush of a 3-point batch.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		_ = b.publish(ctx, core.DataPoint{
 			Driver: "plc", Tag: "t", Value: float64(i), Timestamp: time.Now(),
 		})
@@ -647,8 +638,7 @@ func TestBatcherOnPublishCallbackDrain(t *testing.T) {
 		publishedCount.Add(int64(n))
 	}, time.Second)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	b.start(ctx)
 	defer b.stop()
 
@@ -678,15 +668,14 @@ func TestBatcherPublishDropsWhenFlushQueueFull(t *testing.T) {
 		t.Fatal("expected non-nil batcher")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	b.start(ctx)
 	defer b.stop()
 
 	// defaultFlushBatchQueueSize is 64. The first batch is consumed by
 	// flushLoop (which blocks on it). The next 64 enqueues fill the queue.
 	// The 65th+ trigger eviction (flushBatchesDropped increments).
-	for i := 0; i < defaultFlushBatchQueueSize+10; i++ {
+	for i := range defaultFlushBatchQueueSize + 10 {
 		_ = b.publish(ctx, core.DataPoint{
 			Driver: "plc", Tag: "t", Value: float64(i), Timestamp: time.Now(),
 		})

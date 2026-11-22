@@ -115,7 +115,7 @@ func TestSnapshotIsACopy(t *testing.T) {
 
 func TestSnapshotAccumulatesAcrossObservations(t *testing.T) {
 	h := NewLatencyHistogram(testBuckets())
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		h.Observe(time.Millisecond)
 	}
 	_, counts, _, count := h.Snapshot()
@@ -142,11 +142,11 @@ func TestObserveConcurrent(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
 	start := make(chan struct{})
-	for g := 0; g < goroutines; g++ {
+	for range goroutines {
 		go func() {
 			defer wg.Done()
 			<-start
-			for i := 0; i < perGoroutine; i++ {
+			for range perGoroutine {
 				h.Observe(time.Microsecond)
 			}
 		}()

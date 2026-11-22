@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+	"slices"
 
 	"github.com/CoreC-Dev/CoreC/core"
 )
@@ -40,9 +41,9 @@ func (a *diffActions) rollback(oldCfg *core.Config) {
 			slog.Warn("config reload failed: removed transport added by failed reload", "name", name)
 		}
 	}
-	for i := len(a.removedTransports) - 1; i >= 0; i-- {
-		cfg := a.removedTransports[i]
-		if err := engine.AddTransport(cfg); err != nil {
+	for i := range slices.Backward(a.removedTransports) {
+		cfg := &a.removedTransports[i]
+		if err := engine.AddTransport(*cfg); err != nil {
 			slog.Error("config reload rollback: failed to restore transport",
 				"name", cfg.Name, "error", err)
 		} else {
@@ -57,9 +58,9 @@ func (a *diffActions) rollback(oldCfg *core.Config) {
 			slog.Warn("config reload failed: removed driver added by failed reload", "name", name)
 		}
 	}
-	for i := len(a.removedDrivers) - 1; i >= 0; i-- {
-		cfg := a.removedDrivers[i]
-		if err := engine.AddDriver(cfg); err != nil {
+	for i := range slices.Backward(a.removedDrivers) {
+		cfg := &a.removedDrivers[i]
+		if err := engine.AddDriver(*cfg); err != nil {
 			slog.Error("config reload rollback: failed to restore driver",
 				"name", cfg.Name, "error", err)
 		} else {

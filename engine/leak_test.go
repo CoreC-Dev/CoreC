@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -45,8 +44,7 @@ func TestTagFileReloadNoGoroutineLeak(t *testing.T) {
 		Transports: []core.TransportConfig{{Name: "t1", Type: "mock-data"}},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -60,7 +58,7 @@ func TestTagFileReloadNoGoroutineLeak(t *testing.T) {
 	baseGoroutines := runtime.NumGoroutine()
 
 	// Trigger many reloads by rewriting the file with a changing tag count.
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		content := "- name: temperature\n  address: \"40001\"\n  type: float32\n  interval: 100ms\n"
 		for j := 0; j <= i; j++ {
 			content += "- name: extra" + itoa(j) + "\n  address: \"40" + itoa2(j) + "0\"\n  type: float32\n  interval: 100ms\n"

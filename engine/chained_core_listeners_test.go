@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"context"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -45,8 +44,7 @@ func TestChainedCore_NoDuplicateListeners(t *testing.T) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	eng := New()
 	if err := eng.Start(ctx, cfg); err != nil {
@@ -65,18 +63,18 @@ func TestChainedCore_NoDuplicateListeners(t *testing.T) {
 	ct.dataCh <- upstreamPoint
 
 	// Count how many points are published within a short window: exactly one.
-	var count int32
+	var count atomic.Int32
 	timeout := time.After(500 * time.Millisecond)
 	for {
 		select {
 		case <-ct.publish:
-			atomic.AddInt32(&count, 1)
+			count.Add(1)
 		case <-timeout:
 			goto done
 		}
 	}
 done:
-	if c := atomic.LoadInt32(&count); c != 1 {
+	if c := count.Load(); c != 1 {
 		t.Errorf("expected exactly 1 published point (no duplicate), got %d", c)
 	}
 }
@@ -94,7 +92,7 @@ func TestDataBus_PushNeverBlocks(t *testing.T) {
 	// If Push could block, this would deadlock or time out.
 	done := make(chan struct{})
 	go func() {
-		for i := 0; i < 100; i++ {
+		for i := range 100 {
 			bus.Push(core.DataPoint{
 				Driver:    "d",
 				Tag:       "concurrent",

@@ -192,7 +192,7 @@ func TestHandleCommandMessageSecretCorrectSignature(t *testing.T) {
 	// loop is bounded and the assertion below is correct in both cases.
 	var final []byte
 	sig := ""
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		fields["signature"] = sig
 		final, _ = json.Marshal(fields)
 		sig = computeHMACSignature(secret, final)
@@ -299,7 +299,7 @@ func TestMQTTCommandDeadLetterBound(t *testing.T) {
 	// Fill the slot, then overflow 5 times with distinct timestamps so
 	// replay protection does not short-circuit before the ingress overflow.
 	mtr.handleCommandMessage("commands/opc/set", buildSignedCommand("secret", base, true))
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		mtr.handleCommandMessage("commands/opc/set", buildSignedCommand("secret", base+int64(i+1), true))
 	}
 

@@ -34,7 +34,7 @@ func TestAuditStoreRotatesToOldAndReplaces(t *testing.T) {
 	// ~45 bytes a line; 200 lines is well past the cap, so rotation happens more
 	// than once -- which is what proves the second rotation REPLACES the first
 	// generation instead of piling another one beside it.
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		st.append(map[string]string{"i": strconv.Itoa(i), "pad": "xxxxxxxxxxxxxxxxxxxxx"})
 	}
 
@@ -79,7 +79,7 @@ func TestAuditStoreReplaysNewestOnRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		st.append(map[string]string{"i": strconv.Itoa(i)})
 	}
 	st.close()

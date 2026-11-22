@@ -24,7 +24,7 @@ func (r *batcherRetryPolicy) publishWithRetryAndBuffer(ctx context.Context, batc
 	pending := batch
 	delivered := 0
 
-	for attempt := 0; attempt < maxAttempts; attempt++ {
+	for attempt := range maxAttempts {
 		// Observe data age for each point at the moment of every publish
 		// attempt, including batching, queuing, and retry backoff.
 		if b.dataAge != nil {
@@ -113,10 +113,7 @@ func shrinkToFailed(pending []core.DataPoint, err error) (next []core.DataPoint,
 // retryDelay returns the exponential backoff for a zero-based attempt,
 // capped at defaultRetryMaxDelay.
 func retryDelay(attempt int) time.Duration {
-	delay := defaultRetryBaseDelay * time.Duration(1<<attempt)
-	if delay > defaultRetryMaxDelay {
-		delay = defaultRetryMaxDelay
-	}
+	delay := min(defaultRetryBaseDelay*time.Duration(1<<attempt), defaultRetryMaxDelay)
 	return delay
 }
 

@@ -40,6 +40,9 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Modernization gate (go fix fixpoint)
+        run: make fix-check
+
       - name: Validate GitHub workflow files (actionlint)
         run: |
           go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12

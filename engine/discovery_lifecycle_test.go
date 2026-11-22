@@ -67,7 +67,7 @@ func (c *discMockClient) Disconnect(quiesce uint) {
 	c.connected = false
 	c.mu.Unlock()
 }
-func (c *discMockClient) Publish(topic string, qos byte, retained bool, payload interface{}) pahomqtt.Token {
+func (c *discMockClient) Publish(topic string, qos byte, retained bool, payload any) pahomqtt.Token {
 	c.mu.Lock()
 	c.publishes = append(c.publishes, discPublish{topic: topic, payload: payload.([]byte)})
 	c.mu.Unlock()

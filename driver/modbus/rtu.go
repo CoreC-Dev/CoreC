@@ -25,10 +25,8 @@ type ModbusRTUDriver struct {
 // NewModbusRTUDriver creates a new Modbus RTU driver from configuration.
 func NewModbusRTUDriver(config core.DriverConfig) (core.Driver, error) {
 	d := &ModbusRTUDriver{
-		modbusBase: modbusBase{
-			tags:  make(map[string]core.TagConfig),
-			addrs: make(map[string]addrInfo),
-		},
+		tags:  make(map[string]core.TagConfig),
+		addrs: make(map[string]addrInfo),
 	}
 	d.SetInitFunc(d.Init)
 	d.SetConnectFunc(d.connect)

@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"context"
 	"os"
 	"testing"
 
@@ -28,8 +27,7 @@ func TestRemoveTransportCleansBatcher(t *testing.T) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -71,8 +69,7 @@ func TestRemoveDriverCleansSchedulerTasks(t *testing.T) {
 		Transports: []core.TransportConfig{{Name: "t1", Type: "mock-data"}},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -130,8 +127,7 @@ func TestReloadClosesRuleProviders(t *testing.T) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg1); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -184,8 +180,7 @@ func TestDiffTransportsModifyCleansBatcher(t *testing.T) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg1); err != nil {
 		t.Fatalf("Start failed: %v", err)

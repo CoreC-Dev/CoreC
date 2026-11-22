@@ -1,7 +1,7 @@
 # 门禁清单（Gates）
 
 > 每项门禁：检查名 · 触发时机 · 失败含义 · 修复指引 · 本地复现命令。
-> G1–G8、G11 可通过 `make gates` 一条命令本地复现；G9（版本一致性）与 G10（交叉编译矩阵）在 CI 中触发（见 `docs/CI.md`）。
+> G1–G8、G11–G12 可通过 `make gates` 一条命令本地复现；G9（版本一致性）与 G10（交叉编译矩阵）在 CI 中触发（见 `docs/CI.md`）。
 > 注：G11 在命令行上带 `--skip-if-missing`；CI 会 clone Dashboard 并设 `COREC_DASHBOARD_DIR` 强制比对，仅当同级 `CoreC-Dashboard` 检出不存在且未显式指定目录时**跳过并打印 ⏭️**，而不是静默通过；指定了却读不到文件，一律 exit 2 失败。
 
 ## 门禁总览
@@ -19,6 +19,7 @@
 | G9 | 版本一致性 | tag == ldflags 注入点 | CI (tag push) | 见下方 |
 | G10 | 交叉编译 | linux/darwin/windows × amd64/arm64(+armv7) | CI (push/PR) | 见下方 |
 | G11 | 工具面一致性 | Dashboard AI 助手的工具名与读写分类与本仓 `corec-mcp` 一致 | CI / pre-commit | `make parity` |
+| G12 | 代码现代化 | 工作树是 `go fix` 不动点（无可再应用的现代化修复） | CI / release / pre-commit | `make fix-check` |
 
 ## 各门禁详情
 
@@ -118,3 +119,9 @@ func TestSomething(t *testing.T) {
   - `uiOnly` 当前为空。
 - 两边都独有、或读写分类冲突的，一律失败，**不自动豁免**。
 - **何时可跳过**：仅当同级 `CoreC-Dashboard` 检出不存在。`make parity` 已带 `--skip-if-missing`，跳过时输出 `⏭️` 并说明原因，不会伪装成通过。手动跑脚本不加该 flag 时，缺输入退出码为 `2`（与"发现漂移"的 `1` 区分），这样"我看不到"不会被误读成"它没问题"。
+
+## G12: 代码现代化（go fix 不动点）
+- **失败含义**：`go fix -diff ./...` 仍有可应用的修复——代码落后于当前 Go 工具链的现代化写法（如 `maps.Copy`、`slices.Sort`、`strings.Cut`、`min/max`、`wg.Go`、`for range n`、`t.Context()` 等）
+- **触发**：`ci.yml` test job、`release.yml` test job、`make gates`、pre-commit hook；另有 `modernize.yml` 每周定期应用新的可修复项并开 PR（见 `docs/CI.md`）
+- **修复指引**：运行 `make fix`（把 `go fix ./...` 应用到不动点并 gofmt——单轮产物可能触发下一轮修复），审查 diff 后随代码一并提交；若 fix 产物触发更严格的 lint 规则（gocritic/staticcheck），按 lint 指引调整写法但保留现代化语义
+- **豁免**：无（行为变更类修复由工具自行拒绝，如 omitzero 替代 omitempty）

@@ -20,10 +20,8 @@ type ModbusTCPDriver struct {
 // NewModbusTCPDriver creates a new Modbus TCP driver from configuration.
 func NewModbusTCPDriver(config core.DriverConfig) (core.Driver, error) {
 	d := &ModbusTCPDriver{
-		modbusBase: modbusBase{
-			tags:  make(map[string]core.TagConfig),
-			addrs: make(map[string]addrInfo),
-		},
+		tags:  make(map[string]core.TagConfig),
+		addrs: make(map[string]addrInfo),
 	}
 	d.SetInitFunc(d.Init)
 	d.SetConnectFunc(d.connect)

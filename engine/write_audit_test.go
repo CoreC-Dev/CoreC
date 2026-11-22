@@ -113,7 +113,7 @@ func TestWriteHistoryNewestFirstAndRingEviction(t *testing.T) {
 	e.driverReg.drivers["plc"] = newRecordingDriver("plc")
 
 	const total = writeAuditCapacity + 5
-	for i := 0; i < total; i++ {
+	for i := range total {
 		cmd := core.WriteCommand{Driver: "plc", Tag: fmt.Sprintf("tag-%d", i), Value: i}
 		if _, err := e.WriteTag(context.Background(), cmd); err != nil {
 			t.Fatalf("WriteTag %d failed: %v", i, err)

@@ -13,9 +13,9 @@ func TestReconnectLoopWithBreaker(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		var calls int32
+		var calls atomic.Int32
 		connectFn := func() error {
-			atomic.AddInt32(&calls, 1)
+			calls.Add(1)
 			return nil // success
 		}
 
@@ -26,7 +26,7 @@ func TestReconnectLoopWithBreaker(t *testing.T) {
 		cancel()
 		time.Sleep(100 * time.Millisecond)
 
-		if got := atomic.LoadInt32(&calls); got != 1 {
+		if got := calls.Load(); got != 1 {
 			t.Errorf("calls = %d, want 1", got)
 		}
 	})
@@ -35,9 +35,9 @@ func TestReconnectLoopWithBreaker(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		var calls int32
+		var calls atomic.Int32
 		connectFn := func() error {
-			n := atomic.AddInt32(&calls, 1)
+			n := calls.Add(1)
 			if n < 3 {
 				return errors.New("connection refused")
 			}
@@ -51,18 +51,17 @@ func TestReconnectLoopWithBreaker(t *testing.T) {
 		cancel()
 		time.Sleep(100 * time.Millisecond)
 
-		if got := atomic.LoadInt32(&calls); got < 3 {
+		if got := calls.Load(); got < 3 {
 			t.Errorf("calls = %d, want >= 3", got)
 		}
 	})
 
 	t.Run("circuit breaker stops retrying", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
-		var calls int32
+		var calls atomic.Int32
 		connectFn := func() error {
-			atomic.AddInt32(&calls, 1)
+			calls.Add(1)
 			return errors.New("always fails")
 		}
 
@@ -71,11 +70,11 @@ func TestReconnectLoopWithBreaker(t *testing.T) {
 
 		// Wait for circuit breaker to trip
 		time.Sleep(300 * time.Millisecond)
-		callsAtBreaker := atomic.LoadInt32(&calls)
+		callsAtBreaker := calls.Load()
 
 		// Wait a bit more — no more calls should happen
 		time.Sleep(200 * time.Millisecond)
-		callsAfter := atomic.LoadInt32(&calls)
+		callsAfter := calls.Load()
 
 		if callsAtBreaker < 3 {
 			t.Errorf("callsAtBreaker = %d, want >= 3", callsAtBreaker)
@@ -88,9 +87,9 @@ func TestReconnectLoopWithBreaker(t *testing.T) {
 	t.Run("respects context cancellation", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 
-		var calls int32
+		var calls atomic.Int32
 		connectFn := func() error {
-			atomic.AddInt32(&calls, 1)
+			calls.Add(1)
 			return errors.New("fail")
 		}
 
@@ -100,9 +99,9 @@ func TestReconnectLoopWithBreaker(t *testing.T) {
 		cancel()
 		time.Sleep(200 * time.Millisecond)
 
-		callsBeforeCancel := atomic.LoadInt32(&calls)
+		callsBeforeCancel := calls.Load()
 		time.Sleep(200 * time.Millisecond)
-		callsAfterCancel := atomic.LoadInt32(&calls)
+		callsAfterCancel := calls.Load()
 
 		// After cancel, calls should not keep growing
 		if callsAfterCancel > callsBeforeCancel+1 {
@@ -115,9 +114,9 @@ func TestReconnectLoopDelegatesToBreaker(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var calls int32
+	var calls atomic.Int32
 	connectFn := func() error {
-		n := atomic.AddInt32(&calls, 1)
+		n := calls.Add(1)
 		if n < 2 {
 			return errors.New("fail")
 		}
@@ -130,7 +129,7 @@ func TestReconnectLoopDelegatesToBreaker(t *testing.T) {
 	cancel()
 	time.Sleep(100 * time.Millisecond)
 
-	if got := atomic.LoadInt32(&calls); got < 2 {
+	if got := calls.Load(); got < 2 {
 		t.Errorf("calls = %d, want >= 2", got)
 	}
 }

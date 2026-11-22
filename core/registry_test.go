@@ -1,6 +1,7 @@
 package core
 
 import (
+	"slices"
 	"testing"
 )
 
@@ -14,13 +15,7 @@ func TestRegisterAndCreateDriver(t *testing.T) {
 	}
 	RegisterDriver(typeName, factory)
 
-	found := false
-	for _, name := range RegisteredDrivers() {
-		if name == typeName {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(RegisteredDrivers(), typeName)
 	if !found {
 		t.Fatalf("driver type %q not found in RegisteredDrivers()", typeName)
 	}
@@ -48,13 +43,7 @@ func TestRegisterAndCreateTransport(t *testing.T) {
 	}
 	RegisterTransport(typeName, factory)
 
-	found := false
-	for _, name := range RegisteredTransports() {
-		if name == typeName {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(RegisteredTransports(), typeName)
 	if !found {
 		t.Fatalf("transport type %q not found in RegisteredTransports()", typeName)
 	}

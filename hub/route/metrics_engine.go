@@ -140,11 +140,11 @@ func writeDriverEmittedMetrics(b *strings.Builder) {
 			labelKeys = append(labelKeys, k)
 		}
 		sort.Strings(labelKeys)
-		labelStr := ""
+		var labelStr strings.Builder
 		for _, k := range labelKeys {
-			labelStr += fmt.Sprintf("%s=%q,", k, promEscape(m.Labels[k]))
+			fmt.Fprintf(&labelStr, "%s=%q,", k, promEscape(m.Labels[k]))
 		}
-		fmt.Fprintf(b, "%s{%s} %g\n", m.Name, strings.TrimSuffix(labelStr, ","), m.Value)
+		fmt.Fprintf(b, "%s{%s} %g\n", m.Name, strings.TrimSuffix(labelStr.String(), ","), m.Value)
 	}
 }
 
@@ -234,20 +234,20 @@ func writeLatencyHistogram(b *strings.Builder, name, help string, labels map[str
 	// them. sum/count lines use the comma-trimmed form, and render
 	// brace-less when there are no labels (identical to the
 	// pre-labeled exposition format).
-	labelPrefix := ""
+	var labelPrefix strings.Builder
 	for k, v := range labels {
-		labelPrefix += fmt.Sprintf("%s=%q,", k, promEscape(v))
+		fmt.Fprintf(&labelPrefix, "%s=%q,", k, promEscape(v))
 	}
-	suffix := strings.TrimSuffix(labelPrefix, ",")
+	suffix := strings.TrimSuffix(labelPrefix.String(), ",")
 	for i, ub := range snap.Buckets {
 		var le string
 		if i < len(snap.Counts) {
 			le = strconv.FormatFloat(ub, 'f', -1, 64)
-			fmt.Fprintf(b, "%s_bucket{%sle=%q} %d\n", name, labelPrefix, le, snap.Counts[i])
+			fmt.Fprintf(b, "%s_bucket{%sle=%q} %d\n", name, labelPrefix.String(), le, snap.Counts[i])
 		}
 	}
 	// +Inf bucket = total count
-	fmt.Fprintf(b, "%s_bucket{%sle=\"+Inf\"} %d\n", name, labelPrefix, snap.Count)
+	fmt.Fprintf(b, "%s_bucket{%sle=\"+Inf\"} %d\n", name, labelPrefix.String(), snap.Count)
 	if suffix != "" {
 		fmt.Fprintf(b, "%s_sum{%s} %g\n", name, suffix, snap.Sum)
 		fmt.Fprintf(b, "%s_count{%s} %d\n", name, suffix, snap.Count)

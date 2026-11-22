@@ -371,7 +371,7 @@ func TestDerivedQualifiedRefs(t *testing.T) {
 	byTag := make(map[string]core.DataPoint)
 	ev.evaluate(ev.tags[0]) // spread
 	ev.evaluate(ev.tags[1]) // legacy
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		select {
 		case dp := <-bus.Channel():
 			byTag[dp.Tag] = dp

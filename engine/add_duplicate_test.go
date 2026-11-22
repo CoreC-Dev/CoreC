@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -17,8 +16,7 @@ func TestAddDriverDuplicateName(t *testing.T) {
 	registerMockTypes()
 
 	eng := New()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	cfg := &core.Config{
 		Drivers: []core.DriverConfig{
@@ -65,8 +63,7 @@ func TestAddTransportDuplicateName(t *testing.T) {
 	registerMockTypes()
 
 	eng := New()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	cfg := &core.Config{
 		Drivers: []core.DriverConfig{

@@ -415,7 +415,7 @@ func TestMQTTOnCommandChannelThorough(t *testing.T) {
 
 	// The channel must accept up to its capacity without blocking, then reject
 	// the next non-blocking send (verifying it is genuinely bounded).
-	for i := 0; i < core.DefaultCommandBufferSize; i++ {
+	for i := range core.DefaultCommandBufferSize {
 		select {
 		case mtr.commandCh <- core.WriteCommand{Tag: "t"}:
 		default:

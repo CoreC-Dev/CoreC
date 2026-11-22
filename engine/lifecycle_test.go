@@ -146,8 +146,7 @@ func TestEngineSuspendResume(t *testing.T) {
 		Rules:      []core.RuleConfig{{Name: "fwd", Match: "ALL", Action: "forward", Target: "t1"}},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -186,8 +185,7 @@ func TestEngineRemoveDriver(t *testing.T) {
 		Transports: []core.TransportConfig{{Name: "t1", Type: "mock-data"}},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -228,8 +226,7 @@ func TestEngineRemoveTransport(t *testing.T) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -264,8 +261,7 @@ func TestEngineListDriversTransports(t *testing.T) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -294,8 +290,7 @@ func TestEngineSubscribe(t *testing.T) {
 		Transports: []core.TransportConfig{{Name: "t1", Type: "mock-data"}},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -341,8 +336,7 @@ func TestEngineOnAlert(t *testing.T) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -378,8 +372,7 @@ func TestEngineRuleDrop(t *testing.T) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -433,8 +426,7 @@ func TestEngineRuleTransform(t *testing.T) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -470,8 +462,7 @@ func TestEngineCommandFlow(t *testing.T) {
 		Transports: []core.TransportConfig{{Name: "t1", Type: "mock-data"}},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -517,8 +508,7 @@ func TestEngineDataListenerFlow(t *testing.T) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -549,8 +539,7 @@ func TestEngineDataListenerFlow(t *testing.T) {
 
 func TestEngineReadTagNotFound(t *testing.T) {
 	eng := New()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	cfg := &core.Config{
 		Drivers: []core.DriverConfig{
@@ -572,8 +561,7 @@ func TestEngineReadTagNotFound(t *testing.T) {
 
 func TestEngineWriteTagNotFound(t *testing.T) {
 	eng := New()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	cfg := &core.Config{
 		Drivers: []core.DriverConfig{
@@ -605,8 +593,7 @@ func TestEngineLatestValues(t *testing.T) {
 		Rules:      []core.RuleConfig{{Name: "fwd", Match: "ALL", Action: "forward", Target: "t1"}},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -641,8 +628,7 @@ func TestEngineStats(t *testing.T) {
 		Rules:      []core.RuleConfig{{Name: "fwd", Match: "ALL", Action: "forward", Target: "t1"}},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -687,8 +673,7 @@ func TestEngineRuleStats(t *testing.T) {
 		Rules:      []core.RuleConfig{{Name: "fwd", Match: "ALL", Action: "forward", Target: "t1"}},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -723,8 +708,7 @@ func TestEngineSetRuleDisabled(t *testing.T) {
 		Rules:      []core.RuleConfig{{Name: "fwd", Match: "ALL", Action: "forward", Target: "t1"}},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -760,8 +744,7 @@ func TestEngineReload(t *testing.T) {
 		Transports: []core.TransportConfig{{Name: "t1", Type: "mock-data"}},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg1); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -791,8 +774,7 @@ func TestEngineReload(t *testing.T) {
 
 func TestEngineEmptyConfig(t *testing.T) {
 	eng := New()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// Engine with no drivers, no transports, no rules — relay mode with no inbound.
 	// This should fail validation or start successfully with no work to do.
@@ -823,8 +805,7 @@ func TestEngineDoubleStop(t *testing.T) {
 		Transports: []core.TransportConfig{{Name: "t1", Type: "mock-data"}},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("Start failed: %v", err)

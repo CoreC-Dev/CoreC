@@ -158,13 +158,11 @@ func TestWriteFlushBatchesDroppedAbsentWhenNotProvider(t *testing.T) {
 // correct values when the engine satisfies the optional role interfaces.
 func TestPromMetricsOfflineBuffer(t *testing.T) {
 	eng := &mockOfflineBufferEngine{
-		mockEngineV2: mockEngineV2{
-			stats: core.EngineStats{
-				TotalRead:    100,
-				TotalPublish: 90,
-				Drivers:      1,
-				Transports:   1,
-			},
+		stats: core.EngineStats{
+			TotalRead:    100,
+			TotalPublish: 90,
+			Drivers:      1,
+			Transports:   1,
 		},
 		pending:      5,
 		drained:      20,

@@ -78,15 +78,14 @@ func TestBatcherCrossBatchOrderingUnderBacklog(t *testing.T) {
 		t.Fatal("expected non-nil batcher")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	b.start(ctx)
 	defer b.stop()
 
 	// Points 0-5 form two full batches that queue up behind the
 	// in-flight publish; points 6-7 form a partial batch in the buffer
 	// that only the periodic flush can send.
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		if err := b.publish(ctx, core.DataPoint{Driver: "plc", Tag: "t", Value: float64(i), Timestamp: time.Now()}); err != nil {
 			t.Fatalf("publish %d: %v", i, err)
 		}

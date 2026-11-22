@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"context"
 	"sync"
 	"testing"
 	"time"
@@ -23,8 +22,7 @@ func TestReloadConcurrentWithQueries(t *testing.T) {
 		Transports: []core.TransportConfig{{Name: "t1", Type: "mock-data"}},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg1); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -41,31 +39,27 @@ func TestReloadConcurrentWithQueries(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Reload goroutine.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 10; i++ {
+	wg.Go(func() {
+		for i := range 10 {
 			cfg := cfg1
 			if i%2 == 1 {
 				cfg = cfg2
 			}
 			_ = eng.Reload(cfg)
 		}
-	}()
+	})
 
 	// Query goroutines.
-	for q := 0; q < 4; q++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < 100; i++ {
+	for range 4 {
+		wg.Go(func() {
+			for range 100 {
 				_ = eng.ListDrivers()
 				_ = eng.ListTransports()
 				_ = eng.Stats()
 				_, _ = eng.GetDriver("d1")
 				_, _ = eng.GetDriver("d2")
 			}
-		}()
+		})
 	}
 
 	done := make(chan struct{})

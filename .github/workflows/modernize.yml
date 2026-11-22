@@ -1,0 +1,73 @@
+# Scheduled code modernization — apply go fix to fixpoint and open a PR
+# when anything changes. The PR runs the normal ci.yml gates.
+name: Modernize
+
+on:
+  schedule:
+    - cron: '30 2 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: modernize
+  cancel-in-progress: false
+
+jobs:
+  modernize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Apply go fix to fixpoint
+        run: make fix
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if [ -z "$(git status --porcelain --untracked-files=all)" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "✅ Already a go fix fixpoint — nothing to modernize."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git status --porcelain --untracked-files=all
+            git diff --stat
+          fi
+
+      - name: Vet + tests + lint
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          go vet ./...
+          go test -race -short -timeout 120s ./...
+          make lint
+
+      - name: Open modernization pull request
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BRANCH="chore/go-fix-modernize"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git add -A
+          git commit -m "refactor: apply scheduled go fix modernization"
+          git push --force origin "$BRANCH"
+          if [ -z "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[].number')" ]; then
+            gh pr create --base main --head "$BRANCH" \
+              --title "refactor: scheduled go fix modernization" \
+              --body "Automated \`go fix ./...\` fixpoint pass from the Modernize workflow. Vet, race tests and pinned lint passed in-workflow; ci.yml runs the full gate set on this PR."
+          else
+            echo "Existing open PR for $BRANCH updated by force-push."
+          fi

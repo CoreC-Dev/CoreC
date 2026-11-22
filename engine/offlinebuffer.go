@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -108,7 +108,7 @@ func (ob *OfflineBuffer) scanSeqs() []uint64 {
 			seqs = append(seqs, seq)
 		}
 	}
-	sort.Slice(seqs, func(i, j int) bool { return seqs[i] < seqs[j] })
+	slices.Sort(seqs)
 	return seqs
 }
 

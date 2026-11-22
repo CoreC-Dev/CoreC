@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -269,10 +270,7 @@ func (t *HTTPTransport) PublishBatch(ctx context.Context, points []core.DataPoin
 		t.failed.Add(uint64(len(points)))
 		return fmt.Errorf("http transport %s is not connected", t.name)
 	}
-	retryCount := snap.retryCount
-	if retryCount < 0 {
-		retryCount = 0
-	}
+	retryCount := max(snap.retryCount, 0)
 
 	payload, err := json.Marshal(points)
 	if err != nil {
@@ -288,7 +286,7 @@ func (t *HTTPTransport) PublishBatch(ctx context.Context, points []core.DataPoin
 	var lastErr error
 	backoff := 500 * time.Millisecond
 	maxAttempts := retryCount + 1
-	for attempt := 0; attempt < maxAttempts; attempt++ {
+	for attempt := range maxAttempts {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
@@ -351,9 +349,7 @@ func (t *HTTPTransport) snapshotForPublish() publishSnapshot {
 		return publishSnapshot{}
 	}
 	headers := make(map[string]string, len(t.headers))
-	for k, v := range t.headers {
-		headers[k] = v
-	}
+	maps.Copy(headers, t.headers)
 	return publishSnapshot{
 		client:     t.client,
 		url:        t.url,

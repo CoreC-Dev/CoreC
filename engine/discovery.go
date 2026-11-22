@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -287,9 +288,7 @@ func (d *Discovery) reconcile() {
 	d.regMu.RLock()
 	// Snapshot registry to avoid holding the lock while adding transports.
 	snapshot := make(map[string]*nodeInfo, len(d.registry))
-	for k, v := range d.registry {
-		snapshot[k] = v
-	}
+	maps.Copy(snapshot, d.registry)
 	d.regMu.RUnlock()
 
 	for _, upstreamID := range d.subscribe {
@@ -378,12 +377,12 @@ func sanitizeBroker(broker string) string {
 // "topo/edge-A/data/{{.Driver}}/{{.Tag}}" into a subscription wildcard
 // "topo/edge-A/data/#".
 func topicTemplateToSubscriptionPattern(topicTemplate string) string {
-	idx := strings.Index(topicTemplate, "{{")
-	if idx == -1 {
+	before, _, ok := strings.Cut(topicTemplate, "{{")
+	if !ok {
 		// No template variables — the whole thing is a static topic.
 		return strings.TrimSuffix(topicTemplate, "/") + "/#"
 	}
-	prefix := topicTemplate[:idx]
+	prefix := before
 	prefix = strings.TrimSuffix(prefix, "/")
 	if prefix == "" {
 		return "#"

@@ -55,7 +55,7 @@ func (t *benchTransport) Type() string                        { return "bench" }
 func (t *benchTransport) Status() core.TransportStatus        { return t.status }
 
 func runtimeYield() {
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		select {
 		case <-time.After(0):
 		default:
@@ -110,8 +110,7 @@ func BenchmarkChainedCore_Throughput(b *testing.B) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := b.Context()
 	eng := New()
 	if err := eng.Start(ctx, cfg); err != nil {
 		b.Fatalf("Start: %v", err)
@@ -157,8 +156,7 @@ func BenchmarkChainedCore_WithRuleMatching(b *testing.B) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := b.Context()
 	eng := New()
 	if err := eng.Start(ctx, cfg); err != nil {
 		b.Fatalf("Start: %v", err)
@@ -207,8 +205,7 @@ func BenchmarkChainedCore_MultipleSources(b *testing.B) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := b.Context()
 	eng := New()
 	if err := eng.Start(ctx, cfg); err != nil {
 		b.Fatalf("Start: %v", err)
@@ -223,7 +220,7 @@ func BenchmarkChainedCore_MultipleSources(b *testing.B) {
 	remainder := b.N % 3
 	done := make(chan struct{}, 3)
 	feed := func(tr *benchTransport, count int) {
-		for i := 0; i < count; i++ {
+		for range count {
 			dp.Timestamp = time.Now()
 			tr.dataCh <- dp
 		}
@@ -268,8 +265,7 @@ func BenchmarkChainedCore_Latency(b *testing.B) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := b.Context()
 	eng := New()
 	if err := eng.Start(ctx, cfg); err != nil {
 		b.Fatalf("Start: %v", err)
@@ -332,8 +328,7 @@ func BenchmarkChainedCore_ParserOverhead(b *testing.B) {
 			Transports: []core.TransportConfig{{Name: "bench", Type: transportType, Settings: map[string]any{}}},
 			Rules:      []core.RuleConfig{{Name: "f", Match: "ALL", Action: "forward", Target: "bench"}},
 		}
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := b.Context()
 		eng := New()
 		if err := eng.Start(ctx, cfg); err != nil {
 			b.Fatalf("Start: %v", err)
@@ -369,8 +364,7 @@ func BenchmarkChainedCore_ParserOverhead(b *testing.B) {
 			Transports: []core.TransportConfig{{Name: "bench", Type: transportType, Settings: map[string]any{}}},
 			Rules:      []core.RuleConfig{{Name: "f", Match: "ALL", Action: "forward", Target: "bench"}},
 		}
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := b.Context()
 		eng := New()
 		if err := eng.Start(ctx, cfg); err != nil {
 			b.Fatalf("Start: %v", err)

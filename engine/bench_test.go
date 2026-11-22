@@ -124,9 +124,9 @@ func runScaleTest(numDrivers, tagsPerDriver int, interval, duration time.Duratio
 	})
 
 	drivers := make([]core.DriverConfig, numDrivers)
-	for i := 0; i < numDrivers; i++ {
+	for i := range numDrivers {
 		tags := make([]core.TagConfig, tagsPerDriver)
-		for j := 0; j < tagsPerDriver; j++ {
+		for j := range tagsPerDriver {
 			tags[j] = core.TagConfig{
 				Name:     fmt.Sprintf("tag_%04d", j),
 				Address:  fmt.Sprintf("400%03d", j+1),
@@ -308,7 +308,7 @@ func BenchmarkDataBusBroadcast(b *testing.B) {
 
 	numSubs := 10
 	unsubs := make([]func(), numSubs)
-	for i := 0; i < numSubs; i++ {
+	for i := range numSubs {
 		ch, un := bus.Subscribe("")
 		unsubs[i] = un
 		go func(c <-chan core.DataPoint) {
@@ -336,7 +336,7 @@ func BenchmarkDataBusBroadcastManySubs(b *testing.B) {
 			defer bus.Close()
 
 			unsubs := make([]func(), numSubs)
-			for i := 0; i < numSubs; i++ {
+			for i := range numSubs {
 				ch, un := bus.Subscribe("")
 				unsubs[i] = un
 				go func(c <-chan core.DataPoint) {
@@ -392,7 +392,7 @@ func BenchmarkCacheUpdateConcurrent(b *testing.B) {
 
 func BenchmarkCacheGetByDriver(b *testing.B) {
 	cache := NewLatestCache()
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		cache.Update(core.DataPoint{
 			Driver:    "dev_0000",
 			Tag:       fmt.Sprintf("tag_%04d", i),
@@ -472,8 +472,8 @@ func BenchmarkProcessingPipeline(b *testing.B) {
 
 				points := make([]core.DataPoint, numDrivers*tagsPerDriver)
 				idx := 0
-				for d := 0; d < numDrivers; d++ {
-					for t := 0; t < tagsPerDriver; t++ {
+				for d := range numDrivers {
+					for t := range tagsPerDriver {
 						points[idx] = core.DataPoint{
 							Driver:    fmt.Sprintf("dev_%04d", d),
 							Tag:       fmt.Sprintf("tag_%04d", t),
@@ -521,12 +521,11 @@ func BenchmarkSchedulerManyTasks(b *testing.B) {
 				0, // default error-throttle window
 			)
 
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			ctx := b.Context()
 			sched.Start(ctx)
 			defer sched.Stop()
 
-			for i := 0; i < numTasks; i++ {
+			for i := range numTasks {
 				tags := make([]string, 10)
 				for j := range tags {
 					tags[j] = fmt.Sprintf("tag_%d", j)

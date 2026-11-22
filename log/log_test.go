@@ -166,7 +166,7 @@ func TestDropped(t *testing.T) {
 
 	// Generate enough log events to overflow the subscriber buffer (cap=128)
 	// and the source channel (cap=1024).
-	for i := 0; i < 2000; i++ {
+	for i := range 2000 {
 		Infoln("flood %d", i)
 	}
 

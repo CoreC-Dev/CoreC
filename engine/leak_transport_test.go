@@ -73,7 +73,7 @@ func TestRemoveTransportNoGoroutineLeak(t *testing.T) {
 	before := runtime.NumGoroutine()
 
 	// Add and remove a mqtt-like transport 10 times.
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		name := fmt.Sprintf("leak-test-%d", i)
 		if err := e.AddTransport(core.TransportConfig{
 			Name:     name,

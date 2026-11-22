@@ -96,8 +96,7 @@ func TestScheduler(t *testing.T) {
 		0, // default error-throttle window
 	)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := sched.Start(ctx); err != nil {
 		t.Fatalf("scheduler start failed: %v", err)
@@ -227,8 +226,7 @@ func TestEngineLifecycle(t *testing.T) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("Engine.Start failed: %v", err)
@@ -302,8 +300,7 @@ func TestGroupEnrichment(t *testing.T) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := eng.Start(ctx, cfg); err != nil {
 		t.Fatalf("Engine.Start failed: %v", err)

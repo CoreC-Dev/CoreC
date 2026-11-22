@@ -15,8 +15,7 @@ import (
 // the counter is incremented exactly once for a single, immediately
 // successful connect attempt.
 func TestReconnectLoopWithBreakerCounted_IncrementsOnSuccess(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	var calls atomic.Int32
 	var counter atomic.Uint64
@@ -39,8 +38,7 @@ func TestReconnectLoopWithBreakerCounted_IncrementsOnSuccess(t *testing.T) {
 // counter is incremented for every reconnect attempt, including failed
 // ones, and that the final (successful) attempt is also counted.
 func TestReconnectLoopWithBreakerCounted_IncrementsOnFailure(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	var calls atomic.Int32
 	var counter atomic.Uint64
@@ -68,8 +66,7 @@ func TestReconnectLoopWithBreakerCounted_IncrementsOnFailure(t *testing.T) {
 // nil counter disables counting without breaking the reconnect loop
 // (matching the behaviour of the plain ReconnectLoopWithBreaker wrapper).
 func TestReconnectLoopWithBreakerCounted_NilCounterNoPanic(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	var calls atomic.Int32
 	connect := func() error {
@@ -136,8 +133,7 @@ func TestReconnectLoopWithBreakerCounted_ContextCancelStops(t *testing.T) {
 // counter) and the counted variant with a nil counter behave the same
 // way: both connect exactly once on immediate success.
 func TestReconnectLoopWithBreakerCounted_WrapperEquivalence(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// Legacy wrapper.
 	calls1 := 0

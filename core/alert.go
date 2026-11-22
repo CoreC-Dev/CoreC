@@ -28,7 +28,7 @@ type Alert struct {
 	// until the alert clears (a full active-window without a re-fire);
 	// a re-fire does not reopen it.
 	Acked   bool      `json:"acked"`
-	AckedAt time.Time `json:"acked_at,omitempty"`
+	AckedAt time.Time `json:"acked_at"`
 }
 
 // AlertEventType classifies the lifecycle transitions published on the

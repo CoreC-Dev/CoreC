@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -18,8 +17,7 @@ func TestAddDriverConcurrentReplacement(t *testing.T) {
 	registerMockTypes()
 
 	eng := New()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	cfg := &core.Config{
 		Drivers: []core.DriverConfig{
@@ -40,11 +38,11 @@ func TestAddDriverConcurrentReplacement(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Writers: repeatedly replace the same driver.
-	for w := 0; w < numWriters; w++ {
+	for w := range numWriters {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for i := 0; i < iterations; i++ {
+			for i := range iterations {
 				_ = eng.AddDriver(core.DriverConfig{
 					Name: "concurrent",
 					Type: "mock-state",
@@ -55,25 +53,23 @@ func TestAddDriverConcurrentReplacement(t *testing.T) {
 	}
 
 	// Readers: repeatedly query the driver.
-	for r := 0; r < numReaders; r++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < iterations; i++ {
+	for range numReaders {
+		wg.Go(func() {
+			for range iterations {
 				if d, ok := eng.GetDriver("concurrent"); ok && d == nil {
 					t.Error("GetDriver returned ok=true with nil driver")
 				}
 				_ = eng.ListDrivers()
 			}
-		}()
+		})
 	}
 
 	// Also test concurrent RemoveDriver + AddDriver.
-	for w := 0; w < 2; w++ {
+	for w := range 2 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for i := 0; i < iterations; i++ {
+			for i := range iterations {
 				_ = eng.RemoveDriver("concurrent")
 				_ = eng.AddDriver(core.DriverConfig{
 					Name: "concurrent",
@@ -110,8 +106,7 @@ func TestAddTransportConcurrentReplacement(t *testing.T) {
 	registerMockTypes()
 
 	eng := New()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	cfg := &core.Config{
 		Drivers: []core.DriverConfig{
@@ -130,11 +125,11 @@ func TestAddTransportConcurrentReplacement(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	for w := 0; w < numWriters; w++ {
+	for w := range numWriters {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for i := 0; i < iterations; i++ {
+			for range iterations {
 				_ = eng.AddTransport(core.TransportConfig{
 					Name: "concurrent",
 					Type: "mock-data",
