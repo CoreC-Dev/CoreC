@@ -1,7 +1,7 @@
 #AOCI-ROOT-MANIFEST: 1
 #Format-Version: cognition-volumes/v1
 #Locale: en-US
-#Project: CoreC
-#Global-Invariants: -
+#Project: CoreC is a Go IIoT core: Modbus/OPC UA/S7 drivers feed an engine (scheduler, rules, alerts, offline buffer) publishing northbound via MQTT/HTTP/notify, with a REST/WS control plane.
+#Global-Invariants: Layered imports are default-deny, enforced by archtest: core/common depend on nothing internal, drivers/transports never cross-import, compile-time wiring lives only in cmd/corec; new plugins must be blank-imported via driver/all or transport/all. External input (YAML, MQTT commands, webhooks) is validated before entering the core; settings allowlists stay synced with parsed keys. Env expansion is tree-based; /configs masks secrets, /configs/raw is authenticated plaintext. The tree must stay a go fix fixpoint; git tag, main.version, and hub/route.Version must agree.
 #Volume: id=meta kind=meta path=aoci.meta.txt format=meta-v1 depends=- state=enabled
 #Volume: id=code kind=code path=aoci.code.txt format=object-fras-v2 depends=meta state=enabled
