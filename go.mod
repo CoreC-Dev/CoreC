@@ -8,7 +8,7 @@ require (
 	github.com/expr-lang/expr v1.17.8
 	github.com/go-chi/chi/v5 v5.5.0
 	github.com/goccy/go-yaml v1.19.2
-	github.com/gopcua/opcua v0.9.1
+	github.com/gopcua/opcua v0.9.2
 	github.com/robinson/gos7 v0.0.0-20260622162611-2d6806f80c8b
 	github.com/simonvetter/modbus v1.6.4
 	github.com/tidwall/gjson v1.20.3
